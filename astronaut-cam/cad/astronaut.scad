@@ -1,6 +1,6 @@
 // =====================================================================
-//  Astronaut Cam - printable astronaut with a Wi-Fi pan/tilt camera
-//  inside the helmet.
+//  Astronaut Cam - printable "galaxy projector" style astronaut
+//  with a Wi-Fi pan/tilt camera inside the helmet.
 //
 //  - Pan  : SG90 servo inside the torso turns the whole helmet (0-180 deg)
 //  - Tilt : SG90 servo inside the helmet nods the camera behind the visor
@@ -10,10 +10,10 @@
 //  Export a single part:  openscad -D 'part="torso"' -o torso.stl astronaut.scad
 // =====================================================================
 
-part = "assembly"; // [assembly, helmet_inside, legs, torso, deck, arm_left, arm_right, backpack, platform, helmet_front, helmet_back, cam_holder]
+part = "assembly"; // [assembly, helmet_inside, moon_base, legs, torso, deck, arm_left, arm_right, backpack, platform, helmet_front, helmet_back, cam_holder]
 
 pan_angle  = 20;   // assembly preview only
-tilt_angle = -15;  // assembly preview only
+tilt_angle = -10;  // assembly preview only
 
 $fn = 64;
 eps = 0.01;
@@ -23,22 +23,22 @@ helmet_r    = 50;              // outer radius (100 mm helmet)
 helmet_wall = 2;
 helmet_ri   = helmet_r - helmet_wall;
 helmet_cut  = -32;             // helmet-local Z where the sphere is cut flat
-visor_r     = 38;              // visor opening half-width
-visor_ratio = 0.78;            // visor height / width
-visor_z     = 4;               // visor opening center height
+visor_r     = 37;              // visor opening half-width
+visor_ratio = 0.84;            // visor height / width
+visor_z     = 2;               // visor opening center height
 
-// ---------------- torso ----------------
-torso_w    = 84;          // shoulder width (flat arm pads at +-42)
-torso_z0   = 60;
-torso_h    = 72;
+// ---------------- body ----------------
+base_h     = 14;               // moon base thickness
+torso_z0   = 74;               // legs / torso split
+torso_top  = 146;
+shoulder_x = 32;               // flat arm pads at +-shoulder_x
 torso_wall = 2.5;
-torso_top  = torso_z0 + torso_h;               // 132
 
-collar_od  = 56;
+collar_od  = 56;               // neck ring
 collar_id  = 50;
 deck_t     = 3;
 deck_d     = collar_id - 0.6;
-deck_bot   = torso_top - 0.5;                  // deck rests on the shoulder slab
+deck_bot   = torso_top - 0.5;  // deck rests on the shoulder slab
 deck_top   = deck_bot + deck_t;
 collar_top = deck_top + 8.6;
 
@@ -63,6 +63,7 @@ sg_shaft_h   = 4;
 piv_y       = -15;     // tilt axis (parallel to X) position
 piv_z       = 0;
 tilt_body_x = -12;     // X of the tilt servo body top (shaft side)
+tab_x       = tilt_body_x - sg_h + sg_tab_z;   // X of the tilt servo tab underside
 
 // ---------------- camera ----------------
 cam_sq     = 8.6;      // OV2640 lens-holder square base (measure yours!)
@@ -75,18 +76,18 @@ brd_t      = 1.6;
 // =====================================================================
 //  helpers
 // =====================================================================
-module rounded_box(w, d, h, r) {
-    // centered in X/Y, flat bottom at z=0, rounded top edges/corners
-    hull() for (sx = [-1, 1], sy = [-1, 1]) {
-        translate([sx * (w/2 - r), sy * (d/2 - r), 0]) cylinder(r = r, h = eps);
-        translate([sx * (w/2 - r), sy * (d/2 - r), h - r]) sphere(r = r);
-    }
-}
+module ell(c, r) { translate(c) scale(r) sphere(r = 1, $fn = 40); }
 
 module rounded_block(w, d, h, r) {
-    // fully rounded vertical edges, flat top/bottom; centered X/Y
+    // rounded vertical edges, flat top/bottom; centered X/Y
     hull() for (sx = [-1, 1], sy = [-1, 1])
         translate([sx * (w/2 - r), sy * (d/2 - r), 0]) cylinder(r = r, h = h);
+}
+
+module rounded_cube(size, r) {
+    // fully rounded box, min corner at origin
+    hull() for (x = [r, size[0] - r], y = [r, size[1] - r], z = [r, size[2] - r])
+        translate([x, y, z]) sphere(r = r, $fn = 16);
 }
 
 // SG90 dummy: shaft axis = +Z through origin, body top at z = 0
@@ -98,7 +99,6 @@ module sg90() {
     }
     color("White") {
         cylinder(d = 4.8, h = sg_shaft_h);
-        // single-arm horn
         translate([0, 0, sg_shaft_h - 1.5]) hull() { cylinder(d = 7, h = 1.5); translate([14, 0, 0]) cylinder(d = 4, h = 1.5); }
     }
 }
@@ -111,97 +111,122 @@ module sg90_cut() {
 }
 
 // =====================================================================
-//  LEGS + BASE   (print as is)
+//  MOON BASE   (print in grey, as is)
 // =====================================================================
-// ellipsoid helper
-module ell(c, r) { translate(c) scale(r) sphere(r = 1, $fn = 40); }
+craters = [[-38, -16, 7], [34, -22, 5], [38, 16, 6], [-34, 22, 5], [0, -37, 4],
+           [-12, 33, 3.5], [18, 34, 4], [-47, 2, 3], [11, -36, 2.5], [47, -3, 3], [-24, -32, 2.5]];
 
-module leg(s) {
-    K = [s * 17, -1, 36];      // knee
-    A = [s * 17.5, 1, 15];     // ankle
-    // thigh
-    hull() {   // thigh with quadriceps and outer sweep
-        ell([s * 15.5, 0, 58], [12.5, 13.5, 6]);
-        ell([s * 16, -4, 49], [11, 10.5, 8]);
-        ell([s * 18.5, -1, 46], [9.5, 9.5, 8]);
-        translate(K) sphere(r = 8.5);
+module moon_base() {
+    difference() {
+        hull() {
+            scale([58, 50, 1]) cylinder(r = 1, h = 2, $fn = 96);
+            translate([0, 0, 8]) scale([57, 49, 1]) cylinder(r = 1, h = 1, $fn = 96);
+            translate([0, 0, base_h - 1]) scale([52, 44, 1]) cylinder(r = 1, h = 1, $fn = 96);
+        }
+        for (c = craters) translate([c[0], c[1], base_h + c[2] * 0.55]) sphere(r = c[2], $fn = 32);
+        // dents around the edge
+        for (a = [20, 75, 140, 200, 250, 310]) translate([57 * cos(a), 49 * sin(a), 6]) sphere(r = 3.5, $fn = 24);
     }
-    // knee cap
-    translate(K + [0, -5.5, 0.5]) ell([0, 0, 0], [5, 4.5, 5]);
-    // calf
-    hull() { translate(K) sphere(r = 8.5); ell([s * 17, 3, 27], [9.5, 9.5, 7]); translate(A) sphere(r = 6.5); }
-    // boot + cuff
+    // pegs for the boots
+    for (s = [-1, 1]) translate([s * 15, -3, base_h - eps]) cylinder(d = 7.6, h = 5);
+    // crater rims
+    for (c = craters) translate([c[0], c[1], base_h - 0.5]) difference() {
+        cylinder(r = c[2] * 0.84 + 1.2, h = 1.3, $fn = 32);
+        translate([0, 0, -1]) cylinder(r = c[2] * 0.84, h = 4, $fn = 32);
+    }
+}
+
+// =====================================================================
+//  LEGS + BOOTS   (two pieces in one file, print upright)
+// =====================================================================
+module boot_shape() {
     hull() {
-        translate([s * 17.5, -10, 4]) scale([1, 1.3, 1]) cylinder(d = 20, h = 2);
-        translate([s * 17.5, 1, 4]) cylinder(d = 22, h = 2);
-        translate([s * 17.5, -1, 14]) cylinder(d = 17, h = 5);
+        translate([0, -6, base_h]) scale([11, 19, 1]) cylinder(r = 1, h = 3, $fn = 48);   // sole
+        ell([0, -15, base_h + 6], [10, 9, 6]);                                           // toe
+        ell([0, 0, base_h + 10], [11, 12, 7]);                                           // ankle
     }
-    translate([s * 17.5, -0.5, 17]) cylinder(d = 18.5, h = 3);
+}
+
+module boot() {
+    difference() {
+        union() {
+            boot_shape();
+            translate([0, -6, base_h]) scale([11.7, 19.7, 1]) cylinder(r = 1, h = 2.2, $fn = 48);    // sole ridge
+            intersection() { resize([24, 41, 0]) boot_shape(); translate([-20, -16, 0]) cube([40, 3.5, 60]); }  // strap
+        }
+        translate([0, -3, base_h - 1]) cylinder(d = 8, h = 6);                                   // peg hole
+    }
+}
+
+knee_bands = [49.6, 52.8];     // z of the two knee bands (paint gold / filament change)
+
+module leg() {
+    translate([0, 0, 28]) scale([1, 1.04, 1]) cylinder(d = 25, h = torso_z0 - 28);
+    for (z = [39, 61]) ell([0, 0, z], [13.6, 14.1, 8]);        // puffy segments (shin / thigh)
+    ell([0, 0, 71], [14, 14.5, 5]);
+    for (z = knee_bands) translate([0, 0, z]) scale([14.2, 14.7, 1]) cylinder(r = 1, h = 1.8, $fn = 48);
 }
 
 module legs() {
-    // base plate
-    hull() for (sx = [-1, 1], sy = [-1, 1]) translate([sx * 40, sy * 28, 0]) cylinder(r = 8, h = 4);
-    intersection() {
-        union() { leg(-1); leg(1); }
-        translate([-60, -60, 0]) cube([120, 120, torso_z0]);
+    for (s = [-1, 1]) translate([s * 15, 0, 0]) {
+        intersection() {
+            union() { leg(); boot(); }
+            translate([-30, -40, 0]) cube([60, 80, torso_z0]);
+        }
+        translate([0, 0, torso_z0 - eps]) cylinder(d = 8, h = 4);     // peg into the torso
     }
-    // pegs into the torso
-    for (s = [-1, 1]) translate([s * 15.5, 0, torso_z0 - eps]) cylinder(d = 10, h = 4);
 }
 
 // =====================================================================
-//  TORSO   (print upright; V-shaped athletic body)
+//  TORSO   (print upright, no supports)
 // =====================================================================
-// convex body core; o = inset (used to hollow it out)
 module torso_core(o = 0) {
-    hull() {   // pelvis -> waist
-        translate([0, 0, torso_z0]) scale([27 - o, 20 - o, 1]) cylinder(r = 1, h = eps, $fn = 64);   // hips
-        ell([0, 0, 67],  [27 - o, 20 - o, 7]);                           // pelvis
-        ell([0, 1, 79],  [23.5 - o, 18.5 - o, 6]);                       // waist
-    }
-    hull() {   // waist -> chest -> shoulders (V-taper)
-        ell([0, 1, 79],  [23.5 - o, 18.5 - o, 6]);                       // waist
-        ell([0, -1, 107], [37 - o, 25 - o, 15]);                         // rib cage
-        for (s = [-1, 1]) ell([s * 32, 2, 120], [13 - o, 13 - o, 13 - o]);   // shoulders
-        ell([0, 3, 126], [22 - o, 17 - o, 7 - o]);                       // trapezius / neck base
+    hull() {
+        translate([0, 0, torso_z0]) scale([29 - o, 23 - o, 1]) cylinder(r = 1, h = eps, $fn = 64);
+        ell([0, 0, 84],  [29.5 - o, 23.5 - o, 8]);                                  // hips
+        ell([0, -1, 122], [32 - o, 25 - o, 14]);                                    // chest
+        for (s = [-1, 1]) ell([s * 21, 1, 135], [12.5 - o, 13 - o, 11 - o]);        // shoulders
+        ell([0, 1, 139],  [24 - o, 20 - o, 7 - o]);                                 // neck base
     }
 }
 
-module torso_clip() { translate([-torso_w/2, -60, torso_z0]) cube([torso_w, 120, 100]); }
+module torso_clip() { translate([-shoulder_x, -60, torso_z0]) cube([2 * shoulder_x, 120, 120]); }
 
-module torso_outer() { intersection() { torso_core(); torso_clip(); } }
-
-module torso_muscles() {
-    // pectorals: broad flat plates, underside blended into the chest for printing
-    for (s = [-1, 1]) hull() {
-        ell([s * 12.5, -21.5, 108], [13, 6.5, 7.5]);
-        ell([s * 11, -19.5, 99], [10, 4, 2]);
-        ell([s * 22, -16, 110], [6, 5, 6]);
+module chest_panel() {
+    hull() {
+        translate([-16, -30, 112]) cube([32, 6, 21]);
+        translate([-16, -25, 106]) cube([32, 1, 1]);
     }
-    // six-pack
-    for (s = [-1, 1], i = [0:2]) ell([s * 5.6, -20.4 + i * 1.6, 93 - i * 6.5], [5, 2.6, 3.1]);
-    // belt + buckle
-    intersection() { torso_core(-1.5); translate([-50, -50, 64]) cube([100, 100, 7]); }
-    translate([-7, -24, 64]) cube([14, 4, 7]);
+    translate([-2, -31.5, 123]) cube([16, 2, 10]);                                  // raised right block
+    translate([-9, -30 + eps, 129]) rotate([90, 0, 0])                              // triangle mark
+        linear_extrude(1.4) polygon([[-4, -3.2], [4, -3.2], [0, 3.2]]);
+    for (x = [1.5, 5.5, 9.5]) translate([x, -32.7, 125]) cube([2, 1.3, 7]);         // vertical bars
+    for (i = [0:5]) translate([-14.2 + i * 5, -31.2, 115]) cube([3.6, 1.3, 3]);     // keypad
 }
 
 module torso() {
     difference() {
         union() {
-            torso_outer();
-            intersection() { torso_muscles(); torso_clip(); }
-            // neck collar
+            intersection() { torso_core(); torso_clip(); }
+            chest_panel();
+            // belt + buckle
+            intersection() { torso_core(-1.6); translate([-50, -50, 94]) cube([100, 100, 7]); }
+            translate([-8, -27.6, 93.5]) cube([16, 3, 8]);
+            // neck ring
             translate([0, 0, torso_top - 8]) cylinder(d = collar_od, h = collar_top - torso_top + 8, $fn = 96);
         }
-        // hollow inside (solid shoulder slab left under the deck)
+        // suit seam grooves
+        for (z = [80, 108]) intersection() {
+            difference() { torso_core(-1); torso_core(0.8); }
+            translate([-50, -50, z]) cube([100, 100, 1.2]);
+        }
+        // hollow inside, 45 deg conical ceiling -> no supports
         intersection() {
             torso_core(torso_wall);
-            translate([-torso_w/2 + torso_wall, -60, torso_z0 + 3]) cube([torso_w - 2*torso_wall, 120, deck_bot - 4 - torso_z0 - 3]);
-            // 45 deg conical ceiling -> prints without supports
+            translate([-shoulder_x + torso_wall, -60, torso_z0 + 3]) cube([2 * (shoulder_x - torso_wall), 120, deck_bot - 4 - torso_z0 - 3]);
             union() {
-                translate([0, 0, deck_bot - 4 - 39]) cylinder(r1 = 60, r2 = 21, h = 39, $fn = 96);
-                translate([0, 0, torso_z0]) cylinder(r = 60, h = deck_bot - 4 - 39 - torso_z0 + eps, $fn = 96);
+                translate([0, 0, deck_bot - 4 - 36]) cylinder(r1 = 58, r2 = 22, h = 36, $fn = 96);
+                translate([0, 0, torso_z0]) cylinder(r = 58, h = deck_bot - 4 - 36 - torso_z0 + eps, $fn = 96);
             }
         }
         // deck seat and opening through the shoulder slab
@@ -210,16 +235,16 @@ module torso() {
         // anti-rotation key slot for the deck
         translate([-collar_id/2 - 2, -2.2, deck_bot]) cube([4, 4.4, 50]);
         // window to the backpack
-        translate([-18, 8, 74]) cube([36, 30, 50]);
+        translate([-14, 8, 98]) cube([28, 30, 38]);
         // leg pegs
-        for (s = [-1, 1]) translate([s * 15.5, 0, torso_z0 - 1]) cylinder(d = 10.4, h = 6);
-        // arm pins (1.75 mm filament) in the flat shoulder pads
-        for (s = [-1, 1]) translate([s * torso_w/2, 2, 120]) rotate([0, 90, 0]) cylinder(d = 2, h = 12, center = true, $fn = 16);
+        for (s = [-1, 1]) translate([s * 15, 0, torso_z0 - 1]) cylinder(d = 8.4, h = 6);
+        // arm pins (1.75 mm filament)
+        for (s = [-1, 1]) translate([s * shoulder_x, 1, 135]) rotate([0, 90, 0]) cylinder(d = 2, h = 12, center = true, $fn = 16);
     }
 }
 
 // =====================================================================
-//  SERVO DECK   (drops into the collar, holds the PAN servo)
+//  SERVO DECK   (drops into the neck ring, holds the PAN servo)
 // =====================================================================
 module deck() {
     difference() {
@@ -234,60 +259,69 @@ module deck() {
 }
 
 // =====================================================================
-//  ARMS   (print on the flat shoulder face, light supports)
+//  ARMS   (puffy segments; print on the flat shoulder face, with supports)
 // =====================================================================
+arm_seg = [   // [x, y, z, rx, ry, rz]
+    [38,   0,   132, 12.5, 12.5, 12],    // shoulder ball
+    [41.5, -1,  117, 10.8, 11.2, 8],     // upper arm
+    [43.5, -3,  104, 10.3, 10.8, 7],     // elbow
+    [44,  -5.5,  93, 9.8,  10.2, 7],     // forearm
+    [43,  -7.5,  84.5, 9.2, 9.6, 5.5],
+];
+
+module shoulder_patch() {   // paint gold
+    translate([48.8, 0, 133]) rotate([0, 90, 0]) hull()
+        for (y = [-4.5, 4.5], z = [-3, 3]) translate([z, y, 0]) cylinder(r = 1.8, h = 2.6, $fn = 16);
+}
+
 module arm_right() {
     difference() {
         intersection() {
             union() {
-                ell([45, 2, 120], [11.5, 12, 12]);                                        // deltoid
-                hull() {                                                                  // upper arm: biceps + triceps
-                    translate([47, 2, 115]) sphere(r = 8.5);
-                    ell([50, -3, 104], [7.5, 8.5, 9]);
-                    ell([51, 5.5, 106], [7, 6.5, 9]);
-                    translate([51, 1, 92]) sphere(r = 6.5);
+                for (p = arm_seg) ell([p[0], p[1], p[2]], [p[3], p[4], p[5]]);
+                for (i = [0:len(arm_seg) - 2]) hull() {
+                    translate([arm_seg[i][0], arm_seg[i][1], arm_seg[i][2]]) sphere(r = 8.8);
+                    translate([arm_seg[i+1][0], arm_seg[i+1][1], arm_seg[i+1][2]]) sphere(r = 8.8);
                 }
-                hull() {                                                                  // forearm
-                    translate([51, 0, 91]) sphere(r = 6.8);
-                    ell([51, -2.5, 84], [7.5, 8, 6]);
-                    translate([50, -6, 71]) sphere(r = 5);
-                }
-                hull() for (dx = [-2.5, 2.5], dy = [-3.5, 2.5], dz = [-4, 3.5])           // gloved fist
-                    translate([50 + dx, -8 + dy, 62 + dz]) sphere(r = 4.2, $fn = 24);
-                translate([50, -6, 70]) cylinder(d = 13, h = 4, center = true);            // glove cuff
+                ell([42, -8.5, 80.5], [8.2, 8.5, 2.6]);                                          // cuff
+                hull() { translate([43, -7.5, 86.5]) sphere(r = 7); ell([41, -9.5, 71.5], [8, 8.5, 8.5]); }  // wrist + fist
+                hull() { translate([35.5, -13, 75]) sphere(r = 3.2); translate([35, -15, 70.5]) sphere(r = 3); }  // thumb
+                shoulder_patch();
             }
-            translate([torso_w/2, -50, 0]) cube([40, 100, 200]);
+            translate([shoulder_x, -60, 0]) cube([60, 120, 200]);
         }
-        translate([torso_w/2 - 1, 2, 120]) rotate([0, 90, 0]) cylinder(d = 2, h = 9, $fn = 16);
+        translate([shoulder_x - 1, 1, 135]) rotate([0, 90, 0]) cylinder(d = 2, h = 9, $fn = 16);
     }
 }
 
 module arm_left() { mirror([1, 0, 0]) arm_right(); }
 
 // =====================================================================
-//  BACKPACK (life-support pack = power box)   (print back face down)
+//  BACKPACK (power box with two pockets)   (print upright)
 // =====================================================================
-bp_w = 52; bp_y0 = 18; bp_y1 = 58; bp_z0 = 58; bp_h = 84;
+bp_w = 48; bp_y0 = 14; bp_y1 = 40; bp_z0 = 92; bp_h = 50;
 
 module backpack() {
     difference() {
-        translate([0, (bp_y0 + bp_y1)/2, bp_z0]) rounded_block(bp_w, bp_y1 - bp_y0, bp_h, 5);
+        union() {
+            translate([0, (bp_y0 + bp_y1)/2, bp_z0]) rounded_block(bp_w, bp_y1 - bp_y0, bp_h, 5);
+            for (s = [-1, 1]) {
+                translate([s * 11, bp_y1 + 2, 98]) rounded_block(17, 6, 26, 2);     // pocket
+                translate([s * 11, bp_y1 + 2.6, 118]) rounded_block(18.4, 7.2, 8, 2);  // pocket flap
+            }
+        }
         // inner cavity, open towards the torso
-        translate([0, (bp_y0 + bp_y1)/2 - 2, bp_z0 + 2]) rounded_block(bp_w - 4, bp_y1 - bp_y0, bp_h - 4, 3);
-        // conform to the torso back
-        minkowski() { torso_outer(); sphere(r = 0.2, $fn = 8); }
-        // USB-C breakout slot + switch slot in the bottom
-        translate([-14, 44, bp_z0 - 1]) cube([10, 5, 4]);
-        translate([6, 42, bp_z0 - 1]) cube([9, 5, 4]);
+        translate([0, (bp_y0 + bp_y1)/2 - 2.2, bp_z0 + 2.2]) rounded_block(bp_w - 4.4, bp_y1 - bp_y0, bp_h - 4.4, 3);
+        // conform to the torso back and the neck ring
+        minkowski() { torso_core(); sphere(r = 0.3, $fn = 8); }
+        translate([0, 0, torso_top - 8]) cylinder(d = collar_od + 1, h = 40, $fn = 96);
+        // USB-C breakout slot in the bottom
+        translate([-5, 25, bp_z0 - 1]) cube([10, 5, 4]);
     }
-    // decorative hose stubs on the side
-    for (s = [-1, 1]) translate([s * bp_w/2, 40, 120]) rotate([0, s * 90, 0]) cylinder(d = 8, h = 3, $fn = 24);
 }
 
 // =====================================================================
 //  HELMET PLATFORM  (helmet-local coords; print flange down)
-//  carries: tilt servo tower, camera pivot upright, ESP32-CAM rails,
-//  screw bosses for both helmet halves, pan-horn pocket underneath.
 // =====================================================================
 module platform() {
     z0 = helmet_cut;
@@ -299,8 +333,8 @@ module platform() {
                 sphere(r = helmet_ri - 0.3, $fn = 128);
                 rotate([0, 0, a]) translate([29, -5, z0 - eps]) cube([12, 10, 9]);
             }
-            // tilt servo tower (servo tabs rest on its -X face)
-            translate([tilt_body_x - 6.8, piv_y - 12, z0 - eps]) cube([2.5, 24, 12 - z0]);
+            // tilt servo tower (servo tabs rest on its +X face)
+            translate([tab_x - 2.5, piv_y - 12, z0 - eps]) cube([2.5, 24, 12 - z0]);
             // pivot upright for the camera holder
             hull() {
                 translate([10, piv_y - 7, z0 - eps]) cube([2.5, 14, 1]);
@@ -329,7 +363,6 @@ module platform() {
             for (s = [-1, 1]) translate([s * 16, 0, 0]) cylinder(d = 4.5, h = 2, $fn = 24);
         }
         translate([0, 0, z0 - 10]) cylinder(d = 6, h = 20, $fn = 24);
-        // horn screw pilot holes
         for (s = [-1, 1]) translate([s * 10, 0, z0 - 10]) cylinder(d = 1.3, h = 20, $fn = 12);
     }
 }
@@ -340,77 +373,85 @@ module platform() {
 module cam_holder() {
     difference() {
         union() {
-            // front plate + lens pocket block
             translate([-7.5, -7, -7.5]) cube([15, 5.6, 15]);
-            // left arm (servo horn side)
             hull() {
                 translate([-9.5, -7, -6]) cube([2.1, 5.6, 12]);
                 translate([-9.5, 0, 0]) rotate([0, 90, 0]) cylinder(r = 6, h = 2.1);
                 translate([-9.5, 14, 0]) rotate([0, 90, 0]) cylinder(r = 3.5, h = 2.1);
             }
-            // right arm (pivot side)
             hull() {
                 translate([7.4, -7, -6]) cube([2.1, 5.6, 12]);
                 translate([7.4, 0, 0]) rotate([0, 90, 0]) cylinder(r = 5, h = 2.1);
             }
         }
-        // lens hole through the front plate
         translate([0, -8, 0]) rotate([-90, 0, 0]) cylinder(d = lens_d, h = 5);
-        // pocket for the lens-holder base, open to the back and to the bottom (flex cable)
         translate([-cam_sq/2, -5.4, -cam_sq/2]) cube([cam_sq, 10, cam_sq]);
         translate([-cam_sq/2, -5.4, -10]) cube([cam_sq, 10, 10]);
-        // servo horn recess on the outer face of the left arm
         translate([-9.5 - eps, 0, 0]) rotate([0, 90, 0]) hull() {
             cylinder(d = 7.6, h = 1.3);
             translate([0, 14, 0]) cylinder(d = 4.6, h = 1.3, $fn = 24);
         }
         translate([-12, 0, 0]) rotate([0, 90, 0]) cylinder(d = 2.5, h = 5, $fn = 16);
-        // pivot pilot hole (M2 self-tapping)
         translate([6, 0, 0]) rotate([0, 90, 0]) cylinder(d = 1.7, h = 5, $fn = 16);
     }
 }
 
 // =====================================================================
 //  HELMET SHELL halves (helmet-local; split on the Y = 0 plane)
+//  front: big visor with a thick bezel   back: "ear" pods + top band
 // =====================================================================
+pod_x = [36, 61]; pod_y = [0.05, 26]; pod_z = [5, 45];   // 0.05: keeps the preview clean, prints flush
+
 module visor_shape(grow = 0) {
     translate([0, 0, visor_z]) rotate([90, 0, 0]) scale([1, visor_ratio, 1])
         cylinder(r = visor_r + grow, h = 60, $fn = 128);
+}
+
+module ear_pod() {   // right pod (+X)
+    r = 4;
+    difference() {
+        intersection() {
+            translate([pod_x[0], pod_y[0] - r, pod_z[0]]) rounded_cube([pod_x[1] - pod_x[0], pod_y[1] - pod_y[0] + r, pod_z[1] - pod_z[0]], r);
+            translate([pod_x[0] - 1, pod_y[0], pod_z[0] - 1]) cube([pod_x[1] - pod_x[0] + 2, 40, pod_z[1] - pod_z[0] + 2]);   // flat seam face
+        }
+        // recessed face panel
+        translate([pod_x[1] - 1.2, pod_y[0] + 4, pod_z[0] + 4]) rounded_cube([5, pod_y[1] - pod_y[0] - 8, pod_z[1] - pod_z[0] - 8], 1.5);
+        // LED / sensor hole (optional helmet light)
+        translate([30, 13, 14]) rotate([0, 90, 0]) cylinder(d = 5, h = 40, $fn = 24);
+    }
+    // studs
+    for (y = [pod_y[0] + 7.5, pod_y[1] - 7.5], z = [pod_z[0] + 7.5, pod_z[1] - 7.5])
+        translate([pod_x[1] - 1.2, y, z]) sphere(r = 1.7, $fn = 16);
 }
 
 module helmet_half(front = true) {
     difference() {
         union() {
             sphere(r = helmet_r, $fn = 128);
-            if (front) {
-                // visor rim
-                intersection() {
-                    sphere(r = helmet_r + 1.5, $fn = 128);
-                    difference() { visor_shape(4); visor_shape(0); }
-                }
-                // helmet lamps (box faces lie on the seam -> print without supports)
-                for (s = [-1, 1]) translate([s > 0 ? helmet_r - 4 : -helmet_r - 4, -11, 6]) cube([8, 11, 12]);
+            if (front) intersection() {                                       // visor bezel
+                sphere(r = helmet_r + 3.5, $fn = 128);
+                difference() { visor_shape(5.5); visor_shape(0); }
             }
-            // seam magnet bosses
-            for (s = [-1, 1]) intersection() {
+            if (!front) {
+                ear_pod(); mirror([1, 0, 0]) ear_pod();
+                intersection() {                                              // top band
+                    difference() { sphere(r = helmet_r + 4, $fn = 128); sphere(r = helmet_r - 1, $fn = 128); }
+                    translate([-60, 0.05, 22]) cube([120, 24, 40]);
+                }
+            }
+            for (s = [-1, 1]) intersection() {                                // seam magnet bosses
                 sphere(r = helmet_r - 0.5, $fn = 128);
                 translate([s * 37 - 6, front ? -5 : 0, 20]) cube([12, 5, 10]);
             }
         }
-        // hollow, but keep the magnet bosses
         difference() {
             sphere(r = helmet_ri, $fn = 128);
             for (s = [-1, 1]) translate([s * 37 - 6, -5, 20]) cube([12, 10, 10]);
         }
-        // flat bottom
         translate([-100, -100, helmet_cut - 100]) cube([200, 200, 100]);
-        // keep one half
         if (front) translate([-100, 0, -100]) cube([200, 100, 200]);
         else       translate([-100, -100, -100]) cube([200, 100, 200]);
-        // visor opening
         if (front) visor_shape(0);
-        // lamp lenses
-        if (front) for (s = [-1, 1]) translate([s * helmet_r, -11 - eps, 12]) rotate([-90, 0, 0]) cylinder(d = 7, h = 1, $fn = 32);
         // seam magnets 6x2 mm
         for (s = [-1, 1]) translate([s * 37, 0, 25]) rotate([90, 0, 0]) cylinder(d = 6.2, h = 4.4, center = true, $fn = 32);
         // screw holes into the platform bosses
@@ -421,7 +462,7 @@ module helmet_half(front = true) {
 }
 
 // =====================================================================
-//  ELECTRONICS dummies (preview only)
+//  ELECTRONICS dummies + preview-only colour overlays
 // =====================================================================
 module esp32cam_dummy() {
     color("DarkGreen") translate([-brd_w/2, brd_y, helmet_cut]) cube([brd_w, brd_t, brd_h]);
@@ -436,6 +477,23 @@ module ov2640_dummy() {
     color("Orange") translate([-4, -1.4, -14]) cube([8, 0.3, 10]);
 }
 
+module tinted_visor() {   // smoked film behind the bezel (preview only)
+    color([0.05, 0.06, 0.1], 0.82) intersection() {
+        difference() { sphere(r = helmet_ri + 0.6, $fn = 128); sphere(r = helmet_ri + 0.1, $fn = 128); }
+        visor_shape(1);
+        translate([-100, -100, -100]) cube([200, 100, 200]);
+    }
+}
+
+module gold_details() {
+    color("Goldenrod") {
+        for (s = [-1, 1]) translate([s * 15, 0, 0]) for (z = knee_bands)
+            translate([0, 0, z - 0.02]) scale([14.25, 14.75, 1]) cylinder(r = 1, h = 1.84, $fn = 48);
+        translate([0.05, 0, 0]) shoulder_patch();
+        mirror([1, 0, 0]) translate([0.05, 0, 0]) shoulder_patch();
+    }
+}
+
 // =====================================================================
 //  ASSEMBLY
 // =====================================================================
@@ -447,32 +505,35 @@ module helmet_assembly() {
         ov2640_dummy();
     }
     esp32cam_dummy();
-    color("White", 0.9) helmet_half(false);
-    if (part != "helmet_inside") color("White", 0.35) helmet_half(true);
+    color("White") render() helmet_half(false);
+    if (part != "helmet_inside") { color("White") render() helmet_half(true); tinted_visor(); }
 }
 
 module assembly() {
-    color("Gainsboro") legs();
+    color("Gray") moon_base();
+    color("White") legs();
     color("White") torso();
     color("Gold") translate([0, 0, deck_bot]) deck();
-    translate([0, 0, deck_top + 6.8]) sg90();
+    translate([0, 0, deck_top + sg_h - sg_tab_z]) sg90();
     color("White") { arm_right(); arm_left(); }
-    color("LightGray") backpack();
+    color("WhiteSmoke") backpack();
+    gold_details();
     translate([0, 0, helmet_z]) rotate([0, 0, pan_angle]) helmet_assembly();
 }
 
 // =====================================================================
 //  PART SELECTOR (each part placed in its printing orientation)
 // =====================================================================
-if (part == "assembly")     assembly();
+if (part == "assembly")      assembly();
 if (part == "helmet_inside") translate([0, 0, -helmet_z]) assembly();   // preview with the front shell removed
-if (part == "legs")         legs();
-if (part == "torso")        translate([0, 0, -torso_z0]) torso();
-if (part == "deck")         deck();
-if (part == "arm_right")    rotate([0, -90, 0]) translate([-torso_w/2, 0, 0]) arm_right();
-if (part == "arm_left")     rotate([0, 90, 0]) translate([torso_w/2, 0, 0]) arm_left();
-if (part == "backpack")     translate([0, 0, bp_y1]) rotate([-90, 0, 0]) translate([0, 0, 0]) backpack();
-if (part == "platform")     translate([0, 0, -helmet_cut + plat_t]) platform();
-if (part == "helmet_front") rotate([-90, 0, 0]) helmet_half(true);
-if (part == "helmet_back")  rotate([90, 0, 0]) helmet_half(false);
-if (part == "cam_holder")   translate([0, 0, 7]) rotate([90, 0, 0]) cam_holder();
+if (part == "moon_base")     moon_base();
+if (part == "legs")          translate([0, 0, -base_h]) legs();
+if (part == "torso")         translate([0, 0, -torso_z0]) torso();
+if (part == "deck")          deck();
+if (part == "arm_right")     rotate([0, -90, 0]) translate([-shoulder_x, 0, 0]) arm_right();
+if (part == "arm_left")      rotate([0, 90, 0]) translate([shoulder_x, 0, 0]) arm_left();
+if (part == "backpack")      translate([0, 0, -bp_z0]) backpack();
+if (part == "platform")      translate([0, 0, -helmet_cut + plat_t]) platform();
+if (part == "helmet_front")  rotate([-90, 0, 0]) helmet_half(true);
+if (part == "helmet_back")   rotate([90, 0, 0]) helmet_half(false);
+if (part == "cam_holder")    translate([0, 0, 7]) rotate([90, 0, 0]) cam_holder();
