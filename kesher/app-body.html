@@ -60,7 +60,7 @@ header.top {
 .brand-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .brand { font-family: var(--f-display); font-size: 28px; font-weight: 700; letter-spacing: -.01em; line-height: 1; }
 .brand span { color: var(--accent); }
-.rose-count { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; color: var(--rose); background: var(--rose-soft); padding: 4px 10px; border-radius: 999px; }
+.rose-count { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; color: var(--accent); background: var(--accent-soft); padding: 4px 10px; border-radius: 999px; }
 
 .search { display: flex; gap: 8px; align-items: center; }
 .search-field { position: relative; flex: 1; min-width: 0; }
@@ -329,14 +329,14 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
   function renderHeader() {
     const top = $('#top');
     if (S.tab !== 'discover') {
-      top.innerHTML = `<div class="brand-row"><div class="brand">קֶ<span>שֶׁ</span>ר</div><span class="rose-count">${I.rose.replace('<svg','<svg width="14" height="14"')} ${S.roses} ורד</span></div>`;
+      top.innerHTML = `<div class="brand-row"><div class="brand">קֶ<span>שֶׁ</span>ר</div><span class="rose-count">חינם לגמרי</span></div>`;
       return;
     }
     const counts = {};
     PROFILES.forEach(p => { if (!S.skipped.includes(p.id) && !S.liked[p.id] && !S.matches[p.id]) counts[p.city] = (counts[p.city] || 0) + 1; });
     const cityList = [...new Set(PROFILES.map(p => p.city))];
     top.innerHTML = `
-      <div class="brand-row"><div class="brand">קֶ<span>שֶׁ</span>ר</div><span class="rose-count">${I.rose.replace('<svg','<svg width="14" height="14"')} ${S.roses} ורד</span></div>
+      <div class="brand-row"><div class="brand">קֶ<span>שֶׁ</span>ר</div><span class="rose-count">חינם לגמרי</span></div>
       <div class="search">
         <div class="search-field">
           ${I.search}
@@ -393,7 +393,7 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
       <p class="result-line">${d.length === 1 ? "פרופיל אחד" : d.length + " פרופילים"} ${where}</p>
       <article class="profile" aria-label="פרופיל של ${esc(p.name)}">
         <div class="p-head"><h1 class="p-name">${esc(p.name)}</h1>
-          <button class="btn rose" id="send-rose" ${S.roses ? '' : 'disabled style="opacity:.5"'}>${I.rose.replace('<svg','<svg width="16" height="16" style="vertical-align:-3px"')} שליחת ורד</button></div>
+          <button class="btn rose" id="send-rose">${I.rose.replace('<svg','<svg width="16" height="16" style="vertical-align:-3px"')} שליחת ורד</button></div>
         <div class="p-meta">
           <span>${I.cake}${p.age}</span>
           <span class="city">${I.pin}${esc(p.city)}</span>
@@ -408,9 +408,9 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
         ${promptHTML(p, 2)}
         <div class="skip-wrap"><button class="skip" id="skip" aria-label="דילוג על ${esc(p.name)}">${I.x}</button></div>
       </article>
-      <p class="demo-note">פרופילים לדוגמה בלבד. הלייקים וההתאמות נשמרים בדפדפן שלכם.</p>`;
+      <p class="demo-note">קשר חינמית לגמרי: לייקים, ורדים, סינון לפי עיר וגיל, ורשימת מי שאהבו אותך פתוחים לכולם בלי הגבלה ובלי תשלום. הפרופילים לדוגמה בלבד, והנתונים נשמרים בדפדפן שלכם.</p>`;
     v.querySelectorAll('.heart').forEach(b => b.onclick = () => openLike(p, b.dataset.kind, +b.dataset.i, false));
-    $('#send-rose').onclick = () => S.roses && openLike(p, 'prompt', 0, true);
+    $('#send-rose').onclick = () => openLike(p, 'prompt', 0, true);
     $('#skip').onclick = () => { S.skipped.push(p.id); save(); renderHeader(); renderView(); window.scrollTo({ top: 0 }); };
   }
 
@@ -432,7 +432,6 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
     $('#like-send').onclick = () => {
       const note = $('#like-note').value.trim();
       const about = kind === 'photo' ? `תמונה "${p.photos[i]}"` : `"${p.prompts[i].q}"`;
-      if (rose) S.roses = 0;
       if (p.likesMe) {
         S.matches[p.id] = { msgs: [{ who: 'ctx', t: `עשיתם לייק ל${about}` }].concat(note ? [{ who: 'me', t: note }] : []), rose };
         save(); close(); renderHeader(); renderTabs(); renderView(); showMatch(p);
