@@ -74,6 +74,13 @@ test('full flow: register, upload, discover by city, like, match, chat', async (
   assert.equal(d.cityCounts['ירושלים'], 1);
   d = (await a('GET', '/api/discover?kids=has')).data;
   assert.equal(d.total, 0);
+  // Age range and marital status filters
+  assert.equal((await b('PUT', '/api/me', { status: 'גרוש/ה' })).status, 200);
+  assert.equal((await a('GET', '/api/discover?status=' + encodeURIComponent('גרוש/ה'))).data.total, 1);
+  assert.equal((await a('GET', '/api/discover?status=' + encodeURIComponent('רווק/ה'))).data.total, 0);
+  assert.equal((await a('GET', '/api/discover?ageMin=40&ageMax=60')).data.total, 0);
+  assert.equal((await a('GET', '/api/discover?ageMin=20&ageMax=40')).data.total, 2);
+  assert.equal((await b('PUT', '/api/me', { status: 'נשוי' })).status, 400);
 
   // A likes B's prompt; B sees it and likes back -> match with the comment as first message
   const yoniId = (await b('GET', '/api/me')).data.id, danaId = me.id;

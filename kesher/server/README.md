@@ -1,6 +1,6 @@
 # Kesher server (קשר)
 
-גרסה אמיתית של קשר: הרשמה והתחברות, פרופילים, העלאת תמונות, לייקים, התאמות וצ'אט, עם חיפוש לפי עיר וסינון לפי גיל, דת וילדים. הכל חינם.
+גרסה אמיתית של קשר: הרשמה והתחברות, פרופילים, העלאת תמונות, לייקים, התאמות וצ'אט, עם חיפוש לפי עיר וסינון לפי טווח גילאים, סטטוס, דת וילדים. הכל חינם.
 
 ## הרצה מקומית
 
@@ -49,7 +49,7 @@ npm test           # בדיקות API
 | `GET /api/me`, `PUT /api/me`, `DELETE /api/me` | הפרופיל שלי, עדכון, מחיקת חשבון |
 | `POST /api/me/photos` | העלאת תמונה (שדה `photo`, עד 6) |
 | `DELETE /api/me/photos/:id`, `POST /api/me/photos/:id/first` | מחיקה, קביעה כתמונה ראשית |
-| `GET /api/discover?city=&ageMax=&relig=&kids=` | פרופילים לגילוי, עם ספירה לפי עיר |
+| `GET /api/discover?city=&ageMin=&ageMax=&status=&relig=&kids=` | פרופילים לגילוי, עם ספירה לפי עיר |
 | `POST /api/like`, `POST /api/skip` | לייק (לתמונה, תשובה או פרופיל, עם תגובה וורד), דילוג |
 | `GET /api/likes`, `POST /api/likes/:fromId/remove` | מי שאהבו אותי, הסרה |
 | `GET /api/matches`, `GET/POST /api/matches/:id/messages`, `POST /api/matches/:id/unmatch` | התאמות וצ'אט |

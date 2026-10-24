@@ -17,8 +17,9 @@ const SESSION_DAYS = 30;
 const CHOICES = {
   gender: ['אישה', 'גבר', 'א-בינארי'],
   zodiac: ['טלה', 'שור', 'תאומים', 'סרטן', 'אריה', 'בתולה', 'מאזניים', 'עקרב', 'קשת', 'גדי', 'דלי', 'דגים'],
-  relig: ['חילוני/ת', 'מסורתי/ת', 'דתי/ה', 'חרדי/ת', 'אחר'],
-  intent: ['קשר רציני', 'קשר רציני, בלי לחץ', 'עוד לא בטוח/ה', 'משהו קליל'],
+  status: ['רווק/ה', 'גרוש/ה', 'פרוד/ה', 'אלמן/ה', 'בתהליך גירושין'],
+  relig: ['חילוני/ת', 'מסורתי/ת', 'מסורתי/ת-דתי/ה', 'דתי/ה לאומי/ת', 'דתי/ה', 'חרדי/ת', 'חוזר/ת בתשובה', 'רוחני/ת', 'אחר'],
+  intent: ['שותף/ה לחיים', 'קשר ארוך טווח', 'קשר ארוך, פתוח/ה גם לקצר', 'קשר קצר, פתוח/ה גם לארוך', 'משהו קליל', 'עוד מגלה מה אני רוצה'],
   kids: ['אין לי ילדים', 'יש לי ילדים'],
   wantKids: ['רוצה', 'לא רוצה', 'פתוח/ה לזה', 'עוד לא יודע/ת'],
   pets: ['כלב', 'חתול', 'כלב וחתול', 'אין', 'רוצה בעתיד'],
@@ -45,7 +46,7 @@ function createApp({ dataDir = process.env.DATA_DIR || path.join(__dirname, 'dat
       id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE, pass TEXT NOT NULL,
       name TEXT NOT NULL, birthdate TEXT NOT NULL, gender TEXT, city TEXT NOT NULL,
       job TEXT, height INTEGER, edu TEXT, hometown TEXT, langs TEXT, zodiac TEXT, relig TEXT, intent TEXT,
-      kids TEXT, wantKids TEXT, pets TEXT, drink TEXT, smoke TEXT, sport TEXT, kosher TEXT,
+      status TEXT, kids TEXT, wantKids TEXT, pets TEXT, drink TEXT, smoke TEXT, sport TEXT, kosher TEXT,
       prompts TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at INTEGER NOT NULL);
@@ -64,6 +65,11 @@ function createApp({ dataDir = process.env.DATA_DIR || path.join(__dirname, 'dat
     CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY, from_id INTEGER, to_id INTEGER, reason TEXT, created_at INTEGER NOT NULL);
   `);
   const q = sql => db.prepare(sql);
+  // Upgrades for databases created by earlier versions
+  if (!q('PRAGMA table_info(users)').all().some(c => c.name === 'status')) db.exec('ALTER TABLE users ADD COLUMN status TEXT');
+  for (const [from, to] of [['קשר רציני', 'קשר ארוך טווח'], ['קשר רציני, בלי לחץ', 'קשר ארוך, פתוח/ה גם לקצר'], ['עוד לא בטוח/ה', 'עוד מגלה מה אני רוצה']]) {
+    q('UPDATE users SET intent = ? WHERE intent = ?').run(to, from);
+  }
   const now = () => Date.now();
 
   // ---------- Helpers ----------
@@ -298,12 +304,12 @@ function createApp({ dataDir = process.env.DATA_DIR || path.join(__dirname, 'dat
 
   app.get('/api/discover', auth, wrap(req => {
     const me = req.userId, hidden = hiddenFor(me);
-    const { city = '', relig = '', kids = '' } = req.query;
+    const { city = '', relig = '', kids = '', status = '' } = req.query;
     const ageMax = Number(req.query.ageMax) || 99, ageMin = Number(req.query.ageMin) || 18;
     const pool = q('SELECT * FROM users WHERE id != ? AND EXISTS (SELECT 1 FROM photos WHERE user_id = users.id) ORDER BY created_at DESC LIMIT 2000').all(me)
       .filter(u => !hidden.has(u.id))
       .filter(u => { const a = ageOf(u.birthdate); return a >= ageMin && a <= ageMax; })
-      .filter(u => (!relig || u.relig === relig) && kidsMatch(u, kids));
+      .filter(u => (!relig || u.relig === relig) && (!status || u.status === status) && kidsMatch(u, kids));
     const cityCounts = {};
     for (const u of pool) cityCounts[u.city] = (cityCounts[u.city] || 0) + 1;
     const results = pool.filter(u => !city || normCity(u.city).includes(normCity(city)));
