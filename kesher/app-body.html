@@ -70,7 +70,9 @@ header.top {
   background: var(--bg); padding-inline: 38px 36px;
 }
 .search-field .clear { position: absolute; inset-inline-end: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none; width: 30px; height: 30px; border-radius: 8px; color: var(--muted); font-size: 18px; }
-.age-select { height: 42px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding-inline: 10px; }
+.filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.filter-select { width: 100%; min-width: 0; height: 40px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding-inline: 8px; font-size: 15px; }
+.filter-select.on { border-color: var(--accent); background: var(--accent-soft); font-weight: 700; }
 .chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .chips::-webkit-scrollbar { display: none; }
 .chip { flex: none; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-size: 14px; white-space: nowrap; }
@@ -354,7 +356,7 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
   // ---------- State ----------
   const KEY = 'kesher-state-v1';
   const fresh = () => ({
-    tab: 'discover', city: '', ageMax: 40, skipped: [], liked: {}, matches: {}, removedLikes: [], roses: 1,
+    tab: 'discover', city: '', ageMax: 40, relig: '', kidsF: '', skipped: [], liked: {}, matches: {}, removedLikes: [], roses: 1,
     me: { name: 'אני', age: 29, city: 'תל אביב', job: '', photos: [], prompts: [P('יום ראשון מושלם', ''), P('הדרך לכבוש אותי', ''), P('עובדה מוזרה עליי', '')] }
   });
   let S = fresh();
@@ -371,9 +373,21 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
   // City matching: free text, matched against the start or any part of the city name
   const cityMatches = (city, q) => !q || norm(city).includes(norm(q));
 
+  // Kids filter: values map to the profile's "kids" / "wantKids" fields
+  const KIDS_FILTERS = [
+    ['', 'ילדים: הכל'], ['none', 'בלי ילדים'], ['has', 'עם ילדים'], ['wants', 'רוצה ילדים']
+  ];
+  const kidsMatch = (p, f) => !f
+    || (f === 'none' && p.kids === 'אין לי ילדים')
+    || (f === 'has' && p.kids === 'יש לי ילדים')
+    || (f === 'wants' && ['רוצה', 'פתוח/ה לזה'].includes(p.wantKids));
+  const RELIG_OPTS = FIELDS.find(f => f.k === 'relig').opts;
+  const available = p => !S.skipped.includes(p.id) && !S.liked[p.id] && !S.matches[p.id];
+  const passesFilters = p => p.age <= S.ageMax && (!S.relig || p.relig === S.relig) && kidsMatch(p, S.kidsF);
+  const anyFilter = () => S.relig || S.kidsF || S.ageMax < 40;
+
   function deck() {
-    return PROFILES.filter(p => !S.skipped.includes(p.id) && !S.liked[p.id] && !S.matches[p.id]
-      && cityMatches(p.city, S.city) && p.age <= S.ageMax);
+    return PROFILES.filter(p => available(p) && passesFilters(p) && cityMatches(p.city, S.city));
   }
   const incomingLikes = () => PROFILES.filter(p => p.likesMe && !S.liked[p.id] && !S.matches[p.id] && !S.skipped.includes(p.id) && !S.removedLikes.includes(p.id));
 
@@ -390,7 +404,7 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
       return;
     }
     const counts = {};
-    PROFILES.forEach(p => { if (!S.skipped.includes(p.id) && !S.liked[p.id] && !S.matches[p.id]) counts[p.city] = (counts[p.city] || 0) + 1; });
+    PROFILES.forEach(p => { if (available(p) && passesFilters(p)) counts[p.city] = (counts[p.city] || 0) + 1; });
     const cityList = [...new Set(PROFILES.map(p => p.city))];
     top.innerHTML = `
       <div class="brand-row"><div class="brand">קֶ<span>שֶׁ</span>ר</div><span class="rose-count">חינם לגמרי</span></div>
@@ -401,8 +415,16 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
           <button class="clear" id="city-clear" aria-label="ניקוי החיפוש" ${S.city ? '' : 'hidden'}>×</button>
           <datalist id="city-list">${CITIES.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
         </div>
-        <select class="age-select" id="age-max" aria-label="גיל מקסימלי">
-          ${[30,35,40].map(a => `<option value="${a}" ${S.ageMax == a ? 'selected' : ''}>עד ${a}</option>`).join('')}
+      </div>
+      <div class="filters">
+        <select class="filter-select ${S.ageMax < 40 ? 'on' : ''}" id="age-max" aria-label="גיל מקסימלי">
+          ${[[40, 'גיל: הכל'], [30, 'עד 30'], [35, 'עד 35']].map(([a, l]) => `<option value="${a}" ${S.ageMax == a ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+        <select class="filter-select ${S.relig ? 'on' : ''}" id="f-relig-filter" aria-label="סינון לפי דת">
+          <option value="">דת: הכל</option>${RELIG_OPTS.map(o => `<option ${S.relig === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}
+        </select>
+        <select class="filter-select ${S.kidsF ? 'on' : ''}" id="f-kids-filter" aria-label="סינון לפי ילדים">
+          ${KIDS_FILTERS.map(([v, l]) => `<option value="${v}" ${S.kidsF === v ? 'selected' : ''}>${l}</option>`).join('')}
         </select>
       </div>
       <div class="chips" role="group" aria-label="ערים">
@@ -412,7 +434,9 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
     const q = $('#city-q');
     q.addEventListener('input', () => { S.city = q.value.trim(); save(); $('#city-clear').hidden = !S.city; syncChips(); renderView(); });
     $('#city-clear').onclick = () => { S.city = ''; save(); renderHeader(); renderView(); };
-    $('#age-max').onchange = e => { S.ageMax = +e.target.value; save(); renderView(); };
+    $('#age-max').onchange = e => { S.ageMax = +e.target.value; save(); renderHeader(); renderView(); };
+    $('#f-relig-filter').onchange = e => { S.relig = e.target.value; save(); renderHeader(); renderView(); };
+    $('#f-kids-filter').onchange = e => { S.kidsF = e.target.value; save(); renderHeader(); renderView(); };
     top.querySelectorAll('.chip').forEach(b => b.onclick = () => { S.city = b.dataset.city; save(); renderHeader(); renderView(); });
   }
   function syncChips() { document.querySelectorAll('.chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.city === S.city || (!b.dataset.city && !S.city)))); }
@@ -450,20 +474,23 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
   function renderDiscover(v) {
     const d = deck();
     const where = S.city ? `ב<b>${esc(S.city)}</b>` : 'בכל הערים';
+    const tags = [S.ageMax < 40 && 'עד גיל ' + S.ageMax, S.relig, S.kidsF && KIDS_FILTERS.find(k => k[0] === S.kidsF)[1]].filter(Boolean);
     if (!d.length) {
       v.innerHTML = `<div class="empty"><h2>אין כרגע עוד פרופילים ${S.city ? 'ב' + esc(S.city) : ''}</h2>
-        <p>נסו עיר אחרת או הרחיבו את טווח הגילאים. אפשר גם להתחיל מחדש את רשימת הפרופילים שדילגתם עליהם.</p>
+        <p>נסו עיר אחרת או נקו חלק מהסינונים (גיל, דת, ילדים). אפשר גם להחזיר את הפרופילים שדילגתם עליהם.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
           ${S.city ? '<button class="btn" id="all-cities">חיפוש בכל הערים</button>' : ''}
+          ${anyFilter() ? '<button class="btn" id="clear-filters">ניקוי סינונים</button>' : ''}
           <button class="btn ghost" id="reset-skips">הצגת פרופילים שדילגתי</button>
         </div></div>`;
       const a = $('#all-cities'); if (a) a.onclick = () => { S.city = ''; save(); renderHeader(); renderView(); };
+      const cf = $('#clear-filters'); if (cf) cf.onclick = () => { S.relig = ''; S.kidsF = ''; S.ageMax = 40; save(); renderHeader(); renderView(); };
       $('#reset-skips').onclick = () => { S.skipped = []; save(); renderHeader(); renderView(); };
       return;
     }
     const p = d[0];
     v.innerHTML = `
-      <p class="result-line">${d.length === 1 ? "פרופיל אחד" : d.length + " פרופילים"} ${where}</p>
+      <p class="result-line">${d.length === 1 ? "פרופיל אחד" : d.length + " פרופילים"} ${where}${tags.length ? ' · ' + esc(tags.join(', ')) : ''}</p>
       <article class="profile" aria-label="פרופיל של ${esc(p.name)}">
         <div class="p-head"><h1 class="p-name">${esc(p.name)}</h1>
           <button class="btn rose" id="send-rose">${I.rose.replace('<svg','<svg width="16" height="16" style="vertical-align:-3px"')} שליחת ורד</button></div>
