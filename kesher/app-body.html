@@ -94,6 +94,19 @@ main {
 .p-meta span { display: inline-flex; align-items: center; gap: 6px; }
 .p-meta svg { width: 16px; height: 16px; }
 .p-meta .city { color: var(--accent); font-weight: 700; }
+.details { background: var(--surface); border-radius: 16px; padding: 4px 16px; box-shadow: var(--shadow); }
+.details .vitals { display: flex; gap: 8px 18px; flex-wrap: wrap; padding: 14px 0; border-bottom: 1px solid var(--line); font-weight: 600; }
+.details .vitals span { display: inline-flex; align-items: center; gap: 6px; }
+.details .vitals svg { width: 18px; height: 18px; color: var(--muted); }
+.details dl { margin: 0; }
+.details .drow { display: grid; grid-template-columns: 9.5em 1fr; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.details .drow:last-child { border-bottom: 0; }
+.details dt { color: var(--muted); font-size: 14px; }
+.details dd { margin: 0; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.details .habits { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 0 14px; border-top: 1px solid var(--line); }
+.details .habit { background: var(--bg); border-radius: 999px; padding: 3px 10px; font-size: 14px; }
+.details .habit b { color: var(--muted); font-weight: 600; }
+.form h2 { font-family: var(--f-display); font-size: 20px; margin: 10px 0 0; }
 
 .photo {
   position: relative; aspect-ratio: 4 / 5; max-width: 100%; border-radius: 16px; overflow: hidden;
@@ -228,6 +241,7 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
     work: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>',
     ruler: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M8 7h4M9 11h3M8 15h4"/></svg>',
     cake: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M12 11V7M4 15c2 1 4 1 4-1 0 2 4 2 4 0 0 2 4 2 4 0 0 2 2 2 4 1"/></svg>',
+    star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8 6.6 19.7l1.1-6.1L3.2 9.4l6.1-.8z"/></svg>',
     discover: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 17h6"/></svg>',
     likes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20s-7-4.4-9.2-9A5 5 0 0 1 12 6a5 5 0 0 1 9.2 5c-2.2 4.6-9.2 9-9.2 9z"/></svg>',
     chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
@@ -291,6 +305,49 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
       photos: ['בספארי', 'בבית קפה בביאליק', 'בטיול בצפון'],
       prompts: [P('אני גאה ב...', 'שאני עדיין חברה של החברים מכיתה א׳'), P('השיר שתמיד יגרום לי לרקוד', 'משינה, תמיד משינה'), P('אנחנו נסתדר אם...', 'את/ה יודע/ת להקשיב באמת')] }
   ];
+  // Profile details, as on Hinge: vitals, background, and habits
+  const ZODIAC = ['טלה','שור','תאומים','סרטן','אריה','בתולה','מאזניים','עקרב','קשת','גדי','דלי','דגים'];
+  const FIELDS = [
+    { k: 'gender', label: 'מגדר', opts: ['אישה','גבר','א-בינארי'] },
+    { k: 'zodiac', label: 'מזל', opts: ZODIAC, vital: true },
+    { k: 'edu', label: 'השכלה', placeholder: 'למשל אוניברסיטת תל אביב' },
+    { k: 'from', label: 'עיר הולדת', placeholder: 'למשל אשקלון' },
+    { k: 'relig', label: 'דת ואמונה', opts: ['חילוני/ת','מסורתי/ת','דתי/ה','חרדי/ת','אחר'] },
+    { k: 'intent', label: 'מה אני מחפש/ת', opts: ['קשר רציני','קשר רציני, בלי לחץ','עוד לא בטוח/ה','משהו קליל'] },
+    { k: 'kids', label: 'ילדים', opts: ['אין לי ילדים','יש לי ילדים'] },
+    { k: 'wantKids', label: 'רוצה ילדים', opts: ['רוצה','לא רוצה','פתוח/ה לזה','עוד לא יודע/ת'] },
+    { k: 'langs', label: 'שפות', placeholder: 'למשל עברית, אנגלית' },
+    { k: 'pets', label: 'חיות מחמד', opts: ['כלב','חתול','כלב וחתול','אין','רוצה בעתיד'], habit: true },
+    { k: 'drink', label: 'אלכוהול', opts: ['לא שותה','לפעמים','כן'], habit: true },
+    { k: 'smoke', label: 'עישון', opts: ['לא מעשן/ת','לפעמים','כן'], habit: true },
+    { k: 'sport', label: 'ספורט', opts: ['לא','לפעמים','באופן קבוע'], habit: true },
+    { k: 'kosher', label: 'כשרות', opts: ['לא שומר/ת','שומר/ת בבית','שומר/ת'], habit: true }
+  ];
+  // [gender, zodiac, edu, from, relig, intent, kids, wantKids, langs, pets, drink, smoke, sport, kosher] + 3 more photo captions
+  const DETAILS = {
+    1:  ['אישה','אריה','בצלאל','חיפה','חילוני/ת','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית','כלב','לפעמים','לא מעשן/ת','באופן קבוע','לא שומר/ת', ['בסדנת קרמיקה','בטיול בפורטוגל','בבר ברחוב לבונטין']],
+    2:  ['גבר','גדי','האוניברסיטה העברית','ירושלים','מסורתי/ת','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית, ערבית','אין','לפעמים','לא מעשן/ת','לפעמים','שומר/ת בבית', ['בטיילת ארמון הנציב','עם החברים בשבת','בספרייה הלאומית']],
+    3:  ['אישה','קשת','הטכניון','קריית טבעון','חילוני/ת','עוד לא בטוח/ה','אין לי ילדים','פתוח/ה לזה','עברית, אנגלית, רוסית','חתול','לפעמים','לא מעשן/ת','באופן קבוע','לא שומר/ת', ['באיסלנד','בהאקתון','על אופניים בכרמל']],
+    4:  ['גבר','שור','המכללה לקולינריה','בת ים','חילוני/ת','קשר רציני, בלי לחץ','אין לי ילדים','רוצה','עברית, איטלקית','אין','כן','לפעמים','לפעמים','לא שומר/ת', ['בנאפולי','מגיש מנה','בחוף הצוק']],
+    5:  ['אישה','בתולה','אוניברסיטת בן גוריון','עומר','מסורתי/ת','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית','כלב','לא שותה','לא מעשן/ת','באופן קבוע','שומר/ת בבית', ['בחתונה של אחותי','ריצה בפארק נחל באר שבע','בחדר המיון אחרי משמרת']],
+    6:  ['גבר','מאזניים','אוניברסיטת בר אילן','גבעתיים','חילוני/ת','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית, צרפתית','כלב','לפעמים','לא מעשן/ת','באופן קבוע','לא שומר/ת', ['בפריז','עם הכלב, ביסקוויט','במשחק של הפועל']],
+    7:  ['אישה','דגים','שנקר','רעננה','חילוני/ת','עוד לא בטוח/ה','אין לי ילדים','פתוח/ה לזה','עברית, אנגלית, ספרדית','אין','כן','לא מעשן/ת','לפעמים','לא שומר/ת', ['בתערוכה שלי','בברצלונה','גלישת סאפ']],
+    8:  ['גבר','תאומים','הטכניון','עכו','חילוני/ת','משהו קליל','אין לי ילדים','עוד לא יודע/ת','עברית, אנגלית','חתול','לפעמים','לפעמים','לפעמים','לא שומר/ת', ['בעכו העתיקה','עם הדגם של הפרויקט','בים בדדו']],
+    9:  ['אישה','סרטן','האוניברסיטה העברית','בית שמש','דתי/ה','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית, יידיש','אין','לא שותה','לא מעשן/ת','לפעמים','שומר/ת', ['בחפירה ארכיאולוגית','עם החלות של שישי','בגן הבוטני']],
+    10: ['גבר','עקרב','המכללה למנהל','ראשון לציון','מסורתי/ת','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית','כלב','לפעמים','לא מעשן/ת','באופן קבוע','שומר/ת בבית', ['ליד השולחן שבניתי','בחוף ראשון','עם הכלבה, לולה']],
+    11: ['א-בינארי','טלה','וינגייט','נתניה','חילוני/ת','קשר רציני, בלי לחץ','אין לי ילדים','פתוח/ה לזה','עברית, אנגלית, אמהרית','חתול','לא שותה','לא מעשן/ת','באופן קבוע','לא שומר/ת', ['בהודו','בעמידת ראש','בשקיעה בחוף פולג']],
+    12: ['אישה','דלי','קורס מדריכי צלילה','קריית שמונה','חילוני/ת','משהו קליל','אין לי ילדים','עוד לא יודע/ת','עברית, אנגלית, גרמנית','כלב','כן','לפעמים','באופן קבוע','לא שומר/ת', ['בסיני','על הסירה','בתצפית הרי אדום']],
+    13: ['גבר','גדי','האוניברסיטה הפתוחה','לוד','מסורתי/ת','קשר רציני','יש לי ילדים','פתוח/ה לזה','עברית, אנגלית','חתול','לפעמים','לא מעשן/ת','באופן קבוע','שומר/ת בבית', ['עם הבת שלי בפארק','בסיום חצי מרתון','בכנס מוצר']],
+    14: ['אישה','תאומים','אוניברסיטת תל אביב','הוד השרון','חילוני/ת','עוד לא בטוח/ה','אין לי ילדים','עוד לא יודע/ת','עברית, אנגלית','אין','כן','לפעמים','לפעמים','לא שומר/ת', ['במערכת העיתון','בברלין','בתור להופעה']],
+    15: ['גבר','אריה','אוניברסיטת בן גוריון','דימונה','מסורתי/ת','קשר רציני, בלי לחץ','אין לי ילדים','רוצה','עברית, אנגלית, צרפתית','כלב','לפעמים','לא מעשן/ת','באופן קבוע','שומר/ת בבית', ['בזריחה במצפה רמון','עם הכלב, שוקו','במעבדה']],
+    16: ['אישה','מאזניים','אוניברסיטת בר אילן','רמת גן','חילוני/ת','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית','חתול','לפעמים','לא מעשן/ת','לפעמים','לא שומר/ת', ['בטיול בהרי האלפים','בהופעה של משינה','עם החתולה, מיצי']]
+  };
+  PROFILES.forEach(p => {
+    const d = DETAILS[p.id];
+    FIELDS.forEach((f, i) => { p[f.k] = d[i]; });
+    p.photos = p.photos.concat(d[FIELDS.length]);
+  });
+
   const CITIES = ['תל אביב','ירושלים','חיפה','באר שבע','רמת גן','הרצליה','ראשון לציון','נתניה','אילת','מודיעין','פתח תקווה','אשדוד','רחובות','כפר סבא','חולון','נצרת'];
   const REPLIES = ['היי! איזה כיף שכתבת', 'חחח בדיוק חשבתי על זה', 'נשמע מעולה, מתי נוח לך?', 'אז מה עוד את/ה אוהב/ת לעשות בעיר?', 'מסכים/ה לגמרי!'];
 
@@ -374,6 +431,22 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
       <button class="heart" data-kind="prompt" data-i="${i}" aria-label="לייק לתשובה: ${esc(pr.q)}">${I.heart}</button></div>`;
   }
 
+  function detailsHTML(p) {
+    const rows = FIELDS.filter(f => !f.habit && !f.vital && p[f.k]);
+    const habits = FIELDS.filter(f => f.habit && p[f.k]);
+    return `<section class="details" aria-label="פרטים">
+      <div class="vitals">
+        <span>${I.cake}${p.age}</span><span>${I.ruler}${p.height ? p.height + ' ס״מ' : ''}</span>
+        <span style="color:var(--accent)">${I.pin}${esc(p.city)}</span>${p.zodiac ? `<span>${I.star}${esc(p.zodiac)}</span>` : ''}
+      </div>
+      <dl>
+        ${p.job ? `<div class="drow"><dt>עיסוק</dt><dd>${esc(p.job)}</dd></div>` : ''}
+        ${rows.map(f => `<div class="drow"><dt>${f.label}</dt><dd>${esc(p[f.k])}</dd></div>`).join('')}
+      </dl>
+      ${habits.length ? `<div class="habits">${habits.map(f => `<span class="habit"><b>${f.label}:</b> ${esc(p[f.k])}</span>`).join('')}</div>` : ''}
+    </section>`;
+  }
+
   function renderDiscover(v) {
     const d = deck();
     const where = S.city ? `ב<b>${esc(S.city)}</b>` : 'בכל הערים';
@@ -394,18 +467,16 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
       <article class="profile" aria-label="פרופיל של ${esc(p.name)}">
         <div class="p-head"><h1 class="p-name">${esc(p.name)}</h1>
           <button class="btn rose" id="send-rose">${I.rose.replace('<svg','<svg width="16" height="16" style="vertical-align:-3px"')} שליחת ורד</button></div>
-        <div class="p-meta">
-          <span>${I.cake}${p.age}</span>
-          <span class="city">${I.pin}${esc(p.city)}</span>
-          <span>${I.work}${esc(p.job)}</span>
-          <span>${I.ruler}${p.height} ס״מ</span>
-        </div>
         ${photoHTML(p, 0, true)}
+        ${detailsHTML(p)}
         ${promptHTML(p, 0)}
         ${photoHTML(p, 1, true)}
-        ${promptHTML(p, 1)}
         ${photoHTML(p, 2, true)}
+        ${promptHTML(p, 1)}
+        ${photoHTML(p, 3, true)}
+        ${photoHTML(p, 4, true)}
         ${promptHTML(p, 2)}
+        ${photoHTML(p, 5, true)}
         <div class="skip-wrap"><button class="skip" id="skip" aria-label="דילוג על ${esc(p.name)}">${I.x}</button></div>
       </article>
       <p class="demo-note">קשר חינמית לגמרי: לייקים, ורדים, סינון לפי עיר וגיל, ורשימת מי שאהבו אותך פתוחים לכולם בלי הגבלה ובלי תשלום. הפרופילים לדוגמה בלבד, והנתונים נשמרים בדפדפן שלכם.</p>`;
@@ -517,7 +588,7 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
     const me = S.me;
     v.innerHTML = `<h1 class="section-title">הפרופיל שלי</h1><p class="section-sub">כך אחרים יראו אותך. העיר שלך קובעת את החיפוש ברירת המחדל.</p>
       <form class="form" id="me-form">
-        <div class="upload">${[0,1,2].map(i => `<label for="ph${i}">${me.photos[i] ? `<img src="${me.photos[i]}" alt="תמונה ${i+1}">` : 'הוספת תמונה'}<input id="ph${i}" type="file" accept="image/*" data-i="${i}"></label>`).join('')}</div>
+        <div class="upload">${[0,1,2,3,4,5].map(i => `<label for="ph${i}">${me.photos[i] ? `<img src="${me.photos[i]}" alt="תמונה ${i+1}">` : 'הוספת תמונה'}<input id="ph${i}" type="file" accept="image/*" data-i="${i}"></label>`).join('')}</div>
         <div class="two">
           <div class="field"><label for="me-name">שם</label><input id="me-name" value="${esc(me.name)}"></div>
           <div class="field"><label for="me-age">גיל</label><input id="me-age" type="number" min="18" max="99" value="${me.age}"></div>
@@ -526,6 +597,12 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
           <div class="field"><label for="me-city">עיר</label><input id="me-city" list="me-cities" value="${esc(me.city)}"><datalist id="me-cities">${CITIES.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
           <div class="field"><label for="me-job">עיסוק</label><input id="me-job" value="${esc(me.job)}" placeholder="למשל מורה"></div>
         </div>
+        <div class="field"><label for="me-height">גובה (ס״מ)</label><input id="me-height" type="number" min="120" max="230" value="${me.height || ''}"></div>
+        <h2>פרטים</h2>
+        <div class="two">${FIELDS.map(f => `<div class="field"><label for="f-${f.k}">${f.label}</label>${f.opts
+          ? `<select id="f-${f.k}"><option value="">לא צוין</option>${f.opts.map(o => `<option ${me[f.k] === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`
+          : `<input id="f-${f.k}" value="${esc(me[f.k] || '')}" placeholder="${esc(f.placeholder || '')}">`}</div>`).join('')}</div>
+        <h2>שאלות</h2>
         ${me.prompts.map((pr, i) => `<div class="field"><label for="pa${i}">${esc(pr.q)}</label><textarea id="pa${i}" placeholder="התשובה שלך">${esc(pr.a)}</textarea></div>`).join('')}
         <button class="btn">שמירת הפרופיל</button>
         <button type="button" class="btn ghost" id="reset-all">איפוס כל הנתונים</button>
@@ -546,6 +623,8 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
       me.name = $('#me-name').value.trim() || 'אני'; me.age = +$('#me-age').value || me.age;
       me.city = $('#me-city').value.trim(); me.job = $('#me-job').value.trim();
       me.prompts.forEach((pr, i) => pr.a = $('#pa' + i).value.trim());
+      me.height = +$('#me-height').value || 0;
+      FIELDS.forEach(f => { me[f.k] = $('#f-' + f.k).value.trim(); });
       S.city = me.city; save(); toast('הפרופיל נשמר. החיפוש מוגדר לעיר שלך');
     };
     let armed = false;
