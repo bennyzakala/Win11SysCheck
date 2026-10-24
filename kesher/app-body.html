@@ -1,0 +1,1421 @@
+<title>Kesher</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&family=Frank+Ruhl+Libre:wght@500;700&display=swap">
+<style>
+/* Layout: one calm phone-width column. Photos run edge to edge in rounded frames, prompts sit on white cards,
+   floating round buttons for like and skip, icon tab bar at the bottom. */
+:root {
+  --bg: #F6F5F8;
+  --surface: #FFFFFF;
+  --ink: #17151C;
+  --muted: #6F6A7A;
+  --line: #E8E5EE;
+  --accent: #6A3FD6;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #EFE9FD;
+  --rose: #D23C6E;
+  --rose-soft: #FCE8EF;
+  --mint: #2E9C7E;
+  --shadow-sm: 0 1px 2px rgb(23 21 28 / .06);
+  --shadow: 0 2px 6px rgb(23 21 28 / .06), 0 12px 32px rgb(23 21 28 / .08);
+  --match-a: #6A3FD6;
+  --match-b: #E0567F;
+  --f-ui: "Rubik", "Assistant", "Segoe UI", "Arial Hebrew", Arial, sans-serif;
+  --f-serif: "Frank Ruhl Libre", "David", "Times New Roman", serif;
+  --r: 18px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F0E13; --surface: #1A1820; --ink: #F3F1F7; --muted: #A49FB0; --line: #2D2A36;
+    --accent: #A98CFF; --accent-ink: #160F2B; --accent-soft: #2A2342; --rose: #FF7BA3; --rose-soft: #3B1D29; --mint: #5FD0AE;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / .4); --shadow: 0 2px 6px rgb(0 0 0 / .35), 0 12px 32px rgb(0 0 0 / .35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F0E13; --surface: #1A1820; --ink: #F3F1F7; --muted: #A49FB0; --line: #2D2A36;
+  --accent: #A98CFF; --accent-ink: #160F2B; --accent-soft: #2A2342; --rose: #FF7BA3; --rose-soft: #3B1D29; --mint: #5FD0AE;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / .4); --shadow: 0 2px 6px rgb(0 0 0 / .35), 0 12px 32px rgb(0 0 0 / .35);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-ui); font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2.5px solid var(--accent); outline-offset: 2px; }
+svg { flex: none; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.muted { color: var(--muted); }
+.small-text { font-size: 14px; margin: 0; }
+
+.app { max-width: 520px; margin: 0 auto; min-height: 100%; padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+header.top, main {
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+header.top { padding-block: 12px 4px; display: flex; flex-direction: column; gap: 12px; }
+header.top:empty { display: none; }
+main { padding-block: 8px 24px; }
+
+/* Brand */
+.brand { font-family: var(--f-serif); font-weight: 700; font-size: 30px; line-height: 1; letter-spacing: -.01em; display: inline-flex; align-items: flex-end; gap: 3px; }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-bottom: 4px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; }
+
+/* Search and chips */
+.search-field { position: relative; }
+.search-field > svg { position: absolute; inset-inline-start: 14px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; color: var(--muted); pointer-events: none; }
+.search-field input {
+  width: 100%; height: 48px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface);
+  padding-inline: 44px 44px; box-shadow: var(--shadow-sm); transition: border-color .15s, box-shadow .15s;
+}
+.search-field input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.search-field .clear { position: absolute; inset-inline-end: 6px; top: 50%; transform: translateY(-50%); border: 0; background: var(--bg); width: 34px; height: 34px; border-radius: 50%; color: var(--muted); display: grid; place-items: center; }
+.search-field .clear svg { width: 16px; height: 16px; }
+.chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-block: 2px 4px; margin-inline: -16px; padding-inline: 16px; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: none; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 14px; font-size: 14px; font-weight: 500; white-space: nowrap; transition: background .15s, color .15s; }
+.chip .n { color: var(--muted); font-variant-numeric: tabular-nums; margin-inline-start: 6px; font-size: 12px; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.chip[aria-pressed="true"] .n { color: inherit; opacity: .65; }
+.filter-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 7px 14px; font-weight: 500; font-size: 15px; }
+.filter-btn svg { width: 18px; height: 18px; }
+.filter-btn b { background: var(--accent); color: var(--accent-ink); border-radius: 999px; min-width: 20px; height: 20px; font-size: 12px; display: grid; place-items: center; padding-inline: 5px; }
+.filter-btn.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.result-line { font-size: 14px; color: var(--muted); margin: 4px 0 14px; }
+.result-line b { color: var(--ink); font-weight: 600; }
+
+/* Profile */
+.profile { display: flex; flex-direction: column; gap: 14px; }
+.p-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 2px 4px; }
+.p-name { font-size: 34px; font-weight: 700; margin: 0; line-height: 1.1; letter-spacing: -.01em; text-wrap: balance; }
+.icon-btn { border: 0; background: transparent; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; color: var(--ink); }
+.icon-btn:hover { background: var(--line); }
+.icon-btn svg { width: 24px; height: 24px; }
+
+.photo { position: relative; margin: 0; aspect-ratio: 4 / 5; max-width: 100%; border-radius: var(--r); overflow: hidden; background: var(--line); }
+.photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.prompt { position: relative; background: var(--surface); border-radius: var(--r); padding: 26px 22px 30px; box-shadow: var(--shadow-sm); }
+.prompt .q { font-size: 15px; font-weight: 500; margin: 0 0 10px; color: var(--ink); }
+.prompt .a { font-family: var(--f-serif); font-size: 28px; font-weight: 500; line-height: 1.3; margin: 0; padding-inline-end: 52px; text-wrap: pretty; }
+.like-btn {
+  position: absolute; inset-inline-end: 14px; bottom: 14px; width: 54px; height: 54px; border-radius: 50%;
+  border: 0; background: var(--surface); color: var(--accent); box-shadow: var(--shadow);
+  display: grid; place-items: center; transition: transform .18s cubic-bezier(.3,1.6,.5,1), background .15s;
+}
+.like-btn:hover { transform: scale(1.08); }
+.like-btn:active { transform: scale(.92); }
+.like-btn svg { width: 26px; height: 26px; }
+
+.vitals { background: var(--surface); border-radius: var(--r); box-shadow: var(--shadow-sm); overflow: hidden; }
+.vitals .strip { display: flex; overflow-x: auto; scrollbar-width: none; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.vitals .strip::-webkit-scrollbar { display: none; }
+.vitals .strip span { flex: none; display: inline-flex; align-items: center; gap: 7px; font-weight: 500; padding-inline: 14px; border-inline-start: 1px solid var(--line); white-space: nowrap; }
+.vitals .strip span:first-child { padding-inline-start: 0; border-inline-start: 0; }
+.vitals svg { width: 20px; height: 20px; color: var(--muted); }
+.vline { display: flex; align-items: center; gap: 12px; padding: 13px 18px; border-bottom: 1px solid var(--line); font-weight: 500; }
+.vline:last-child { border-bottom: 0; }
+.vline span { min-width: 0; overflow-wrap: anywhere; }
+
+.skip {
+  position: fixed; z-index: 4; inset-inline-start: max(20px, calc(50% - 240px)); bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  width: 62px; height: 62px; border-radius: 50%; border: 0; background: var(--surface); color: var(--ink); box-shadow: var(--shadow);
+  display: grid; place-items: center; transition: transform .18s cubic-bezier(.3,1.6,.5,1);
+}
+.skip:hover { transform: scale(1.06); }
+.skip:active { transform: scale(.92); }
+.skip svg { width: 26px; height: 26px; }
+
+/* Card transitions */
+.entering { animation: rise .35s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+.leave-skip { animation: out-skip .26s ease-in both; }
+.leave-like { animation: out-like .26s ease-in both; }
+@keyframes out-skip { to { opacity: 0; transform: translateX(40%) rotate(3deg); } }
+@keyframes out-like { to { opacity: 0; transform: translateX(-40%) rotate(-3deg); } }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 999px; padding: 12px 22px; font-weight: 600; font-size: 16px; transition: transform .12s, background .15s, opacity .15s; }
+.btn:active { transform: scale(.97); }
+.btn svg { width: 20px; height: 20px; }
+.btn.primary { background: var(--ink); color: var(--surface); }
+.btn.ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+.btn.text { background: none; color: var(--muted); padding-inline: 8px; }
+.btn.rose { background: var(--rose-soft); color: var(--rose); }
+.btn.danger { background: var(--rose); color: #fff; }
+.btn.ghost.danger { background: var(--rose-soft); color: var(--rose); border-color: transparent; }
+.danger-text { color: var(--rose) !important; }
+.btn.big { padding-block: 15px; font-size: 17px; width: 100%; }
+.btn.small { padding: 7px 14px; font-size: 14px; }
+.btn.light { background: #fff; color: #1B1430; }
+.light-text { color: rgb(255 255 255 / .85) !important; }
+.btn:disabled { opacity: .5; cursor: default; }
+.row-btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.row-btns .btn { flex: 1; min-width: 130px; }
+
+/* Empty and loading states */
+.empty { text-align: center; padding: 56px 16px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.empty-art { width: 84px; height: 84px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; margin-bottom: 4px; }
+.empty-art svg { width: 38px; height: 38px; }
+.empty h2 { font-family: var(--f-serif); font-size: 26px; margin: 0; text-wrap: balance; }
+.empty p { margin: 0; max-width: 32ch; color: var(--muted); }
+.loading { height: 60vh; display: grid; place-items: center; }
+.loading::after { content: ""; width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Section titles */
+.title { font-size: 30px; font-weight: 700; margin: 6px 0 4px; letter-spacing: -.01em; }
+.sub { color: var(--muted); margin: 0 0 14px; font-size: 15px; }
+.h2 { font-size: 22px; font-weight: 700; margin: 0; }
+.h3 { font-size: 18px; font-weight: 700; margin: 0; }
+.card { background: var(--surface); border-radius: var(--r); padding: 18px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 14px; }
+.card.quiet { background: transparent; box-shadow: none; padding-inline: 0; }
+
+/* Likes you grid */
+.like-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.like-tile { border: 0; padding: 0; background: var(--surface); border-radius: var(--r); overflow: hidden; text-align: start; display: flex; flex-direction: column; box-shadow: var(--shadow-sm); transition: transform .15s; }
+.like-tile:hover { transform: translateY(-2px); }
+.like-tile.has-rose { box-shadow: 0 0 0 2px var(--rose); }
+.tile-photo { position: relative; aspect-ratio: 4 / 5; background: var(--line); display: block; }
+.tile-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tile-rose { position: absolute; top: 8px; inset-inline-end: 8px; width: 32px; height: 32px; border-radius: 50%; background: var(--rose); color: #fff; display: grid; place-items: center; }
+.tile-rose svg { width: 18px; height: 18px; }
+.tile-name { font-weight: 700; padding: 10px 12px 0; }
+.tile-note { font-size: 13px; color: var(--muted); padding: 2px 12px 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.like-context { display: flex; gap: 10px; align-items: flex-start; background: var(--accent-soft); border-radius: 14px; padding: 12px 14px; }
+.like-context svg { width: 22px; height: 22px; color: var(--accent); margin-top: 2px; }
+.like-context.rose { background: var(--rose-soft); }
+.like-context.rose svg { color: var(--rose); }
+.like-context b { display: block; margin-top: 4px; }
+
+/* Matches */
+.new-matches { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 14px; scrollbar-width: none; }
+.nm { border: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 6px; font-weight: 500; font-size: 14px; padding: 0; }
+.list { display: flex; flex-direction: column; }
+.row { display: flex; gap: 14px; align-items: center; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 12px 2px; text-align: start; width: 100%; }
+.row .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.row .t1 { font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.row .t2 { font-size: 15px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.your-turn { font-size: 12px; font-weight: 600; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 8px; }
+.avatar { flex: none; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 20px; overflow: hidden; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.avatar.lg { width: 60px; height: 60px; font-size: 24px; }
+.avatar.xl { width: 96px; height: 96px; font-size: 38px; }
+.avatar.ring { box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--accent); }
+
+/* Chat */
+.chat-head { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 3; display: flex; align-items: center; gap: 6px; background: var(--bg); padding-block: 8px; margin-inline: -4px; }
+.chat-who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; border: 0; background: none; text-align: start; padding: 0; }
+.chat-who b { display: block; font-size: 17px; }
+.chat-who small { display: block; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-who > span:last-child { min-width: 0; }
+.chat { display: flex; flex-direction: column; gap: 6px; min-height: calc(100vh - 290px); min-height: calc(100dvh - 290px); padding-block: 8px; }
+.bubble { max-width: 78%; padding: 10px 15px; border-radius: 22px; font-size: 16px; overflow-wrap: anywhere; animation: rise .2s ease-out both; }
+.bubble.me { align-self: flex-start; background: var(--accent); color: var(--accent-ink); border-end-start-radius: 6px; }
+.bubble.them { align-self: flex-end; background: var(--surface); box-shadow: var(--shadow-sm); border-end-end-radius: 6px; }
+.bubble.ctx { align-self: center; background: transparent; color: var(--muted); font-size: 13px; text-align: center; max-width: 92%; display: flex; gap: 6px; align-items: center; animation: none; }
+.bubble.ctx svg { width: 16px; height: 16px; }
+.composer { position: sticky; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 8px; padding-block: 10px; background: var(--bg); }
+.composer input { flex: 1; min-width: 0; height: 50px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); padding-inline: 20px; }
+.composer input:focus { outline: none; border-color: var(--accent); }
+.send { width: 50px; height: 50px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; }
+.send svg { width: 22px; height: 22px; transform: scaleX(-1); }
+
+/* Forms */
+.form { display: flex; flex-direction: column; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field label { font-size: 13px; font-weight: 600; color: var(--muted); }
+.field input, .field textarea, .field select, .prompt-edit select, .prompt-edit textarea {
+  border: 1px solid var(--line); background: var(--bg); border-radius: 12px; padding: 11px 13px; width: 100%; min-width: 0;
+  transition: border-color .15s, box-shadow .15s;
+}
+.field input:focus, .field textarea:focus, .field select:focus, .prompt-edit select:focus, .prompt-edit textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 360px) { .two { grid-template-columns: 1fr; } }
+.prompt-edit { display: flex; flex-direction: column; gap: 6px; }
+.prompt-edit select { font-weight: 600; }
+.prompt-edit textarea { font-family: var(--f-serif); font-size: 19px; resize: vertical; }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; }
+.check input { margin-top: 3px; width: 20px; height: 20px; accent-color: var(--accent); }
+.form-error { margin: 0; color: var(--rose); font-weight: 600; }
+.notice { background: var(--rose-soft); color: var(--ink); border-radius: 14px; padding: 12px 16px; margin: 0 0 14px; font-weight: 500; }
+.sticky-save { position: sticky; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); z-index: 2; box-shadow: var(--shadow); }
+
+/* Auth */
+.auth { max-width: 440px; margin: 0 auto; padding-block: 20px 32px; display: flex; flex-direction: column; gap: 22px; }
+.auth-hero {
+  border-radius: 28px; padding: 40px 24px 34px; color: #fff; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px;
+  background: radial-gradient(120% 90% at 85% 0%, var(--match-b) 0%, transparent 60%), radial-gradient(120% 120% at 0% 100%, #3E2A8C 0%, transparent 60%), var(--match-a);
+}
+.auth-hero .brand { font-size: 52px; }
+.auth-hero .brand-dot { background: #fff; width: 11px; height: 11px; margin-bottom: 8px; }
+.auth-tag { margin: 0; font-size: 18px; line-height: 1.5; opacity: .95; }
+
+/* My profile */
+.me-card { display: flex; align-items: center; gap: 16px; margin: 6px 0 16px; }
+.me-card > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.meter { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.meter span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--match-b)); border-radius: inherit; }
+#view > .card, #view > .form > .card, #view > .notice { margin-bottom: 0; }
+#view > section.card { margin-bottom: 14px; }
+.upload { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.slot { position: relative; aspect-ratio: 4 / 5; max-width: 100%; border-radius: 14px; overflow: hidden; background: var(--bg); }
+.slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.empty-slot { border: 2px dashed var(--line); display: grid; place-items: center; color: var(--accent); cursor: pointer; transition: border-color .15s, background .15s; }
+.empty-slot:hover { border-color: var(--accent); background: var(--accent-soft); }
+.empty-slot svg { width: 28px; height: 28px; }
+.empty-slot.busy::after { content: ""; position: absolute; width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+.empty-slot.busy svg { display: none; }
+.empty-slot input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.slot-btn { position: absolute; top: 6px; border: 0; border-radius: 999px; background: rgb(0 0 0 / .55); color: #fff; font-size: 12px; font-weight: 600; padding: 3px 9px; backdrop-filter: blur(4px); }
+.slot-btn.del { inset-inline-end: 6px; width: 28px; height: 28px; padding: 0; display: grid; place-items: center; }
+.slot-btn.del svg { width: 14px; height: 14px; }
+.slot-btn.first { inset-inline-start: 6px; }
+.slot-tag { position: absolute; inset-inline-start: 6px; top: 6px; background: var(--accent); color: var(--accent-ink); border-radius: 999px; font-size: 12px; font-weight: 600; padding: 3px 9px; }
+
+/* Tab bar */
+nav.tabs {
+  position: fixed; inset: auto 0 0 0; z-index: 6; background: var(--surface); border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px));
+}
+nav.tabs .inner { max-width: 520px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); }
+nav.tabs button { border: 0; background: none; height: 66px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--muted); position: relative; font-size: 11px; font-weight: 500; }
+nav.tabs button > svg { width: 26px; height: 26px; }
+nav.tabs button[aria-current="page"] { color: var(--ink); }
+nav.tabs button[aria-current="page"] > svg { stroke-width: 2.4; }
+nav.tabs .tab-avatar { width: 28px; height: 28px; font-size: 13px; }
+nav.tabs button[aria-current="page"] .tab-avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+nav.tabs .badge { position: absolute; top: 9px; inset-inline-start: calc(50% + 6px); background: var(--rose); color: #fff; font-size: 11px; font-weight: 700; min-width: 19px; height: 19px; border-radius: 10px; display: grid; place-items: center; padding-inline: 5px; font-variant-numeric: tabular-nums; }
+
+/* Sheets */
+.sheet-bg { position: fixed; inset: 0; z-index: 20; background: rgb(15 12 24 / .5); display: flex; align-items: flex-end; justify-content: center; animation: fade .2s ease-out both; }
+@keyframes fade { from { opacity: 0; } }
+.sheet {
+  width: 100%; max-width: 520px; background: var(--bg); border-radius: 26px 26px 0 0; display: flex; flex-direction: column; gap: 14px;
+  padding-block: 10px calc(20px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: max(18px, env(safe-area-inset-right, 0px));
+  max-height: 90%; overflow-y: auto; animation: up .3s cubic-bezier(.2,.8,.2,1) both;
+}
+.sheet.tall { max-height: 94%; }
+@keyframes up { from { transform: translateY(40px); opacity: .4; } }
+.grab { width: 40px; height: 5px; border-radius: 3px; background: var(--line); align-self: center; margin-bottom: 4px; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; }
+.sheet-actions { display: flex; gap: 10px; position: sticky; bottom: 0; background: var(--bg); padding-top: 6px; flex-direction: column; }
+.sheet-actions:has(> .btn:nth-child(2):last-child) { flex-direction: row; }
+.sheet-actions > .btn { flex: 1; }
+.like-preview .photo { aspect-ratio: 1 / 1; }
+.like-preview .prompt { box-shadow: none; }
+.comment textarea { width: 100%; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); padding: 12px 16px; resize: none; }
+.comment textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.filter-group { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.filter-title { font-weight: 700; }
+.filter-group .field label { font-size: 13px; }
+
+/* Match screen */
+.match-screen {
+  position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; color: #fff; text-align: center;
+  padding: max(24px, env(safe-area-inset-top, 0px)) max(24px, env(safe-area-inset-right, 0px)) max(24px, env(safe-area-inset-bottom, 0px)) max(24px, env(safe-area-inset-left, 0px));
+  background: radial-gradient(90% 60% at 80% 10%, var(--match-b), transparent 70%), radial-gradient(90% 70% at 10% 90%, #3E2A8C, transparent 70%), var(--match-a);
+  animation: fade .25s ease-out both;
+}
+.match-inner { display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 360px; width: 100%; }
+.match-inner h2 { font-family: var(--f-serif); font-size: 54px; margin: 6px 0 0; line-height: 1; animation: pop .5s .1s cubic-bezier(.3,1.6,.5,1) both; }
+.match-inner p { margin: 0 0 14px; font-size: 18px; opacity: .92; }
+.pair { position: relative; display: flex; animation: pop .5s cubic-bezier(.3,1.6,.5,1) both; }
+.pair .avatar { width: 120px; height: 120px; font-size: 44px; box-shadow: 0 0 0 4px rgb(255 255 255 / .9); }
+.pair .avatar:first-child { transform: rotate(-6deg); }
+.pair .avatar + .avatar { margin-inline-start: -22px; transform: rotate(6deg); }
+.pair-heart { position: absolute; bottom: -12px; left: 50%; transform: translateX(-50%); width: 46px; height: 46px; border-radius: 50%; background: #fff; color: var(--match-b); display: grid; place-items: center; box-shadow: 0 6px 16px rgb(0 0 0 / .2); }
+.pair-heart svg { width: 24px; height: 24px; }
+@keyframes pop { from { transform: scale(.6); opacity: 0; } }
+
+.toast { position: fixed; z-index: 40; left: 50%; transform: translateX(-50%); bottom: calc(100px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--surface); padding: 11px 20px; border-radius: 999px; font-weight: 500; font-size: 15px; max-width: calc(100% - 32px); text-align: center; box-shadow: var(--shadow); animation: rise .25s ease-out both; }
+.demo-banner { font-size: 13px; color: var(--muted); text-align: center; margin: 22px 0 0; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* Accounts, legal links and reports review */
+.auth-hero.small { padding: 24px; }
+.auth-hero.small .brand { font-size: 40px; }
+.legal { text-align: center; font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+.legal a, .check a { color: inherit; text-decoration: underline; }
+.check a { color: var(--accent); }
+.report { background: var(--surface); border-radius: var(--r); padding: 16px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.report-meta { display: flex; gap: 10px; align-items: center; font-size: 13px; color: var(--muted); }
+.pill { background: var(--bg); border-radius: 999px; padding: 2px 10px; font-weight: 600; color: var(--ink); }
+.pill.hot { background: var(--rose-soft); color: var(--rose); }
+.report-reason { margin: 0; font-family: var(--f-serif); font-size: 19px; }
+.h3 svg { width: 20px; height: 20px; vertical-align: -3px; }
+
+</style>
+<div class="app" dir="rtl" lang="he">
+  <header class="top" id="top"></header>
+  <main id="view"><div class="loading" aria-label="טוען"></div></main>
+</div>
+<nav class="tabs" id="tabs-nav" dir="rtl" aria-label="ניווט ראשי" hidden><div class="inner" id="tabs"></div></nav>
+<div id="layer" dir="rtl"></div>
+<script>
+// Sample profiles and their drawn illustrations, used only by the demo build
+const SAMPLE = (() => {
+  const G = [
+    ['#0E5E58','#5FB8AE'], ['#B23A55','#F09AA9'], ['#3B4C8C','#8FA3E6'], ['#8A5A12','#E3B567'],
+    ['#4C2F6B','#A989D3'], ['#215C2E','#86C78F'], ['#7A2E1E','#E39780'], ['#1E5470','#7EC0DD']
+  ];
+  const P = (q, a) => ({ q, a });
+  const PROFILES = [
+    { id: 1, name: 'נועה', age: 28, city: 'תל אביב', job: 'מעצבת UX', height: 168, g: 0, likesMe: true,
+      photos: ['בחוף גורדון בשקיעה', 'בפסטיבל אוכל ביפו', 'עם הכלבה שלי, פיתה'],
+      prompts: [P('הדרך לכבוש אותי', 'ממליץ/ה לי על ספר טוב ואז באמת קורא/ת אותו איתי'), P('יום ראשון מושלם', 'קפה בנחלת בנימין, ריצה בפארק הירקון ופיצה בערב'), P('אני גאה ב...', 'שסיימתי מרתון ירושלים בלי ללכת אף פעם')] },
+    { id: 2, name: 'איתי', age: 31, city: 'ירושלים', job: 'מורה להיסטוריה', height: 182, g: 2, likesMe: false,
+      photos: ['בשוק מחנה יהודה', 'טיול במדבר יהודה', 'מנגן בגיטרה'],
+      prompts: [P('עובדה מוזרה עליי', 'אני יודע לזהות כל שכונה בירושלים לפי צורת האבנים'), P('אנחנו נסתדר אם...', 'את/ה אוהב/ת שקשוקה חריפה במיוחד'), P('הדייט הראשון האידיאלי', 'סיור לילי בעיר העתיקה וגלידה בעמק רפאים')] },
+    { id: 3, name: 'מאיה', age: 26, city: 'חיפה', job: 'מהנדסת תוכנה', height: 163, g: 4, likesMe: true,
+      photos: ['על הגג בהדר', 'בגנים הבהאיים', 'גלישה בבת גלים'],
+      prompts: [P('הדבר הכי ספונטני שעשיתי', 'קניתי כרטיס לאיסלנד ביום שלישי וטסתי ביום חמישי'), P('אני מחפשת', 'מישהו שצוחק מהבדיחות הגרועות שלי ומביא חדשות'), P('הנושא שאני יכולה לדבר עליו שעות', 'למה הכרמל הוא ההר הכי יפה בארץ')] },
+    { id: 4, name: 'עומר', age: 29, city: 'תל אביב', job: 'שף', height: 178, g: 6, likesMe: false,
+      photos: ['במטבח של המסעדה', 'בשוק הכרמל', 'אופניים ברוטשילד'],
+      prompts: [P('המנה שאבשל לך', 'פסטה עם עגבניות שרי צלויות ובזיליקום מהעציץ'), P('דגל ירוק', 'מי שמחזיר עגלה בסופר'), P('אני גאה ב...', 'שאמא שלי סוף סוף מודה שהחומוס שלי יותר טוב')] },
+    { id: 5, name: 'שירה', age: 30, city: 'באר שבע', job: 'רופאה מתמחה', height: 170, g: 1, likesMe: false,
+      photos: ['בעיר העתיקה של באר שבע', 'במכתש רמון', 'עם החברות'],
+      prompts: [P('הדרך לכבוש אותי', 'הודעת בוקר טוב אחרי משמרת לילה'), P('יום ראשון מושלם', 'שינה עד הצהריים ואז ג׳יפים בנגב'), P('הקטע שלי', 'אני מכירה כל כוכב בשמי המדבר')] },
+    { id: 6, name: 'דניאל', age: 33, city: 'רמת גן', job: 'עורך דין', height: 185, g: 3, likesMe: true,
+      photos: ['בפארק הלאומי', 'במשחק כדורסל', 'טיול בגליל'],
+      prompts: [P('עובדה מוזרה עליי', 'אני אוסף מפות ישנות של תל אביב'), P('אנחנו נסתדר אם...', 'גם את/ה חושב/ת שהוויכוח הכי טוב הוא על סרטים'), P('השיר שתמיד יגרום לי לרקוד', 'משהו של אריק איינשטיין, בלי בושה')] },
+    { id: 7, name: 'יעל', age: 27, city: 'הרצליה', job: 'צלמת', height: 165, g: 7, likesMe: false,
+      photos: ['במרינה של הרצליה', 'צילום זריחה', 'בגלריה'],
+      prompts: [P('הדייט הראשון האידיאלי', 'צילום שקיעה בחוף אכדיה ואז בירה קרה'), P('אני מחפשת', 'מישהו שלא מתבייש לבקש תמונה נוספת'), P('דגל ירוק', 'מי שמתעניין בתחביבים של אחרים')] },
+    { id: 8, name: 'אורי', age: 25, city: 'חיפה', job: 'סטודנט לארכיטקטורה', height: 180, g: 5, likesMe: false,
+      photos: ['בטכניון', 'בכרמל', 'מצייר בבית קפה'],
+      prompts: [P('הנושא שאני יכול לדבר עליו שעות', 'הבאוהאוס, ולמה הוא לא רק בתל אביב'), P('יום ראשון מושלם', 'טיול רגלי בנחל מערות ופלאפל בדרך חזרה'), P('אנחנו נסתדר אם...', 'את/ה מוכן/ה לעצור בכל בניין יפה ברחוב')] },
+    { id: 9, name: 'תמר', age: 32, city: 'ירושלים', job: 'חוקרת במוזיאון', height: 166, g: 4, likesMe: true,
+      photos: ['במוזיאון ישראל', 'בשכונת נחלאות', 'בתיאטרון'],
+      prompts: [P('הדרך לכבוש אותי', 'שאלה טובה על פסל שאף אחד לא שם לב אליו'), P('אני גאה ב...', 'שאני אופה חלות כל יום שישי כבר עשר שנים'), P('הקטע שלי', 'אני יודעת לקרוא כתב עברי עתיק')] },
+    { id: 10, name: 'יונתן', age: 30, city: 'ראשון לציון', job: 'מתכנת', height: 176, g: 2, likesMe: false,
+      photos: ['ביקב', 'רכיבת אופניים', 'עם האחיינים'],
+      prompts: [P('עובדה מוזרה עליי', 'בניתי לבד שולחן אוכל מעץ'), P('הדייט הראשון האידיאלי', 'ערב משחקי קופסה ופיצה'), P('דגל ירוק', 'מי שמדבר יפה למלצרים')] },
+    { id: 11, name: 'ליאור', age: 29, city: 'נתניה', job: 'מורה ליוגה', height: 172, g: 5, likesMe: true,
+      photos: ['על הצוק בנתניה', 'שיעור יוגה בחוף', 'בשוק'],
+      prompts: [P('יום ראשון מושלם', 'יוגה בזריחה ושקשוקה על הטיילת'), P('אני מחפש/ת', 'מישהו רגוע שאוהב גם להשתולל מדי פעם'), P('השיר שתמיד יגרום לי לרקוד', 'כל דבר של עומר אדם בחתונות')] },
+    { id: 12, name: 'רוני', age: 27, city: 'אילת', job: 'מדריכת צלילה', height: 169, g: 7, likesMe: false,
+      photos: ['בשונית האלמוגים', 'בהרי אילת', 'עם הצוות במועדון'],
+      prompts: [P('הדבר הכי ספונטני שעשיתי', 'עברתי לאילת אחרי סופ״ש אחד של צלילה'), P('הדרך לכבוש אותי', 'בוא/י לצלול איתי ונראה אם את/ה לא מתלהב/ת'), P('עובדה מוזרה עליי', 'אני מכירה דג אחד בשונית בשמו')] },
+    { id: 13, name: 'גיל', age: 34, city: 'מודיעין', job: 'מנהל מוצר', height: 181, g: 3, likesMe: false,
+      photos: ['בפארק ענבה', 'ריצת שטח', 'בבית עם החתול'],
+      prompts: [P('אני גאה ב...', 'שהחתול שלי מגיע כשקוראים לו'), P('יום ראשון מושלם', 'רכיבה בבן שמן ובראנץ׳ ארוך'), P('אנחנו נסתדר אם...', 'את/ה לא שונא/ת קמפינג')] },
+    { id: 14, name: 'הילה', age: 28, city: 'תל אביב', job: 'עיתונאית', height: 164, g: 1, likesMe: false,
+      photos: ['בפלורנטין', 'בהופעה בבארבי', 'בכיכר דיזנגוף'],
+      prompts: [P('הנושא שאני יכולה לדבר עליו שעות', 'מי ישלם על החומוס'), P('דגל ירוק', 'מי שקורא כתבות עד הסוף'), P('הדייט הראשון האידיאלי', 'הופעה קטנה ואז שיחה ארוכה על מה ששמענו')] },
+    { id: 15, name: 'אביב', age: 26, city: 'באר שבע', job: 'סטודנט להנדסה', height: 177, g: 6, likesMe: false,
+      photos: ['בבן גוריון', 'בשמורת עין עבדת', 'מבשל לחברים'],
+      prompts: [P('עובדה מוזרה עליי', 'אני יודע להכין מלוואח מאפס'), P('הדרך לכבוש אותי', 'תצטרף/י אליי לטיול זריחה במדבר'), P('אני מחפש', 'שותפה להרפתקאות ולסדרות')] },
+    { id: 16, name: 'מיכל', age: 31, city: 'רמת גן', job: 'פסיכולוגית', height: 167, g: 0, likesMe: false,
+      photos: ['בספארי', 'בבית קפה בביאליק', 'בטיול בצפון'],
+      prompts: [P('אני גאה ב...', 'שאני עדיין חברה של החברים מכיתה א׳'), P('השיר שתמיד יגרום לי לרקוד', 'משינה, תמיד משינה'), P('אנחנו נסתדר אם...', 'את/ה יודע/ת להקשיב באמת')] }
+  ];
+  // Profile details, as on Hinge: vitals, background, and habits
+  const ZODIAC = ['טלה','שור','תאומים','סרטן','אריה','בתולה','מאזניים','עקרב','קשת','גדי','דלי','דגים'];
+  const FIELDS = [
+    { k: 'gender', label: 'מגדר', opts: ['אישה','גבר','א-בינארי'] },
+    { k: 'zodiac', label: 'מזל', opts: ZODIAC, vital: true },
+    { k: 'edu', label: 'השכלה', placeholder: 'למשל אוניברסיטת תל אביב' },
+    { k: 'from', label: 'עיר הולדת', placeholder: 'למשל אשקלון' },
+    { k: 'relig', label: 'דת ואמונה', opts: ['חילוני/ת','מסורתי/ת','דתי/ה','חרדי/ת','אחר'] },
+    { k: 'intent', label: 'מה אני מחפש/ת', opts: ['קשר רציני','קשר רציני, בלי לחץ','עוד לא בטוח/ה','משהו קליל'] },
+    { k: 'kids', label: 'ילדים', opts: ['אין לי ילדים','יש לי ילדים'] },
+    { k: 'wantKids', label: 'רוצה ילדים', opts: ['רוצה','לא רוצה','פתוח/ה לזה','עוד לא יודע/ת'] },
+    { k: 'langs', label: 'שפות', placeholder: 'למשל עברית, אנגלית' },
+    { k: 'pets', label: 'חיות מחמד', opts: ['כלב','חתול','כלב וחתול','אין','רוצה בעתיד'], habit: true },
+    { k: 'drink', label: 'אלכוהול', opts: ['לא שותה','לפעמים','כן'], habit: true },
+    { k: 'smoke', label: 'עישון', opts: ['לא מעשן/ת','לפעמים','כן'], habit: true },
+    { k: 'sport', label: 'ספורט', opts: ['לא','לפעמים','באופן קבוע'], habit: true },
+    { k: 'kosher', label: 'כשרות', opts: ['לא שומר/ת','שומר/ת בבית','שומר/ת'], habit: true }
+  ];
+  // [gender, zodiac, edu, from, relig, intent, kids, wantKids, langs, pets, drink, smoke, sport, kosher] + 3 more photo captions
+  const DETAILS = {
+    1:  ['אישה','אריה','בצלאל','חיפה','חילוני/ת','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית','כלב','לפעמים','לא מעשן/ת','באופן קבוע','לא שומר/ת', ['בסדנת קרמיקה','בטיול בפורטוגל','בבר ברחוב לבונטין']],
+    2:  ['גבר','גדי','האוניברסיטה העברית','ירושלים','מסורתי/ת','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית, ערבית','אין','לפעמים','לא מעשן/ת','לפעמים','שומר/ת בבית', ['בטיילת ארמון הנציב','עם החברים בשבת','בספרייה הלאומית']],
+    3:  ['אישה','קשת','הטכניון','קריית טבעון','חילוני/ת','עוד לא בטוח/ה','אין לי ילדים','פתוח/ה לזה','עברית, אנגלית, רוסית','חתול','לפעמים','לא מעשן/ת','באופן קבוע','לא שומר/ת', ['באיסלנד','בהאקתון','על אופניים בכרמל']],
+    4:  ['גבר','שור','המכללה לקולינריה','בת ים','חילוני/ת','קשר רציני, בלי לחץ','אין לי ילדים','רוצה','עברית, איטלקית','אין','כן','לפעמים','לפעמים','לא שומר/ת', ['בנאפולי','מגיש מנה','בחוף הצוק']],
+    5:  ['אישה','בתולה','אוניברסיטת בן גוריון','עומר','מסורתי/ת','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית','כלב','לא שותה','לא מעשן/ת','באופן קבוע','שומר/ת בבית', ['בחתונה של אחותי','ריצה בפארק נחל באר שבע','בחדר המיון אחרי משמרת']],
+    6:  ['גבר','מאזניים','אוניברסיטת בר אילן','גבעתיים','חילוני/ת','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית, צרפתית','כלב','לפעמים','לא מעשן/ת','באופן קבוע','לא שומר/ת', ['בפריז','עם הכלב, ביסקוויט','במשחק של הפועל']],
+    7:  ['אישה','דגים','שנקר','רעננה','חילוני/ת','עוד לא בטוח/ה','אין לי ילדים','פתוח/ה לזה','עברית, אנגלית, ספרדית','אין','כן','לא מעשן/ת','לפעמים','לא שומר/ת', ['בתערוכה שלי','בברצלונה','גלישת סאפ']],
+    8:  ['גבר','תאומים','הטכניון','עכו','חילוני/ת','משהו קליל','אין לי ילדים','עוד לא יודע/ת','עברית, אנגלית','חתול','לפעמים','לפעמים','לפעמים','לא שומר/ת', ['בעכו העתיקה','עם הדגם של הפרויקט','בים בדדו']],
+    9:  ['אישה','סרטן','האוניברסיטה העברית','בית שמש','דתי/ה','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית, יידיש','אין','לא שותה','לא מעשן/ת','לפעמים','שומר/ת', ['בחפירה ארכיאולוגית','עם החלות של שישי','בגן הבוטני']],
+    10: ['גבר','עקרב','המכללה למנהל','ראשון לציון','מסורתי/ת','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית','כלב','לפעמים','לא מעשן/ת','באופן קבוע','שומר/ת בבית', ['ליד השולחן שבניתי','בחוף ראשון','עם הכלבה, לולה']],
+    11: ['א-בינארי','טלה','וינגייט','נתניה','חילוני/ת','קשר רציני, בלי לחץ','אין לי ילדים','פתוח/ה לזה','עברית, אנגלית, אמהרית','חתול','לא שותה','לא מעשן/ת','באופן קבוע','לא שומר/ת', ['בהודו','בעמידת ראש','בשקיעה בחוף פולג']],
+    12: ['אישה','דלי','קורס מדריכי צלילה','קריית שמונה','חילוני/ת','משהו קליל','אין לי ילדים','עוד לא יודע/ת','עברית, אנגלית, גרמנית','כלב','כן','לפעמים','באופן קבוע','לא שומר/ת', ['בסיני','על הסירה','בתצפית הרי אדום']],
+    13: ['גבר','גדי','האוניברסיטה הפתוחה','לוד','מסורתי/ת','קשר רציני','יש לי ילדים','פתוח/ה לזה','עברית, אנגלית','חתול','לפעמים','לא מעשן/ת','באופן קבוע','שומר/ת בבית', ['עם הבת שלי בפארק','בסיום חצי מרתון','בכנס מוצר']],
+    14: ['אישה','תאומים','אוניברסיטת תל אביב','הוד השרון','חילוני/ת','עוד לא בטוח/ה','אין לי ילדים','עוד לא יודע/ת','עברית, אנגלית','אין','כן','לפעמים','לפעמים','לא שומר/ת', ['במערכת העיתון','בברלין','בתור להופעה']],
+    15: ['גבר','אריה','אוניברסיטת בן גוריון','דימונה','מסורתי/ת','קשר רציני, בלי לחץ','אין לי ילדים','רוצה','עברית, אנגלית, צרפתית','כלב','לפעמים','לא מעשן/ת','באופן קבוע','שומר/ת בבית', ['בזריחה במצפה רמון','עם הכלב, שוקו','במעבדה']],
+    16: ['אישה','מאזניים','אוניברסיטת בר אילן','רמת גן','חילוני/ת','קשר רציני','אין לי ילדים','רוצה','עברית, אנגלית','חתול','לפעמים','לא מעשן/ת','לפעמים','לא שומר/ת', ['בטיול בהרי האלפים','בהופעה של משינה','עם החתולה, מיצי']]
+  };
+  PROFILES.forEach(p => {
+    const d = DETAILS[p.id];
+    FIELDS.forEach((f, i) => { p[f.k] = d[i]; });
+    p.photos = p.photos.concat(d[FIELDS.length]);
+  });
+
+
+  // ---------- Illustrations: a drawn character per profile, placed in a scene picked from the photo caption ----------
+  const SKIN = ['#F2D3B8', '#E8B996', '#C98E68', '#A86B47', '#7A4B2E', '#F5DCC8'];
+  const HAIR = ['#2B1E16', '#5A3A22', '#8C5A2B', '#C99A5B', '#1C1C1C', '#7A2E1E'];
+  function look(p) {
+    const id = p.id, fem = p.gender === 'אישה', nb = p.gender === 'א-בינארי';
+    return {
+      skin: SKIN[(id * 3) % SKIN.length], hair: HAIR[(id * 5) % HAIR.length], shirt: G[p.g][0], shirt2: G[p.g][1],
+      style: nb ? 'curly' : fem ? ['long', 'bun', 'long', 'curly'][id % 4] : ['short', 'curly', 'buzz', 'short'][id % 4],
+      beard: !fem && !nb && id % 3 === 0, glasses: id % 5 === 0
+    };
+  }
+  // Bust in local coordinates: origin at bottom centre, head centre at (0,-165)
+  function person(p) {
+    const L = look(p), h = L.hair;
+    const back = L.style === 'long' ? `<path d="M-74 -150C-84 -246 84 -246 74 -150L84 -62C40 -48-40 -48-84 -62Z" fill="${h}"/>`
+      : L.style === 'curly' ? [[-60,-120],[60,-120],[-66,-160],[66,-160]].map(([x,y]) => `<circle cx="${x}" cy="${y}" r="24" fill="${h}"/>`).join('') : '';
+    const top = {
+      long: `<path d="M-63 -160C-72 -248 72 -248 63 -160C46 -200-6 -214-63 -160Z" fill="${h}"/>`,
+      bun: `<circle cx="0" cy="-240" r="26" fill="${h}"/><path d="M-60 -172C-64 -240 64 -240 60 -172C40 -206-40 -206-60 -172Z" fill="${h}"/>`,
+      curly: [[-46,-206],[-18,-224],[14,-226],[44,-208],[-58,-180],[58,-180]].map(([x,y]) => `<circle cx="${x}" cy="${y}" r="24" fill="${h}"/>`).join(''),
+      short: `<path d="M-61 -178C-64 -242 64 -242 61 -178C48 -204-24 -214-61 -178Z" fill="${h}"/>`,
+      buzz: `<path d="M-59 -184C-60 -236 60 -236 59 -184C40 -206-40 -206-59 -184Z" fill="${h}" opacity=".85"/>`
+    }[L.style];
+    return `${back}
+      <path d="M-132 0C-132 -72-92 -98-42 -102H42C92 -98 132 -72 132 0Z" fill="${L.shirt}"/>
+      <path d="M-132 0C-132 -40-120 -60-104 -74L-90 0Z" fill="${L.shirt2}" opacity=".35"/>
+      <rect x="-22" y="-128" width="44" height="40" rx="10" fill="${L.skin}"/>
+      <path d="M-24 -102L0 -74L24 -102Z" fill="${L.skin}"/>
+      <circle cx="-58" cy="-160" r="12" fill="${L.skin}"/><circle cx="58" cy="-160" r="12" fill="${L.skin}"/>
+      <ellipse cx="0" cy="-165" rx="58" ry="66" fill="${L.skin}"/>
+      ${L.beard ? `<path d="M-56 -168C-56 -104-26 -98 0 -98S56 -104 56 -168C46 -134 24 -128 0 -130S-46 -134-56 -168Z" fill="${h}" opacity=".55"/>` : ''}
+      ${top}
+      <path d="M-32 -184h18M14 -184h18" stroke="${h}" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="-22" cy="-164" r="5.5" fill="#2A2320"/><circle cx="22" cy="-164" r="5.5" fill="#2A2320"/>
+      ${L.glasses ? `<g fill="none" stroke="#2A2320" stroke-width="3.5"><circle cx="-22" cy="-164" r="15"/><circle cx="22" cy="-164" r="15"/><path d="M-7 -165h14"/></g>` : ''}
+      <ellipse cx="-36" cy="-143" rx="9" ry="6" fill="#E46A6A" opacity=".28"/><ellipse cx="36" cy="-143" rx="9" ry="6" fill="#E46A6A" opacity=".28"/>
+      <path d="M-17 -136Q0 -121 17 -136" fill="none" stroke="#7A3B2E" stroke-width="4" stroke-linecap="round"/>`;
+  }
+  function pet(kind, x) {
+    if (kind === 'dog') return `<g transform="translate(${x} 500)">
+      <ellipse cx="0" cy="-40" rx="52" ry="36" fill="#C58B4E"/><circle cx="0" cy="-92" r="34" fill="#C58B4E"/>
+      <ellipse cx="-30" cy="-92" rx="11" ry="24" fill="#8A5A2B"/><ellipse cx="30" cy="-92" rx="11" ry="24" fill="#8A5A2B"/>
+      <circle cx="-11" cy="-96" r="4" fill="#2A2320"/><circle cx="11" cy="-96" r="4" fill="#2A2320"/><ellipse cx="0" cy="-82" rx="7" ry="5" fill="#2A2320"/></g>`;
+    return `<g transform="translate(${x} 500)">
+      <ellipse cx="0" cy="-36" rx="44" ry="32" fill="#7D7F86"/><circle cx="0" cy="-84" r="30" fill="#7D7F86"/>
+      <path d="M-26 -100L-22 -132L-4 -110ZM26 -100L22 -132L4 -110Z" fill="#7D7F86"/>
+      <circle cx="-10" cy="-88" r="4" fill="#E8D36A"/><circle cx="10" cy="-88" r="4" fill="#E8D36A"/><path d="M-4 -77h8l-4 4z" fill="#E59AA0"/></g>`;
+  }
+  const SCENES = [
+    [/מדבר|מכתש|נגב|רמון|עבדת|סיני|אדום|הרי אילת/, 'desert'],
+    [/חוף|ים|גלישה|סאפ|צלילה|שונית|סירה|מרינה|צוק|טיילת/, 'beach'],
+    [/בר |בבר|הופעה|פסטיבל|ברלין|פריז|ברצלונה|נאפולי|כיכר|רחוב|פלורנטין|העתיקה|שוק|פורטוגל|איסלנד|הודו|חתונה|משחק|רוטשילד/, 'city'],
+    [/מטבח|קפה|ספרייה|מוזיאון|גלריה|תערוכה|סדנת|מעבדה|כנס|בבית|שולחן|חדר|מערכת|חלות|מנה|האקתון|טכניון|קרמיקה|בן גוריון|דגם|גיטרה|יוגה|עמידת/, 'indoor'],
+    [/טיול|הר|כרמל|גליל|נחל|פארק|אלפים|גן|ריצה|אופניים|ענבה|יקב|ספארי|גג|זריחה|תצפית|שקיעה/, 'nature']
+  ];
+  function scene(kind, k) {
+    switch (kind) {
+      case 'beach': return `<rect width="400" height="500" fill="#F7D9C4"/><rect width="400" height="200" fill="#A9D4E6"/>
+        <circle cx="${90 + k * 40}" cy="150" r="46" fill="#FFE29A"/><rect y="270" width="400" height="90" fill="#3E8FB0"/>
+        <path d="M0 300C60 290 120 310 200 298S340 290 400 300V360H0Z" fill="#2F7896"/><rect y="350" width="400" height="150" fill="#EBCB98"/>`;
+      case 'desert': return `<rect width="400" height="500" fill="#F4B886"/><circle cx="300" cy="130" r="50" fill="#FFE8B0"/>
+        <path d="M0 300C90 240 170 250 250 300S360 280 400 260V500H0Z" fill="#D9874E"/><path d="M0 360C80 330 200 350 400 320V500H0Z" fill="#C06A38"/>`;
+      case 'city': return `<rect width="400" height="500" fill="#3D3A6B"/><circle cx="320" cy="90" r="30" fill="#F3E3B3"/>
+        ${[[0,180,70],[70,240,60],[130,160,80],[210,210,60],[270,140,70],[340,230,60]].map(([x,y,w]) => `<rect x="${x}" y="${y}" width="${w}" height="${500-y}" fill="#2A2850"/>` +
+          [0,1,2,3,4].map(r => `<rect x="${x+12}" y="${y+20+r*44}" width="12" height="16" fill="#F3C969" opacity="${(r+x)%3?'.85':'.25'}"/><rect x="${x+w-26}" y="${y+20+r*44}" width="12" height="16" fill="#F3C969" opacity="${(r+y)%3?'.25':'.85'}"/>`).join('')).join('')}`;
+      case 'indoor': return `<rect width="400" height="500" fill="#E9E2D6"/><rect y="390" width="400" height="110" fill="#C9B79C"/>
+        <rect x="${k%2?40:250}" y="70" width="110" height="140" rx="6" fill="#BFE0EA" stroke="#FFFFFF" stroke-width="8"/><path d="M${k%2?95:305} 70V210" stroke="#FFFFFF" stroke-width="6"/>
+        <rect x="${k%2?300:50}" y="300" width="44" height="60" rx="6" fill="#B0603E"/><ellipse cx="${k%2?322:72}" cy="290" rx="38" ry="44" fill="#4E8A5C"/>`;
+      case 'nature': return `<rect width="400" height="500" fill="#CFE7F1"/><circle cx="${80 + k * 50}" cy="110" r="36" fill="#FFF1C1"/>
+        <path d="M0 290C90 200 170 220 260 270S370 230 400 220V500H0Z" fill="#8DBF8A"/><path d="M0 360C100 320 260 350 400 310V500H0Z" fill="#5E9C61"/>
+        ${[[60,300],[330,270],[370,320]].map(([x,y]) => `<rect x="${x-5}" y="${y}" width="10" height="34" fill="#6B4A2E"/><circle cx="${x}" cy="${y-6}" r="26" fill="#3F7D48"/>`).join('')}`;
+      default: return `<rect width="400" height="500" fill="#D7EAE7"/><circle cx="320" cy="120" r="90" fill="#BFDCD7"/><circle cx="70" cy="380" r="120" fill="#C7E2DE"/>`;
+    }
+  }
+  const POSE = [[200, 1.15], [150, .85], [245, .95], [200, .72], [140, 1], [260, .8]];
+  function illus(p, i) {
+    const cap = p.photos[i] || '';
+    const kind = (SCENES.find(([re]) => re.test(cap)) || [0, 'plain'])[1];
+    const [cx, s] = POSE[i % POSE.length];
+    const petKind = /כלב/.test(cap) ? 'dog' : /חתול/.test(cap) ? 'cat' : '';
+    return `<svg viewBox="0 0 400 500" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      ${scene(kind, i)}<g transform="translate(${cx} 500) scale(${s})">${person(p)}</g>${petKind ? pet(petKind, cx < 200 ? 320 : 80) : ''}</svg>`;
+  }
+  const faceSVG = p => `<svg viewBox="-100 -262 200 200" aria-hidden="true"><rect x="-100" y="-262" width="200" height="200" fill="${G[p.g][1]}"/>${person(p)}</svg>`;
+  const INTENT = { 'קשר רציני': 'קשר ארוך טווח', 'קשר רציני, בלי לחץ': 'קשר ארוך, פתוח/ה גם לקצר', 'עוד לא בטוח/ה': 'עוד מגלה מה אני רוצה', 'משהו קליל': 'משהו קליל' };
+  const STATUS = { 13: 'גרוש/ה', 6: 'גרוש/ה', 16: 'פרוד/ה', 4: 'רווק/ה' };
+  const RELIG = { 9: 'דתי/ה לאומי/ת', 10: 'מסורתי/ת-דתי/ה', 11: 'רוחני/ת' };
+  const NOTES = { 1: 'אוקיי, הבדיחה הזאת הצחיקה אותי', 3: 'גם אני חושבת שהכרמל הכי יפה!', 6: '', 9: 'איזה פרופיל מקסים', 11: 'נראה שיש לנו הרבה במשותף' };
+  const dataUrl = s => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '));
+  const year = new Date().getFullYear();
+  return PROFILES.map(p => ({
+    id: p.id, name: p.name, birthdate: `${year - p.age - 1}-11-15`, city: p.city, job: p.job, height: p.height,
+    gender: p.gender, zodiac: p.zodiac, edu: p.edu, hometown: p.from, relig: RELIG[p.id] || p.relig, intent: INTENT[p.intent] || '',
+    status: STATUS[p.id] || 'רווק/ה', kids: p.kids, wantKids: p.wantKids, langs: p.langs, pets: p.pets, drink: p.drink, smoke: p.smoke, sport: p.sport, kosher: p.kosher,
+    prompts: p.prompts, photos: p.photos.map((cap, i) => dataUrl(illus(p, i))),
+    likesMe: p.likesMe, likeNote: NOTES[p.id] || '', likeRose: p.id === 9
+  }));
+})();
+
+// In-browser stand-in for the Kesher server, so the demo runs as a single page.
+// It answers the same /api routes as server.js, keeps its data in localStorage,
+// and fills the app with the drawn sample profiles.
+(() => {
+  'use strict';
+  const KEY = 'kesher-demo-v2';
+  const CHOICES = {
+    gender: ['אישה', 'גבר', 'א-בינארי'],
+    zodiac: ['טלה', 'שור', 'תאומים', 'סרטן', 'אריה', 'בתולה', 'מאזניים', 'עקרב', 'קשת', 'גדי', 'דלי', 'דגים'],
+    status: ['רווק/ה', 'גרוש/ה', 'פרוד/ה', 'אלמן/ה', 'בתהליך גירושין'],
+    relig: ['חילוני/ת', 'מסורתי/ת', 'מסורתי/ת-דתי/ה', 'דתי/ה לאומי/ת', 'דתי/ה', 'חרדי/ת', 'חוזר/ת בתשובה', 'רוחני/ת', 'אחר'],
+    intent: ['שותף/ה לחיים', 'קשר ארוך טווח', 'קשר ארוך, פתוח/ה גם לקצר', 'קשר קצר, פתוח/ה גם לארוך', 'משהו קליל', 'עוד מגלה מה אני רוצה'],
+    kids: ['אין לי ילדים', 'יש לי ילדים'],
+    wantKids: ['רוצה', 'לא רוצה', 'פתוח/ה לזה', 'עוד לא יודע/ת'],
+    pets: ['כלב', 'חתול', 'כלב וחתול', 'אין', 'רוצה בעתיד'],
+    drink: ['לא שותה', 'לפעמים', 'כן'],
+    smoke: ['לא מעשן/ת', 'לפעמים', 'כן'],
+    sport: ['לא', 'לפעמים', 'באופן קבוע'],
+    kosher: ['לא שומר/ת', 'שומר/ת בבית', 'שומר/ת']
+  };
+  const PROMPTS = ['הדרך לכבוש אותי', 'יום ראשון מושלם', 'אני גאה ב...', 'עובדה מוזרה עליי', 'אנחנו נסתדר אם...',
+    'הדייט הראשון האידיאלי', 'הדבר הכי ספונטני שעשיתי', 'אני מחפש/ת', 'הנושא שאני יכול/ה לדבר עליו שעות',
+    'דגל ירוק', 'השיר שתמיד יגרום לי לרקוד', 'המנה שאבשל לך', 'הקטע שלי'];
+  const REPLIES = ['היי! איזה כיף שכתבת', 'חחח בדיוק חשבתי על זה', 'נשמע מעולה, מתי נוח לך?', 'אז מה עוד את/ה אוהב/ת לעשות בעיר?', 'מסכים/ה לגמרי!', 'ספר/י עוד :)'];
+  const FIELDS = ['name', 'city', 'job', 'edu', 'hometown', 'langs', ...Object.keys(CHOICES)];
+
+  // The demo account starts signed in, with a drawn photo, so the app opens ready to browse
+  function fresh() {
+    const me = { id: 1000, email: 'demo@kesher.app', password: 'demo1234', name: 'אורח/ת', birthdate: '1995-06-01', city: 'תל אביב', gender: 'א-בינארי',
+      status: 'רווק/ה', prompts: [{ q: 'יום ראשון מושלם', a: 'קפה על הים, ספר טוב וארוחה עם חברים' }], photos: [], height: null };
+    // A neutral drawn portrait for the guest account; uploading a real photo replaces it
+    const guest = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 500"><rect width="400" height="500" fill="#EFE9FD"/><circle cx="330" cy="90" r="70" fill="#E3D8FB"/>'
+      + '<circle cx="200" cy="200" r="78" fill="#6A3FD6"/><path d="M60 500c0-110 64-170 140-170s140 60 140 170z" fill="#6A3FD6"/></svg>';
+    me.photos = [{ id: 1, url: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(guest) }];
+    return {
+      session: 1000, users: [me], nextId: 2000, nextPhoto: 10, nextMsg: 1,
+      likes: SAMPLE.filter(p => p.likesMe).map(p => ({ from: p.id, to: 1000, kind: p.likeNote ? 'prompt' : 'profile', idx: 0, note: p.likeNote, rose: p.likeRose, removed: false })),
+      skips: [], matches: [], messages: [], reports: []
+    };
+  }
+  let DB;
+  try { DB = JSON.parse(localStorage.getItem(KEY)) || fresh(); } catch (e) { DB = fresh(); }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) {} };
+
+  const people = () => [...SAMPLE, ...DB.users];
+  const byId = id => people().find(u => u.id === id);
+  const ageOf = b => { const d = new Date(b + 'T00:00:00'), n = new Date(); let a = n.getFullYear() - d.getFullYear(); if (n < new Date(n.getFullYear(), d.getMonth(), d.getDate())) a--; return a; };
+  const photosOf = u => (u.photos || []).map((p, i) => typeof p === 'string' ? { id: u.id * 10 + i, url: p } : p);
+  function pub(u) {
+    const out = { id: u.id, name: u.name, age: ageOf(u.birthdate), city: u.city, height: u.height || null, photos: photosOf(u), prompts: u.prompts || [] };
+    for (const k of [...Object.keys(CHOICES), 'job', 'edu', 'hometown', 'langs']) out[k] = u[k] || '';
+    return out;
+  }
+  const norm = s => String(s || '').replace(/[\s\-־"׳']/g, '').toLowerCase();
+  const pairKey = (a, b) => a < b ? [a, b] : [b, a];
+  class E extends Error { constructor(status, msg) { super(msg); this.status = status; } }
+  const fail = (s, m) => { throw new E(s, m); };
+  const me = () => { const u = DB.users.find(x => x.id === DB.session); if (!u) fail(401, 'צריך להתחבר'); return u; };
+
+  function hidden(id) {
+    return new Set([
+      ...DB.skips.filter(s => s.from === id).map(s => s.to),
+      ...DB.likes.filter(l => l.from === id).map(l => l.to),
+      ...DB.matches.filter(m => m.a === id || m.b === id).map(m => m.a === id ? m.b : m.a),
+      ...DB.reports.filter(r => r.from === id).map(r => r.to),
+      ...DB.reports.filter(r => r.to === id).map(r => r.from)
+    ]);
+  }
+  const kidsMatch = (u, f) => !f || (f === 'none' && u.kids === 'אין לי ילדים') || (f === 'has' && u.kids === 'יש לי ילדים') || (f === 'wants' && ['רוצה', 'פתוח/ה לזה'].includes(u.wantKids));
+
+  function cleanProfile(b) {
+    const out = {};
+    for (const k of FIELDS) if (b[k] !== undefined) {
+      const v = String(b[k]).trim();
+      if (CHOICES[k] && v && !CHOICES[k].includes(v)) fail(400, 'ערך לא תקין');
+      out[k] = v;
+    }
+    if (out.name === '' || out.city === '') fail(400, 'שם ועיר הם שדות חובה');
+    if (b.height !== undefined) {
+      if (b.height === null || b.height === '') out.height = null;
+      else { const h = Number(b.height); if (!Number.isInteger(h) || h < 120 || h > 230) fail(400, 'הגובה צריך להיות בין 120 ל-230 ס״מ'); out.height = h; }
+    }
+    if (b.prompts !== undefined) out.prompts = b.prompts.slice(0, 3).map(p => ({ q: String(p.q), a: String(p.a).trim().slice(0, 200) }));
+    return out;
+  }
+
+  // Downscale an uploaded photo so it fits in browser storage
+  const shrink = blob => new Promise(res => {
+    const url = URL.createObjectURL(blob), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 720 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      res(c.toDataURL('image/jpeg', .8));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); res(null); };
+    img.src = url;
+  });
+
+  const routes = [
+    ['GET', /^\/api\/options$/, () => ({ choices: CHOICES, prompts: PROMPTS, maxPhotos: 6 })],
+    ['POST', /^\/api\/register$/, (m, b) => {
+      const email = String(b.email || '').trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'כתובת האימייל לא תקינה');
+      if (String(b.password || '').length < 8) fail(400, 'הסיסמה צריכה להכיל לפחות 8 תווים');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(b.birthdate || '')) fail(400, 'תאריך הלידה לא תקין');
+      if (ageOf(b.birthdate) < 18) fail(400, 'ההרשמה מגיל 18 ומעלה');
+      if (DB.users.some(u => u.email === email)) fail(409, 'כבר קיים חשבון עם האימייל הזה');
+      const prof = cleanProfile(b);
+      if (!prof.name || !prof.city) fail(400, 'צריך למלא שם ועיר');
+      const u = { id: DB.nextId++, email, password: b.password, birthdate: b.birthdate, prompts: [], photos: [], ...prof };
+      DB.users.push(u); DB.session = u.id; save(); return { ok: true };
+    }],
+    ['POST', /^\/api\/login$/, (m, b) => {
+      const u = DB.users.find(x => x.email === String(b.email || '').trim().toLowerCase() && x.password === b.password);
+      if (!u) fail(401, 'האימייל או הסיסמה לא נכונים');
+      DB.session = u.id; save(); return { ok: true };
+    }],
+    ['POST', /^\/api\/logout$/, () => { DB.session = null; save(); return { ok: true }; }],
+    ['GET', /^\/api\/me$/, () => { const u = me(); return { ...pub(u), email: u.email, birthdate: u.birthdate }; }],
+    ['PUT', /^\/api\/me$/, (m, b) => { const u = me(); Object.assign(u, cleanProfile(b)); save(); return pub(u); }],
+    ['DELETE', /^\/api\/me$/, () => {
+      const u = me();
+      DB.users = DB.users.filter(x => x !== u);
+      DB.likes = DB.likes.filter(l => l.from !== u.id && l.to !== u.id);
+      DB.matches = DB.matches.filter(x => x.a !== u.id && x.b !== u.id);
+      DB.session = null; save(); return { ok: true };
+    }],
+    ['POST', /^\/api\/me\/photos$/, async (m, b) => {
+      const u = me();
+      if (u.photos.length >= 6) fail(400, 'אפשר להעלות עד 6 תמונות');
+      const file = b.get('photo'); const url = file && await shrink(file);
+      if (!url) fail(400, 'הקובץ אינו תמונה תקינה');
+      u.photos.push({ id: DB.nextPhoto++, url }); save(); return { photos: u.photos };
+    }],
+    ['DELETE', /^\/api\/me\/photos\/(\d+)$/, m => { const u = me(); u.photos = u.photos.filter(p => p.id !== +m[1]); save(); return { photos: u.photos }; }],
+    ['POST', /^\/api\/me\/photos\/(\d+)\/first$/, m => {
+      const u = me(), p = u.photos.find(x => x.id === +m[1]); if (!p) fail(404, 'התמונה לא נמצאה');
+      u.photos = [p, ...u.photos.filter(x => x !== p)]; save(); return { photos: u.photos };
+    }],
+    ['GET', /^\/api\/discover$/, (m, b, q) => {
+      const u = me(), hide = hidden(u.id);
+      const ageMin = +q.get('ageMin') || 18, ageMax = +q.get('ageMax') || 99;
+      const pool = people().filter(p => p.id !== u.id && photosOf(p).length && !hide.has(p.id))
+        .filter(p => { const a = ageOf(p.birthdate); return a >= ageMin && a <= ageMax; })
+        .filter(p => (!q.get('relig') || p.relig === q.get('relig')) && (!q.get('status') || p.status === q.get('status')) && kidsMatch(p, q.get('kids')));
+      const cityCounts = {}; pool.forEach(p => { cityCounts[p.city] = (cityCounts[p.city] || 0) + 1; });
+      const res = pool.filter(p => !q.get('city') || norm(p.city).includes(norm(q.get('city'))));
+      return { total: res.length, cityCounts, profiles: res.slice(0, 20).map(pub) };
+    }],
+    ['POST', /^\/api\/skip$/, (m, b) => { DB.skips.push({ from: me().id, to: +b.toId }); save(); return { ok: true }; }],
+    ['POST', /^\/api\/like$/, (m, b) => {
+      const u = me(), to = +b.toId, target = byId(to);
+      if (!target) fail(404, 'המשתמש לא נמצא');
+      DB.likes = DB.likes.filter(l => !(l.from === u.id && l.to === to));
+      const note = String(b.note || '').trim().slice(0, 140);
+      DB.likes.push({ from: u.id, to, kind: b.kind || 'profile', idx: +b.idx || 0, note, rose: !!b.rose, removed: false });
+      const theirs = DB.likes.find(l => l.from === to && l.to === u.id && !l.removed);
+      if (!theirs) { save(); return { match: false }; }
+      const [a, c] = pairKey(u.id, to);
+      let mt = DB.matches.find(x => x.a === a && x.b === c);
+      if (!mt) {
+        mt = { id: DB.matches.length + 1, a, b: c, ended: false }; DB.matches.push(mt);
+        if (theirs.note) DB.messages.push({ id: DB.nextMsg++, match: mt.id, from: to, body: theirs.note });
+        if (note) DB.messages.push({ id: DB.nextMsg++, match: mt.id, from: u.id, body: note });
+      }
+      save(); return { match: true, matchId: mt.id, profile: pub(target) };
+    }],
+    ['GET', /^\/api\/likes$/, () => {
+      const u = me(), hide = hidden(u.id), myPhotos = photosOf(u);
+      return DB.likes.filter(l => l.to === u.id && !l.removed && !hide.has(l.from) && byId(l.from)).sort((x, y) => y.rose - x.rose).map(l => ({
+        from: pub(byId(l.from)), kind: l.kind, idx: l.idx, note: l.note, rose: l.rose,
+        about: l.kind === 'photo' ? { photo: myPhotos[l.idx] || null } : l.kind === 'prompt' ? { prompt: u.prompts[l.idx] || null } : {}
+      }));
+    }],
+    ['POST', /^\/api\/likes\/(\d+)\/remove$/, m => {
+      const u = me(); DB.likes.forEach(l => { if (l.from === +m[1] && l.to === u.id) l.removed = true; });
+      DB.skips.push({ from: u.id, to: +m[1] }); save(); return { ok: true };
+    }],
+    ['GET', /^\/api\/matches$/, () => {
+      const u = me();
+      return DB.matches.filter(x => !x.ended && (x.a === u.id || x.b === u.id)).map(x => {
+        const msgs = DB.messages.filter(g => g.match === x.id), last = msgs[msgs.length - 1];
+        return { id: x.id, other: pub(byId(x.a === u.id ? x.b : x.a)), last: last ? { mine: last.from === u.id, body: last.body } : null, at: last ? last.id : 0 };
+      }).sort((p, q) => q.at - p.at);
+    }],
+    ['GET', /^\/api\/matches\/(\d+)\/messages$/, (m, b, q) => {
+      const u = me(), mt = DB.matches.find(x => x.id === +m[1] && !x.ended && (x.a === u.id || x.b === u.id));
+      if (!mt) fail(404, 'השיחה לא נמצאה');
+      return DB.messages.filter(g => g.match === mt.id && g.id > (+q.get('after') || 0)).map(g => ({ id: g.id, mine: g.from === u.id, body: g.body }));
+    }],
+    ['POST', /^\/api\/matches\/(\d+)\/messages$/, (m, b) => {
+      const u = me(), mt = DB.matches.find(x => x.id === +m[1] && !x.ended && (x.a === u.id || x.b === u.id));
+      if (!mt) fail(404, 'השיחה לא נמצאה');
+      const body = String(b.body || '').trim(); if (!body) fail(400, 'ההודעה ריקה');
+      const msg = { id: DB.nextMsg++, match: mt.id, from: u.id, body }; DB.messages.push(msg); save();
+      // Sample people answer after a moment
+      const other = mt.a === u.id ? mt.b : mt.a;
+      if (SAMPLE.some(p => p.id === other)) setTimeout(() => {
+        const n = DB.messages.filter(g => g.match === mt.id && g.from === other).length;
+        DB.messages.push({ id: DB.nextMsg++, match: mt.id, from: other, body: REPLIES[n % REPLIES.length] }); save();
+      }, 1800);
+      return { id: msg.id, mine: true, body };
+    }],
+    ['POST', /^\/api\/matches\/(\d+)\/unmatch$/, m => { const mt = DB.matches.find(x => x.id === +m[1]); if (mt) mt.ended = true; save(); return { ok: true }; }],
+    ['POST', /^\/api\/report$/, (m, b) => {
+      const u = me(); DB.reports.push({ from: u.id, to: +b.toId });
+      DB.matches.forEach(x => { if ((x.a === u.id && x.b === +b.toId) || (x.b === u.id && x.a === +b.toId)) x.ended = true; });
+      save(); return { ok: true };
+    }]
+  ];
+
+  routes.push(['POST', /^\/api\/password\/forgot$/, () => fail(503, 'בגרסת ההדגמה אין שליחת אימיילים. החשבון לדוגמה: demo@kesher.app עם הסיסמה demo1234')]);
+  window.KESHER_DEMO = true;
+
+  const realFetch = window.fetch.bind(window);
+  window.fetch = async (input, opts = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+    if (!url.pathname.startsWith('/api/')) return realFetch(input, opts);
+    const method = (opts.method || 'GET').toUpperCase();
+    const body = opts.body instanceof FormData ? opts.body : opts.body ? JSON.parse(opts.body) : {};
+    const json = (status, data) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
+    for (const [mth, re, fn] of routes) {
+      const m = mth === method && re.exec(url.pathname);
+      if (!m) continue;
+      try { return json(method === 'POST' && /register|messages$/.test(url.pathname) ? 201 : 200, await fn(m, body, url.searchParams)); }
+      catch (e) { return json(e.status || 500, { error: e.status ? e.message : 'משהו השתבש' }); }
+    }
+    return json(404, { error: 'לא נמצא' });
+  };
+})();
+
+(() => {
+  'use strict';
+  // ---------- Icons (24px line icons) ----------
+  const svg = (d, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${d}</svg>`;
+  const I = {
+    heart: svg('<path d="M12 20s-7-4.4-9.2-9A5 5 0 0 1 12 6a5 5 0 0 1 9.2 5c-2.2 4.6-9.2 9-9.2 9z"/>'),
+    heartFill: svg('<path d="M12 20s-7-4.4-9.2-9A5 5 0 0 1 12 6a5 5 0 0 1 9.2 5c-2.2 4.6-9.2 9-9.2 9z" fill="currentColor"/>'),
+    x: svg('<path d="M6 6l12 12M18 6L6 18"/>', 'stroke-width="2.4"'),
+    search: svg('<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>'),
+    sliders: svg('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>'),
+    more: svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>'),
+    back: svg('<path d="M9 5l7 7-7 7"/>'),
+    send: svg('<path d="M20 4L3 11l7 2 2 7z"/><path d="M10 13l10-9"/>'),
+    cake: svg('<rect x="4" y="11" width="16" height="9" rx="2"/><path d="M12 11V7M4 15c2 1 4 1 4-1 0 2 4 2 4 0 0 2 4 2 4 0 0 2 2 2 4 1"/>'),
+    person: svg('<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/>'),
+    ruler: svg('<path d="M12 3v18M8 7h4M9 11h3M8 15h4M9 19h3"/>'),
+    pin: svg('<path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>'),
+    ring: svg('<circle cx="12" cy="14" r="6"/><path d="M9 4h6l-3 4z"/>'),
+    star: svg('<path d="M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8 6.6 19.7l1.1-6.1L3.2 9.4l6.1-.8z"/>'),
+    work: svg('<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>'),
+    cap: svg('<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2 9 2 12 0v-5"/>'),
+    home: svg('<path d="M3 11l9-7 9 7v9H3z"/><path d="M10 20v-5h4v5"/>'),
+    book: svg('<path d="M4 5a2 2 0 0 1 2-2h14v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5"/>'),
+    target: svg('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1" fill="currentColor"/>'),
+    baby: svg('<circle cx="12" cy="7" r="3"/><path d="M7 21v-5a5 5 0 0 1 10 0v5M9 12l-3 3M15 12l3 3"/>'),
+    globe: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
+    paw: svg('<circle cx="7" cy="9" r="2"/><circle cx="17" cy="9" r="2"/><circle cx="10" cy="5" r="2"/><circle cx="14" cy="5" r="2"/><path d="M8 17c0-3 2-5 4-5s4 2 4 5-2 3-4 3-4 0-4-3z"/>'),
+    glass: svg('<path d="M7 3h10l-1 7a4 4 0 0 1-8 0z"/><path d="M12 14v7M8 21h8"/>'),
+    smoke: svg('<rect x="2" y="14" width="16" height="4" rx="1"/><path d="M21 14v4M18 4c0 3 3 3 3 6"/>'),
+    dumbbell: svg('<path d="M6 8v8M18 8v8M3 10v4M21 10v4M6 12h12"/>'),
+    food: svg('<path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 2-2 6 0 8v10"/>'),
+    discover: svg('<rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 17h6"/>'),
+    chat: svg('<path d="M4 5h16v11H9l-5 4z"/>'),
+    me: svg('<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/>'),
+    rose: svg('<path d="M12 3c2 0 4 1.5 4 4.5S14 12 12 12 8 10.5 8 7.5 10 3 12 3z" fill="currentColor"/><path d="M12 12v9M12 17c-2-2.5-5-2.5-6-2 1 2 3 3 6 2zM12 16c2-2 4.5-2 5.5-1.5-1 1.8-3 2.5-5.5 1.5z"/>'),
+    camera: svg('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
+    plus: svg('<path d="M12 5v14M5 12h14"/>', 'stroke-width="2.2"'),
+    shield: svg('<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>')
+  };
+  const CITIES = ['תל אביב','ירושלים','חיפה','באר שבע','רמת גן','הרצליה','ראשון לציון','נתניה','אילת','מודיעין','פתח תקווה','אשדוד','רחובות','כפר סבא','חולון','נצרת','גבעתיים','רעננה','הוד השרון','אשקלון'];
+  const LABELS = { gender: 'מגדר', status: 'סטטוס', zodiac: 'מזל', edu: 'השכלה', hometown: 'עיר הולדת', relig: 'דת ואמונה', intent: 'מה אני מחפש/ת', kids: 'ילדים', wantKids: 'רוצה ילדים', langs: 'שפות', pets: 'חיות מחמד', drink: 'אלכוהול', smoke: 'עישון', sport: 'ספורט', kosher: 'כשרות', job: 'עיסוק' };
+  // Hinge-style vitals: a scrolling strip of short facts, then one line per longer fact
+  const STRIP = [['age', 'cake'], ['gender', 'person'], ['height', 'ruler'], ['city', 'pin'], ['status', 'ring'], ['zodiac', 'star'], ['pets', 'paw'], ['drink', 'glass'], ['smoke', 'smoke'], ['sport', 'dumbbell'], ['kosher', 'food']];
+  const LINES = [['job', 'work'], ['edu', 'cap'], ['hometown', 'home'], ['relig', 'book'], ['intent', 'target'], ['kids', 'baby'], ['wantKids', 'baby'], ['langs', 'globe']];
+  const HABITS = ['pets', 'drink', 'smoke', 'sport', 'kosher'];
+  const KIDS_FILTERS = [['', 'הכל'], ['none', 'בלי ילדים'], ['has', 'עם ילדים'], ['wants', 'רוצה ילדים']];
+  const AGES = Array.from({ length: 63 }, (_, i) => i + 18);
+
+  // ---------- Helpers ----------
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const reduceMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const wait = ms => new Promise(r => setTimeout(r, reduceMotion() ? 0 : ms));
+  async function api(method, url, body, isForm) {
+    const opts = { method, headers: { 'X-Kesher': '1' }, credentials: 'same-origin' };
+    if (body && !isForm) { opts.headers['content-type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    if (isForm) opts.body = body;
+    const r = await fetch(url, opts);
+    const data = await r.json().catch(() => ({}));
+    if (r.status === 401 && url !== '/api/login' && url !== '/api/me') { showAuth('login'); throw new Error('צריך להתחבר מחדש'); }
+    if (!r.ok) throw new Error(data.error || 'משהו השתבש. נסו שוב');
+    return data;
+  }
+  function toast(msg) {
+    document.querySelectorAll('.toast').forEach(t => t.remove());
+    const t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg;
+    document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
+  }
+  const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } };
+  const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  const brand = `<div class="brand" aria-label="קשר">קֶשֶׁר<span class="brand-dot"></span></div>`;
+
+  // ---------- State ----------
+  let OPT = null, ME = null, tab = 'discover', chatWith = null, pollTimer = null, likesCount = 0;
+  const DEFAULT_F = { city: '', ageMin: 18, ageMax: 80, relig: '', kids: '', status: '' };
+  let F = { ...DEFAULT_F, ...load('kesher-filters-v2', {}) };
+  let DISC = { profiles: [], total: 0, cityCounts: {} };
+  const activeFilters = () => (F.ageMin > 18 || F.ageMax < 80 ? 1 : 0) + (F.relig ? 1 : 0) + (F.kids ? 1 : 0) + (F.status ? 1 : 0);
+
+  // ---------- Auth ----------
+  function showAuth(mode = 'register') {
+    stopPoll(); closeSheet();
+    $('#tabs-nav').hidden = true;
+    $('#top').innerHTML = '';
+    const v = $('#view');
+    v.innerHTML = `<div class="auth">
+      <div class="auth-hero">${brand}<p class="auth-tag">${mode === 'register' ? 'נבנה כדי שתמחקו אותו.<br>היכרויות אמיתיות, בחינם.' : 'טוב לראות אותך שוב.'}</p></div>
+      <form class="card form" id="auth-form" novalidate>
+        <h1 class="h2">${mode === 'register' ? 'יצירת חשבון' : 'התחברות'}</h1>
+        ${mode === 'register' ? `<div class="field"><label for="r-name">שם פרטי</label><input id="r-name" autocomplete="given-name" required maxlength="40"></div>` : ''}
+        <div class="field"><label for="r-email">אימייל</label><input id="r-email" type="email" autocomplete="email" required dir="ltr"></div>
+        <div class="field"><label for="r-pass">סיסמה${mode === 'register' ? ' (לפחות 8 תווים)' : ''}</label><input id="r-pass" type="password" autocomplete="${mode === 'register' ? 'new-password' : 'current-password'}" required dir="ltr"></div>
+        ${mode === 'register' ? `
+        <div class="two">
+          <div class="field"><label for="r-birth">תאריך לידה</label><input id="r-birth" type="date" required></div>
+          <div class="field"><label for="r-gender">מגדר</label><select id="r-gender">${OPT.choices.gender.map(g => `<option>${esc(g)}</option>`).join('')}</select></div>
+        </div>
+        <div class="field"><label for="r-city">עיר</label><input id="r-city" list="r-cities" required maxlength="40"><datalist id="r-cities">${CITIES.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+        <label class="check"><input type="checkbox" id="r-adult"><span>אני בן/בת 18 ומעלה, אעלה רק תמונות שלי, ואני מסכים/ה ${DEMO ? 'לתנאי השימוש ולמדיניות הפרטיות' : 'ל<a href="terms.html" target="_blank">תנאי השימוש</a> ול<a href="privacy.html" target="_blank">מדיניות הפרטיות</a>'}</span></label>` : ''}
+        <p class="form-error" id="auth-error" role="alert" hidden></p>
+        <button class="btn primary big" id="auth-submit">${mode === 'register' ? 'בואו נתחיל' : 'התחברות'}</button>
+        ${mode === 'login' ? '<button type="button" class="btn text" id="auth-forgot">שכחתי סיסמה</button>' : ''}
+        <button type="button" class="btn text" id="auth-switch">${mode === 'register' ? 'כבר יש לי חשבון' : 'עוד אין לי חשבון? להרשמה'}</button>
+      </form>${legalLinks()}</div>`;
+    $('#auth-switch').onclick = () => showAuth(mode === 'register' ? 'login' : 'register');
+    if (mode === 'login') $('#auth-forgot').onclick = showForgot;
+    $('#auth-form').onsubmit = async e => {
+      e.preventDefault();
+      const err = $('#auth-error'); err.hidden = true;
+      const btn = $('#auth-submit'); btn.disabled = true;
+      try {
+        if (mode === 'register') {
+          if (!$('#r-adult').checked) throw new Error('צריך לאשר את הגיל, תנאי השימוש ומדיניות הפרטיות');
+          await api('POST', '/api/register', {
+            name: $('#r-name').value, email: $('#r-email').value, password: $('#r-pass').value,
+            birthdate: $('#r-birth').value, gender: $('#r-gender').value, city: $('#r-city').value, acceptTerms: true
+          });
+        } else {
+          await api('POST', '/api/login', { email: $('#r-email').value, password: $('#r-pass').value });
+        }
+        await startApp();
+      } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
+    };
+  }
+
+  const DEMO = window.KESHER_DEMO === true; // the single-page demo has no separate legal pages
+  const legalLinks = () => DEMO ? '' : `<p class="legal"><a href="terms.html" target="_blank">תנאי שימוש</a> · <a href="privacy.html" target="_blank">מדיניות פרטיות</a></p>`;
+
+  // Small single-purpose screens shown before sign-in: forgot password, choose a new password
+  function authCard(inner) {
+    stopPoll(); closeSheet();
+    $('#tabs-nav').hidden = true; $('#top').innerHTML = '';
+    $('#view').innerHTML = `<div class="auth"><div class="auth-hero small">${brand}</div>${inner}${legalLinks()}</div>`;
+  }
+  function showForgot() {
+    authCard(`<form class="card form" id="forgot-form" novalidate><h1 class="h2">איפוס סיסמה</h1>
+      <p class="muted" style="margin:0">נשלח לך קישור לבחירת סיסמה חדשה.</p>
+      <div class="field"><label for="fg-email">אימייל</label><input id="fg-email" type="email" autocomplete="email" dir="ltr" required></div>
+      <p class="form-error" id="fg-error" role="alert" hidden></p>
+      <button class="btn primary big" id="fg-send">שליחת קישור</button>
+      <button type="button" class="btn text" id="fg-back">חזרה להתחברות</button></form>`);
+    $('#fg-back').onclick = () => showAuth('login');
+    $('#forgot-form').onsubmit = async e => {
+      e.preventDefault();
+      const err = $('#fg-error'); err.hidden = true;
+      try {
+        await api('POST', '/api/password/forgot', { email: $('#fg-email').value });
+        authCard(`<div class="card form"><h1 class="h2">בדקו את תיבת המייל</h1><p style="margin:0">אם יש חשבון עם הכתובת הזאת, שלחנו אליה קישור לאיפוס הסיסמה. הקישור בתוקף לשעה.</p>
+          <button class="btn ghost" id="fg-done">חזרה להתחברות</button></div>`);
+        $('#fg-done').onclick = () => showAuth('login');
+      } catch (x) { err.textContent = x.message; err.hidden = false; }
+    };
+  }
+  function showReset(token) {
+    authCard(`<form class="card form" id="reset-form" novalidate><h1 class="h2">בחירת סיסמה חדשה</h1>
+      <div class="field"><label for="rs-pass">סיסמה חדשה (לפחות 8 תווים)</label><input id="rs-pass" type="password" autocomplete="new-password" dir="ltr" required></div>
+      <p class="form-error" id="rs-error" role="alert" hidden></p>
+      <button class="btn primary big">שמירה והתחברות</button></form>`);
+    $('#reset-form').onsubmit = async e => {
+      e.preventDefault();
+      const err = $('#rs-error'); err.hidden = true;
+      try { await api('POST', '/api/password/reset', { token, password: $('#rs-pass').value }); await startApp(); toast('הסיסמה עודכנה'); }
+      catch (x) { err.textContent = x.message; err.hidden = false; }
+    };
+  }
+  const needsVerify = () => ME && ME.verifyRequired && !ME.emailVerified;
+
+  async function startApp() {
+    ME = await api('GET', '/api/me');
+    $('#tabs-nav').hidden = false;
+    setTab(ME.photos.length ? 'discover' : 'me');
+    refreshLikesCount();
+  }
+  const refreshLikesCount = () => api('GET', '/api/likes').then(l => { likesCount = l.length; renderTabs(); }).catch(() => {});
+
+  // ---------- Profile rendering ----------
+  function avatarHTML(p, cls = '') {
+    return `<span class="avatar ${cls}" aria-hidden="true">${p.photos[0] ? `<img src="${esc(p.photos[0].url)}" alt="">` : esc((p.name || '?')[0])}</span>`;
+  }
+  function photoHTML(p, i, hearts) {
+    const ph = p.photos[i];
+    if (!ph) return '';
+    return `<figure class="photo"><img src="${esc(ph.url)}" alt="תמונה ${i + 1} של ${esc(p.name)}" ${i ? 'loading="lazy"' : ''}>
+      ${hearts ? `<button class="like-btn" data-kind="photo" data-i="${i}" aria-label="לייק לתמונה ${i + 1}">${I.heart}</button>` : ''}</figure>`;
+  }
+  function promptHTML(p, i, hearts) {
+    const pr = p.prompts[i];
+    if (!pr || !pr.a) return '';
+    return `<div class="prompt"><p class="q">${esc(pr.q)}</p><p class="a">${esc(pr.a)}</p>
+      ${hearts ? `<button class="like-btn" data-kind="prompt" data-i="${i}" aria-label="לייק לתשובה: ${esc(pr.q)}">${I.heart}</button>` : ''}</div>`;
+  }
+  function vitalsHTML(p) {
+    const val = k => k === 'age' ? p.age : k === 'height' ? (p.height ? p.height + ' ס״מ' : '') : p[k];
+    const strip = STRIP.filter(([k]) => val(k));
+    const lines = LINES.filter(([k]) => p[k]);
+    return `<section class="vitals" aria-label="פרטים">
+      <div class="strip">${strip.map(([k, ic]) => `<span title="${LABELS[k] || ''}">${I[ic]}${esc(val(k))}</span>`).join('')}</div>
+      ${lines.map(([k, ic]) => `<div class="vline">${I[ic]}<span><span class="sr">${LABELS[k]}: </span>${k === 'wantKids' ? 'רוצה ילדים: ' : ''}${esc(p[k])}</span></div>`).join('')}
+    </section>`;
+  }
+  // Same rhythm as Hinge: photo, vitals, prompt, two photos, prompt, two photos, prompt, photo
+  function profileBody(p, hearts) {
+    return [photoHTML(p, 0, hearts), vitalsHTML(p), promptHTML(p, 0, hearts), photoHTML(p, 1, hearts), photoHTML(p, 2, hearts),
+      promptHTML(p, 1, hearts), photoHTML(p, 3, hearts), photoHTML(p, 4, hearts), promptHTML(p, 2, hearts), photoHTML(p, 5, hearts)].join('');
+  }
+
+  function sheet(html, label, cls = '') {
+    const L = $('#layer');
+    L.innerHTML = `<div class="sheet-bg" id="sheet-bg"><div class="sheet ${cls}" role="dialog" aria-modal="true" aria-label="${esc(label)}"><div class="grab" aria-hidden="true"></div>${html}</div></div>`;
+    $('#sheet-bg').onclick = e => { if (e.target.id === 'sheet-bg') closeSheet(); };
+    document.addEventListener('keydown', escClose);
+    return L;
+  }
+  function escClose(e) { if (e.key === 'Escape') closeSheet(); }
+  const closeSheet = () => { $('#layer').innerHTML = ''; document.removeEventListener('keydown', escClose); };
+
+  // Full profile in a sheet, with optional actions at the bottom
+  function viewProfile(p, actions = '') {
+    sheet(`<div class="sheet-head"><h2 class="p-name">${esc(p.name)}</h2><button class="icon-btn" id="sheet-close" aria-label="סגירה">${I.x}</button></div>
+      <div class="profile">${profileBody(p, false)}</div>${actions ? `<div class="sheet-actions">${actions}</div>` : ''}`, 'פרופיל של ' + p.name, 'tall');
+    $('#sheet-close').onclick = closeSheet;
+  }
+
+  // ---------- Discover header: city search, city chips, filters button ----------
+  function renderHeader() {
+    const top = $('#top');
+    if (tab !== 'discover') { top.innerHTML = `<div class="topbar">${brand}</div>`; return; }
+    const cities = Object.entries(DISC.cityCounts).sort((a, b) => b[1] - a[1]).map(([c]) => c);
+    const n = activeFilters();
+    top.innerHTML = `<div class="topbar">${brand}
+        <button class="filter-btn ${n ? 'on' : ''}" id="open-filters">${I.sliders}<span>סינון</span>${n ? `<b>${n}</b>` : ''}</button></div>
+      <div class="search-field">${I.search}
+        <input id="city-q" type="search" list="city-list" placeholder="באיזו עיר לחפש?" value="${esc(F.city)}" aria-label="חיפוש לפי עיר" autocomplete="off">
+        <button class="clear" id="city-clear" aria-label="ניקוי החיפוש" ${F.city ? '' : 'hidden'}>${I.x}</button>
+        <datalist id="city-list">${CITIES.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+      <div class="chips" role="group" aria-label="ערים">
+        <button class="chip" data-city="" aria-pressed="${!F.city}">כל הערים</button>
+        ${cities.map(c => `<button class="chip" data-city="${esc(c)}" aria-pressed="${F.city === c}">${esc(c)}<span class="n">${DISC.cityCounts[c]}</span></button>`).join('')}
+      </div>`;
+    let t;
+    $('#city-q').addEventListener('input', e => { F.city = e.target.value.trim(); clearTimeout(t); t = setTimeout(refreshDiscover, 300); });
+    $('#city-clear').onclick = () => { F.city = ''; refreshDiscover(); };
+    $('#open-filters').onclick = openFilters;
+    top.querySelectorAll('.chip').forEach(b => b.onclick = () => { F.city = b.dataset.city; refreshDiscover(); });
+  }
+
+  function openFilters() {
+    const sel = (id, label, opts, cur) => `<div class="field"><label for="${id}">${label}</label><select id="${id}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>`;
+    const any = list => [['', 'הכל'], ...list.map(o => [o, o])];
+    sheet(`<h2 class="h2">מה חשוב לך?</h2>
+      <div class="filter-group"><div class="filter-title">גיל</div>
+        <div class="two">${sel('fl-min', 'מגיל', AGES.map(a => [a, a]), F.ageMin)}${sel('fl-max', 'עד גיל', AGES.map(a => [a, a === 80 ? '80+' : a]), F.ageMax)}</div></div>
+      <div class="filter-group">${sel('fl-status', 'סטטוס', any(OPT.choices.status), F.status)}</div>
+      <div class="filter-group">${sel('fl-relig', 'דת ואמונה', any(OPT.choices.relig), F.relig)}</div>
+      <div class="filter-group">${sel('fl-kids', 'ילדים', KIDS_FILTERS, F.kids)}</div>
+      <div class="sheet-actions"><button class="btn ghost" id="fl-clear">ניקוי</button><button class="btn primary" id="fl-apply">הצגת תוצאות</button></div>`, 'סינון');
+    const min = $('#fl-min'), max = $('#fl-max');
+    // Keep the range valid: "from" never above "to"
+    min.onchange = () => { if (+min.value > +max.value) max.value = min.value; };
+    max.onchange = () => { if (+max.value < +min.value) min.value = max.value; };
+    $('#fl-clear').onclick = () => { Object.assign(F, { ...DEFAULT_F, city: F.city }); closeSheet(); refreshDiscover(); };
+    $('#fl-apply').onclick = () => {
+      Object.assign(F, { ageMin: +min.value, ageMax: +max.value, status: $('#fl-status').value, relig: $('#fl-relig').value, kids: $('#fl-kids').value });
+      closeSheet(); refreshDiscover();
+    };
+  }
+
+  async function refreshDiscover() {
+    store('kesher-filters-v2', F);
+    if (needsVerify()) { DISC = { profiles: [], total: 0, cityCounts: {} }; if (tab === 'discover') { renderHeader(); renderView(); } return; }
+    const qs = new URLSearchParams({ city: F.city, ageMin: F.ageMin, ageMax: F.ageMax >= 80 ? 99 : F.ageMax, relig: F.relig, kids: F.kids, status: F.status });
+    try { DISC = await api('GET', '/api/discover?' + qs); } catch (e) { toast(e.message); }
+    if (tab !== 'discover') return;
+    const focused = document.activeElement && document.activeElement.id === 'city-q';
+    renderHeader(); renderView();
+    if (focused) { const q = $('#city-q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  }
+
+  // ---------- Discover ----------
+  function filterSummary() {
+    const parts = [];
+    if (F.ageMin > 18 || F.ageMax < 80) parts.push(F.ageMax >= 80 ? `מגיל ${F.ageMin}` : `גילאי ${F.ageMin}–${F.ageMax}`);
+    if (F.status) parts.push(F.status);
+    if (F.relig) parts.push(F.relig);
+    if (F.kids) parts.push(KIDS_FILTERS.find(k => k[0] === F.kids)[1]);
+    return parts;
+  }
+  function renderDiscover(v) {
+    if (needsVerify()) {
+      v.innerHTML = `<div class="empty"><div class="empty-art">${I.send}</div><h2>נשאר רק לאמת את האימייל</h2>
+        <p>שלחנו קישור אימות ל-<b dir="ltr">${esc(ME.email)}</b>. אחרי האימות תוכלו לראות אנשים, לקבל לייקים ולהתכתב. בינתיים אפשר למלא את הפרופיל.</p>
+        <div class="row-btns"><button class="btn primary" id="vf-check">כבר אימתתי</button><button class="btn ghost" id="vf-resend">שליחה מחדש</button></div>
+        <button class="btn text" id="vf-me">למילוי הפרופיל</button></div>`;
+      $('#vf-check').onclick = async () => { ME = await api('GET', '/api/me'); if (needsVerify()) toast('עוד לא ראינו אימות. בדקו גם בתיקיית הספאם'); setTab('discover'); };
+      $('#vf-resend').onclick = async () => { try { await api('POST', '/api/verify/resend'); toast('שלחנו קישור חדש'); } catch (e) { toast(e.message); } };
+      $('#vf-me').onclick = () => setTab('me');
+      return;
+    }
+    if (!ME.photos.length) {
+      v.innerHTML = `<div class="empty"><div class="empty-art">${I.camera}</div><h2>קודם מעלים תמונה</h2><p>כדי לראות אחרים ולהופיע בחיפוש צריך לפחות תמונה אחת בפרופיל.</p><button class="btn primary" id="go-me">להוספת תמונות</button></div>`;
+      $('#go-me').onclick = () => setTab('me'); return;
+    }
+    const p = DISC.profiles[0];
+    const parts = filterSummary();
+    if (!p) {
+      v.innerHTML = `<div class="empty"><div class="empty-art">${I.search}</div><h2>אין כרגע עוד פרופילים ${F.city ? 'ב' + esc(F.city) : ''}</h2>
+        <p>נסו עיר אחרת או הרחיבו את הסינון. אנשים חדשים מצטרפים כל הזמן.</p>
+        <div class="row-btns">
+          ${F.city ? '<button class="btn primary" id="all-cities">חיפוש בכל הערים</button>' : ''}
+          ${activeFilters() ? '<button class="btn ghost" id="clear-filters">ניקוי סינון</button>' : ''}
+        </div></div>`;
+      const a = $('#all-cities'); if (a) a.onclick = () => { F.city = ''; refreshDiscover(); };
+      const c = $('#clear-filters'); if (c) c.onclick = () => { Object.assign(F, { ...DEFAULT_F, city: F.city }); refreshDiscover(); };
+      return;
+    }
+    v.innerHTML = `<p class="result-line">${DISC.total === 1 ? 'פרופיל אחד' : DISC.total + ' פרופילים'} ${F.city ? `ב<b>${esc(F.city)}</b>` : 'בכל הערים'}${parts.length ? ' · ' + esc(parts.join(' · ')) : ''}</p>
+      <article class="profile entering" id="card" aria-label="פרופיל של ${esc(p.name)}">
+        <div class="p-head"><h1 class="p-name">${esc(p.name)}</h1><button class="icon-btn" id="p-more" aria-label="אפשרויות">${I.more}</button></div>
+        ${profileBody(p, true)}
+      </article>
+      <button class="skip" id="skip" aria-label="דילוג על ${esc(p.name)}">${I.x}</button>`;
+    v.querySelectorAll('.like-btn').forEach(b => b.onclick = () => openLike(p, b.dataset.kind, +b.dataset.i));
+    $('#skip').onclick = async () => {
+      $('#skip').disabled = true;
+      api('POST', '/api/skip', { toId: p.id }).catch(e => toast(e.message));
+      await leave('left'); nextProfile();
+    };
+    $('#p-more').onclick = () => {
+      sheet(`<h2 class="h2">${esc(p.name)}</h2><button class="btn ghost" id="pm-report">${I.shield} דיווח וחסימה</button><button class="btn text" id="pm-close">סגירה</button>`, 'אפשרויות');
+      $('#pm-close').onclick = closeSheet; $('#pm-report').onclick = () => openReport(p, null);
+    };
+  }
+  async function leave(dir) {
+    const card = $('#card'); if (!card) return;
+    card.classList.add(dir === 'left' ? 'leave-skip' : 'leave-like');
+    await wait(260);
+  }
+  function nextProfile() {
+    DISC.profiles.shift(); DISC.total = Math.max(0, DISC.total - 1);
+    window.scrollTo({ top: 0 });
+    if (!DISC.profiles.length) refreshDiscover(); else renderView();
+  }
+
+  // Like sheet: the liked photo or answer, an optional comment, and a choice of like or rose
+  function openLike(p, kind, i) {
+    const preview = kind === 'photo' ? photoHTML(p, i, false) : `<div class="prompt"><p class="q">${esc(p.prompts[i].q)}</p><p class="a">${esc(p.prompts[i].a)}</p></div>`;
+    sheet(`<div class="like-preview">${preview}</div>
+      <div class="comment"><textarea id="like-note" maxlength="140" rows="2" placeholder="הוסיפו תגובה"></textarea></div>
+      <div class="sheet-actions"><button class="btn rose" id="like-rose">${I.rose} ורד</button><button class="btn primary" id="like-send">${I.heartFill} שליחת לייק</button></div>`, 'שליחת לייק ל' + p.name);
+    $('#like-note').focus();
+    const send = async rose => {
+      $('#like-send').disabled = $('#like-rose').disabled = true;
+      try {
+        const r = await api('POST', '/api/like', { toId: p.id, kind, idx: i, note: $('#like-note').value, rose });
+        closeSheet();
+        if (tab === 'discover') { await leave('right'); nextProfile(); }
+        if (r.match) showMatch(r.profile, r.matchId); else toast(rose ? `שלחת ורד ל${p.name}` : `הלייק נשלח ל${p.name}`);
+      } catch (e) { toast(e.message); $('#like-send').disabled = $('#like-rose').disabled = false; }
+    };
+    $('#like-send').onclick = () => send(false);
+    $('#like-rose').onclick = () => send(true);
+  }
+
+  function showMatch(p, matchId) {
+    const L = $('#layer');
+    L.innerHTML = `<div class="match-screen" role="dialog" aria-modal="true" aria-label="התאמה חדשה">
+      <div class="match-inner"><div class="pair">${avatarHTML(ME, 'xl')}${avatarHTML(p, 'xl')}<span class="pair-heart">${I.heartFill}</span></div>
+      <h2>יש קשר!</h2><p>גם ${esc(p.name)} אהב/ה אותך. מי כותב/ת ראשון/ה?</p>
+      <button class="btn light big" id="m-chat">שליחת הודעה</button><button class="btn text light-text" id="m-later">להמשיך לגלות</button></div></div>`;
+    $('#m-later').onclick = closeSheet;
+    $('#m-chat').onclick = () => { closeSheet(); chatWith = { id: matchId, other: p }; setTab('matches'); };
+  }
+
+  function openReport(p, matchId) {
+    sheet(`<h2 class="h2">דיווח על ${esc(p.name)}</h2>
+      <p class="muted">אחרי הדיווח לא תראו זה את זה יותר, וכל שיחה ביניכם תיסגר.</p>
+      <div class="field"><label for="rep-reason">מה קרה?</label>
+        <select id="rep-reason"><option>פרופיל מזויף או תמונות של מישהו אחר</option><option>הטרדה או התנהגות פוגענית</option><option>מתחת לגיל 18</option><option>ספאם או ניסיון הונאה</option><option>אחר</option></select></div>
+      <div class="sheet-actions"><button class="btn ghost" id="rep-cancel">ביטול</button><button class="btn danger" id="rep-send">דיווח וחסימה</button></div>`, 'דיווח');
+    $('#rep-cancel').onclick = closeSheet;
+    $('#rep-send').onclick = async () => {
+      try {
+        await api('POST', '/api/report', { toId: p.id, reason: $('#rep-reason').value });
+        closeSheet(); toast('הדיווח התקבל. לא תראו זה את זה יותר');
+        if (matchId) { chatWith = null; stopPoll(); renderView(); } else if (tab === 'discover') nextProfile(); else renderView();
+      } catch (e) { toast(e.message); }
+    };
+  }
+
+  // ---------- Likes you ----------
+  async function renderLikes(v) {
+    v.innerHTML = '<div class="loading" aria-label="טוען"></div>';
+    let likes = [];
+    try { likes = await api('GET', '/api/likes'); } catch (e) { v.innerHTML = `<p class="form-error">${esc(e.message)}</p>`; return; }
+    likesCount = likes.length; renderTabs();
+    if (tab !== 'likes') return;
+    if (!likes.length) {
+      v.innerHTML = `<div class="empty"><div class="empty-art">${I.heart}</div><h2>עוד אין לייקים</h2><p>פרופיל עם כמה תמונות ותשובות לשאלות מקבל הרבה יותר לייקים.</p><button class="btn primary" id="go-me">לשיפור הפרופיל</button></div>`;
+      $('#go-me').onclick = () => setTab('me'); return;
+    }
+    v.innerHTML = `<h1 class="title">אהבו אותך</h1><p class="sub">${likes.length === 1 ? 'מישהו אחד' : likes.length + ' אנשים'} עשו לך לייק. לייק בחזרה יוצר התאמה.</p>
+      <div class="like-grid">${likes.map((l, n) => `<button class="like-tile ${l.rose ? 'has-rose' : ''}" data-open="${n}">
+        <span class="tile-photo">${l.from.photos[0] ? `<img src="${esc(l.from.photos[0].url)}" alt="">` : ''}${l.rose ? `<span class="tile-rose">${I.rose}</span>` : ''}</span>
+        <span class="tile-name">${esc(l.from.name)}, ${l.from.age}</span>
+        <span class="tile-note">${l.note ? '"' + esc(l.note) + '"' : l.about.prompt ? 'אהב/ה את התשובה שלך' : l.about.photo ? 'אהב/ה תמונה שלך' : 'אהב/ה את הפרופיל שלך'}</span>
+      </button>`).join('')}</div>`;
+    v.querySelectorAll('[data-open]').forEach(b => b.onclick = () => {
+      const l = likes[+b.dataset.open], p = l.from;
+      const what = l.about.prompt ? `אהב/ה את התשובה שלך ל"${esc(l.about.prompt.q)}"` : l.about.photo ? 'אהב/ה תמונה שלך' : 'אהב/ה את הפרופיל שלך';
+      viewProfile(p, `<div class="like-context ${l.rose ? 'rose' : ''}">${l.rose ? I.rose : I.heartFill}<div>${what}${l.note ? `<b>"${esc(l.note)}"</b>` : ''}</div></div>
+        <div class="row-btns"><button class="btn ghost" id="lk-remove">${I.x} הסרה</button><button class="btn primary" id="lk-back">${I.heartFill} התאמה</button></div>`);
+      $('#lk-back').onclick = async () => {
+        try { const r = await api('POST', '/api/like', { toId: p.id, kind: 'profile' }); closeSheet(); if (r.match) showMatch(r.profile, r.matchId); renderLikes(v); } catch (e) { toast(e.message); }
+      };
+      $('#lk-remove').onclick = async () => { await api('POST', `/api/likes/${p.id}/remove`).catch(e => toast(e.message)); closeSheet(); renderLikes(v); };
+    });
+  }
+
+  // ---------- Matches and chat ----------
+  async function renderMatches(v) {
+    if (chatWith) return renderChat(v);
+    let list = [];
+    try { list = await api('GET', '/api/matches'); } catch (e) { v.innerHTML = `<p class="form-error">${esc(e.message)}</p>`; return; }
+    if (tab !== 'matches' || chatWith) return;
+    if (!list.length) {
+      v.innerHTML = `<div class="empty"><div class="empty-art">${I.chat}</div><h2>עוד אין התאמות</h2><p>עשו לייק לתמונה או לתשובה בפרופיל. כשהלייק הדדי, השיחה תיפתח כאן.</p><button class="btn primary" id="go-d">לגלות פרופילים</button></div>`;
+      $('#go-d').onclick = () => setTab('discover'); return;
+    }
+    const fresh = list.filter(m => !m.last), talking = list.filter(m => m.last);
+    v.innerHTML = `<h1 class="title">התאמות</h1>
+      ${fresh.length ? `<p class="sub">התאמות חדשות</p><div class="new-matches">${fresh.map(m => `<button class="nm" data-id="${m.id}">${avatarHTML(m.other, 'lg ring')}<span>${esc(m.other.name)}</span></button>`).join('')}</div>` : ''}
+      ${talking.length ? `<p class="sub">שיחות</p><div class="list">${talking.map(m => `<button class="row" data-id="${m.id}">${avatarHTML(m.other, 'lg')}<span class="txt"><span class="t1">${esc(m.other.name)}${!m.last.mine ? '<span class="your-turn">תורך</span>' : ''}</span>
+        <span class="t2">${m.last.mine ? 'את/ה: ' : ''}${esc(m.last.body)}</span></span></button>`).join('')}</div>` : ''}`;
+    v.querySelectorAll('[data-id]').forEach(b => b.onclick = () => { chatWith = list.find(m => m.id === +b.dataset.id); renderView(); });
+  }
+
+  async function renderChat(v) {
+    const m = chatWith, p = m.other;
+    let lastId = 0, first = true, pulling = null;
+    v.innerHTML = `<div class="chat-head"><button class="icon-btn" id="back" aria-label="חזרה להתאמות">${I.back}</button>
+      <button class="chat-who" id="chat-profile">${avatarHTML(p)}<span><b>${esc(p.name)}</b><small>${esc(p.city)}${p.job ? ' · ' + esc(p.job) : ''}</small></span></button>
+      <button class="icon-btn" id="chat-menu" aria-label="אפשרויות">${I.more}</button></div>
+      <div class="chat" id="chat"><div class="bubble ctx">${I.shield} אל תשתפו פרטים כמו כתובת או פרטי בנק עם אנשים שעוד לא פגשתם.</div></div>
+      <form class="composer" id="composer"><input id="msg" placeholder="כתיבת הודעה" autocomplete="off" aria-label="הודעה" maxlength="1000"><button class="send" aria-label="שליחה">${I.send}</button></form>`;
+    $('#back').onclick = () => { chatWith = null; stopPoll(); renderView(); };
+    $('#chat-profile').onclick = () => viewProfile(p);
+    $('#chat-menu').onclick = () => {
+      sheet(`<h2 class="h2">${esc(p.name)}</h2>
+        <button class="btn ghost" id="cm-unmatch">ביטול ההתאמה</button><button class="btn ghost" id="cm-report">${I.shield} דיווח וחסימה</button><button class="btn text" id="cm-close">סגירה</button>`, 'אפשרויות שיחה');
+      $('#cm-close').onclick = closeSheet;
+      $('#cm-report').onclick = () => openReport(p, m.id);
+      $('#cm-unmatch').onclick = async e => {
+        const b = e.currentTarget;
+        if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'לחיצה נוספת תבטל את ההתאמה'; b.classList.add('danger'); return; }
+        await api('POST', `/api/matches/${m.id}/unmatch`).catch(x => toast(x.message));
+        closeSheet(); chatWith = null; stopPoll(); renderView(); toast('ההתאמה בוטלה');
+      };
+    };
+    const chat = $('#chat');
+    // One fetch at a time, so overlapping polls never show a message twice
+    function pull() { pulling ??= fetchNew().finally(() => { pulling = null; }); return pulling; }
+    async function fetchNew() {
+      try {
+        const msgs = await api('GET', `/api/matches/${m.id}/messages?after=${lastId}`);
+        if (!msgs.length || !document.body.contains(chat)) return;
+        const atBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 80;
+        chat.insertAdjacentHTML('beforeend', msgs.map(x => `<div class="bubble ${x.mine ? 'me' : 'them'}">${esc(x.body)}</div>`).join(''));
+        lastId = msgs[msgs.length - 1].id;
+        if (atBottom || first) window.scrollTo({ top: document.body.scrollHeight, behavior: first ? 'auto' : 'smooth' });
+        first = false;
+      } catch (e) { if (/לא נמצאה/.test(e.message)) { stopPoll(); chatWith = null; toast('השיחה נסגרה'); renderView(); } }
+    }
+    // Attach the send handler before the first load, so an early tap never submits the form natively
+    $('#composer').onsubmit = async e => {
+      e.preventDefault();
+      const input = $('#msg'), body = input.value.trim(); if (!body) return;
+      input.value = '';
+      try { await api('POST', `/api/matches/${m.id}/messages`, { body }); await pull(); } catch (x) { toast(x.message); input.value = body; }
+      input.focus();
+    };
+    stopPoll(); pollTimer = setInterval(pull, 3000);
+    await pull();
+  }
+  function stopPoll() { if (pollTimer) clearInterval(pollTimer); pollTimer = null; }
+
+  // ---------- My profile ----------
+  // Shrinks big phone photos before upload
+  function shrink(file) {
+    return new Promise(resolve => {
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(b => resolve(b || file), 'image/jpeg', 0.85);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
+
+  function renderMe(v) {
+    const me = ME, prompts = [0, 1, 2].map(i => me.prompts[i] || { q: OPT.prompts[i], a: '' });
+    const choice = k => `<div class="field"><label for="f-${k}">${LABELS[k]}</label><select id="f-${k}"><option value="">לא צוין</option>${OPT.choices[k].map(o => `<option ${me[k] === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>`;
+    const text = (k, label, ph = '') => `<div class="field"><label for="f-${k}">${label}</label><input id="f-${k}" value="${esc(me[k] || '')}" placeholder="${esc(ph)}"></div>`;
+    const filled = [me.photos.length >= 3, me.prompts.filter(p => p.a).length >= 3, !!me.job, !!me.status, !!me.relig, !!me.intent].filter(Boolean).length;
+    v.innerHTML = `<div class="me-card">${avatarHTML(me, 'xl')}<div><h1 class="title" style="margin:0">${esc(me.name)}, ${me.age}</h1>
+        <div class="meter" aria-label="הפרופיל מלא ב-${Math.round(filled / 6 * 100)}%"><span style="width:${Math.round(filled / 6 * 100)}%"></span></div>
+        <small class="muted">הפרופיל מלא ב-${Math.round(filled / 6 * 100)}%</small></div>
+        <button class="btn ghost small" id="me-preview">צפייה</button></div>
+      ${!me.photos.length ? '<p class="notice">כדי להופיע בחיפוש ולראות אחרים, העלו לפחות תמונה אחת שלכם.</p>' : ''}
+      <section class="card"><h2 class="h3">התמונות שלי</h2><p class="muted small-text">עד 6 תמונות. הראשונה מופיעה ראשונה בפרופיל ובשיחות.</p>
+      <div class="upload">${[0, 1, 2, 3, 4, 5].map(i => {
+        const ph = me.photos[i];
+        return ph ? `<div class="slot"><img src="${esc(ph.url)}" alt="תמונה ${i + 1}">
+            <button class="slot-btn del" data-del="${ph.id}" aria-label="מחיקת תמונה ${i + 1}">${I.x}</button>
+            ${i ? `<button class="slot-btn first" data-first="${ph.id}">לראשונה</button>` : '<span class="slot-tag">ראשית</span>'}</div>`
+          : `<label class="slot empty-slot" for="ph${i}">${I.plus}<input id="ph${i}" type="file" accept="image/jpeg,image/png,image/webp" aria-label="הוספת תמונה ${i + 1}"></label>`;
+      }).join('')}</div></section>
+      <form class="form" id="me-form">
+        <section class="card"><h2 class="h3">שאלות</h2>
+        ${prompts.map((pr, i) => `<div class="prompt-edit"><select id="pq${i}" aria-label="שאלה ${i + 1}">${OPT.prompts.map(o => `<option ${pr.q === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>
+          <textarea id="pa${i}" maxlength="200" rows="2" placeholder="התשובה שלך" aria-label="תשובה לשאלה ${i + 1}">${esc(pr.a)}</textarea></div>`).join('')}</section>
+        <section class="card"><h2 class="h3">עליי</h2>
+          <div class="two">${text('name', 'שם')}<div class="field"><label for="f-city">עיר</label><input id="f-city" list="me-cities" value="${esc(me.city)}"><datalist id="me-cities">${CITIES.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+          ${text('job', 'עיסוק', 'למשל מורה')}<div class="field"><label for="f-height">גובה (ס״מ)</label><input id="f-height" type="number" min="120" max="230" value="${me.height || ''}"></div>
+          ${choice('gender')}${choice('status')}${text('edu', 'השכלה', 'למשל אוניברסיטת תל אביב')}${text('hometown', 'עיר הולדת')}
+          ${choice('relig')}${choice('intent')}${choice('kids')}${choice('wantKids')}${text('langs', 'שפות', 'עברית, אנגלית')}${choice('zodiac')}</div></section>
+        <section class="card"><h2 class="h3">הרגלים</h2><div class="two">${HABITS.map(choice).join('')}</div></section>
+        <p class="form-error" id="me-error" role="alert" hidden></p>
+        <button class="btn primary big sticky-save" id="me-save">שמירה</button>
+        ${me.isAdmin ? `<section class="card"><h2 class="h3">${I.shield} ניהול</h2><p class="muted small-text">דיווחים של משתמשים על פרופילים והתנהגות.</p><button type="button" class="btn ghost" id="open-admin">טיפול בדיווחים</button></section>` : ''}
+        <section class="card quiet"><p class="muted small-text">מחובר/ת בתור <span dir="ltr">${esc(me.email)}</span>${needsVerify() ? ' · <b>האימייל עוד לא אומת</b>' : ''}</p>
+          <div class="row-btns"><button type="button" class="btn ghost" id="logout">התנתקות</button><button type="button" class="btn text danger-text" id="delete-account">מחיקת החשבון</button></div>
+          ${legalLinks()}</section>
+      </form>`;
+    if (me.isAdmin) $('#open-admin').onclick = () => renderAdmin(v);
+    v.querySelectorAll('input[type=file]').forEach(inp => inp.onchange = async () => {
+      const f = inp.files[0]; if (!f) return;
+      inp.closest('label').classList.add('busy');
+      const fd = new FormData(); fd.append('photo', await shrink(f), 'photo.jpg');
+      try { const r = await api('POST', '/api/me/photos', fd, true); ME.photos = r.photos; toast('התמונה עלתה'); } catch (e) { toast(e.message); }
+      renderMe(v);
+    });
+    v.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      try { ME.photos = (await api('DELETE', `/api/me/photos/${b.dataset.del}`)).photos; } catch (e) { toast(e.message); } renderMe(v);
+    });
+    v.querySelectorAll('[data-first]').forEach(b => b.onclick = async () => {
+      try { ME.photos = (await api('POST', `/api/me/photos/${b.dataset.first}/first`)).photos; } catch (e) { toast(e.message); } renderMe(v);
+    });
+    $('#me-form').onsubmit = async e => {
+      e.preventDefault();
+      const err = $('#me-error'); err.hidden = true;
+      const body = { name: $('#f-name').value, city: $('#f-city').value, job: $('#f-job').value, height: $('#f-height').value || null,
+        prompts: [0, 1, 2].map(i => ({ q: $('#pq' + i).value, a: $('#pa' + i).value })).filter(p => p.a.trim()) };
+      ['gender', 'status', 'edu', 'hometown', 'relig', 'intent', 'kids', 'wantKids', 'langs', 'zodiac', ...HABITS].forEach(k => { body[k] = $('#f-' + k).value; });
+      try { const r = await api('PUT', '/api/me', body); ME = { ...ME, ...r }; toast('הפרופיל נשמר'); renderMe(v); }
+      catch (x) { err.textContent = x.message; err.hidden = false; }
+    };
+    $('#me-preview').onclick = () => viewProfile(ME);
+    $('#logout').onclick = async () => { await api('POST', '/api/logout').catch(() => {}); ME = null; showAuth('login'); };
+    $('#delete-account').onclick = async e => {
+      const b = e.currentTarget;
+      if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'לחיצה נוספת תמחק את החשבון, התמונות וההודעות לצמיתות'; return; }
+      try { await api('DELETE', '/api/me'); ME = null; showAuth('register'); toast('החשבון נמחק'); } catch (x) { toast(x.message); }
+    };
+  }
+
+  // ---------- Reports review (admins) ----------
+  async function renderAdmin(v) {
+    v.innerHTML = '<div class="loading" aria-label="טוען"></div>';
+    let list = [];
+    try { list = await api('GET', '/api/admin/reports'); } catch (e) { v.innerHTML = `<p class="form-error">${esc(e.message)}</p>`; return; }
+    const when = t => new Date(t).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' });
+    v.innerHTML = `<div class="chat-head"><button class="icon-btn" id="adm-back" aria-label="חזרה לפרופיל">${I.back}</button><h1 class="title" style="margin:0">דיווחים פתוחים</h1></div>
+      ${list.length ? '' : `<div class="empty"><div class="empty-art">${I.shield}</div><h2>אין דיווחים פתוחים</h2><p>כשמישהו ידווח על פרופיל, הדיווח יופיע כאן.</p></div>`}
+      <div class="list">${list.map((r, n) => `<div class="report">
+        ${r.target ? `<button class="chat-who" data-view="${n}">${avatarHTML(r.target, 'lg')}<span><b>${esc(r.target.name)}, ${r.target.age}</b><small>${esc(r.target.city)} · <span dir="ltr">${esc(r.target.email)}</span></small></span></button>` : '<b>החשבון נמחק</b>'}
+        <div class="report-meta"><span class="pill ${r.totalReports > 1 ? 'hot' : ''}">${r.totalReports === 1 ? 'דיווח אחד' : r.totalReports + ' דיווחים'}</span><span>${when(r.at)}</span></div>
+        <p class="report-reason">"${esc(r.reason || 'בלי פירוט')}"</p>
+        <p class="muted small-text">דווח על ידי ${esc(r.from.name || 'משתמש שנמחק')} <span dir="ltr">${esc(r.from.email || '')}</span></p>
+        <div class="row-btns"><button class="btn ghost" data-act="dismiss" data-id="${r.id}">התעלמות</button>${r.target ? `<button class="btn danger" data-act="ban" data-id="${r.id}">חסימת ${esc(r.target.name)}</button>` : ''}</div>
+      </div>`).join('')}</div>`;
+    $('#adm-back').onclick = () => renderMe(v);
+    v.querySelectorAll('[data-view]').forEach(b => b.onclick = () => viewProfile(list[+b.dataset.view].target));
+    v.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
+      if (b.dataset.act === 'ban' && b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'לחיצה נוספת תחסום'; return; }
+      try { await api('POST', `/api/admin/reports/${b.dataset.id}`, { action: b.dataset.act }); toast(b.dataset.act === 'ban' ? 'המשתמש נחסם' : 'הדיווח נסגר'); renderAdmin(v); }
+      catch (e) { toast(e.message); }
+    });
+  }
+
+  // ---------- Tabs ----------
+  const TABS = [['discover', 'גילוי', I.discover], ['likes', 'אהבו אותך', I.heart], ['matches', 'התאמות', I.chat], ['me', 'פרופיל', I.me]];
+  function renderTabs() {
+    $('#tabs').innerHTML = TABS.map(([id, label, ic]) => `<button data-tab="${id}" aria-label="${label}" ${tab === id ? 'aria-current="page"' : ''}>${id === 'me' && ME && ME.photos[0] ? avatarHTML(ME, 'tab-avatar') : ic}<span>${label}</span>
+      ${id === 'likes' && likesCount ? `<span class="badge">${likesCount}</span>` : ''}</button>`).join('');
+    $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
+  }
+  function setTab(t) {
+    if (t !== 'matches') chatWith = null;
+    stopPoll(); closeSheet(); tab = t; renderTabs(); renderHeader(); window.scrollTo({ top: 0 });
+    if (t === 'discover' && !needsVerify()) { $('#view').innerHTML = '<div class="loading" aria-label="טוען"></div>'; refreshDiscover(); } else renderView();
+  }
+  function renderView() {
+    const v = $('#view');
+    ({ discover: renderDiscover, likes: renderLikes, matches: renderMatches, me: renderMe })[tab](v);
+  }
+  // Keep the "likes you" badge fresh
+  setInterval(() => { if (ME && tab !== 'likes') refreshLikesCount(); }, 30000);
+
+  // ---------- Boot ----------
+  (async () => {
+    try { OPT = await api('GET', '/api/options'); } catch (e) { $('#view').innerHTML = '<p class="form-error">אין חיבור לשרת. נסו לרענן את הדף.</p>'; return; }
+    // Links from emails arrive as ?verify=… or ?reset=…; clear them from the address bar once read
+    const params = new URLSearchParams(location.search);
+    const verifyToken = params.get('verify'), resetToken = params.get('reset');
+    if (verifyToken || resetToken) { try { history.replaceState(null, '', location.pathname); } catch (e) {} }
+    if (resetToken) return showReset(resetToken);
+    if (verifyToken) {
+      try { await api('POST', '/api/verify', { token: verifyToken }); toast('האימייל אומת. ברוכים הבאים!'); } catch (e) { toast(e.message); }
+    }
+    try { await startApp(); } catch (e) { showAuth(verifyToken ? 'login' : 'register'); }
+  })();
+})();
+
+</script>

@@ -1,0 +1,21 @@
+{
+  "name": "kesher-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Kesher dating app: registration, profiles, photo uploads, likes, matches and chat",
+  "main": "server.js",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@netlify/blobs": "11.1.4",
+    "@netlify/database": "2.0.1",
+    "@netlify/database-dev": "1.0.1",
+    "pg": "8.23.1"
+  },
+  "type": "module"
+}
