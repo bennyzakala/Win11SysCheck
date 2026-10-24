@@ -28,11 +28,9 @@ visor_ratio = 0.78;            // visor height / width
 visor_z     = 4;               // visor opening center height
 
 // ---------------- torso ----------------
-torso_w    = 76;
-torso_d    = 60;
+torso_w    = 84;          // shoulder width (flat arm pads at +-42)
 torso_z0   = 60;
 torso_h    = 72;
-torso_r    = 12;
 torso_wall = 2.5;
 torso_top  = torso_z0 + torso_h;               // 132
 
@@ -115,58 +113,108 @@ module sg90_cut() {
 // =====================================================================
 //  LEGS + BASE   (print as is)
 // =====================================================================
+// ellipsoid helper
+module ell(c, r) { translate(c) scale(r) sphere(r = 1, $fn = 40); }
+
+module leg(s) {
+    K = [s * 17, -1, 36];      // knee
+    A = [s * 17.5, 1, 15];     // ankle
+    // thigh
+    hull() {   // thigh with quadriceps and outer sweep
+        ell([s * 15.5, 0, 58], [12.5, 13.5, 6]);
+        ell([s * 16, -4, 49], [11, 10.5, 8]);
+        ell([s * 18.5, -1, 46], [9.5, 9.5, 8]);
+        translate(K) sphere(r = 8.5);
+    }
+    // knee cap
+    translate(K + [0, -5.5, 0.5]) ell([0, 0, 0], [5, 4.5, 5]);
+    // calf
+    hull() { translate(K) sphere(r = 8.5); ell([s * 17, 3, 27], [9.5, 9.5, 7]); translate(A) sphere(r = 6.5); }
+    // boot + cuff
+    hull() {
+        translate([s * 17.5, -10, 4]) scale([1, 1.3, 1]) cylinder(d = 20, h = 2);
+        translate([s * 17.5, 1, 4]) cylinder(d = 22, h = 2);
+        translate([s * 17.5, -1, 14]) cylinder(d = 17, h = 5);
+    }
+    translate([s * 17.5, -0.5, 17]) cylinder(d = 18.5, h = 3);
+}
+
 module legs() {
     // base plate
     hull() for (sx = [-1, 1], sy = [-1, 1]) translate([sx * 40, sy * 28, 0]) cylinder(r = 8, h = 4);
-    for (s = [-1, 1]) translate([s * 17, 0, 0]) {
-        // boot
-        hull() {
-            translate([0, -9, 4]) scale([1, 1.25, 1]) cylinder(d = 22, h = 2);
-            translate([0, 0, 4]) cylinder(d = 26, h = 2);
-            translate([0, -2, 16]) cylinder(d = 25, h = 6);
-        }
-        // leg
-        translate([0, 0, 16]) cylinder(d = 24, h = torso_z0 - 16);
-        // knee band and boot cuff
-        translate([0, 0, 38]) cylinder(d = 26.5, h = 4);
-        translate([0, 0, 22]) cylinder(d = 26.5, h = 3);
-        // peg into the torso
-        translate([0, 0, torso_z0 - eps]) cylinder(d = 10, h = 4);
+    intersection() {
+        union() { leg(-1); leg(1); }
+        translate([-60, -60, 0]) cube([120, 120, torso_z0]);
     }
+    // pegs into the torso
+    for (s = [-1, 1]) translate([s * 15.5, 0, torso_z0 - eps]) cylinder(d = 10, h = 4);
 }
 
 // =====================================================================
-//  TORSO   (print upright, no supports)
+//  TORSO   (print upright; V-shaped athletic body)
 // =====================================================================
-module torso_outer() { translate([0, 0, torso_z0]) rounded_box(torso_w, torso_d, torso_h, torso_r); }
+// convex body core; o = inset (used to hollow it out)
+module torso_core(o = 0) {
+    hull() {   // pelvis -> waist
+        translate([0, 0, torso_z0]) scale([27 - o, 20 - o, 1]) cylinder(r = 1, h = eps, $fn = 64);   // hips
+        ell([0, 0, 67],  [27 - o, 20 - o, 7]);                           // pelvis
+        ell([0, 1, 79],  [23.5 - o, 18.5 - o, 6]);                       // waist
+    }
+    hull() {   // waist -> chest -> shoulders (V-taper)
+        ell([0, 1, 79],  [23.5 - o, 18.5 - o, 6]);                       // waist
+        ell([0, -1, 107], [37 - o, 25 - o, 15]);                         // rib cage
+        for (s = [-1, 1]) ell([s * 32, 2, 120], [13 - o, 13 - o, 13 - o]);   // shoulders
+        ell([0, 3, 126], [22 - o, 17 - o, 7 - o]);                       // trapezius / neck base
+    }
+}
+
+module torso_clip() { translate([-torso_w/2, -60, torso_z0]) cube([torso_w, 120, 100]); }
+
+module torso_outer() { intersection() { torso_core(); torso_clip(); } }
+
+module torso_muscles() {
+    // pectorals: broad flat plates, underside blended into the chest for printing
+    for (s = [-1, 1]) hull() {
+        ell([s * 12.5, -21.5, 108], [13, 6.5, 7.5]);
+        ell([s * 11, -19.5, 99], [10, 4, 2]);
+        ell([s * 22, -16, 110], [6, 5, 6]);
+    }
+    // six-pack
+    for (s = [-1, 1], i = [0:2]) ell([s * 5.6, -20.4 + i * 1.6, 93 - i * 6.5], [5, 2.6, 3.1]);
+    // belt + buckle
+    intersection() { torso_core(-1.5); translate([-50, -50, 64]) cube([100, 100, 7]); }
+    translate([-7, -24, 64]) cube([14, 4, 7]);
+}
 
 module torso() {
     difference() {
         union() {
             torso_outer();
+            intersection() { torso_muscles(); torso_clip(); }
             // neck collar
             translate([0, 0, torso_top - 8]) cylinder(d = collar_od, h = collar_top - torso_top + 8, $fn = 96);
-            // chest control box with 45 deg chamfered underside
-            hull() {
-                translate([-17, -torso_d/2 - 6, 96]) cube([34, 7, 16]);
-                translate([-17, -torso_d/2 - 0.5, 90]) cube([34, 1, 1]);
-            }
-            for (x = [-10, 0, 10]) translate([x, -torso_d/2 - 6 + eps, 104]) rotate([90, 0, 0]) cylinder(d = 5, h = 2, $fn = 24);
         }
-        // hollow inside
-        translate([0, 0, torso_z0 + 3])
-            rounded_box(torso_w - 2*torso_wall, torso_d - 2*torso_wall, torso_h - 3 - torso_wall, torso_r - torso_wall);
+        // hollow inside (solid shoulder slab left under the deck)
+        intersection() {
+            torso_core(torso_wall);
+            translate([-torso_w/2 + torso_wall, -60, torso_z0 + 3]) cube([torso_w - 2*torso_wall, 120, deck_bot - 4 - torso_z0 - 3]);
+            // 45 deg conical ceiling -> prints without supports
+            union() {
+                translate([0, 0, deck_bot - 4 - 39]) cylinder(r1 = 60, r2 = 21, h = 39, $fn = 96);
+                translate([0, 0, torso_z0]) cylinder(r = 60, h = deck_bot - 4 - 39 - torso_z0 + eps, $fn = 96);
+            }
+        }
         // deck seat and opening through the shoulder slab
         translate([0, 0, deck_bot]) cylinder(d = collar_id, h = 50, $fn = 96);
         translate([0, 0, deck_bot - 10]) cylinder(d = 44, h = 11, $fn = 96);
         // anti-rotation key slot for the deck
         translate([-collar_id/2 - 2, -2.2, deck_bot]) cube([4, 4.4, 50]);
         // window to the backpack
-        translate([-18, torso_d/2 - 5, 74]) cube([36, 10, 50]);
+        translate([-18, 8, 74]) cube([36, 30, 50]);
         // leg pegs
-        for (s = [-1, 1]) translate([s * 17, 0, torso_z0 - 1]) cylinder(d = 10.4, h = 6);
-        // arm pins (1.75 mm filament)
-        for (s = [-1, 1]) translate([s * torso_w/2, 0, 114]) rotate([0, 90, 0]) cylinder(d = 2, h = 12, center = true, $fn = 16);
+        for (s = [-1, 1]) translate([s * 15.5, 0, torso_z0 - 1]) cylinder(d = 10.4, h = 6);
+        // arm pins (1.75 mm filament) in the flat shoulder pads
+        for (s = [-1, 1]) translate([s * torso_w/2, 2, 120]) rotate([0, 90, 0]) cylinder(d = 2, h = 12, center = true, $fn = 16);
     }
 }
 
@@ -189,19 +237,28 @@ module deck() {
 //  ARMS   (print on the flat shoulder face, light supports)
 // =====================================================================
 module arm_right() {
-    S = [41, 0, 116]; E = [47, -4, 92]; G = [45, -13, 73];
     difference() {
         intersection() {
             union() {
-                hull() { translate(S) sphere(r = 11); translate(E) sphere(r = 8.5); }
-                hull() { translate(E) sphere(r = 8.5); translate(G) sphere(r = 8); }
-                translate(G) sphere(r = 10);          // glove
-                translate(E) sphere(r = 9.5);         // elbow joint ring
-                translate(G + [0, 0, 8]) rotate([0, 0, 0]) cylinder(d = 19, h = 4, center = true); // glove cuff
+                ell([45, 2, 120], [11.5, 12, 12]);                                        // deltoid
+                hull() {                                                                  // upper arm: biceps + triceps
+                    translate([47, 2, 115]) sphere(r = 8.5);
+                    ell([50, -3, 104], [7.5, 8.5, 9]);
+                    ell([51, 5.5, 106], [7, 6.5, 9]);
+                    translate([51, 1, 92]) sphere(r = 6.5);
+                }
+                hull() {                                                                  // forearm
+                    translate([51, 0, 91]) sphere(r = 6.8);
+                    ell([51, -2.5, 84], [7.5, 8, 6]);
+                    translate([50, -6, 71]) sphere(r = 5);
+                }
+                hull() for (dx = [-2.5, 2.5], dy = [-3.5, 2.5], dz = [-4, 3.5])           // gloved fist
+                    translate([50 + dx, -8 + dy, 62 + dz]) sphere(r = 4.2, $fn = 24);
+                translate([50, -6, 70]) cylinder(d = 13, h = 4, center = true);            // glove cuff
             }
             translate([torso_w/2, -50, 0]) cube([40, 100, 200]);
         }
-        translate([torso_w/2 - 1, 0, 114]) rotate([0, 90, 0]) cylinder(d = 2, h = 9, $fn = 16);
+        translate([torso_w/2 - 1, 2, 120]) rotate([0, 90, 0]) cylinder(d = 2, h = 9, $fn = 16);
     }
 }
 
