@@ -1158,7 +1158,7 @@ const SAMPLE = (() => {
 
   async function renderChat(v) {
     const m = chatWith, p = m.other;
-    let lastId = 0, first = true;
+    let lastId = 0, first = true, pulling = null;
     v.innerHTML = `<div class="chat-head"><button class="icon-btn" id="back" aria-label="חזרה להתאמות">${I.back}</button>
       <button class="chat-who" id="chat-profile">${avatarHTML(p)}<span><b>${esc(p.name)}</b><small>${esc(p.city)}${p.job ? ' · ' + esc(p.job) : ''}</small></span></button>
       <button class="icon-btn" id="chat-menu" aria-label="אפשרויות">${I.more}</button></div>
@@ -1179,7 +1179,9 @@ const SAMPLE = (() => {
       };
     };
     const chat = $('#chat');
-    async function pull() {
+    // One fetch at a time, so overlapping polls never show a message twice
+    function pull() { pulling ??= fetchNew().finally(() => { pulling = null; }); return pulling; }
+    async function fetchNew() {
       try {
         const msgs = await api('GET', `/api/matches/${m.id}/messages?after=${lastId}`);
         if (!msgs.length || !document.body.contains(chat)) return;
@@ -1190,8 +1192,7 @@ const SAMPLE = (() => {
         first = false;
       } catch (e) { if (/לא נמצאה/.test(e.message)) { stopPoll(); chatWith = null; toast('השיחה נסגרה'); renderView(); } }
     }
-    await pull();
-    stopPoll(); pollTimer = setInterval(pull, 3000);
+    // Attach the send handler before the first load, so an early tap never submits the form natively
     $('#composer').onsubmit = async e => {
       e.preventDefault();
       const input = $('#msg'), body = input.value.trim(); if (!body) return;
@@ -1199,6 +1200,8 @@ const SAMPLE = (() => {
       try { await api('POST', `/api/matches/${m.id}/messages`, { body }); await pull(); } catch (x) { toast(x.message); input.value = body; }
       input.focus();
     };
+    stopPoll(); pollTimer = setInterval(pull, 3000);
+    await pull();
   }
   function stopPoll() { if (pollTimer) clearInterval(pollTimer); pollTimer = null; }
 

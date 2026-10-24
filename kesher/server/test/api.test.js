@@ -1,19 +1,17 @@
-'use strict';
-const { test, before, after } = require('node:test');
-const assert = require('node:assert');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { createApp } = require('../server');
+import { test, before, after } from 'node:test';
+import assert from 'node:assert';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { startServer } from '../server.js';
 
-let server, base, dir;
+let app, base, dir;
 before(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kesher-test-'));
-  server = createApp({ dataDir: dir }).listen(0);
-  await new Promise(r => server.once('listening', r));
-  base = `http://127.0.0.1:${server.address().port}`;
+  app = await startServer({ port: 0, dataDir: dir, memory: true, quiet: true });
+  base = `http://127.0.0.1:${app.port}`;
 });
-after(() => { server.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+after(async () => { await app.close(); fs.rmSync(dir, { recursive: true, force: true }); });
 
 // A tiny client that keeps its own session cookie
 function client() {
