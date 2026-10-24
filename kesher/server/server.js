@@ -10,6 +10,7 @@ import pg from 'pg';
 import { NetlifyDB, applyMigrations } from '@netlify/database-dev';
 import { createHandler } from './lib/app.js';
 import { diskPhotos } from './lib/photos.js';
+import { mailerFromEnv } from './lib/mail.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = path.join(here, 'netlify/database/migrations');
@@ -61,9 +62,10 @@ async function serveStatic(req, res) {
   } catch (e) { res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found'); }
 }
 
-export async function startServer({ port = 3000, dataDir = path.join(here, 'data'), memory = false, quiet = false } = {}) {
+export async function startServer({ port = 3000, dataDir = path.join(here, 'data'), memory = false, quiet = false,
+  mailer = mailerFromEnv(k => process.env[k]), adminEmails = (process.env.ADMIN_EMAILS || '').split(','), siteUrl = process.env.SITE_URL || '' } = {}) {
   const { pool, stop } = await openDatabase(dataDir, { memory, quiet });
-  const handle = createHandler({ pool, photos: diskPhotos(path.join(dataDir, 'uploads')) });
+  const handle = createHandler({ pool, photos: diskPhotos(path.join(dataDir, 'uploads')), mailer, adminEmails, siteUrl });
   const server = http.createServer(async (req, res) => {
     try {
       if (req.url.startsWith('/api/') || req.url.startsWith('/uploads/')) {

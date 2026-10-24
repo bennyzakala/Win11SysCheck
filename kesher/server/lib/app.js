@@ -4,6 +4,7 @@
 // go to a pluggable store (Netlify Blobs in production, a folder on disk locally).
 
 import crypto from 'node:crypto';
+import { linkEmail } from './mail.js';
 
 export const MAX_PHOTOS = 6;
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024; // Netlify Functions accept up to ~4.5MB of binary per request
@@ -102,11 +103,19 @@ function imageExt(buf) {
   return null;
 }
 
+const sha256 = s => crypto.createHash('sha256').update(s).digest('hex');
+
 /**
- * @param {{ pool: { query: Function }, photos: { put: Function, get: Function, remove: Function } }} deps
+ * @param {{ pool: { query: Function }, photos: { put: Function, get: Function, remove: Function },
+ *   mailer?: { send: Function } | null, adminEmails?: string[], siteUrl?: string }} deps
+ *   mailer: when set, new accounts must verify their email before using the app.
+ *   adminEmails: verified accounts with these addresses can review reports.
+ *   siteUrl: base for links in emails; defaults to the request's own origin.
  * @returns {(req: Request, info?: { ip?: string }) => Promise<Response>}
  */
-export function createHandler({ pool, photos }) {
+export function createHandler({ pool, photos, mailer = null, adminEmails = [], siteUrl = '' }) {
+  const verifyRequired = Boolean(mailer);
+  const admins = new Set(adminEmails.map(e => e.trim().toLowerCase()).filter(Boolean));
   const q = async (sql, params = []) => (await pool.query(sql, params)).rows;
   const one = async (sql, params) => (await q(sql, params))[0];
 
@@ -118,7 +127,33 @@ export function createHandler({ pool, photos }) {
     return out;
   }
   const userById = id => one('SELECT * FROM users WHERE id = $1', [id]);
+  const isVerified = u => !verifyRequired || u.email_verified;
+  const isAdmin = u => admins.has(u.email) && isVerified(u);
 
+  // One-time email links: the token goes in the link, only its hash is stored
+  async function issueToken(userId, kind, ttlMs) {
+    const token = crypto.randomBytes(32).toString('hex');
+    await q('DELETE FROM tokens WHERE user_id = $1 AND kind = $2', [userId, kind]);
+    await q('INSERT INTO tokens (token_hash, user_id, kind, expires_at) VALUES ($1, $2, $3, $4)', [sha256(token), userId, kind, now() + ttlMs]);
+    return token;
+  }
+  async function useToken(token, kind) {
+    if (!/^[a-f0-9]{64}$/.test(String(token || ''))) return null;
+    const t = await one('DELETE FROM tokens WHERE token_hash = $1 AND kind = $2 RETURNING user_id, expires_at', [sha256(token), kind]);
+    return t && Number(t.expires_at) > now() ? t.user_id : null;
+  }
+  const linkBase = c => (siteUrl || c.url.origin).replace(/\/$/, '');
+  async function sendVerification(c, u) {
+    if (!mailer) return;
+    const url = `${linkBase(c)}/?verify=${await issueToken(u.id, 'verify', 7 * 864e5)}`;
+    await mailer.send({ to: u.email, subject: 'אימות כתובת האימייל בקשר', ...linkEmail({
+      title: `היי ${u.name}, ברוכים הבאים לקשר`, intro: 'נשאר רק לאשר שזו כתובת האימייל שלך.', button: 'אימות האימייל', url,
+      outro: 'הקישור בתוקף ל-7 ימים. אם לא נרשמת לקשר, אפשר להתעלם מההודעה.' }) });
+  }
+  // Discovering, liking and messaging need a verified address (when email is set up)
+  async function requireVerified(c) {
+    if (!isVerified(await userById(c.userId))) fail(403, 'צריך לאמת את כתובת האימייל. שלחנו אליך קישור');
+  }
   // Login, registration and message limits, counted in the database so they hold across function instances
   async function limit(key, max, windowMs) {
     const since = now() - windowMs;
@@ -135,7 +170,8 @@ export function createHandler({ pool, photos }) {
       UNION SELECT to_id FROM likes WHERE from_id = $1
       UNION SELECT CASE WHEN a = $1 THEN b ELSE a END FROM matches WHERE a = $1 OR b = $1
       UNION SELECT to_id FROM reports WHERE from_id = $1
-      UNION SELECT from_id FROM reports WHERE to_id = $1`, [me]);
+      UNION SELECT from_id FROM reports WHERE to_id = $1
+      UNION SELECT id FROM users WHERE banned OR ($2 AND NOT email_verified)`, [me, verifyRequired]);
     return new Set(rows.map(r => r.id));
   }
   const kidsMatch = (u, f) => !f || (f === 'none' && u.kids === 'אין לי ילדים') || (f === 'has' && u.kids === 'יש לי ילדים')
@@ -162,13 +198,15 @@ export function createHandler({ pool, photos }) {
       const age = ageOf(birthdate);
       if (age < 18) fail(400, 'ההרשמה מגיל 18 ומעלה');
       if (age > 100) fail(400, 'תאריך הלידה לא תקין');
+      if (!b.acceptTerms) fail(400, 'צריך לאשר את תנאי השימוש ומדיניות הפרטיות');
       const prof = cleanProfile(b, { requireCore: true });
       if (await one('SELECT 1 FROM users WHERE email = $1', [email])) fail(409, 'כבר קיים חשבון עם האימייל הזה');
       const cols = Object.keys(prof);
-      const u = await one(`INSERT INTO users (email, pass, birthdate, created_at, ${cols.map(col).join(', ')})
-        VALUES ($1, $2, $3, $4, ${cols.map((_, i) => '$' + (i + 5)).join(', ')}) RETURNING id`,
+      const u = await one(`INSERT INTO users (email, pass, birthdate, created_at, terms_at, ${cols.map(col).join(', ')})
+        VALUES ($1, $2, $3, $4, $4, ${cols.map((_, i) => '$' + (i + 5)).join(', ')}) RETURNING *`,
         [email, hashPassword(password), birthdate, now(), ...cols.map(k => prof[k])]);
       await c.startSession(u.id);
+      try { await sendVerification(c, u); } catch (e) { console.error(e); }
       c.status = 201;
       return { ok: true };
     }],
@@ -177,8 +215,9 @@ export function createHandler({ pool, photos }) {
       const b = await c.json();
       const email = String(b.email || '').trim().toLowerCase();
       await limit('login:' + c.ip + ':' + email, 10, 15 * 60 * 1000);
-      const u = await one('SELECT id, pass FROM users WHERE email = $1', [email]);
+      const u = await one('SELECT id, pass, banned FROM users WHERE email = $1', [email]);
       if (!u || !checkPassword(String(b.password || ''), u.pass)) fail(401, 'האימייל או הסיסמה לא נכונים');
+      if (u.banned) fail(403, 'החשבון הזה נחסם בעקבות דיווחים');
       await c.startSession(u.id);
       return { ok: true };
     }],
@@ -191,7 +230,48 @@ export function createHandler({ pool, photos }) {
 
     ['GET', /^\/api\/me$/, true, async c => {
       const u = await userById(c.userId);
-      return { ...(await publicProfile(u)), email: u.email, birthdate: u.birthdate };
+      return { ...(await publicProfile(u)), email: u.email, birthdate: u.birthdate, emailVerified: u.email_verified, verifyRequired, isAdmin: isAdmin(u) };
+    }],
+
+    // ---------- Email verification and password reset ----------
+    ['POST', /^\/api\/verify$/, false, async c => {
+      const userId = await useToken((await c.json()).token, 'verify');
+      if (!userId) fail(400, 'הקישור לא תקין או שפג תוקפו. אפשר לבקש קישור חדש מהאפליקציה');
+      await q('UPDATE users SET email_verified = true WHERE id = $1', [userId]);
+      return { ok: true };
+    }],
+    ['POST', /^\/api\/verify\/resend$/, true, async c => {
+      const u = await userById(c.userId);
+      if (u.email_verified || !mailer) return { ok: true };
+      await limit('verify:' + c.userId, 3, 60 * 60 * 1000);
+      await sendVerification(c, u);
+      return { ok: true };
+    }],
+    ['POST', /^\/api\/password\/forgot$/, false, async c => {
+      if (!mailer) fail(503, 'שליחת אימיילים עוד לא הוגדרה באתר. פנו למנהל האתר');
+      const email = String((await c.json()).email || '').trim().toLowerCase();
+      await limit('forgot:' + c.ip, 5, 60 * 60 * 1000);
+      const u = await one('SELECT id, email, name FROM users WHERE email = $1 AND NOT banned', [email]);
+      // Same answer whether or not the account exists, so the form can't be used to look up members
+      if (u) {
+        const url = `${linkBase(c)}/?reset=${await issueToken(u.id, 'reset', 60 * 60 * 1000)}`;
+        await mailer.send({ to: u.email, subject: 'איפוס הסיסמה בקשר', ...linkEmail({
+          title: `היי ${u.name}`, intro: 'ביקשת לאפס את הסיסמה לחשבון שלך בקשר.', button: 'בחירת סיסמה חדשה', url,
+          outro: 'הקישור בתוקף לשעה אחת. אם לא ביקשת איפוס, אפשר להתעלם מההודעה, והסיסמה לא תשתנה.' }) });
+      }
+      return { ok: true };
+    }],
+    ['POST', /^\/api\/password\/reset$/, false, async c => {
+      const b = await c.json();
+      const password = String(b.password || '');
+      if (password.length < 8) fail(400, 'הסיסמה צריכה להכיל לפחות 8 תווים');
+      const userId = await useToken(b.token, 'reset');
+      if (!userId) fail(400, 'הקישור לא תקין או שפג תוקפו. אפשר לבקש קישור חדש');
+      // The link proves the address, and every other session is signed out
+      await q('UPDATE users SET pass = $1, email_verified = true WHERE id = $2', [hashPassword(password), userId]);
+      await q('DELETE FROM sessions WHERE user_id = $1', [userId]);
+      await c.startSession(userId);
+      return { ok: true };
     }],
 
     ['PUT', /^\/api\/me$/, true, async c => {
@@ -247,6 +327,7 @@ export function createHandler({ pool, photos }) {
 
     // ---------- Discover ----------
     ['GET', /^\/api\/discover$/, true, async c => {
+      await requireVerified(c);
       const me = c.userId, hidden = await hiddenFor(me), sp = c.url.searchParams;
       const city = sp.get('city') || '', relig = sp.get('relig') || '', kids = sp.get('kids') || '', status = sp.get('status') || '';
       const ageMax = Number(sp.get('ageMax')) || 99, ageMin = Number(sp.get('ageMin')) || 18;
@@ -269,6 +350,7 @@ export function createHandler({ pool, photos }) {
 
     // ---------- Likes and matches ----------
     ['POST', /^\/api\/like$/, true, async c => {
+      await requireVerified(c);
       const b = await c.json(), me = c.userId, to = Number(b.toId);
       const target = to !== me && await userById(to);
       if (!target) fail(404, 'המשתמש לא נמצא');
@@ -311,7 +393,8 @@ export function createHandler({ pool, photos }) {
 
     ['GET', /^\/api\/matches$/, true, async c => {
       const me = c.userId;
-      const list = await Promise.all((await q('SELECT * FROM matches WHERE (a = $1 OR b = $1) AND NOT ended', [me])).map(async m => {
+      const list = await Promise.all((await q(`SELECT m.* FROM matches m JOIN users o ON o.id = CASE WHEN m.a = $1 THEN m.b ELSE m.a END
+        WHERE (m.a = $1 OR m.b = $1) AND NOT m.ended AND NOT o.banned`, [me])).map(async m => {
         const last = await one('SELECT from_id, body, created_at FROM messages WHERE match_id = $1 ORDER BY id DESC LIMIT 1', [m.id]);
         const at = Number(last ? last.created_at : m.created_at);
         return { id: m.id, other: await publicProfile(await userById(m.a === me ? m.b : m.a)), last: last ? { mine: last.from_id === me, body: last.body, at } : null, at };
@@ -325,6 +408,7 @@ export function createHandler({ pool, photos }) {
         .map(x => ({ id: x.id, mine: x.from_id === c.userId, body: x.body, at: Number(x.created_at) }));
     }],
     ['POST', /^\/api\/matches\/(\d+)\/messages$/, true, async (c, m) => {
+      await requireVerified(c);
       const mt = await matchFor(Number(m[1]), c.userId);
       const body = String((await c.json()).body || '').trim();
       if (!body) fail(400, 'ההודעה ריקה');
@@ -346,6 +430,39 @@ export function createHandler({ pool, photos }) {
       await q('INSERT INTO reports (from_id, to_id, reason, created_at) VALUES ($1, $2, $3, $4)', [c.userId, to, String(b.reason || '').slice(0, 500), now()]);
       const [a, bb] = pair(c.userId, to);
       await q('UPDATE matches SET ended = true WHERE a = $1 AND b = $2', [a, bb]);
+      return { ok: true };
+    }],
+
+    // ---------- Reports review (admins only) ----------
+    ['GET', /^\/api\/admin\/reports$/, true, async c => {
+      if (!isAdmin(await userById(c.userId))) fail(403, 'אין הרשאה');
+      const rows = await q(`SELECT r.id, r.reason, r.created_at, r.from_id, r.to_id, f.name AS from_name, f.email AS from_email,
+          (SELECT COUNT(*)::int FROM reports x WHERE x.to_id = r.to_id) AS total_reports
+        FROM reports r LEFT JOIN users f ON f.id = r.from_id
+        WHERE r.status = 'open' ORDER BY total_reports DESC, r.created_at LIMIT 200`);
+      return Promise.all(rows.map(async r => {
+        const target = await userById(r.to_id);
+        return { id: r.id, reason: r.reason, at: Number(r.created_at), totalReports: r.total_reports,
+          from: { id: r.from_id, name: r.from_name, email: r.from_email },
+          target: target ? { ...(await publicProfile(target)), email: target.email, banned: target.banned } : null };
+      }));
+    }],
+    ['POST', /^\/api\/admin\/reports\/(\d+)$/, true, async (c, m) => {
+      const admin = await userById(c.userId);
+      if (!isAdmin(admin)) fail(403, 'אין הרשאה');
+      const action = (await c.json()).action;
+      if (!['dismiss', 'ban'].includes(action)) fail(400, 'פעולה לא מוכרת');
+      const r = await one('SELECT to_id FROM reports WHERE id = $1', [Number(m[1])]);
+      if (!r) fail(404, 'הדיווח לא נמצא');
+      if (action === 'ban') {
+        if (r.to_id === admin.id) fail(400, 'אי אפשר לחסום את עצמך');
+        await q('UPDATE users SET banned = true WHERE id = $1', [r.to_id]);
+        await q('DELETE FROM sessions WHERE user_id = $1', [r.to_id]);
+        // Banning settles every open report about that person
+        await q(`UPDATE reports SET status = 'banned', resolved_at = $1, resolved_by = $2 WHERE to_id = $3 AND status = 'open'`, [now(), admin.id, r.to_id]);
+      } else {
+        await q(`UPDATE reports SET status = 'dismissed', resolved_at = $1, resolved_by = $2 WHERE id = $3`, [now(), admin.id, Number(m[1])]);
+      }
       return { ok: true };
     }]
   ];
@@ -377,7 +494,7 @@ export function createHandler({ pool, photos }) {
       if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers.get('x-kesher') !== '1') fail(403, 'בקשה לא מורשית');
       const sid = /(?:^|;\s*)sid=([a-f0-9]{64})/.exec(req.headers.get('cookie') || '');
       if (sid) {
-        const s = await one('SELECT user_id, created_at FROM sessions WHERE token = $1', [sid[1]]);
+        const s = await one('SELECT s.user_id, s.created_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = $1 AND NOT u.banned', [sid[1]]);
         if (s && now() - Number(s.created_at) < SESSION_MS) { c.userId = s.user_id; c.token = sid[1]; }
       }
       for (const [method, re, needsLogin, fn] of routes) {

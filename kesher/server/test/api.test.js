@@ -29,7 +29,7 @@ function client() {
 }
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082', 'hex');
 const photoForm = (buf = PNG, type = 'image/png', name = 'a.png') => { const f = new FormData(); f.append('photo', new Blob([buf], { type }), name); return f; };
-const person = (email, extra = {}) => ({ email, password: 'secret123', name: email.split('@')[0], birthdate: '1995-05-05', city: 'חיפה', gender: 'אישה', ...extra });
+const person = (email, extra = {}) => ({ email, password: 'secret123', name: email.split('@')[0], birthdate: '1995-05-05', city: 'חיפה', gender: 'אישה', acceptTerms: true, ...extra });
 
 test('registration validates input and blocks under 18', async () => {
   const c = client();
@@ -37,6 +37,7 @@ test('registration validates input and blocks under 18', async () => {
   assert.equal((await c('POST', '/api/register', person('kid@x.co', { birthdate: '2015-01-01' }))).status, 400);
   assert.equal((await c('POST', '/api/register', person('short@x.co', { password: '123' }))).status, 400);
   assert.equal((await c('POST', '/api/register', person('ok@x.co', { relig: 'not-a-choice' }))).status, 400);
+  assert.equal((await c('POST', '/api/register', person('noterms@x.co', { acceptTerms: false }))).status, 400);
 });
 
 test('requests without the app header are rejected', async () => {
@@ -108,4 +109,67 @@ test('full flow: register, upload, discover by city, like, match, chat', async (
   assert.equal((await c('POST', '/api/login', { email: 'gal@x.co', password: 'secret123' })).status, 200);
   assert.equal((await c('DELETE', '/api/me')).status, 200);
   assert.equal((await a('GET', '/api/discover')).data.cityCounts['ירושלים'], undefined);
+});
+
+// A second server with email turned on, to cover verification, password reset and the reports review
+test('email verification, password reset and admin review of reports', async () => {
+  const sent = [];
+  const mailDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kesher-mail-'));
+  const mailApp = await startServer({ port: 0, dataDir: mailDir, memory: true, quiet: true,
+    mailer: { send: async m => { sent.push(m); } }, adminEmails: ['boss@x.co'], siteUrl: 'https://kesher.example' });
+  const saved = base; base = `http://127.0.0.1:${mailApp.port}`;
+  const linkToken = (to, kind) => new RegExp(`\\?${kind}=([a-f0-9]{64})`).exec(sent.filter(m => m.to === to).at(-1).text)[1];
+  try {
+    const a = client(), b = client(), boss = client();
+    assert.equal((await a('POST', '/api/register', person('ann@x.co'))).status, 201);
+    let me = (await a('GET', '/api/me')).data;
+    assert.equal(me.verifyRequired, true);
+    assert.equal(me.emailVerified, false);
+    assert.match(sent[0].text, /https:\/\/kesher\.example\/\?verify=/);
+    assert.equal((await a('GET', '/api/discover')).status, 403);
+    assert.equal((await a('POST', '/api/verify', { token: 'f'.repeat(64) })).status, 400);
+    assert.equal((await a('POST', '/api/verify', { token: linkToken('ann@x.co', 'verify') })).status, 200);
+    assert.equal((await a('GET', '/api/me')).data.emailVerified, true);
+    assert.equal((await a('GET', '/api/discover')).status, 200);
+    await a('POST', '/api/me/photos', null, { form: photoForm() });
+
+    // Unverified people stay out of other members' results
+    await b('POST', '/api/register', person('ben@x.co', { gender: 'גבר' }));
+    await b('POST', '/api/me/photos', null, { form: photoForm() });
+    assert.equal((await a('GET', '/api/discover')).data.total, 0);
+    await b('POST', '/api/verify', { token: linkToken('ben@x.co', 'verify') });
+    assert.equal((await a('GET', '/api/discover')).data.total, 1);
+
+    // Password reset: same answer for unknown addresses, token works once, old sessions end
+    assert.equal((await b('POST', '/api/password/forgot', { email: 'nobody@x.co' })).status, 200);
+    assert.equal((await b('POST', '/api/password/forgot', { email: 'ben@x.co' })).status, 200);
+    const token = linkToken('ben@x.co', 'reset');
+    const other = client();
+    assert.equal((await other('POST', '/api/password/reset', { token, password: 'short' })).status, 400);
+    assert.equal((await other('POST', '/api/password/reset', { token, password: 'brand-new-pass' })).status, 200);
+    assert.equal((await other('POST', '/api/password/reset', { token, password: 'brand-new-pass' })).status, 400);
+    assert.equal((await b('GET', '/api/me')).status, 401);
+    assert.equal((await b('POST', '/api/login', { email: 'ben@x.co', password: 'brand-new-pass' })).status, 200);
+
+    // Reports: only admins see them; banning signs the person out and hides them
+    await boss('POST', '/api/register', person('boss@x.co'));
+    const benId = (await b('GET', '/api/me')).data.id;
+    assert.equal((await a('POST', '/api/report', { toId: benId, reason: 'פרופיל מזויף' })).status, 200);
+    assert.equal((await a('GET', '/api/admin/reports')).status, 403);
+    assert.equal((await boss('GET', '/api/admin/reports')).status, 403); // not verified yet
+    await boss('POST', '/api/verify', { token: linkToken('boss@x.co', 'verify') });
+    assert.equal((await boss('GET', '/api/me')).data.isAdmin, true);
+    const reports = (await boss('GET', '/api/admin/reports')).data;
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0].target.name, 'ben');
+    assert.equal((await boss('POST', `/api/admin/reports/${reports[0].id}`, { action: 'ban' })).status, 200);
+    assert.equal((await b('GET', '/api/me')).status, 401);
+    assert.equal((await b('POST', '/api/login', { email: 'ben@x.co', password: 'brand-new-pass' })).status, 403);
+    assert.equal((await boss('GET', '/api/discover')).data.total, 1); // ann only
+    assert.equal((await boss('GET', '/api/admin/reports')).data.length, 0);
+  } finally {
+    base = saved;
+    await mailApp.close();
+    fs.rmSync(mailDir, { recursive: true, force: true });
+  }
 });

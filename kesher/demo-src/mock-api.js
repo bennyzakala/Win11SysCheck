@@ -210,6 +210,9 @@
     }]
   ];
 
+  routes.push(['POST', /^\/api\/password\/forgot$/, () => fail(503, 'בגרסת ההדגמה אין שליחת אימיילים. החשבון לדוגמה: demo@kesher.app עם הסיסמה demo1234')]);
+  window.KESHER_DEMO = true;
+
   const realFetch = window.fetch.bind(window);
   window.fetch = async (input, opts = {}) => {
     const url = new URL(typeof input === 'string' ? input : input.url, location.href);

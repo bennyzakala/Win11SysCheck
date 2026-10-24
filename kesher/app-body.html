@@ -338,6 +338,19 @@ nav.tabs .badge { position: absolute; top: 9px; inset-inline-start: calc(50% + 6
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
+/* Accounts, legal links and reports review */
+.auth-hero.small { padding: 24px; }
+.auth-hero.small .brand { font-size: 40px; }
+.legal { text-align: center; font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+.legal a, .check a { color: inherit; text-decoration: underline; }
+.check a { color: var(--accent); }
+.report { background: var(--surface); border-radius: var(--r); padding: 16px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.report-meta { display: flex; gap: 10px; align-items: center; font-size: 13px; color: var(--muted); }
+.pill { background: var(--bg); border-radius: 999px; padding: 2px 10px; font-weight: 600; color: var(--ink); }
+.pill.hot { background: var(--rose-soft); color: var(--rose); }
+.report-reason { margin: 0; font-family: var(--f-serif); font-size: 19px; }
+.h3 svg { width: 20px; height: 20px; vertical-align: -3px; }
+
 </style>
 <div class="app" dir="rtl" lang="he">
   <header class="top" id="top"></header>
@@ -758,6 +771,9 @@ const SAMPLE = (() => {
     }]
   ];
 
+  routes.push(['POST', /^\/api\/password\/forgot$/, () => fail(503, 'בגרסת ההדגמה אין שליחת אימיילים. החשבון לדוגמה: demo@kesher.app עם הסיסמה demo1234')]);
+  window.KESHER_DEMO = true;
+
   const realFetch = window.fetch.bind(window);
   window.fetch = async (input, opts = {}) => {
     const url = new URL(typeof input === 'string' ? input : input.url, location.href);
@@ -873,22 +889,24 @@ const SAMPLE = (() => {
           <div class="field"><label for="r-gender">מגדר</label><select id="r-gender">${OPT.choices.gender.map(g => `<option>${esc(g)}</option>`).join('')}</select></div>
         </div>
         <div class="field"><label for="r-city">עיר</label><input id="r-city" list="r-cities" required maxlength="40"><datalist id="r-cities">${CITIES.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
-        <label class="check"><input type="checkbox" id="r-adult"><span>אני בן/בת 18 ומעלה, ואעלה רק תמונות שלי</span></label>` : ''}
+        <label class="check"><input type="checkbox" id="r-adult"><span>אני בן/בת 18 ומעלה, אעלה רק תמונות שלי, ואני מסכים/ה ${DEMO ? 'לתנאי השימוש ולמדיניות הפרטיות' : 'ל<a href="terms.html" target="_blank">תנאי השימוש</a> ול<a href="privacy.html" target="_blank">מדיניות הפרטיות</a>'}</span></label>` : ''}
         <p class="form-error" id="auth-error" role="alert" hidden></p>
         <button class="btn primary big" id="auth-submit">${mode === 'register' ? 'בואו נתחיל' : 'התחברות'}</button>
+        ${mode === 'login' ? '<button type="button" class="btn text" id="auth-forgot">שכחתי סיסמה</button>' : ''}
         <button type="button" class="btn text" id="auth-switch">${mode === 'register' ? 'כבר יש לי חשבון' : 'עוד אין לי חשבון? להרשמה'}</button>
-      </form></div>`;
+      </form>${legalLinks()}</div>`;
     $('#auth-switch').onclick = () => showAuth(mode === 'register' ? 'login' : 'register');
+    if (mode === 'login') $('#auth-forgot').onclick = showForgot;
     $('#auth-form').onsubmit = async e => {
       e.preventDefault();
       const err = $('#auth-error'); err.hidden = true;
       const btn = $('#auth-submit'); btn.disabled = true;
       try {
         if (mode === 'register') {
-          if (!$('#r-adult').checked) throw new Error('צריך לאשר שגילך 18 ומעלה');
+          if (!$('#r-adult').checked) throw new Error('צריך לאשר את הגיל, תנאי השימוש ומדיניות הפרטיות');
           await api('POST', '/api/register', {
             name: $('#r-name').value, email: $('#r-email').value, password: $('#r-pass').value,
-            birthdate: $('#r-birth').value, gender: $('#r-gender').value, city: $('#r-city').value
+            birthdate: $('#r-birth').value, gender: $('#r-gender').value, city: $('#r-city').value, acceptTerms: true
           });
         } else {
           await api('POST', '/api/login', { email: $('#r-email').value, password: $('#r-pass').value });
@@ -897,6 +915,48 @@ const SAMPLE = (() => {
       } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
     };
   }
+
+  const DEMO = window.KESHER_DEMO === true; // the single-page demo has no separate legal pages
+  const legalLinks = () => DEMO ? '' : `<p class="legal"><a href="terms.html" target="_blank">תנאי שימוש</a> · <a href="privacy.html" target="_blank">מדיניות פרטיות</a></p>`;
+
+  // Small single-purpose screens shown before sign-in: forgot password, choose a new password
+  function authCard(inner) {
+    stopPoll(); closeSheet();
+    $('#tabs-nav').hidden = true; $('#top').innerHTML = '';
+    $('#view').innerHTML = `<div class="auth"><div class="auth-hero small">${brand}</div>${inner}${legalLinks()}</div>`;
+  }
+  function showForgot() {
+    authCard(`<form class="card form" id="forgot-form" novalidate><h1 class="h2">איפוס סיסמה</h1>
+      <p class="muted" style="margin:0">נשלח לך קישור לבחירת סיסמה חדשה.</p>
+      <div class="field"><label for="fg-email">אימייל</label><input id="fg-email" type="email" autocomplete="email" dir="ltr" required></div>
+      <p class="form-error" id="fg-error" role="alert" hidden></p>
+      <button class="btn primary big" id="fg-send">שליחת קישור</button>
+      <button type="button" class="btn text" id="fg-back">חזרה להתחברות</button></form>`);
+    $('#fg-back').onclick = () => showAuth('login');
+    $('#forgot-form').onsubmit = async e => {
+      e.preventDefault();
+      const err = $('#fg-error'); err.hidden = true;
+      try {
+        await api('POST', '/api/password/forgot', { email: $('#fg-email').value });
+        authCard(`<div class="card form"><h1 class="h2">בדקו את תיבת המייל</h1><p style="margin:0">אם יש חשבון עם הכתובת הזאת, שלחנו אליה קישור לאיפוס הסיסמה. הקישור בתוקף לשעה.</p>
+          <button class="btn ghost" id="fg-done">חזרה להתחברות</button></div>`);
+        $('#fg-done').onclick = () => showAuth('login');
+      } catch (x) { err.textContent = x.message; err.hidden = false; }
+    };
+  }
+  function showReset(token) {
+    authCard(`<form class="card form" id="reset-form" novalidate><h1 class="h2">בחירת סיסמה חדשה</h1>
+      <div class="field"><label for="rs-pass">סיסמה חדשה (לפחות 8 תווים)</label><input id="rs-pass" type="password" autocomplete="new-password" dir="ltr" required></div>
+      <p class="form-error" id="rs-error" role="alert" hidden></p>
+      <button class="btn primary big">שמירה והתחברות</button></form>`);
+    $('#reset-form').onsubmit = async e => {
+      e.preventDefault();
+      const err = $('#rs-error'); err.hidden = true;
+      try { await api('POST', '/api/password/reset', { token, password: $('#rs-pass').value }); await startApp(); toast('הסיסמה עודכנה'); }
+      catch (x) { err.textContent = x.message; err.hidden = false; }
+    };
+  }
+  const needsVerify = () => ME && ME.verifyRequired && !ME.emailVerified;
 
   async function startApp() {
     ME = await api('GET', '/api/me');
@@ -1000,6 +1060,7 @@ const SAMPLE = (() => {
 
   async function refreshDiscover() {
     store('kesher-filters-v2', F);
+    if (needsVerify()) { DISC = { profiles: [], total: 0, cityCounts: {} }; if (tab === 'discover') { renderHeader(); renderView(); } return; }
     const qs = new URLSearchParams({ city: F.city, ageMin: F.ageMin, ageMax: F.ageMax >= 80 ? 99 : F.ageMax, relig: F.relig, kids: F.kids, status: F.status });
     try { DISC = await api('GET', '/api/discover?' + qs); } catch (e) { toast(e.message); }
     if (tab !== 'discover') return;
@@ -1018,6 +1079,16 @@ const SAMPLE = (() => {
     return parts;
   }
   function renderDiscover(v) {
+    if (needsVerify()) {
+      v.innerHTML = `<div class="empty"><div class="empty-art">${I.send}</div><h2>נשאר רק לאמת את האימייל</h2>
+        <p>שלחנו קישור אימות ל-<b dir="ltr">${esc(ME.email)}</b>. אחרי האימות תוכלו לראות אנשים, לקבל לייקים ולהתכתב. בינתיים אפשר למלא את הפרופיל.</p>
+        <div class="row-btns"><button class="btn primary" id="vf-check">כבר אימתתי</button><button class="btn ghost" id="vf-resend">שליחה מחדש</button></div>
+        <button class="btn text" id="vf-me">למילוי הפרופיל</button></div>`;
+      $('#vf-check').onclick = async () => { ME = await api('GET', '/api/me'); if (needsVerify()) toast('עוד לא ראינו אימות. בדקו גם בתיקיית הספאם'); setTab('discover'); };
+      $('#vf-resend').onclick = async () => { try { await api('POST', '/api/verify/resend'); toast('שלחנו קישור חדש'); } catch (e) { toast(e.message); } };
+      $('#vf-me').onclick = () => setTab('me');
+      return;
+    }
     if (!ME.photos.length) {
       v.innerHTML = `<div class="empty"><div class="empty-art">${I.camera}</div><h2>קודם מעלים תמונה</h2><p>כדי לראות אחרים ולהופיע בחיפוש צריך לפחות תמונה אחת בפרופיל.</p><button class="btn primary" id="go-me">להוספת תמונות</button></div>`;
       $('#go-me').onclick = () => setTab('me'); return;
@@ -1252,9 +1323,12 @@ const SAMPLE = (() => {
         <section class="card"><h2 class="h3">הרגלים</h2><div class="two">${HABITS.map(choice).join('')}</div></section>
         <p class="form-error" id="me-error" role="alert" hidden></p>
         <button class="btn primary big sticky-save" id="me-save">שמירה</button>
-        <section class="card quiet"><p class="muted small-text">מחובר/ת בתור <span dir="ltr">${esc(me.email)}</span></p>
-          <div class="row-btns"><button type="button" class="btn ghost" id="logout">התנתקות</button><button type="button" class="btn text danger-text" id="delete-account">מחיקת החשבון</button></div></section>
+        ${me.isAdmin ? `<section class="card"><h2 class="h3">${I.shield} ניהול</h2><p class="muted small-text">דיווחים של משתמשים על פרופילים והתנהגות.</p><button type="button" class="btn ghost" id="open-admin">טיפול בדיווחים</button></section>` : ''}
+        <section class="card quiet"><p class="muted small-text">מחובר/ת בתור <span dir="ltr">${esc(me.email)}</span>${needsVerify() ? ' · <b>האימייל עוד לא אומת</b>' : ''}</p>
+          <div class="row-btns"><button type="button" class="btn ghost" id="logout">התנתקות</button><button type="button" class="btn text danger-text" id="delete-account">מחיקת החשבון</button></div>
+          ${legalLinks()}</section>
       </form>`;
+    if (me.isAdmin) $('#open-admin').onclick = () => renderAdmin(v);
     v.querySelectorAll('input[type=file]').forEach(inp => inp.onchange = async () => {
       const f = inp.files[0]; if (!f) return;
       inp.closest('label').classList.add('busy');
@@ -1286,6 +1360,30 @@ const SAMPLE = (() => {
     };
   }
 
+  // ---------- Reports review (admins) ----------
+  async function renderAdmin(v) {
+    v.innerHTML = '<div class="loading" aria-label="טוען"></div>';
+    let list = [];
+    try { list = await api('GET', '/api/admin/reports'); } catch (e) { v.innerHTML = `<p class="form-error">${esc(e.message)}</p>`; return; }
+    const when = t => new Date(t).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' });
+    v.innerHTML = `<div class="chat-head"><button class="icon-btn" id="adm-back" aria-label="חזרה לפרופיל">${I.back}</button><h1 class="title" style="margin:0">דיווחים פתוחים</h1></div>
+      ${list.length ? '' : `<div class="empty"><div class="empty-art">${I.shield}</div><h2>אין דיווחים פתוחים</h2><p>כשמישהו ידווח על פרופיל, הדיווח יופיע כאן.</p></div>`}
+      <div class="list">${list.map((r, n) => `<div class="report">
+        ${r.target ? `<button class="chat-who" data-view="${n}">${avatarHTML(r.target, 'lg')}<span><b>${esc(r.target.name)}, ${r.target.age}</b><small>${esc(r.target.city)} · <span dir="ltr">${esc(r.target.email)}</span></small></span></button>` : '<b>החשבון נמחק</b>'}
+        <div class="report-meta"><span class="pill ${r.totalReports > 1 ? 'hot' : ''}">${r.totalReports === 1 ? 'דיווח אחד' : r.totalReports + ' דיווחים'}</span><span>${when(r.at)}</span></div>
+        <p class="report-reason">"${esc(r.reason || 'בלי פירוט')}"</p>
+        <p class="muted small-text">דווח על ידי ${esc(r.from.name || 'משתמש שנמחק')} <span dir="ltr">${esc(r.from.email || '')}</span></p>
+        <div class="row-btns"><button class="btn ghost" data-act="dismiss" data-id="${r.id}">התעלמות</button>${r.target ? `<button class="btn danger" data-act="ban" data-id="${r.id}">חסימת ${esc(r.target.name)}</button>` : ''}</div>
+      </div>`).join('')}</div>`;
+    $('#adm-back').onclick = () => renderMe(v);
+    v.querySelectorAll('[data-view]').forEach(b => b.onclick = () => viewProfile(list[+b.dataset.view].target));
+    v.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
+      if (b.dataset.act === 'ban' && b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'לחיצה נוספת תחסום'; return; }
+      try { await api('POST', `/api/admin/reports/${b.dataset.id}`, { action: b.dataset.act }); toast(b.dataset.act === 'ban' ? 'המשתמש נחסם' : 'הדיווח נסגר'); renderAdmin(v); }
+      catch (e) { toast(e.message); }
+    });
+  }
+
   // ---------- Tabs ----------
   const TABS = [['discover', 'גילוי', I.discover], ['likes', 'אהבו אותך', I.heart], ['matches', 'התאמות', I.chat], ['me', 'פרופיל', I.me]];
   function renderTabs() {
@@ -1296,7 +1394,7 @@ const SAMPLE = (() => {
   function setTab(t) {
     if (t !== 'matches') chatWith = null;
     stopPoll(); closeSheet(); tab = t; renderTabs(); renderHeader(); window.scrollTo({ top: 0 });
-    if (t === 'discover') { $('#view').innerHTML = '<div class="loading" aria-label="טוען"></div>'; refreshDiscover(); } else renderView();
+    if (t === 'discover' && !needsVerify()) { $('#view').innerHTML = '<div class="loading" aria-label="טוען"></div>'; refreshDiscover(); } else renderView();
   }
   function renderView() {
     const v = $('#view');
@@ -1308,7 +1406,15 @@ const SAMPLE = (() => {
   // ---------- Boot ----------
   (async () => {
     try { OPT = await api('GET', '/api/options'); } catch (e) { $('#view').innerHTML = '<p class="form-error">אין חיבור לשרת. נסו לרענן את הדף.</p>'; return; }
-    try { await startApp(); } catch (e) { showAuth('register'); }
+    // Links from emails arrive as ?verify=… or ?reset=…; clear them from the address bar once read
+    const params = new URLSearchParams(location.search);
+    const verifyToken = params.get('verify'), resetToken = params.get('reset');
+    if (verifyToken || resetToken) { try { history.replaceState(null, '', location.pathname); } catch (e) {} }
+    if (resetToken) return showReset(resetToken);
+    if (verifyToken) {
+      try { await api('POST', '/api/verify', { token: verifyToken }); toast('האימייל אומת. ברוכים הבאים!'); } catch (e) { toast(e.message); }
+    }
+    try { await startApp(); } catch (e) { showAuth(verifyToken ? 'login' : 'register'); }
   })();
 })();
 

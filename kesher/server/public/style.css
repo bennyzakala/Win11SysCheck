@@ -331,3 +331,16 @@ nav.tabs .badge { position: absolute; top: 9px; inset-inline-start: calc(50% + 6
 .demo-banner { font-size: 13px; color: var(--muted); text-align: center; margin: 22px 0 0; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* Accounts, legal links and reports review */
+.auth-hero.small { padding: 24px; }
+.auth-hero.small .brand { font-size: 40px; }
+.legal { text-align: center; font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+.legal a, .check a { color: inherit; text-decoration: underline; }
+.check a { color: var(--accent); }
+.report { background: var(--surface); border-radius: var(--r); padding: 16px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.report-meta { display: flex; gap: 10px; align-items: center; font-size: 13px; color: var(--muted); }
+.pill { background: var(--bg); border-radius: 999px; padding: 2px 10px; font-weight: 600; color: var(--ink); }
+.pill.hot { background: var(--rose-soft); color: var(--rose); }
+.report-reason { margin: 0; font-family: var(--f-serif); font-size: 19px; }
+.h3 svg { width: 20px; height: 20px; vertical-align: -3px; }
