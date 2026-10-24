@@ -123,7 +123,8 @@ main {
   display: flex; align-items: center; justify-content: center;
 }
 .photo img { width: 100%; height: 100%; object-fit: cover; }
-.photo .initial { font-family: var(--f-display); font-size: 140px; font-weight: 700; color: rgb(255 255 255 / .9); line-height: 1; text-shadow: 0 4px 30px rgb(0 0 0 / .15); }
+.photo > svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.avatar svg { width: 100%; height: 100%; display: block; }
 .photo .cap { position: absolute; inset-inline-start: 14px; top: 14px; color: #fff; font-size: 14px; font-weight: 600; background: rgb(0 0 0 / .32); padding: 4px 10px; border-radius: 999px; max-width: calc(100% - 28px); }
 .prompt { position: relative; background: var(--surface); border-radius: 16px; padding: 22px 18px 26px; box-shadow: var(--shadow); }
 .prompt .q { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
@@ -378,6 +379,91 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
   const byId = id => PROFILES.find(p => p.id === id);
   const grad = g => `linear-gradient(150deg, ${G[g][0]}, ${G[g][1]})`;
 
+  // ---------- Illustrations: a drawn character per profile, placed in a scene picked from the photo caption ----------
+  const SKIN = ['#F2D3B8', '#E8B996', '#C98E68', '#A86B47', '#7A4B2E', '#F5DCC8'];
+  const HAIR = ['#2B1E16', '#5A3A22', '#8C5A2B', '#C99A5B', '#1C1C1C', '#7A2E1E'];
+  function look(p) {
+    const id = p.id, fem = p.gender === 'אישה', nb = p.gender === 'א-בינארי';
+    return {
+      skin: SKIN[(id * 3) % SKIN.length], hair: HAIR[(id * 5) % HAIR.length], shirt: G[p.g][0], shirt2: G[p.g][1],
+      style: nb ? 'curly' : fem ? ['long', 'bun', 'long', 'curly'][id % 4] : ['short', 'curly', 'buzz', 'short'][id % 4],
+      beard: !fem && !nb && id % 3 === 0, glasses: id % 5 === 0
+    };
+  }
+  // Bust in local coordinates: origin at bottom centre, head centre at (0,-165)
+  function person(p) {
+    const L = look(p), h = L.hair;
+    const back = L.style === 'long' ? `<path d="M-74 -150C-84 -246 84 -246 74 -150L84 -62C40 -48-40 -48-84 -62Z" fill="${h}"/>`
+      : L.style === 'curly' ? [[-60,-120],[60,-120],[-66,-160],[66,-160]].map(([x,y]) => `<circle cx="${x}" cy="${y}" r="24" fill="${h}"/>`).join('') : '';
+    const top = {
+      long: `<path d="M-63 -160C-72 -248 72 -248 63 -160C46 -200-6 -214-63 -160Z" fill="${h}"/>`,
+      bun: `<circle cx="0" cy="-240" r="26" fill="${h}"/><path d="M-60 -172C-64 -240 64 -240 60 -172C40 -206-40 -206-60 -172Z" fill="${h}"/>`,
+      curly: [[-46,-206],[-18,-224],[14,-226],[44,-208],[-58,-180],[58,-180]].map(([x,y]) => `<circle cx="${x}" cy="${y}" r="24" fill="${h}"/>`).join(''),
+      short: `<path d="M-61 -178C-64 -242 64 -242 61 -178C48 -204-24 -214-61 -178Z" fill="${h}"/>`,
+      buzz: `<path d="M-59 -184C-60 -236 60 -236 59 -184C40 -206-40 -206-59 -184Z" fill="${h}" opacity=".85"/>`
+    }[L.style];
+    return `${back}
+      <path d="M-132 0C-132 -72-92 -98-42 -102H42C92 -98 132 -72 132 0Z" fill="${L.shirt}"/>
+      <path d="M-132 0C-132 -40-120 -60-104 -74L-90 0Z" fill="${L.shirt2}" opacity=".35"/>
+      <rect x="-22" y="-128" width="44" height="40" rx="10" fill="${L.skin}"/>
+      <path d="M-24 -102L0 -74L24 -102Z" fill="${L.skin}"/>
+      <circle cx="-58" cy="-160" r="12" fill="${L.skin}"/><circle cx="58" cy="-160" r="12" fill="${L.skin}"/>
+      <ellipse cx="0" cy="-165" rx="58" ry="66" fill="${L.skin}"/>
+      ${L.beard ? `<path d="M-56 -168C-56 -104-26 -98 0 -98S56 -104 56 -168C46 -134 24 -128 0 -130S-46 -134-56 -168Z" fill="${h}" opacity=".55"/>` : ''}
+      ${top}
+      <path d="M-32 -184h18M14 -184h18" stroke="${h}" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="-22" cy="-164" r="5.5" fill="#2A2320"/><circle cx="22" cy="-164" r="5.5" fill="#2A2320"/>
+      ${L.glasses ? `<g fill="none" stroke="#2A2320" stroke-width="3.5"><circle cx="-22" cy="-164" r="15"/><circle cx="22" cy="-164" r="15"/><path d="M-7 -165h14"/></g>` : ''}
+      <ellipse cx="-36" cy="-143" rx="9" ry="6" fill="#E46A6A" opacity=".28"/><ellipse cx="36" cy="-143" rx="9" ry="6" fill="#E46A6A" opacity=".28"/>
+      <path d="M-17 -136Q0 -121 17 -136" fill="none" stroke="#7A3B2E" stroke-width="4" stroke-linecap="round"/>`;
+  }
+  function pet(kind, x) {
+    if (kind === 'dog') return `<g transform="translate(${x} 500)">
+      <ellipse cx="0" cy="-40" rx="52" ry="36" fill="#C58B4E"/><circle cx="0" cy="-92" r="34" fill="#C58B4E"/>
+      <ellipse cx="-30" cy="-92" rx="11" ry="24" fill="#8A5A2B"/><ellipse cx="30" cy="-92" rx="11" ry="24" fill="#8A5A2B"/>
+      <circle cx="-11" cy="-96" r="4" fill="#2A2320"/><circle cx="11" cy="-96" r="4" fill="#2A2320"/><ellipse cx="0" cy="-82" rx="7" ry="5" fill="#2A2320"/></g>`;
+    return `<g transform="translate(${x} 500)">
+      <ellipse cx="0" cy="-36" rx="44" ry="32" fill="#7D7F86"/><circle cx="0" cy="-84" r="30" fill="#7D7F86"/>
+      <path d="M-26 -100L-22 -132L-4 -110ZM26 -100L22 -132L4 -110Z" fill="#7D7F86"/>
+      <circle cx="-10" cy="-88" r="4" fill="#E8D36A"/><circle cx="10" cy="-88" r="4" fill="#E8D36A"/><path d="M-4 -77h8l-4 4z" fill="#E59AA0"/></g>`;
+  }
+  const SCENES = [
+    [/מדבר|מכתש|נגב|רמון|עבדת|סיני|אדום|הרי אילת/, 'desert'],
+    [/חוף|ים|גלישה|סאפ|צלילה|שונית|סירה|מרינה|צוק|טיילת/, 'beach'],
+    [/בר |בבר|הופעה|פסטיבל|ברלין|פריז|ברצלונה|נאפולי|כיכר|רחוב|פלורנטין|העתיקה|שוק|פורטוגל|איסלנד|הודו|חתונה|משחק|רוטשילד/, 'city'],
+    [/מטבח|קפה|ספרייה|מוזיאון|גלריה|תערוכה|סדנת|מעבדה|כנס|בבית|שולחן|חדר|מערכת|חלות|מנה|האקתון|טכניון|קרמיקה|בן גוריון|דגם|גיטרה|יוגה|עמידת/, 'indoor'],
+    [/טיול|הר|כרמל|גליל|נחל|פארק|אלפים|גן|ריצה|אופניים|ענבה|יקב|ספארי|גג|זריחה|תצפית|שקיעה/, 'nature']
+  ];
+  function scene(kind, k) {
+    switch (kind) {
+      case 'beach': return `<rect width="400" height="500" fill="#F7D9C4"/><rect width="400" height="200" fill="#A9D4E6"/>
+        <circle cx="${90 + k * 40}" cy="150" r="46" fill="#FFE29A"/><rect y="270" width="400" height="90" fill="#3E8FB0"/>
+        <path d="M0 300C60 290 120 310 200 298S340 290 400 300V360H0Z" fill="#2F7896"/><rect y="350" width="400" height="150" fill="#EBCB98"/>`;
+      case 'desert': return `<rect width="400" height="500" fill="#F4B886"/><circle cx="300" cy="130" r="50" fill="#FFE8B0"/>
+        <path d="M0 300C90 240 170 250 250 300S360 280 400 260V500H0Z" fill="#D9874E"/><path d="M0 360C80 330 200 350 400 320V500H0Z" fill="#C06A38"/>`;
+      case 'city': return `<rect width="400" height="500" fill="#3D3A6B"/><circle cx="320" cy="90" r="30" fill="#F3E3B3"/>
+        ${[[0,180,70],[70,240,60],[130,160,80],[210,210,60],[270,140,70],[340,230,60]].map(([x,y,w]) => `<rect x="${x}" y="${y}" width="${w}" height="${500-y}" fill="#2A2850"/>` +
+          [0,1,2,3,4].map(r => `<rect x="${x+12}" y="${y+20+r*44}" width="12" height="16" fill="#F3C969" opacity="${(r+x)%3?'.85':'.25'}"/><rect x="${x+w-26}" y="${y+20+r*44}" width="12" height="16" fill="#F3C969" opacity="${(r+y)%3?'.25':'.85'}"/>`).join('')).join('')}`;
+      case 'indoor': return `<rect width="400" height="500" fill="#E9E2D6"/><rect y="390" width="400" height="110" fill="#C9B79C"/>
+        <rect x="${k%2?40:250}" y="70" width="110" height="140" rx="6" fill="#BFE0EA" stroke="#FFFFFF" stroke-width="8"/><path d="M${k%2?95:305} 70V210" stroke="#FFFFFF" stroke-width="6"/>
+        <rect x="${k%2?300:50}" y="300" width="44" height="60" rx="6" fill="#B0603E"/><ellipse cx="${k%2?322:72}" cy="290" rx="38" ry="44" fill="#4E8A5C"/>`;
+      case 'nature': return `<rect width="400" height="500" fill="#CFE7F1"/><circle cx="${80 + k * 50}" cy="110" r="36" fill="#FFF1C1"/>
+        <path d="M0 290C90 200 170 220 260 270S370 230 400 220V500H0Z" fill="#8DBF8A"/><path d="M0 360C100 320 260 350 400 310V500H0Z" fill="#5E9C61"/>
+        ${[[60,300],[330,270],[370,320]].map(([x,y]) => `<rect x="${x-5}" y="${y}" width="10" height="34" fill="#6B4A2E"/><circle cx="${x}" cy="${y-6}" r="26" fill="#3F7D48"/>`).join('')}`;
+      default: return `<rect width="400" height="500" fill="#D7EAE7"/><circle cx="320" cy="120" r="90" fill="#BFDCD7"/><circle cx="70" cy="380" r="120" fill="#C7E2DE"/>`;
+    }
+  }
+  const POSE = [[200, 1.15], [150, .85], [245, .95], [200, .72], [140, 1], [260, .8]];
+  function illus(p, i) {
+    const cap = p.photos[i] || '';
+    const kind = (SCENES.find(([re]) => re.test(cap)) || [0, 'plain'])[1];
+    const [cx, s] = POSE[i % POSE.length];
+    const petKind = /כלב/.test(cap) ? 'dog' : /חתול/.test(cap) ? 'cat' : '';
+    return `<svg viewBox="0 0 400 500" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      ${scene(kind, i)}<g transform="translate(${cx} 500) scale(${s})">${person(p)}</g>${petKind ? pet(petKind, cx < 200 ? 320 : 80) : ''}</svg>`;
+  }
+  const faceSVG = p => `<svg viewBox="-100 -262 200 200" aria-hidden="true"><rect x="-100" y="-262" width="200" height="200" fill="${G[p.g][1]}"/>${person(p)}</svg>`;
+
   // City matching: free text, matched against the start or any part of the city name
   const cityMatches = (city, q) => !q || norm(city).includes(norm(q));
 
@@ -452,7 +538,7 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
   // ---------- Views ----------
   function photoHTML(p, i, withHeart) {
     return `<div class="photo" style="background:${grad((p.g + i) % G.length)}">
-      <span class="initial" aria-hidden="true">${esc(p.name[0])}</span>
+      ${illus(p, i)}
       <span class="cap">${esc(p.photos[i])}</span>
       ${withHeart ? `<button class="heart" data-kind="photo" data-i="${i}" aria-label="לייק לתמונה: ${esc(p.photos[i])}">${I.heart}</button>` : ''}
     </div>`;
@@ -549,7 +635,7 @@ nav.tabs .badge { position: absolute; top: 8px; inset-inline-start: calc(50% + 6
     };
   }
 
-  function avatarHTML(p) { return `<span class="avatar" style="background:${grad(p.g)}" aria-hidden="true">${esc(p.name[0])}</span>`; }
+  function avatarHTML(p) { return `<span class="avatar" style="background:${grad(p.g)}" aria-hidden="true">${faceSVG(p)}</span>`; }
   function meAvatar() {
     const ph = S.me.photos[0];
     return `<span class="avatar" style="background:${grad(0)}" aria-hidden="true">${ph ? `<img src="${ph}" alt="">` : esc((S.me.name || 'א')[0])}</span>`;
