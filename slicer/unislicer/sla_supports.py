@@ -7,7 +7,7 @@ import numpy as np
 from shapely.geometry import MultiPoint
 
 from .mesh import Mesh
-from .primitives import frustum, prism
+from .primitives import ball, frustum, prism, tube
 from .settings import Config
 
 SEGMENTS = 10
@@ -94,6 +94,99 @@ def auto_support_points(mesh: Mesh, cfg: Config) -> np.ndarray:
     return np.array(points, dtype=np.float64).reshape(-1, 3)
 
 
+class _Underside:
+    """Height map of the lowest model surface over each XY cell (conservative), for keeping branches clear."""
+
+    def __init__(self, mesh: Mesh, cell: float = 1.0):
+        tris = mesh.triangles
+        # split large triangles so a bounding-box rasterisation stays tight
+        for _ in range(8):
+            edges = np.linalg.norm(tris[:, [1, 2, 0], :2] - tris[:, :, :2], axis=2).max(axis=1)
+            big = edges > cell * 2
+            if not big.any():
+                break
+            t = tris[big]
+            m01, m12, m20 = (t[:, 0] + t[:, 1]) / 2, (t[:, 1] + t[:, 2]) / 2, (t[:, 2] + t[:, 0]) / 2
+            split = np.concatenate([np.stack([t[:, 0], m01, m20], 1), np.stack([m01, t[:, 1], m12], 1),
+                                    np.stack([m20, m12, t[:, 2]], 1), np.stack([m01, m12, m20], 1)])
+            tris = np.concatenate([tris[~big], split])
+        self.cell = cell
+        lo = tris[:, :, :2].min(axis=(0, 1)) - cell
+        hi = tris[:, :, :2].max(axis=(0, 1)) + cell
+        self.origin = lo
+        self.shape = (int(np.ceil((hi[0] - lo[0]) / cell)) + 1, int(np.ceil((hi[1] - lo[1]) / cell)) + 1)
+        grid = np.full(self.shape, np.inf)
+        i0 = np.floor((tris[:, :, 0].min(axis=1) - lo[0]) / cell).astype(int)
+        i1 = np.floor((tris[:, :, 0].max(axis=1) - lo[0]) / cell).astype(int)
+        j0 = np.floor((tris[:, :, 1].min(axis=1) - lo[1]) / cell).astype(int)
+        j1 = np.floor((tris[:, :, 1].max(axis=1) - lo[1]) / cell).astype(int)
+        w, h = i1 - i0 + 1, j1 - j0 + 1
+        count = w * h
+        tri = np.repeat(np.arange(len(tris)), count)
+        k = np.arange(count.sum()) - np.repeat(np.cumsum(count) - count, count)
+        ii = i0[tri] + k % w[tri]
+        jj = j0[tri] + k // w[tri]
+        np.minimum.at(grid, (ii, jj), tris[:, :, 2].min(axis=1)[tri])
+        # dilate by one cell so branch thickness and diagonal neighbours are covered
+        pad = np.pad(grid, 1, constant_values=np.inf)
+        self.grid = np.min([pad[1 + dx:1 + dx + self.shape[0], 1 + dy:1 + dy + self.shape[1]]
+                            for dx in (-1, 0, 1) for dy in (-1, 0, 1)], axis=0)
+
+    def at(self, xy: np.ndarray) -> np.ndarray:
+        idx = np.floor((np.asarray(xy) - self.origin) / self.cell).astype(int)
+        inside = (idx[..., 0] >= 0) & (idx[..., 0] < self.shape[0]) & (idx[..., 1] >= 0) & (idx[..., 1] < self.shape[1])
+        out = np.full(idx.shape[:-1], np.inf)
+        out[inside] = self.grid[idx[inside][:, 0], idx[inside][:, 1]]
+        return out
+
+    def clear(self, a: np.ndarray, b: np.ndarray, margin: float) -> bool:
+        """True if the straight segment a->b stays ``margin`` below the model everywhere (start excluded)."""
+        t = np.linspace(0.15, 1.0, 8)[:, None]
+        pts = a + (b - a) * t
+        return bool(np.all(pts[:, 2] < self.at(pts[:, :2]) - margin))
+
+
+def _grow_trees(starts: np.ndarray, under: _Underside, cfg: Config, floor: float, radius):
+    """Greedily merge branch ends pairwise (highest meeting point first) into trees.
+
+    Returns (segments [(p, q, r_p, r_q)], roots [(point, weight)])."""
+    tan_a = math.tan(math.radians(min(max(cfg["sla_branch_angle"], 5.0), 75.0)))
+    max_d = max(6.0, cfg["sla_support_spacing"] * 4)
+    nodes = [np.array(p, dtype=np.float64) for p in starts]
+    weights = [1] * len(nodes)
+    segments = []
+    while len(nodes) > 1:
+        x = np.array(nodes)
+        w = np.array(weights)
+        d = np.linalg.norm(x[:, None, :2] - x[None, :, :2], axis=2)
+        mz = np.minimum(x[:, None, 2], x[None, :, 2]) - d / 2 / tan_a
+        ok = (d <= max_d) & (mz > floor) & np.triu(np.ones_like(d, dtype=bool), 1)
+        if not ok.any():
+            break
+        cand = np.argwhere(ok)
+        order = np.argsort(-mz[ok])[:200]
+        merged = False
+        for ci in order:
+            i, j = cand[ci]
+            total = w[i] + w[j]
+            m = np.array([(x[i, 0] + x[j, 0]) / 2, (x[i, 1] + x[j, 1]) / 2, mz[i, j]])
+            r_m = radius(total)
+            if not (under.clear(x[i], m, r_m + 0.5) and under.clear(x[j], m, r_m + 0.5)):
+                continue
+            segments.append((x[i], m, radius(w[i]), r_m))
+            segments.append((x[j], m, radius(w[j]), r_m))
+            for k in sorted((i, j), reverse=True):
+                del nodes[k]
+                del weights[k]
+            nodes.append(m)
+            weights.append(int(total))
+            merged = True
+            break
+        if not merged:
+            break
+    return segments, list(zip(nodes, weights))
+
+
 def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) -> tuple[Mesh, np.ndarray]:
     """Support geometry for a model that already sits at its elevated height.
 
@@ -109,7 +202,16 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) ->
     depth = cfg["sla_contact_depth"]
     on_model = cfg["sla_supports_on_model"]
     head_len = max(1.0, pillar_r * 3)
-    parts, feet, used = [], [], []
+    tree = cfg["sla_support_type"] == "tree"
+    parts, feet, used, tree_tips = [], [], [], []
+
+    def foot_on_bed(x, y, r, top):
+        """Wide cone sitting on the raft, from the raft up to height ``top``."""
+        foot = min(1.0, (top - raft) * 0.5)
+        parts.append(frustum(r * 2, r, foot + 0.05, SEGMENTS, raft - 0.05, (x, y)))
+        feet.append(np.array([x, y]))
+        return raft + foot
+
     for p in points:
         base = caster.base_below(p)
         if base > 0 and not on_model:
@@ -122,22 +224,44 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) ->
         if height < 0.5:
             continue
         head = min(head_len, height * 0.5)
+        used.append(p)
+        if tree and on_bed and height > head + 3.0:
+            # the head is built now; the branch below it is decided when the trees are grown
+            parts.append(frustum(pillar_r * 0.8, tip_r, head, SEGMENTS, top - head, (x, y)))
+            tree_tips.append(np.array([x, y, top - head]))
+            continue
         if on_bed:
-            foot = min(1.0, height * 0.2)
-            # sink slightly into the raft; the foot ends exactly where the pillar body starts
-            parts.append(frustum(pillar_r * 2, pillar_r, foot + 0.05, SEGMENTS, bottom - 0.05, (x, y)))
-            feet.append(np.array([x, y]))
+            body_z = foot_on_bed(x, y, pillar_r, top - head)
         else:
             foot = min(head, height * 0.25)
             parts.append(frustum(tip_r, pillar_r, foot + depth, SEGMENTS, bottom - depth, (x, y)))
-        body_z = bottom + foot
+            body_z = bottom + foot
         body_h = top - head - body_z
         if body_h > 0:
             parts.append(frustum(pillar_r, pillar_r, body_h + 0.01, SEGMENTS, body_z, (x, y)))
         parts.append(frustum(pillar_r, tip_r, head, SEGMENTS, top - head, (x, y)))
-        used.append(p)
+
+    if tree_tips:
+        under = _Underside(mesh)
+        branch_r = pillar_r * 0.8
+
+        def radius(weight):
+            return min(pillar_r * 2.0, branch_r * math.sqrt(weight))
+
+        segments, roots = _grow_trees(np.array(tree_tips), under, cfg, raft + 3.0, radius)
+        for a, b, ra, rb in segments:
+            parts.append(tube(a, b, ra, rb, SEGMENTS))
+            parts.append(ball(a, ra, 3, SEGMENTS))
+            parts.append(ball(b, rb, 3, SEGMENTS))
+        for node, weight in roots:
+            r = radius(weight)
+            body_z = foot_on_bed(node[0], node[1], r, node[2])
+            if node[2] > body_z:
+                parts.append(frustum(r, r, node[2] - body_z + 0.01, SEGMENTS, body_z, (node[0], node[1])))
+            parts.append(ball(node, r, 3, SEGMENTS))
+
     if raft > 0 and feet:
-        hull = MultiPoint([tuple(f) for f in feet]).buffer(pillar_r * 2 + cfg["sla_raft_margin"], quad_segs=4).convex_hull
+        hull = MultiPoint([tuple(f) for f in feet]).buffer(pillar_r * 4 + cfg["sla_raft_margin"], quad_segs=4).convex_hull
         ring = np.asarray(hull.exterior.coords)[:-1]
         if _signed_area(ring) < 0:
             ring = ring[::-1]

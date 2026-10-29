@@ -75,7 +75,7 @@ SCHEMA: list[Setting] = [
     S("mirror_x", "bool", False, "printer", "sla", "שיקוף אופקי", "Mirror X"),
     S("mirror_y", "bool", False, "printer", "sla", "שיקוף אנכי", "Mirror Y"),
     S("sla_format", "enum", "sl1", "printer", "sla", "פורמט קובץ פלט", "Output format",
-      options=(("ctb", "CTB (Chitubox v4)", "CTB (Chitubox v4)"), ("sl1", "SL1 (Prusa / UVtools)", "SL1 (Prusa / UVtools)"),
+      options=(("ctb", "CTB (Chitubox v4)", "CTB (Chitubox v4)"), ("goo", "GOO (Elegoo)", "GOO (Elegoo)"), ("sl1", "SL1 (Prusa / UVtools)", "SL1 (Prusa / UVtools)"),
                ("png_zip", "ZIP של תמונות PNG", "ZIP of PNG images"))),
 
     # ---------------------------------------------------------------- quality
@@ -150,6 +150,12 @@ SCHEMA: list[Setting] = [
       options=(("light", "קלות", "Light"), ("medium", "בינוניות", "Medium"), ("heavy", "כבדות", "Heavy"), ("custom", "מותאם אישית", "Custom")),
       tip_he="קובע את קוטר הראש, קוטר העמוד והמרווח. שינוי אחד מהם עובר ל'מותאם אישית'",
       tip_en="Sets tip diameter, pillar diameter and spacing; editing one of them switches to Custom"),
+    S("sla_support_type", "enum", "tree", "support", "sla", "צורת תמיכות", "Support shape",
+      options=(("tree", "עץ (מסתעפות)", "Tree (branching)"), ("pillar", "עמודים ישרים", "Straight pillars")),
+      tip_he="תמיכות עץ מתאחדות לגזעים משותפים: פחות שרף, פחות נקודות מגע עם המשטח וקלות יותר להסרה",
+      tip_en="Tree supports merge into shared trunks: less resin, fewer bed contacts, easier removal"),
+    S("sla_branch_angle", "float", 35.0, "support", "sla", "זווית הסתעפות", "Branch angle", "°", 5, 75, 1, advanced=True,
+      tip_he="הזווית המרבית של ענף ביחס לאנך", tip_en="Maximum branch angle from vertical"),
     S("sla_support_spacing", "float", 3.0, "support", "sla", "מרווח בין נקודות תמיכה", "Support point spacing", "mm", 0.5, 20, 0.5),
     S("sla_tip_diameter", "float", 0.5, "support", "sla", "קוטר ראש התמיכה", "Support tip diameter", "mm", 0.1, 3, 0.05),
     S("sla_pillar_diameter", "float", 1.2, "support", "sla", "קוטר עמוד", "Pillar diameter", "mm", 0.3, 10, 0.1),

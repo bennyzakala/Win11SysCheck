@@ -252,5 +252,33 @@
       "resolution_y": 2400,
       "material_name": "Standard resin"
     }
+  },
+  "elegoo_saturn3_ultra": {
+    "name": "Elegoo Saturn 3 Ultra",
+    "vendor": "Elegoo",
+    "values": {
+      "technology": "sla",
+      "bed_x": 218.88,
+      "bed_y": 122.88,
+      "max_z": 260,
+      "resolution_x": 11520,
+      "resolution_y": 5120,
+      "sla_format": "goo",
+      "material_name": "Standard resin"
+    }
+  },
+  "elegoo_mars4_ultra": {
+    "name": "Elegoo Mars 4 Ultra",
+    "vendor": "Elegoo",
+    "values": {
+      "technology": "sla",
+      "bed_x": 153.36,
+      "bed_y": 77.76,
+      "max_z": 165,
+      "resolution_x": 8520,
+      "resolution_y": 4320,
+      "sla_format": "goo",
+      "material_name": "Standard resin"
+    }
   }
 }

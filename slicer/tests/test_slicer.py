@@ -252,3 +252,44 @@ def test_ctb_roundtrip(tmp_path):
         assert f["layers"][i]["exposure"] == pytest.approx(sla.layer_exposure(i, cfg))
     run = np.array([0] * 5 + [255] * 70000 + [64] + [0] * 3, dtype=np.uint8)
     assert np.array_equal(ctb.decode_layer(ctb.encode_layer(run), run.size) >> 1, run >> 1)
+
+
+def test_goo_roundtrip(tmp_path):
+    from unislicer import goo
+    cfg = profiles.build_config("elegoo_mars4_ultra", "resin_standard", "sla_fast",
+                                {"support_enable": True, "transition_layers": 2, "tsmc_enable": True})
+    assert cfg["sla_format"] == "goo"
+    job = sla.prepare([placed(primitives.sphere(6), 70, 40).world_mesh()], cfg)
+    path = tmp_path / "ball.goo"
+    sla.export(job, cfg, str(path), "ball")
+    f = goo.read(str(path))
+    h = f["header"]
+    assert h["version"] == b"V3.0" and h["magic"] == goo.MAGIC and f["footer_ok"]
+    assert (h["layer_count"], h["res_x"], h["res_y"]) == (job.layer_count, 8520, 4320)
+    assert h["layer_offset"] == goo.HEADER_SIZE == 195477 and h["transition_layers"] == 2
+    for i in (0, job.layer_count // 2, job.layer_count - 1):
+        img = np.asarray(sla.render_layer(job.layers[i], cfg)).ravel()
+        assert np.array_equal(goo.decode_layer(f["layers"][i]["rle"], img.size), img)
+        assert f["layers"][i]["exposure"] == pytest.approx(sla.layer_exposure(i, cfg))
+    # byte patterns from Elegoo's format specification
+    for value, length, expected in ((0, 0x555657F, "3f555657"), (0xAA, 0xBBCC155, "75aabbcc15"), (0, 5, "05")):
+        out = bytearray()
+        goo._chunk(out, value, length)
+        assert out.hex() == expected
+
+
+def test_tree_supports_merge_and_use_less_resin():
+    from unislicer.slicing import slice_meshes
+    mesh = placed(primitives.demo_bridge(), 70, 45).world_mesh()
+    volumes = {}
+    for kind in ("pillar", "tree"):
+        cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {"support_enable": True, "sla_support_type": kind})
+        job = sla.prepare([mesh], cfg)
+        assert job.islands == []
+        planes = [0.05 + 0.1 * i for i in range(int(job.supports.bounds[1, 2] / 0.1))]
+        volumes[kind] = sum(g.area for g in slice_meshes([job.supports], planes)) * 0.1
+        if kind == "tree":
+            # fewer feet on the raft than contact points: branches merged into shared trunks
+            first = slice_meshes([job.supports], [cfg["sla_raft_thickness"] + 0.5])[0]
+            assert len(first.geoms) < len(job.support_points) / 2
+    assert volumes["tree"] < volumes["pillar"]

@@ -86,3 +86,32 @@ def demo_bridge(name: str = "Bridge") -> Mesh:
              box(8, 10, 20).translated([32, 0, 0]),
              box(40, 10, 4).translated([0, 0, 20])]
     return Mesh.merge(parts, name)
+
+
+def tube(p, q, r1: float, r2: float, segments: int = 8) -> Mesh:
+    """Closed truncated cone from point p (radius r1) to point q (radius r2), in any direction."""
+    p, q = np.asarray(p, dtype=np.float64), np.asarray(q, dtype=np.float64)
+    axis = q - p
+    length = np.linalg.norm(axis)
+    if length < 1e-9:
+        return Mesh(np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64))
+    axis /= length
+    helper = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = np.cross(axis, helper)
+    u /= np.linalg.norm(u)
+    v = np.cross(axis, u)
+    a = np.linspace(0, 2 * np.pi, segments, endpoint=False)
+    ring = np.outer(np.cos(a), u) + np.outer(np.sin(a), v)
+    verts = np.vstack([p + ring * r1, q + ring * r2, p, q])
+    i = np.arange(segments)
+    j = (i + 1) % segments
+    cp, cq = 2 * segments, 2 * segments + 1
+    sides = np.vstack([np.column_stack([i, j, i + segments]), np.column_stack([j, j + segments, i + segments])])
+    caps = np.vstack([np.column_stack([np.full(segments, cp), j, i]),
+                      np.column_stack([np.full(segments, cq), i + segments, j + segments])])
+    return Mesh(verts, np.vstack([sides, caps]), "Tube")
+
+
+def ball(center, radius: float, rings: int = 4, segments: int = 8) -> Mesh:
+    """Low-poly sphere around ``center`` (used for the joints of tree supports)."""
+    return sphere(radius, rings, segments).translated(np.asarray(center, dtype=np.float64) - [0, 0, radius])
