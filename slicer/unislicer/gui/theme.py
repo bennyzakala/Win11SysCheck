@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 
-from PySide6.QtCore import QByteArray, QRectF, Qt
+from PySide6.QtCore import QByteArray, QRectF, QStandardPaths, Qt
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPalette, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
@@ -145,14 +146,11 @@ QSplitter::handle {{ background: {BORDER}; }}
 """
 
 
-def _write_assets() -> str:
-    """Write small SVGs that the stylesheet references by file path."""
-    folder = os.path.join(tempfile.gettempdir(), "unislicer-assets")
-    os.makedirs(folder, exist_ok=True)
+def _asset_files() -> dict[str, str]:
     toggle = ('<svg xmlns="http://www.w3.org/2000/svg" width="36" height="20" viewBox="0 0 36 20">'
               '<rect x="0.5" y="0.5" width="35" height="19" rx="9.5" fill="{bg}" stroke="{border}"/>'
               '<circle cx="{cx}" cy="10" r="7" fill="{knob}"/></svg>')
-    files = {
+    return {
         "toggle_on.svg": toggle.format(bg=ACCENT, border=ACCENT, cx=26, knob="#ffffff"),
         "toggle_off.svg": toggle.format(bg=SURFACE_3, border=BORDER, cx=10, knob="#8b93a6"),
         "toggle_disabled.svg": toggle.format(bg=SURFACE, border=SURFACE_3, cx=10, knob="#4a5163"),
@@ -160,10 +158,25 @@ def _write_assets() -> str:
                         f'stroke="{TEXT_DIM}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">'
                         '<path d="m6 9 6 6 6-6"/></svg>'),
     }
-    for name, content in files.items():
-        with open(os.path.join(folder, name), "w", encoding="utf-8") as fh:
-            fh.write(content)
-    return folder.replace(os.sep, "/")
+
+
+def _write_assets() -> str | None:
+    """Write small SVGs that the stylesheet references by file path; None if no folder is writable."""
+    candidates = []
+    app_data = QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation)
+    if app_data:
+        candidates.append(os.path.join(app_data, "assets"))
+    candidates.append(os.path.join(tempfile.gettempdir(), f"unislicer-assets-{os.getpid()}"))
+    for folder in candidates:
+        try:
+            os.makedirs(folder, exist_ok=True)
+            for name, content in _asset_files().items():
+                with open(os.path.join(folder, name), "w", encoding="utf-8") as fh:
+                    fh.write(content)
+            return folder.replace(os.sep, "/")
+        except OSError as exc:
+            print(f"cannot write UI assets to {folder}: {exc}", file=sys.stderr)
+    return None
 
 
 def apply(app) -> None:
@@ -183,7 +196,12 @@ def apply(app) -> None:
             font.setHintingPreference(QFont.PreferNoHinting)
             app.setFont(font)
             break
-    app.setStyleSheet(STYLESHEET.replace("@ASSETS@", _write_assets()))
+    assets = _write_assets()
+    if assets:
+        sheet = STYLESHEET.replace("@ASSETS@", assets)
+    else:  # plain checkboxes and combo arrows rather than failing to start
+        sheet = "\n".join(line for line in STYLESHEET.splitlines() if "@ASSETS@" not in line)
+    app.setStyleSheet(sheet)
 
 
 # --------------------------------------------------------------------- icons

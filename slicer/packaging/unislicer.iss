@@ -21,8 +21,8 @@ UninstallDisplayIcon={app}\UniSlicer.exe
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
 Name: "hebrew"; MessagesFile: "compiler:Languages\Hebrew.isl"
