@@ -249,8 +249,8 @@ class Viewer(QOpenGLWidget):
     holePicked = Signal(object, object, object)  # uid, world point, world normal (drain hole tool)
     measured = Signal(object, object)            # first and second world point
     rayPicked = Signal(object, object)         # origin, direction (support "remove" mode)
-    supportEdit = Signal(object, object, object, object, bool)  # origin, direction, uid, hit point, Shift (add only)
-    hoverRay = Signal(object, object)          # origin, direction under the cursor (support "edit" mode)
+    cameraChanged = Signal()                   # after every repaint (keeps the view cube in step)
+    hoverRay = Signal(object, object, object, object)  # origin, direction, uid, model hit point (support modes)
 
     MODE_PREPARE, MODE_PREVIEW = "prepare", "preview"
 
@@ -262,8 +262,9 @@ class Viewer(QOpenGLWidget):
         self.bed = (220.0, 220.0, 250.0)
         self.technology = "fdm"
         self.mode = self.MODE_PREPARE
-        self.pick_mode: str | None = None        # None | "add" | "remove" | "edit" (click support: remove, model: add)
-        self.marker = None                       # highlighted support contact point (edit mode hover)
+        self.pick_mode: str | None = None        # None | "add" (one support per click) | "remove" (one per click)
+        self.marker = None                       # where a support would be added (add mode hover)
+        self.highlight = None                    # (mesh in bed coordinates, buffer) of the support under the cursor
         self.tool = "move"                       # move | rotate | face | hole | measure
         self.measure_points: list = []
         self._rot = None                         # active ring drag: (uid, axis, start angle, last degrees)
@@ -351,8 +352,8 @@ class Viewer(QOpenGLWidget):
     def set_object_holes(self, uid, mesh: Mesh | None):
         """Drain-hole markers in the object's own coordinates."""
         obj = self.objects.get(uid)
-        if obj is None:
-            return
+        if obj is None or (obj.get("holes") is mesh and obj.get("hole_buffer") is not None):
+            return                        # unchanged: keep what is already on the GPU
         if obj.get("hole_buffer"):
             self._trash(obj["hole_buffer"])
         obj["holes"], obj["hole_buffer"] = mesh, None
@@ -361,8 +362,8 @@ class Viewer(QOpenGLWidget):
     def set_object_supports(self, uid, mesh: Mesh | None):
         """Support structure in the object's own coordinates (drawn with the object's matrix)."""
         obj = self.objects.get(uid)
-        if obj is None:
-            return
+        if obj is None or (obj.get("supports") is mesh and obj.get("sup_buffer") is not None):
+            return                        # unchanged: keep what is already on the GPU
         if obj.get("sup_buffer"):
             self._trash(obj["sup_buffer"])
         obj["supports"], obj["sup_buffer"] = mesh, None
@@ -373,8 +374,15 @@ class Viewer(QOpenGLWidget):
         self.selection = set(others or ()) | ({uid} if uid is not None else set())
         self.update()
 
+    def set_highlight(self, mesh):
+        """Draw ``mesh`` (bed coordinates) in red over the scene, e.g. the support a click would remove."""
+        if self.highlight is not None and self.highlight[1] is not None:
+            self._trash(self.highlight[1])
+        self.highlight = None if mesh is None or len(mesh.faces) == 0 else (mesh, None)
+        self.update()
+
     def set_marker(self, point):
-        """Highlight one support contact point (None hides it)."""
+        """Mark where a support would be added (None hides it)."""
         same = (point is None and self.marker is None) or (
             point is not None and self.marker is not None and np.allclose(point, self.marker))
         if not same:
@@ -515,6 +523,7 @@ class Viewer(QOpenGLWidget):
             return  # no usable OpenGL: the main window shows an explanation instead
         try:
             self._paint()
+            self.cameraChanged.emit()
         except Exception as exc:  # pragma: no cover - depends on the user's GPU
             self._ready = False
             print("OpenGL rendering failed:", exc, file=sys.stderr, flush=True)
@@ -634,15 +643,29 @@ class Viewer(QOpenGLWidget):
             buf.draw(GL.GL_LINES)
             buf.delete()
             GL.glEnable(GL.GL_DEPTH_TEST)
+        if self.highlight is not None and not preview:
+            mesh, buf = self.highlight
+            if buf is None:
+                buf = _Buffer(mesh_vertices(mesh), [3, 3])
+                self.highlight = (mesh, buf)
+            GL.glUseProgram(p)
+            GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
+            GL.glUniform1f(self._u(p, "uClipZ"), 1e9)
+            GL.glUniform3f(self._u(p, "uColor"), 1.0, 0.25, 0.32)
+            self._set_model(p, np.eye(4))
+            GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)
+            GL.glPolygonOffset(-1.0, -4.0)
+            buf.draw(GL.GL_TRIANGLES)
+            GL.glDisable(GL.GL_POLYGON_OFFSET_FILL)
         if self.marker is not None and not preview:
             GL.glDisable(GL.GL_DEPTH_TEST)
             GL.glUseProgram(p)
             GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
             GL.glUniform1f(self._u(p, "uClipZ"), 1e9)
-            GL.glUniform3f(self._u(p, "uColor"), 1.0, 0.3, 0.38)
+            GL.glUniform3f(self._u(p, "uColor"), 0.2, 0.85, 0.5)
             self._set_model(p, np.eye(4))
             from ..primitives import sphere
-            ball = _Buffer(mesh_vertices(sphere(0.9, 8, 12).translated(self.marker - [0, 0, 0.9])), [3, 3])
+            ball = _Buffer(mesh_vertices(sphere(0.6, 8, 12).translated(self.marker - [0, 0, 0.6])), [3, 3])
             ball.draw(GL.GL_TRIANGLES)
             ball.delete()
             GL.glEnable(GL.GL_DEPTH_TEST)
@@ -737,10 +760,28 @@ class Viewer(QOpenGLWidget):
         return float(dist[k]), int(k)
 
     def pick(self, pos: QPointF):
-        return self.pick_hit(pos)[0]
+        """The object under the cursor: its surface, its supports, or failing that its bounding box
+        (so small or thin parts are easy to grab)."""
+        uid, _ = self.pick_hit(pos, supports=True)
+        if uid is not None:
+            return uid
+        origin, direction = self._ray(pos)
+        best, best_t = None, np.inf
+        for k, obj in self.objects.items():
+            lo, hi = self._world_box(obj)
+            lo, hi = lo - 0.5, hi + 0.5
+            with np.errstate(divide="ignore", invalid="ignore"):
+                inv = 1.0 / direction
+                t0, t1 = (lo - origin) * inv, (hi - origin) * inv
+            tmin = np.nanmax(np.minimum(t0, t1))
+            tmax = np.nanmin(np.maximum(t0, t1))
+            if tmax >= max(tmin, 0) and tmin < best_t:
+                best, best_t = k, tmin
+        return best
 
-    def pick_hit(self, pos: QPointF):
-        """(uid, world hit point) of the object under the cursor, or (None, None)."""
+    def pick_hit(self, pos: QPointF, supports: bool = False):
+        """(uid, world hit point) of the object under the cursor, or (None, None).
+        With ``supports`` its supports count as part of it."""
         origin, direction = self._ray(pos)
         best, best_d = None, np.inf
         for uid, obj in self.objects.items():
@@ -751,6 +792,10 @@ class Viewer(QOpenGLWidget):
             r = self._ray_mesh(o_local, d_local, obj["mesh"])
             if r is not None and r[0] < best_d:
                 best, best_d, self._last_face = uid, r[0], r[1]
+            if supports and obj.get("supports") is not None and self.technology == "sla":
+                r = self._ray_mesh(o_local, d_local, obj["supports"])
+                if r is not None and r[0] < best_d:
+                    best, best_d = uid, r[0]
         return (best, origin + direction * best_d) if best is not None else (None, None)
 
     def pick_face(self, pos: QPointF):
@@ -827,14 +872,8 @@ class Viewer(QOpenGLWidget):
         self._drag = None
         self._picked = False
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.pick_mode:
-            if self.pick_mode == "edit":
-                origin, direction = self._ray(e.position())
-                uid, point = self.pick_hit(e.position())
-                self.supportEdit.emit(origin, direction, uid, point, bool(e.modifiers() & Qt.ShiftModifier))
-                self._picked = True
-                return
             if self.pick_mode == "add":
-                uid, point = self.pick_hit(e.position())
+                uid, point = self.pick_hit(e.position(), supports=False)
                 if uid is not None:
                     self.surfacePicked.emit(uid, point)
                     self._picked = True
@@ -916,8 +955,9 @@ class Viewer(QOpenGLWidget):
                     self._rot = (uid, axis, start, delta)
                     self.rotateDragged.emit(uid, axis, float(delta))
             return
-        if self.pick_mode == "edit" and not e.buttons():
-            self.hoverRay.emit(*self._ray(pos))
+        if self.pick_mode and not e.buttons():
+            uid, point = self.pick_hit(pos, supports=False) if self.pick_mode == "add" else (None, None)
+            self.hoverRay.emit(*self._ray(pos), uid, point)
             return
         if self.tool == "rotate" and not e.buttons():
             hit = self._ring_hit(pos)

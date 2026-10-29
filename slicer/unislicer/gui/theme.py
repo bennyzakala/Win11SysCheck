@@ -31,18 +31,17 @@ THEMES = {
         MODEL_COLOR=(0.25, 0.50, 0.95), MODEL_SELECTED=(0.98, 0.55, 0.15), MODEL_OUTSIDE=(0.92, 0.25, 0.30),
         SUPPORT_COLOR=(0.55, 0.60, 0.68), BED_COLOR=(0.86, 0.89, 0.93), GRID_COLOR=(0.68, 0.73, 0.81),
         LOGO_GRADIENT=("#4a83f3", "#6a4cf0"), DARK=False),
-    # Prodentix: placeholder colours (a clinical teal on white) until the brand colours are supplied;
-    # the logo comes from the file chosen in the Theme menu.
+    # Prodentix: the brand's magenta and black on white, sampled from the Prodentix logo
     "prodentix": dict(
-        BG="#eef5f6", SURFACE="#ffffff", SURFACE_2="#f2f8f9", SURFACE_3="#dfecee", BORDER="#cadfe2",
-        BORDER_HOVER="#a9c9ce", TEXT="#0f2a33", TEXT_DIM="#3f5d66", TEXT_FAINT="#73888f",
-        ACCENT="#0b8a96", ACCENT_HOVER="#13a2ae", ACCENT_PRESSED="#08707a", ACCENT_SOFT="#d3eef0",
-        ACCENT_DISABLED="#a8d5d9", ACCENT_DISABLED_TEXT="#f1fafb", ON_ACCENT="#ffffff",
-        SUCCESS="#1a9c6b", WARNING="#c48a16", DANGER="#d9434f", OVERLAY=(255, 255, 255),
-        VIEW_BG_TOP=(0.94, 0.97, 0.98), VIEW_BG_BOTTOM=(0.80, 0.88, 0.90),
-        MODEL_COLOR=(0.93, 0.91, 0.86), MODEL_SELECTED=(0.04, 0.60, 0.66), MODEL_OUTSIDE=(0.90, 0.28, 0.32),
-        SUPPORT_COLOR=(0.60, 0.70, 0.73), BED_COLOR=(0.85, 0.91, 0.92), GRID_COLOR=(0.62, 0.76, 0.79),
-        LOGO_GRADIENT=("#13a2ae", "#0b5f8a"), DARK=False, BRAND="PRODENTIX"),
+        BG="#f4f4f6", SURFACE="#ffffff", SURFACE_2="#f7f7f9", SURFACE_3="#ececf0", BORDER="#dedee4",
+        BORDER_HOVER="#c9c9d2", TEXT="#0b0b0c", TEXT_DIM="#4a4a52", TEXT_FAINT="#85858f",
+        ACCENT="#eb1a91", ACCENT_HOVER="#f0399f", ACCENT_PRESSED="#c8127a", ACCENT_SOFT="#fde4f2",
+        ACCENT_DISABLED="#f6b9db", ACCENT_DISABLED_TEXT="#ffffff", ON_ACCENT="#ffffff",
+        SUCCESS="#1a9c6b", WARNING="#c48a16", DANGER="#d0303f", OVERLAY=(255, 255, 255),
+        VIEW_BG_TOP=(0.985, 0.985, 0.99), VIEW_BG_BOTTOM=(0.86, 0.86, 0.89),
+        MODEL_COLOR=(0.80, 0.80, 0.83), MODEL_SELECTED=(0.92, 0.10, 0.57), MODEL_OUTSIDE=(0.95, 0.55, 0.20),
+        SUPPORT_COLOR=(0.55, 0.56, 0.62), BED_COLOR=(0.90, 0.90, 0.93), GRID_COLOR=(0.66, 0.66, 0.72),
+        LOGO_GRADIENT=("#eb1a91", "#0b0b0c"), DARK=False, BRAND="Prodentix", BRAND_IMAGE="prodentix"),
 }
 THEME_NAMES = tuple(THEMES)
 # the active theme's colours (filled in by set_theme)
@@ -79,6 +78,20 @@ DARK: object = None
 CURRENT = "dark"
 BRAND = ""            # wordmark shown next to the logo by branded themes
 LOGO_FILE = ""        # optional image (PNG/SVG/JPG) replacing the built-in logo
+BRAND_IMAGE = ""      # built-in brand artwork in gui/brand/ (e.g. "prodentix")
+BRAND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brand")
+
+
+def brand_pixmap(part: str, height: int) -> QPixmap | None:
+    """Built-in brand artwork (``part`` = mark | wordmark | logo) scaled to ``height`` px, or None."""
+    if not BRAND_IMAGE:
+        return None
+    pm = QPixmap(os.path.join(BRAND_DIR, f"{BRAND_IMAGE}_{part}.png"))
+    if pm.isNull():
+        return None
+    pm = pm.scaledToHeight(height * 2, Qt.SmoothTransformation)
+    pm.setDevicePixelRatio(2)
+    return pm
 
 
 def set_theme(name: str, logo_file: str = "") -> None:
@@ -87,7 +100,9 @@ def set_theme(name: str, logo_file: str = "") -> None:
     values = THEMES[CURRENT]
     BRAND = values.get("BRAND", "")
     LOGO_FILE = logo_file if logo_file and os.path.isfile(logo_file) else ""
-    globals().update({k: v for k, v in values.items() if k != "BRAND"})
+    globals().update({k: v for k, v in values.items() if k not in ("BRAND", "BRAND_IMAGE")})
+    global BRAND_IMAGE
+    BRAND_IMAGE = values.get("BRAND_IMAGE", "")
 
 
 def overlay(alpha: float) -> str:

@@ -49,6 +49,9 @@ def run(paths: list[str] | None = None) -> int:
     theme.set_theme(str(store.value("theme", "dark")), str(store.value("logo_file", "")))
     theme.apply(app)
     app.setWindowIcon(theme.icon("layers", theme.ACCENT, 64))
+    if theme.brand_pixmap("mark", 64) is not None:
+        from PySide6.QtGui import QIcon
+        app.setWindowIcon(QIcon(theme.brand_pixmap("mark", 64)))
     _trace(f"QApplication ready, platform={app.platformName()}")
 
     state = {"window": None, "software_gl": False}
@@ -79,6 +82,9 @@ def run(paths: list[str] | None = None) -> int:
         store.setValue("logo_file", logo)
         theme.set_theme(name, logo)
         theme.apply(app)
+        mark = theme.brand_pixmap("mark", 64)
+        from PySide6.QtGui import QIcon
+        app.setWindowIcon(QIcon(mark) if mark is not None else theme.icon("layers", theme.ACCENT, 64))
         objects = win.objects
         win.close()
         open_window(objects)

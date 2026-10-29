@@ -27,6 +27,16 @@ DEFAULT_WEIGHTS = {
 }
 
 
+def sampled(mesh: Mesh, max_faces: int = 12000) -> Mesh:
+    """Area-weighted random subset of the triangles (for quick estimates on very large models)."""
+    if len(mesh.faces) <= max_faces:
+        return mesh
+    areas = mesh.face_areas()
+    rng = np.random.default_rng(0)
+    pick = rng.choice(len(areas), max_faces, replace=False, p=areas / areas.sum())
+    return Mesh.from_triangles(mesh.triangles[pick], mesh.name)
+
+
 def features(mesh: Mesh, technology: str, support_angle: float, directions: np.ndarray,
              elevation: float = 5.0, max_faces: int = 60000) -> np.ndarray:
     """(K, 4) cost features for each candidate 'down' direction (the model is turned so d points to -Z)."""

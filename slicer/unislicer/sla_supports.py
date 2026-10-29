@@ -58,6 +58,22 @@ class _Caster:
         return float(z[below].max()) if np.any(below) else 0.0
 
 
+def underside_contact(caster: "_Caster", p: np.ndarray) -> np.ndarray | None:
+    """Where a support for the clicked point ``p`` must touch: ``p`` itself when it is on a downward-facing
+    surface, otherwise the nearest downward-facing surface below it on the same vertical line (so a click
+    on top of a part never gives a support that runs through it). None if there is no such surface."""
+    z, faces = caster.hits(p[0], p[1])
+    if len(z) == 0:
+        return None
+    k = int(np.argmin(np.abs(z - p[2])))
+    if abs(z[k] - p[2]) < 0.5 and caster.normals[faces[k], 2] < -0.02:
+        return np.array([p[0], p[1], z[k]])
+    below = (z <= p[2] + 1e-6) & (caster.normals[faces, 2] < -0.02)
+    if not np.any(below):
+        return None
+    return np.array([p[0], p[1], float(z[below].max())])
+
+
 def effective_spacing(cfg: Config) -> float:
     """Grid spacing of support points: the set spacing, tightened or loosened by the density percentage."""
     return cfg["sla_support_spacing"] / math.sqrt(max(cfg["sla_density"], 1.0) / 100.0)
@@ -156,11 +172,12 @@ class _Underside:
 def _grow_trees(starts: np.ndarray, under: _Underside, cfg: Config, floor: float, radius):
     """Greedily merge branch ends pairwise (highest meeting point first) into trees.
 
-    Returns (segments [(p, q, r_p, r_q)], roots [(point, weight)])."""
+    Returns (segments [(p, q, r_p, r_q, tips)], roots [(point, weight, tips)]); ``tips`` are start indices."""
     tan_a = math.tan(math.radians(min(max(cfg["sla_branch_angle"], 5.0), 75.0)))
     max_d = cfg["sla_branch_reach"] or max(6.0, effective_spacing(cfg) * 4)
     nodes = [np.array(p, dtype=np.float64) for p in starts]
     weights = [1] * len(nodes)
+    members = [(k,) for k in range(len(nodes))]     # which tips feed each branch end
     segments = []
     while len(nodes) > 1:
         x = np.array(nodes)
@@ -180,18 +197,21 @@ def _grow_trees(starts: np.ndarray, under: _Underside, cfg: Config, floor: float
             r_m = radius(total)
             if not (under.clear(x[i], m, r_m + 0.5) and under.clear(x[j], m, r_m + 0.5)):
                 continue
-            segments.append((x[i], m, radius(w[i]), r_m))
-            segments.append((x[j], m, radius(w[j]), r_m))
+            segments.append((x[i], m, radius(w[i]), r_m, members[i]))
+            segments.append((x[j], m, radius(w[j]), r_m, members[j]))
+            joined = members[i] + members[j]
             for k in sorted((i, j), reverse=True):
                 del nodes[k]
                 del weights[k]
+                del members[k]
             nodes.append(m)
             weights.append(int(total))
+            members.append(joined)
             merged = True
             break
         if not merged:
             break
-    return segments, list(zip(nodes, weights))
+    return segments, list(zip(nodes, weights, members))
 
 
 def _braces(pillars: list, under: "_Underside", cfg: Config, segs: int) -> list[Mesh]:
@@ -316,11 +336,13 @@ def _rafts(feet: list, cfg: Config, pad: float) -> list[Mesh]:
     return [_slab(hull, 0.0, raft, slope)]
 
 
-def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) -> tuple[Mesh, np.ndarray]:
+def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, owners: dict | None = None):
     """Support geometry for a model that already sits at its elevated height.
 
     ``points`` are contact points in the same coordinates (None = generate them automatically).
-    Returns the support mesh and the points that actually got a support."""
+    Returns the support mesh and the points that actually got a support. With ``owners`` (a dict),
+    it is filled with "faces": the owner group of every support face (-1 = raft) and "groups": for each
+    group the indices of ``points`` it belongs to, so a click on any part of a support can find it."""
     if points is None:
         points = auto_support_points(mesh, cfg)
     points = np.asarray(points, dtype=np.float64).reshape(-1, 3)
@@ -338,6 +360,24 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) ->
     max_tilt = math.radians(cfg["sla_head_tilt"])
     widen = cfg["sla_pillar_widening"] / 100.0 / 10.0      # extra radius fraction per mm of height
     parts, feet, used, tree_tips, pillars = [], [], [], [], []
+    part_owner, groups, tip_index = [], [], []
+    cur = [-1]                         # owner group of the parts being added
+
+    class _Parts(list):
+        def append(self, m):           # every part remembers which support it belongs to
+            super().append(m)
+            part_owner.append(cur[0])
+
+        def __iadd__(self, more):
+            for m in more:
+                self.append(m)
+            return self
+
+    parts = _Parts()
+
+    def own(indices) -> None:
+        groups.append(tuple(int(i) for i in indices))
+        cur[0] = len(groups) - 1
 
     def widened(r, height):
         return r * (1.0 + widen * max(height, 0.0))
@@ -383,7 +423,12 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) ->
         if sphere_tip:
             parts.append(ball(tip - [0, 0, tip_r * 0.3], tip_r * 1.25, 4, 10))
 
-    for p in points:
+    for index, p in enumerate(points):
+        contact = underside_contact(caster, p)
+        if contact is None:
+            continue                     # nothing to hold from below here (e.g. a point on top of the part)
+        p = contact
+        own([index])
         d = head_direction(p)
         tip = None
         if d is not None:
@@ -422,6 +467,7 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) ->
             # the head is built now; the branch below it is decided when the trees are grown
             head(x, y, top, h_len, pillar_r * 0.8, tip)
             tree_tips.append(np.array([x, y, top - h_len]))
+            tip_index.append(index)
             continue
         r_low = widened(pillar_r, top - h_len - bottom) if on_bed else pillar_r
         if on_bed:
@@ -445,11 +491,13 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) ->
             return min(pillar_r * 2.0, branch_r * math.sqrt(weight))
 
         segments, roots = _grow_trees(np.array(tree_tips), under, cfg, raft + 3.0, radius)
-        for a, b, ra, rb in segments:
+        for a, b, ra, rb, tips in segments:
+            own([tip_index[t] for t in tips])
             parts.append(tube(a, b, ra, rb, segs))
             parts.append(ball(a, ra, 3, SEGMENTS))
             parts.append(ball(b, rb, 3, SEGMENTS))
-        for node, weight in roots:
+        for node, weight, tips in roots:
+            own([tip_index[t] for t in tips])
             r = radius(weight)
             r_low = widened(r, node[2] - raft)
             body_z = foot_on_bed(node[0], node[1], r_low, node[2])
@@ -458,11 +506,17 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) ->
                 pillars.append((node[0], node[1], body_z, node[2], r))
             parts.append(ball(node, r, 3, SEGMENTS))
 
+    cur[0] = -1                        # braces and rafts are shared
     if cfg["sla_bracing"] and len(pillars) > 1:
         parts += _braces(pillars, _Underside(mesh), cfg, segs)
 
     parts += _rafts(feet, cfg, pillar_r * 4)
-    return Mesh.merge(parts, "Supports"), np.array(used).reshape(-1, 3)
+    merged = Mesh.merge(list(parts), "Supports")
+    if owners is not None:
+        owners["faces"] = np.concatenate([np.full(len(m.faces), o, dtype=np.int64) for m, o in zip(parts, part_owner)]) \
+            if parts else np.zeros(0, dtype=np.int64)
+        owners["groups"] = groups
+    return merged, np.array(used).reshape(-1, 3)
 
 
 def _signed_area(p: np.ndarray) -> float:

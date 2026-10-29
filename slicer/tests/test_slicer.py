@@ -627,3 +627,23 @@ def test_auto_layout_options_and_learning(tmp_path):
     assert got["learned"] and got["strategy"] == "grid" and got["rotation"] == "90" and got["anchor"] == "back_left"
     assert got["spacing"] == 2.5 and got["margin"] == 4.0
     assert not a.learn_layout({"gap": 0.0, "edge": 1, "offcentre": 0, "count": 3})   # overlapping parts are not a preference
+
+
+def test_single_support_editing_helpers():
+    from unislicer import sla_supports
+    m = placed(primitives.sphere(8), 70, 45).world_mesh().translated([0, 0, 6])
+    cfg = profiles.build_config("elegoo_mars3", "resin_standard", "sla_fast", {"support_enable": True})
+    # a click on top of the part gives one support touching the underside only (never through the part)
+    top = np.array([70.0, 45.0, 22.0])
+    mesh, used = sla_supports.build_supports(m, cfg, top[None])
+    assert len(used) == 1 and used[0][2] == pytest.approx(6.0, abs=0.05)
+    assert mesh.bounds[1][2] <= 6.0 + cfg["sla_contact_depth"] + 1e-6
+    # every support face knows which support it belongs to
+    for kind in ("tree", "pillar"):
+        c = cfg.copy().update({"sla_support_type": kind})
+        pts = sla_supports.auto_support_points(m, c)
+        owners = {}
+        mesh, _ = sla_supports.build_supports(m, c, pts, owners=owners)
+        assert len(owners["faces"]) == len(mesh.faces)
+        singles = {g[0] for g in owners["groups"] if len(g) == 1}
+        assert singles == set(range(len(pts)))

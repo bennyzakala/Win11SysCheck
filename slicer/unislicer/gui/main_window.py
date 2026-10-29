@@ -159,11 +159,18 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(16, 0, 16, 0)
         lay.setSpacing(6)
         logo = QLabel()
-        logo.setPixmap(theme.logo_pixmap(32, 36))
+        mark = theme.brand_pixmap("mark", 38) if not theme.LOGO_FILE else None
+        logo.setPixmap(mark or theme.logo_pixmap(32, 36))
         lay.addWidget(logo)
+        word = theme.brand_pixmap("wordmark", 22) if not theme.LOGO_FILE else None
+        if word is not None:
+            wl = QLabel()
+            wl.setPixmap(word)
+            lay.addWidget(wl)
+            lay.addSpacing(8)
         names = QVBoxLayout()
         names.setSpacing(0)
-        t = QLabel(f"{theme.BRAND} · UniSlicer" if theme.BRAND and not theme.LOGO_FILE else "UniSlicer")
+        t = QLabel("UniSlicer")
         t.setObjectName("AppTitle")
         s = QLabel(tr("app_subtitle"))
         s.setObjectName("AppSubtitle")
@@ -388,15 +395,14 @@ class MainWindow(QMainWindow):
             b.toggled.connect(lambda on, mode=mode: self._set_pick_mode(mode if on else None))
         self.sup_clear_btn = QPushButton(theme.icon("trash", theme.TEXT, 16), tr("sup_clear"))
         self.sup_clear_btn.clicked.connect(self.clear_supports)
-        self.sup_edit_btn = QPushButton(theme.icon("pillar", theme.ACCENT, 16), tr("sup_edit"))
-        self.sup_edit_btn.setToolTip(tr("sup_edit_tip"))
-        self.sup_edit_btn.setCheckable(True)
-        self.sup_edit_btn.toggled.connect(lambda on: self._set_pick_mode("edit" if on else None))
+        self.sup_manual_btn = QPushButton(theme.icon("anchor", theme.ACCENT, 16), tr("sup_manual"))
+        self.sup_manual_btn.setToolTip(tr("sup_manual_tip"))
+        self.sup_manual_btn.clicked.connect(self.manual_supports)
         for k, b in enumerate((self.sup_auto_btn, self.sup_clear_btn, self.sup_add_btn, self.sup_remove_btn)):
             b.setCursor(Qt.PointingHandCursor)
             row.addWidget(b, k // 2, k % 2)
-        self.sup_edit_btn.setCursor(Qt.PointingHandCursor)
-        row.addWidget(self.sup_edit_btn, 2, 0, 1, 2)
+        self.sup_manual_btn.setCursor(Qt.PointingHandCursor)
+        row.addWidget(self.sup_manual_btn, 2, 0, 1, 2)
         sl.addLayout(row)
         self.sup_info = QLabel(tr("sup_none"))
         self.sup_info.setObjectName("Faint")
@@ -442,7 +448,6 @@ class MainWindow(QMainWindow):
         self.viewer.measured.connect(self._on_measured)
         self.viewer.previewObjectClicked.connect(self._on_preview_click)
         self.viewer.rayPicked.connect(self._on_support_remove)
-        self.viewer.supportEdit.connect(self._on_support_edit)
         self.viewer.hoverRay.connect(self._on_support_hover)
         self.viewer.glFailed.connect(self._on_gl_failed)
         grid.addWidget(self.viewer, 0, 0)
@@ -623,6 +628,17 @@ class MainWindow(QMainWindow):
         self.assistant_wrap = awrap
         awrap.hide()
 
+        # view cube (top right): click a face, edge or corner to look from there
+        from .viewcube import ViewCube
+        self.view_cube = ViewCube(self.viewer)
+        cwrap = QWidget()
+        cwrap.setObjectName("Overlay")
+        cwl = QVBoxLayout(cwrap)
+        cwl.setContentsMargins(10, 10, 14, 10)
+        cwl.addWidget(self.view_cube)
+        grid.addWidget(cwrap, 0, 0, Qt.AlignTop | Qt.AlignRight)
+        self.viewer.cameraChanged.connect(self.view_cube.update)
+
         self.layer_wrap.hide()
         self.legend_wrap.hide()
         self.mask_wrap.hide()
@@ -643,7 +659,12 @@ class MainWindow(QMainWindow):
             pass
         self.settings = SettingsPanel(s.value("printer", "creality_ender3v2"), s.value("material", None),
                                       s.value("quality", None), overrides, s.value("advanced", "false") == "true")
-        self.settings.changed.connect(self._on_settings_changed)
+        # a burst of edits (typing, spin arrows held down) is handled once, after it settles
+        self._settings_timer = QTimer(self)
+        self._settings_timer.setSingleShot(True)
+        self._settings_timer.setInterval(180)
+        self._settings_timer.timeout.connect(self._on_settings_changed)
+        self.settings.changed.connect(self._settings_timer.start)
         self.settings.valueEdited.connect(lambda k, v: self.assistant.record_override(k, v))
         self.settings.technologyChanged.connect(lambda _t: self._apply_printer())
         lay.addWidget(self.settings, 1)
@@ -705,7 +726,9 @@ class MainWindow(QMainWindow):
                         (QKeySequence("Ctrl+D"), via_key("duplicate", self.duplicate_selected)),
                         (QKeySequence.SelectAll, self.select_all),
                         (QKeySequence("Shift+A"), lambda: self.auto_layout()),
-                        (QKeySequence("S"), lambda: self._set_pick_mode(None if self.viewer.pick_mode == "edit" else "edit")
+                        (QKeySequence("S"), lambda: self._set_pick_mode(None if self.viewer.pick_mode == "add" else "add")
+                         if self.supports_card.isVisible() else None),
+                        (QKeySequence("Shift+S"), lambda: self._set_pick_mode(None if self.viewer.pick_mode == "remove" else "remove")
                          if self.supports_card.isVisible() else None),
                         (QKeySequence("Ctrl+R"), via_key("slice", self.slice_or_cancel)),
                         (QKeySequence("Ctrl+E"), via_key("export", self.export)),
@@ -1474,9 +1497,9 @@ class MainWindow(QMainWindow):
         button("copy", tr("duplicate"), self.duplicate_selected)
         sup_menu = QMenu(self)
         sup_menu.addAction(theme.icon("pillar"), tr("sup_auto"), self.generate_supports)
-        sup_menu.addAction(theme.icon("pillar"), tr("sup_edit") + "\tS", lambda: self._set_pick_mode("edit"))
-        sup_menu.addAction(theme.icon("plus"), tr("sup_add"), lambda: self._set_pick_mode("add"))
-        sup_menu.addAction(theme.icon("x"), tr("sup_remove"), lambda: self._set_pick_mode("remove"))
+        sup_menu.addAction(theme.icon("anchor"), tr("sup_manual"), self.manual_supports)
+        sup_menu.addAction(theme.icon("plus"), tr("sup_add") + "\tS", lambda: self._set_pick_mode("add"))
+        sup_menu.addAction(theme.icon("x"), tr("sup_remove") + "\tShift+S", lambda: self._set_pick_mode("remove"))
         sup_menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
         self.edit_sup_btn = button("pillar", tr("supports_card"), menu=sup_menu)
         button("trash", tr("delete"), self.delete_selected)
@@ -1641,7 +1664,9 @@ class MainWindow(QMainWindow):
             elif self.viewer.technology == "sla":
                 menu.addSeparator()
                 menu.addAction(theme.icon("pillar"), tr("sup_auto"), self.generate_supports)
-                menu.addAction(theme.icon("pillar"), tr("sup_edit") + "\tS", lambda: self._set_pick_mode("edit"))
+                menu.addAction(theme.icon("anchor"), tr("sup_manual"), self.manual_supports)
+                menu.addAction(theme.icon("plus"), tr("sup_add") + "\tS", lambda: self._set_pick_mode("add"))
+                menu.addAction(theme.icon("x"), tr("sup_remove") + "\tShift+S", lambda: self._set_pick_mode("remove"))
                 menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
                 flat = menu.addAction(theme.icon("flat"), tr("direct_on_plate"))
                 flat.setToolTip(tr("direct_on_plate_tip"))
@@ -1782,9 +1807,10 @@ class MainWindow(QMainWindow):
         lift = self._lift(cfg)
         disp = self._display_matrix(o)
         world = o.mesh.transform(disp)
-        mesh, _ = sla_supports.build_supports(world, cfg, o.world_support_points(lift))
+        owners = {}
+        mesh, _ = sla_supports.build_supports(world, cfg, o.world_support_points(lift), owners=owners)
         local = mesh.transform(np.linalg.inv(disp)) if len(mesh.faces) else None
-        self._support_cache[o.uid] = (key, local)
+        self._support_cache[o.uid] = (key, local, owners)
         return local
 
     def _drop_supports(self, o: SceneObject):
@@ -1812,8 +1838,21 @@ class MainWindow(QMainWindow):
             o.__dict__["support_session"] = {"auto": len(o.support_points), "added": [], "removed": 0,
                                              "threshold": learned["support_angle"]}
         self._objects_changed(refresh_list=False)
-        if self.viewer.mode == "prepare":
-            self._set_pick_mode("edit")      # ready to fine-tune: click a support to remove it, the model to add
+        self.status.setText(tr("sup_generated_hint"))
+
+    def manual_supports(self):
+        """Start the selected models (or all) with no supports, then place each one by clicking."""
+        targets = [o for o in self._support_targets() if not o.direct and o.role != "cutter"]
+        if not targets:
+            return
+        self._push_undo()
+        self._ensure_supports_enabled()
+        for o in targets:
+            o.support_points = np.zeros((0, 3))
+            o.__dict__.pop("support_session", None)
+        self._objects_changed(refresh_list=False)
+        self._set_pick_mode("add")
+        self.status.setText(tr("sup_manual_hint"))
 
     def clear_supports(self):
         targets = [o for o in self._support_targets() if o.support_points is not None]
@@ -1828,16 +1867,19 @@ class MainWindow(QMainWindow):
             self.settings.set_value("support_enable", True)
 
     def _set_pick_mode(self, mode):
-        for b, m in ((self.sup_add_btn, "add"), (self.sup_remove_btn, "remove"), (self.sup_edit_btn, "edit")):
+        for b, m in ((self.sup_add_btn, "add"), (self.sup_remove_btn, "remove")):
             b.blockSignals(True)
             b.setChecked(mode == m)
             b.blockSignals(False)
         self.viewer.pick_mode = mode
         self.viewer.set_marker(None)
+        self.viewer.set_highlight(None)
         self.viewer.setCursor(Qt.CrossCursor if mode else Qt.ArrowCursor)
         if mode:
             self.edit_bar.hide()
-            self.status.setText({"add": tr("sup_add_hint"), "remove": tr("sup_remove_hint")}.get(mode, tr("sup_edit_hint")))
+            self.status.setText(tr("sup_add_hint") if mode == "add" else tr("sup_remove_hint"))
+            if mode == "remove" and not any(self._shows_supports(o) and len(o.support_points) for o in self.objects):
+                self.status.setText(tr("sup_remove_none"))
 
     def _on_support_add(self, uid, point):
         o = next((x for x in self.objects if x.uid == uid), None)
@@ -1848,19 +1890,33 @@ class MainWindow(QMainWindow):
         cfg = self.settings.config()
         lift = self._lift(cfg)
         # the click is on the drawn model, which is raised only once it has edited supports
-        p = np.asarray(point, dtype=float)
-        if not self._shows_supports(o):
-            p = p + [0, 0, lift]
+        p = self._add_point(o, point, lift)
+        if p is None:
+            self._undo.pop()
+            self.status.setText(tr("sup_add_no_underside"))
+            return
         if o.support_points is None:
-            # start from the automatic layout, then add to it
-            world = o.mesh.transform(o.world_matrix()).translated([0, 0, lift])
-            o.set_world_support_points(sla_supports.auto_support_points(world, cfg), lift)
+            o.support_points = np.zeros((0, 3))   # only the clicked support, no automatic ones
         pts = o.world_support_points(lift)
         o.set_world_support_points(np.vstack([pts, p[None, :]]), lift)
         session = o.__dict__.get("support_session")
         if session is not None:
             session["added"].append(self._surface_angle(o, p - [0, 0, lift]))
         self._objects_changed(refresh_list=False)
+        self.status.setText(tr("sup_added_one"))
+
+    def _add_point(self, o: SceneObject, point, lift: float):
+        """Contact point (raised coordinates) for a click on the model: on the underside below the click."""
+        p = np.asarray(point, dtype=float)
+        if not self._shows_supports(o):
+            p = p + [0, 0, lift]
+        world = o.mesh.transform(o.world_matrix()).translated([0, 0, lift])
+        cache = getattr(self, "_caster_cache", None)
+        key = (o.uid, o.matrix().tobytes(), lift, o.x, o.y, o.z)
+        if cache is None or cache[0] != key:
+            cache = (key, sla_supports._Caster(world))
+            self._caster_cache = cache
+        return sla_supports.underside_contact(cache[1], p)
 
     @staticmethod
     def _surface_angle(o: SceneObject, point) -> float:
@@ -1870,6 +1926,38 @@ class MainWindow(QMainWindow):
         k = int(np.argmin(((centers - point) ** 2).sum(axis=1)))
         nz = float(mesh.face_normals()[k, 2])
         return float(np.degrees(np.arcsin(np.clip(-nz, -1, 1))))
+
+    def _support_under_ray(self, origin, direction):
+        """(object, support index, highlight mesh in bed coordinates) of the support the ray touches first."""
+        origin = np.asarray(origin, dtype=float)
+        direction = np.asarray(direction, dtype=float)
+        best = None
+        cfg = self.settings.config()
+        for o in self.objects:
+            if not self._shows_supports(o) or len(o.support_points) == 0:
+                continue
+            local = self._support_preview(o, cfg)
+            entry = self._support_cache.get(o.uid)
+            if local is None or entry is None or len(entry) < 3:
+                continue
+            disp = self._display_matrix(o)
+            inv = np.linalg.inv(disp)
+            r = self.viewer._ray_mesh(inv[:3, :3] @ origin + inv[:3, 3], inv[:3, :3] @ direction, local)
+            if r is None or (best is not None and r[0] >= best[0]):
+                continue
+            owners = entry[2]
+            g = int(owners["faces"][r[1]])
+            if g < 0:
+                continue                      # raft or brace: shared, not one support
+            group = owners["groups"][g]
+            hit = origin + direction * r[0]
+            pts = o.world_support_points(self._lift(cfg))
+            k = min(group, key=lambda i: np.linalg.norm(pts[i, :2] - hit[:2])) if len(group) > 1 else group[0]
+            mine = [i for i, grp in enumerate(owners["groups"]) if grp == (k,) or (len(grp) > 1 and grp == group)]
+            mask = np.isin(owners["faces"], mine)
+            part = Mesh(local.vertices, local.faces[mask]).transform(disp)
+            best = (r[0], o, k, part)
+        return None if best is None else best[1:]
 
     def _nearest_support(self, origin, direction):
         """(distance, object, index) of the support whose head or pillar passes closest to the view ray."""
@@ -1898,31 +1986,39 @@ class MainWindow(QMainWindow):
         cfg = self.settings.config()
         return max(1.5, cfg["sla_pillar_diameter"] * 1.5)
 
-    def _on_support_hover(self, origin, direction):
-        best = self._nearest_support(origin, direction)
-        if best is not None and best[0] < self._support_reach():
-            _, o, k = best
-            self.viewer.set_marker(o.world_support_points(self._lift())[k])
-        else:
-            self.viewer.set_marker(None)
-
-    def _on_support_edit(self, origin, direction, uid, point, add_only):
-        """Edit mode: a click on a support removes it, a click on the model adds one (Shift: always add)."""
-        best = None if add_only else self._nearest_support(origin, direction)
-        if best is not None and best[0] < self._support_reach():
-            self._on_support_remove(origin, direction)
-            self.status.setText(tr("sup_removed_one"))
-        elif uid is not None:
-            self._on_support_add(uid, point)
-            self.status.setText(tr("sup_added_one"))
-        self.viewer.set_marker(None)
+    def _on_support_hover(self, origin, direction, uid, point):
+        """Remove mode: the support under the cursor turns red. Add mode: a dot where the support would touch."""
+        mode = self.viewer.pick_mode
+        if mode == "remove":
+            found = self._support_under_ray(origin, direction)
+            self.viewer.set_highlight(found[2] if found else None)
+        elif mode == "add":
+            o = next((x for x in self.objects if x.uid == uid), None)
+            if o is None:
+                self.viewer.set_marker(None)
+                return
+            lift = self._lift()
+            p = self._add_point(o, point, lift)
+            if p is not None and self._shows_supports(o):
+                self.viewer.set_marker(p)
+            elif p is not None:
+                self.viewer.set_marker(p - [0, 0, lift])
+            else:
+                self.viewer.set_marker(None)
 
     def _on_support_remove(self, origin, direction):
-        best = self._nearest_support(origin, direction)
-        if best is None or best[0] > max(3.0, self._support_reach()):
-            return
+        """Remove the one support the click touches, wherever on it (tip, pillar, branch or base)."""
+        found = self._support_under_ray(origin, direction)
+        if found is None:
+            best = self._nearest_support(origin, direction)       # a near miss on a thin support
+            if best is None or best[0] > self._support_reach():
+                return
+            _, o, k = best
+        else:
+            o, k, _ = found
         self._push_undo()
-        _, o, k = best
+        self.viewer.set_highlight(None)
+        self.status.setText(tr("sup_removed_one"))
         o.support_points = np.delete(o.support_points, k, axis=0)
         session = o.__dict__.get("support_session")
         if session is not None:
@@ -2300,7 +2396,13 @@ class MainWindow(QMainWindow):
         parts = [o for o in self.objects if o.role != "cutter"]
         if len(parts) < 2 or len(parts) > 60:
             return 0
-        prints = [footprint(o) for o in parts]
+        cache = self.__dict__.setdefault("_footprints", {})
+        prints = []
+        for o in parts:
+            key = (o.matrix().tobytes(), o.x, o.y)
+            if cache.get(o.uid, (None,))[0] != key:
+                cache[o.uid] = (key, footprint(o))
+            prints.append(cache[o.uid][1])
         bad = set()
         for i in range(len(prints)):
             for j in range(i + 1, len(prints)):
@@ -2339,7 +2441,7 @@ class MainWindow(QMainWindow):
         o = todo[0]
         key = self._orient_key(o)
         weights = self.assistant.orient_weights(tech)
-        mesh = o.mesh.transform(o.matrix())
+        mesh = orient.sampled(o.mesh, 12000).transform(o.matrix())    # a light copy keeps the UI responsive
         uid = o.uid
 
         def work(progress, cancelled):
