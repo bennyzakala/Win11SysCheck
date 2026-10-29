@@ -54,14 +54,17 @@ BED_VS = """#version 330 core
 layout(location=0) in vec3 aPos; uniform mat4 uMVP; out vec2 vXY;
 void main(){ vXY = aPos.xy; gl_Position = uMVP * vec4(aPos, 1.0); }"""
 BED_FS = """#version 330 core
-in vec2 vXY; out vec4 frag; uniform vec2 uBed; uniform vec3 uBase;
+in vec2 vXY; out vec4 frag; uniform vec2 uBed; uniform vec3 uBase; uniform vec4 uPlate;
 float grid(vec2 p, float s, float w){ vec2 c = abs(fract(p / s - 0.5) - 0.5) * s / max(fwidth(p), vec2(1e-4)); return 1.0 - clamp(min(c.x, c.y) - w, 0.0, 1.0); }
 void main(){
-  vec3 c = uBase;
-  c = mix(c, vec3(0.30, 0.34, 0.42), grid(vXY, 10.0, 0.0) * 0.35);
+  bool onPlate = vXY.x >= uPlate.x && vXY.y >= uPlate.y && vXY.x <= uPlate.z && vXY.y <= uPlate.w;
+  vec3 c = onPlate ? uBase : uBase * 0.55;          // outside the chosen plate: dimmed
+  c = mix(c, vec3(0.30, 0.34, 0.42), grid(vXY, 10.0, 0.0) * (onPlate ? 0.35 : 0.12));
   c = mix(c, vec3(0.38, 0.44, 0.56), grid(vXY, 50.0, 0.4) * 0.55);
   vec2 e = min(vXY, uBed - vXY); float edge = min(e.x, e.y);
-  c = mix(c, vec3(0.31, 0.55, 1.0), 1.0 - smoothstep(0.0, max(fwidth(edge) * 2.0, 0.4), edge));
+  c = mix(c, vec3(0.25, 0.32, 0.45), 1.0 - smoothstep(0.0, max(fwidth(edge) * 2.0, 0.4), edge));
+  vec2 pe = min(vXY - uPlate.xy, uPlate.zw - vXY); float pedge = abs(min(pe.x, pe.y));
+  c = mix(c, vec3(0.31, 0.55, 1.0), 1.0 - smoothstep(0.0, max(fwidth(pedge) * 2.0, 0.4), pedge));
   frag = vec4(c, 1.0);
 }"""
 
@@ -290,8 +293,9 @@ class Viewer(QOpenGLWidget):
         QSurfaceFormat.setDefaultFormat(fmt)
 
     # ---------------------------------------------------------- public API
-    def set_bed(self, x: float, y: float, z: float, technology: str):
+    def set_bed(self, x: float, y: float, z: float, technology: str, plate: tuple | None = None):
         self.bed = (float(x), float(y), float(z))
+        self.plate = tuple(float(v) for v in plate) if plate else (0.0, 0.0, float(x), float(y))
         self.technology = technology
         self._bed_dirty = True
         self.update()
@@ -377,8 +381,8 @@ class Viewer(QOpenGLWidget):
 
     # ---------------------------------------------------------- camera views
     def _scene_center(self):
-        bx, by, _ = self.bed
-        return np.array([bx / 2, by / 2, 0.0])
+        x0, y0, x1, y1 = getattr(self, "plate", (0.0, 0.0, self.bed[0], self.bed[1]))
+        return np.array([(x0 + x1) / 2, (y0 + y1) / 2, 0.0])
 
     def view_preset(self, name: str):
         c = self.camera
@@ -505,6 +509,7 @@ class Viewer(QOpenGLWidget):
         GL.glUseProgram(self._bed_prog)
         GL.glUniformMatrix4fv(self._u(self._bed_prog, "uMVP"), 1, GL.GL_TRUE, mvp)
         GL.glUniform2f(self._u(self._bed_prog, "uBed"), self.bed[0], self.bed[1])
+        GL.glUniform4f(self._u(self._bed_prog, "uPlate"), *getattr(self, "plate", (0.0, 0.0, self.bed[0], self.bed[1])))
         base = (0.105, 0.118, 0.145) if self.technology == "fdm" else (0.11, 0.105, 0.14)
         GL.glUniform3f(self._u(self._bed_prog, "uBase"), *base)
         GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)

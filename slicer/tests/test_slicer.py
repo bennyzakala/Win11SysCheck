@@ -401,3 +401,26 @@ def test_assistant_supports_prints_and_suggestions(tmp_path):
     assert "tree_supports" not in {s.id for s in a.suggestions(ctx)}
     a.set_enabled(False)
     assert a.learned_config(cfg)["sla_support_spacing"] == cfg["sla_support_spacing"]
+
+
+def test_build_plate_sizes(tmp_path, monkeypatch):
+    from unislicer.scene import SceneObject, arrange, out_of_bounds, plate_rect
+    cfg = profiles.build_config("phrozen_sonic_mini_8k")
+    assert plate_rect(cfg) == (0.0, 0.0, cfg["bed_x"], cfg["bed_y"])          # full plate by default
+    cfg.update({"plate_width": 70, "plate_depth": 70})
+    x0, y0, x1, y1 = plate_rect(cfg)
+    assert (x1 - x0, y1 - y0) == (70, 70) and (x0 + x1) / 2 == pytest.approx(cfg["bed_x"] / 2)
+    objs = [SceneObject.from_mesh(primitives.box(20, 20, 5)) for _ in range(4)]
+    assert arrange(objs, cfg["bed_x"], cfg["bed_y"], rect=plate_rect(cfg))
+    assert out_of_bounds(objs, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg)) == []
+    big = SceneObject.from_mesh(primitives.box(80, 20, 5))
+    big.x, big.y = (x0 + x1) / 2, (y0 + y1) / 2
+    assert out_of_bounds([big], cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg)) == [big]
+    # resin layer images still use the whole screen: pixel scale is unchanged by the plate
+    job = sla.prepare([objs[0].world_mesh()], cfg)
+    img = np.asarray(sla.render_layer(job.layers[10], cfg))
+    assert img.shape == (cfg["resolution_y"], cfg["resolution_x"])
+    monkeypatch.setattr(profiles, "USER_DIR", str(tmp_path))
+    profiles.add_plate("phrozen_sonic_mini_8k", "Mini", 70, 70)
+    assert profiles.plates("phrozen_sonic_mini_8k")[0]["width"] == 70
+    assert profiles.build_config("phrozen_sonic_mini_8k")["bed_x"] == cfg["bed_x"]   # printer itself unchanged

@@ -67,10 +67,34 @@ def save_user_profile(kind: str, name: str, values: dict, technology: str, pid: 
     pid = pid or new_id(kind, name)
     clean = {k: v for k, v in values.items() if k in SCHEMA_BY_KEY}
     clean["technology"] = technology
-    data[pid] = {"name": name, "vendor": vendor or "User", "technology": technology, "values": clean}
+    entry = {"name": name, "vendor": vendor or "User", "technology": technology, "values": clean}
+    existing = load(kind).get(pid, {})
+    if existing.get("plates"):
+        entry["plates"] = existing["plates"]
+    data[pid] = entry
     with open(_user_path(kind), "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, ensure_ascii=False)
     return pid
+
+
+def plates(printer_id: str) -> list[dict]:
+    """Build plates of a printer: manufacturer plates from the profile plus ones the user added."""
+    prof = load("printers").get(printer_id, {})
+    return list(prof.get("plates", []))
+
+
+def add_plate(printer_id: str, name: str, width: float, depth: float, offset_x: float = 0.0, offset_y: float = 0.0) -> None:
+    """Store an extra plate size for a printer (in the user's copy of the profile)."""
+    os.makedirs(USER_DIR, exist_ok=True)
+    data = _load(_user_path("printers"))
+    entry = data.get(printer_id) or dict(load("printers").get(printer_id, {}))
+    entry.pop("user", None)
+    entry.setdefault("values", {})
+    entry["plates"] = [p for p in entry.get("plates", []) if p.get("name") != name] + [
+        {"name": name, "width": float(width), "depth": float(depth), "offset_x": float(offset_x), "offset_y": float(offset_y), "user": True}]
+    data[printer_id] = entry
+    with open(_user_path("printers"), "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, ensure_ascii=False)
 
 
 def delete_user_profile(kind: str, pid: str) -> None:

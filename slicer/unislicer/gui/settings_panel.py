@@ -13,6 +13,7 @@ from . import theme
 from . import i18n
 from .i18n import category_label, label, option_label, tip, tr
 
+PLATE_KEYS = ("plate_width", "plate_depth", "plate_offset_x", "plate_offset_y")
 EXPANDED_BY_DEFAULT = {"quality", "walls", "infill", "support", "adhesion", "material", "exposure", "hollow"}
 
 
@@ -214,6 +215,17 @@ class SettingsPanel(QWidget):
                 row.addWidget(self.profile_menu_btn)
             cl.addLayout(row)
             cl.addWidget(combo)
+            if key == "printer":
+                # build plate of the chosen printer (full plate or a smaller/other plate size)
+                prow = QHBoxLayout()
+                pl = QLabel(tr("plate"))
+                pl.setObjectName("Faint")
+                prow.addWidget(pl)
+                self.plate_combo = NoWheelCombo()
+                self.plate_combo.setFocusPolicy(Qt.StrongFocus)
+                self.plate_combo.currentIndexChanged.connect(self._on_plate)
+                prow.addWidget(self.plate_combo, 1)
+                cl.addLayout(prow)
         lay.addWidget(card)
 
         tools = QHBoxLayout()
@@ -283,6 +295,90 @@ class SettingsPanel(QWidget):
         self.printer_combo.setCurrentIndex(max(0, self.printer_combo.findData(self.printer_id)))
         self._building = False
 
+    def _fill_plates(self):
+        self._building = True
+        self.plate_combo.clear()
+        base = self.base_config()
+        cfg = self.config()
+        self.plate_combo.addItem(tr("plate_full").format(base["bed_x"], base["bed_y"]), None)
+        current = (cfg["plate_width"], cfg["plate_depth"], cfg["plate_offset_x"], cfg["plate_offset_y"])
+        select = 0
+        for p in profiles.plates(self.printer_id):
+            label = tr("plate_item").format(p["name"], p["width"], p["depth"])
+            self.plate_combo.addItem(label, p)
+            if (p["width"], p["depth"], p.get("offset_x", 0.0), p.get("offset_y", 0.0)) == current:
+                select = self.plate_combo.count() - 1
+        self.plate_combo.insertSeparator(self.plate_combo.count())
+        self.plate_combo.addItem(tr("plate_add"), "add")
+        if select == 0 and current[0] > 0:   # a size typed in the settings, not in the list
+            self.plate_combo.insertItem(1, tr("plate_item").format(tr("custom"), current[0], current[1]), "custom")
+            select = 1
+        self.plate_combo.setCurrentIndex(select)
+        self._building = False
+
+    def _on_plate(self, index):
+        if self._building or index < 0:
+            return
+        data = self.plate_combo.itemData(index)
+        if data == "custom":
+            return
+        if data == "add":
+            self._add_plate()
+            return
+        values = {"plate_width": 0.0, "plate_depth": 0.0, "plate_offset_x": 0.0, "plate_offset_y": 0.0}
+        if isinstance(data, dict):
+            values = {"plate_width": float(data["width"]), "plate_depth": float(data["depth"]),
+                      "plate_offset_x": float(data.get("offset_x", 0.0)), "plate_offset_y": float(data.get("offset_y", 0.0))}
+        for k, v in values.items():
+            if v:
+                self.overrides[k] = v
+            else:
+                self.overrides.pop(k, None)
+        self.rebuild()
+        self.changed.emit()
+
+    def _add_plate(self):
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
+        base = self.base_config()
+        dlg = QDialog(self.window())
+        dlg.setWindowTitle(tr("plate_add_title"))
+        form = QFormLayout(dlg)
+        name = QLineEdit()
+        name.setPlaceholderText(tr("plate_name_hint"))
+        width, depth, ox, oy = (NoWheelDouble() for _ in range(4))
+        for sb, value, hi in ((width, base["bed_x"], base["bed_x"]), (depth, base["bed_y"], base["bed_y"]),
+                              (ox, 0.0, base["bed_x"] / 2), (oy, 0.0, base["bed_y"] / 2)):
+            sb.setRange(-hi if sb in (ox, oy) else 1.0, hi)
+            sb.setDecimals(2)
+            sb.setSuffix(" mm")
+            sb.setValue(value)
+        form.addRow(tr("plate_name"), name)
+        form.addRow(tr("plate_width"), width)
+        form.addRow(tr("plate_depth"), depth)
+        form.addRow(tr("plate_offset_x"), ox)
+        form.addRow(tr("plate_offset_y"), oy)
+        note = QLabel(tr("plate_add_note"))
+        note.setObjectName("Faint")
+        note.setWordWrap(True)
+        form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            self._fill_plates()
+            return
+        label = name.text().strip() or tr("plate_default_name")
+        profiles.add_plate(self.printer_id, label, width.value(), depth.value(), ox.value(), oy.value())
+        self.overrides.update({"plate_width": width.value(), "plate_depth": depth.value()})
+        for k, sb in (("plate_offset_x", ox), ("plate_offset_y", oy)):
+            if sb.value():
+                self.overrides[k] = sb.value()
+            else:
+                self.overrides.pop(k, None)
+        self.rebuild()
+        self.changed.emit()
+
     def _fill_dependent(self):
         self._building = True
         tech = self.technology
@@ -326,6 +422,8 @@ class SettingsPanel(QWidget):
         old_tech = self.technology
         self.printer_id = pid
         self._drop_overrides_for("printers", pid)
+        for k in PLATE_KEYS:              # a new printer starts on its full plate
+            self.overrides.pop(k, None)
         self._fill_dependent()
         self.rebuild()
         if self.technology != old_tech:
@@ -490,6 +588,7 @@ class SettingsPanel(QWidget):
         if old is not None:
             for cat, sec in getattr(self, "_sections", {}).items():
                 self._expanded[cat] = sec.header.isChecked()
+        self._fill_plates()
         self._building = True
         cfg = self.config()
         tech = self.technology

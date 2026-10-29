@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QDoubleSpinBox, QFileDia
 from .. import __version__, fdm, gcode, orient, primitives, profiles, project, sla, sla_supports
 from ..assistant import Assistant, hollow_saving_ml
 from ..mesh import SUPPORTED_EXTENSIONS, Mesh, load_mesh, save_stl
-from ..scene import SceneObject, arrange, out_of_bounds
+from ..scene import SceneObject, arrange, out_of_bounds, plate_rect
 from ..settings import SCHEMA_BY_KEY
 from ..slicing import MultiPolygon
 from . import theme
@@ -694,10 +694,10 @@ class MainWindow(QMainWindow):
         self._push_undo()
         obj = SceneObject.from_mesh(mesh)
         cfg = self.settings.config()
-        obj.x, obj.y = cfg["bed_x"] / 2, cfg["bed_y"] / 2
+        obj.x, obj.y = self._plate_center(cfg)
         self.objects.append(obj)
         if rearrange:
-            arrange(self.objects, cfg["bed_x"], cfg["bed_y"])
+            arrange(self.objects, cfg["bed_x"], cfg["bed_y"], rect=plate_rect(cfg))
         self._refresh_objects(select=obj.uid)
         return obj
 
@@ -708,7 +708,7 @@ class MainWindow(QMainWindow):
             dup = obj.duplicate()
             self.objects.append(dup)
             cfg = self.settings.config()
-            arrange(self.objects, cfg["bed_x"], cfg["bed_y"])
+            arrange(self.objects, cfg["bed_x"], cfg["bed_y"], rect=plate_rect(cfg))
             self._refresh_objects(select=dup.uid)
 
     def delete_selected(self):
@@ -722,7 +722,7 @@ class MainWindow(QMainWindow):
     def arrange_objects(self):
         self._push_undo()
         cfg = self.settings.config()
-        arrange(self.objects, cfg["bed_x"], cfg["bed_y"])
+        arrange(self.objects, cfg["bed_x"], cfg["bed_y"], rect=plate_rect(cfg))
         self._objects_changed()
 
     def lay_flat(self):
@@ -738,7 +738,7 @@ class MainWindow(QMainWindow):
         if obj:
             self._push_undo()
             cfg = self.settings.config()
-            obj.x, obj.y = cfg["bed_x"] / 2, cfg["bed_y"] / 2
+            obj.x, obj.y = self._plate_center(cfg)
             self._objects_changed()
 
     def reset_transform(self):
@@ -780,7 +780,7 @@ class MainWindow(QMainWindow):
         self.object_list.setCurrentItem(None)
         self.auto_orient_selected()
         cfg = self.settings.config()
-        if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"]):
+        if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"], rect=plate_rect(cfg)):
             self.status.setText(tr("arrange_full"))
         if cfg["technology"] == "sla":
             self.generate_supports()
@@ -877,7 +877,7 @@ class MainWindow(QMainWindow):
         self._push_undo()
         self.objects += [obj.duplicate() for _ in range(count)]
         cfg = self.settings.config()
-        if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"]):
+        if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"], rect=plate_rect(cfg)):
             self.status.setText(tr("arrange_full"))
         self._refresh_objects(select=obj.uid)
 
@@ -922,7 +922,7 @@ class MainWindow(QMainWindow):
 
     def _objects_changed(self, refresh_list: bool = True):
         cfg = self.settings.config()
-        outside = {o.uid: o.name for o in out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"])}
+        outside = {o.uid: o.name for o in out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg))}
         uids = {o.uid for o in self.objects}
         for uid in list(self.viewer.objects):
             if uid not in uids:
@@ -1172,10 +1172,28 @@ class MainWindow(QMainWindow):
             self.sup_info.setText(tr("sup_none"))
 
     # ================================================================ settings
+    @staticmethod
+    def _plate_center(cfg) -> tuple[float, float]:
+        x0, y0, x1, y1 = plate_rect(cfg)
+        return (x0 + x1) / 2, (y0 + y1) / 2
+
     def _apply_printer(self):
         cfg = self.settings.config()
         tech = cfg["technology"]
-        self.viewer.set_bed(cfg["bed_x"], cfg["bed_y"], cfg["max_z"], tech)
+        rect = plate_rect(cfg)
+        old = getattr(self, "_plate", None)
+        self.viewer.set_bed(cfg["bed_x"], cfg["bed_y"], cfg["max_z"], tech, rect)
+        if old is not None and old != rect:
+            # new printer or plate: bring the models along to the new plate and frame it
+            dx = (rect[0] + rect[2] - old[0] - old[2]) / 2
+            dy = (rect[1] + rect[3] - old[1] - old[3]) / 2
+            for o in self.objects:
+                o.x += dx
+                o.y += dy
+            if out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=rect):
+                arrange(self.objects, cfg["bed_x"], cfg["bed_y"], rect=rect)
+            self.viewer.view_preset("iso")
+        self._plate = rect
         self.stat_material.set("—", tr("stat_resin") if tech == "sla" else tr("stat_filament"))
         self.export_btn.setText("  " + (tr("export_sla") if tech == "sla" else tr("export_gcode")))
         self._update_overhang()
@@ -1188,7 +1206,8 @@ class MainWindow(QMainWindow):
     def _on_settings_changed(self):
         cfg = self.settings.config()
         b = self.viewer.bed
-        if (cfg["bed_x"], cfg["bed_y"], cfg["max_z"]) != b or cfg["technology"] != self.viewer.technology:
+        if ((cfg["bed_x"], cfg["bed_y"], cfg["max_z"]) != b or cfg["technology"] != self.viewer.technology
+                or plate_rect(cfg) != getattr(self, "_plate", None)):
             self._apply_printer()
         else:
             self._update_overhang()
@@ -1232,7 +1251,7 @@ class MainWindow(QMainWindow):
             self.status.setText(tr("no_models"))
             return
         cfg = self.settings.config()
-        outside = out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"])
+        outside = out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg))
         if outside:
             QMessageBox.warning(self, tr("slice"), tr("out_of_bounds").format(", ".join(o.name for o in outside)))
             return
@@ -1476,8 +1495,9 @@ class MainWindow(QMainWindow):
             job = {"islands": len(j.islands), "cups": len(j.cups), "thin": len(j.thin_layers)}
         free = 0
         if len(self.objects) == 1:
+            x0, y0, x1, y1 = plate_rect(cfg)
             sx, sy = self.objects[0].world_size()[:2] + 6
-            free = int((cfg["bed_x"] // sx) * (cfg["bed_y"] // sy)) - 1
+            free = int(((x1 - x0) // sx) * ((y1 - y0) // sy)) - 1
         return {"technology": cfg["technology"], "cfg": cfg, "objects": objects, "job": job,
                 "overrides": dict(self.settings.overrides), "plate_free_copies": free,
                 "dismissed_session": self._dismissed_session}

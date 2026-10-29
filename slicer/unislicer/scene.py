@@ -119,10 +119,27 @@ class SceneObject:
                            self.base_rotation.copy(), self.mirror.copy(), sp)
 
 
-def arrange(objects: list[SceneObject], bed_x: float, bed_y: float, spacing: float = 6.0) -> bool:
-    """Shelf-pack object footprints around the bed centre. Returns False if they don't fit."""
+def plate_rect(cfg) -> tuple[float, float, float, float]:
+    """(x0, y0, x1, y1) of the usable build plate: the chosen plate, centred (plus offset) on the bed."""
+    bx, by = float(cfg["bed_x"]), float(cfg["bed_y"])
+    w = float(cfg.get("plate_width", 0) or 0) or bx
+    d = float(cfg.get("plate_depth", 0) or 0) or by
+    w, d = min(w, bx), min(d, by)
+    cx = min(max(bx / 2 + float(cfg.get("plate_offset_x", 0) or 0), w / 2), bx - w / 2)
+    cy = min(max(by / 2 + float(cfg.get("plate_offset_y", 0) or 0), d / 2), by - d / 2)
+    return cx - w / 2, cy - d / 2, cx + w / 2, cy + d / 2
+
+
+def arrange(objects: list[SceneObject], bed_x: float, bed_y: float, spacing: float = 6.0,
+            rect: tuple | None = None) -> bool:
+    """Shelf-pack object footprints around the plate centre. Returns False if they don't fit."""
     if not objects:
         return True
+    if rect is not None:
+        ox, oy = rect[0], rect[1]
+        bed_x, bed_y = rect[2] - rect[0], rect[3] - rect[1]
+    else:
+        ox = oy = 0.0
     sizes = [o.world_size() for o in objects]
     order = sorted(range(len(objects)), key=lambda i: -sizes[i][1])
     rows, row, row_w, row_h = [], [], 0.0, 0.0
@@ -140,17 +157,19 @@ def arrange(objects: list[SceneObject], bed_x: float, bed_y: float, spacing: flo
     for row, row_w, row_h in rows:
         x = bed_x / 2 - row_w / 2
         for i, w in row:
-            objects[i].x = x + w / 2
-            objects[i].y = y - row_h / 2
+            objects[i].x = ox + x + w / 2
+            objects[i].y = oy + y - row_h / 2
             x += w
         y -= row_h
     return total_h <= bed_y and all(r[1] <= bed_x + spacing for r in rows)
 
 
-def out_of_bounds(objects: list[SceneObject], bed_x: float, bed_y: float, max_z: float) -> list[SceneObject]:
+def out_of_bounds(objects: list[SceneObject], bed_x: float, bed_y: float, max_z: float,
+                  rect: tuple | None = None) -> list[SceneObject]:
+    x0, y0, x1, y1 = rect if rect is not None else (0.0, 0.0, bed_x, bed_y)
     bad = []
     for o in objects:
         b = o.world_bounds()
-        if b[0, 0] < -1e-6 or b[0, 1] < -1e-6 or b[1, 0] > bed_x + 1e-6 or b[1, 1] > bed_y + 1e-6 or b[1, 2] > max_z + 1e-6:
+        if b[0, 0] < x0 - 1e-6 or b[0, 1] < y0 - 1e-6 or b[1, 0] > x1 + 1e-6 or b[1, 1] > y1 + 1e-6 or b[1, 2] > max_z + 1e-6:
             bad.append(o)
     return bad

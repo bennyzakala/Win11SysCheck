@@ -17,7 +17,7 @@ def _progress(stage: str, fraction: float) -> None:
 def slice_command(args) -> int:
     from . import profiles
     from .mesh import load_mesh
-    from .scene import SceneObject, arrange, out_of_bounds
+    from .scene import SceneObject, arrange, out_of_bounds, plate_rect
     from .settings import SCHEMA_BY_KEY
 
     overrides = {}
@@ -39,8 +39,8 @@ def slice_command(args) -> int:
             if args.lay_flat:
                 obj.lay_flat()
             objects.append(obj)
-    arrange(objects, cfg["bed_x"], cfg["bed_y"])
-    bad = out_of_bounds(objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"])
+    arrange(objects, cfg["bed_x"], cfg["bed_y"], rect=plate_rect(cfg))
+    bad = out_of_bounds(objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg))
     if bad:
         print(f"warning: does not fit on the printer: {', '.join(o.name for o in bad)}", file=sys.stderr)
     meshes = [o.world_mesh() for o in objects]
