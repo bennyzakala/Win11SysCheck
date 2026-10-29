@@ -465,7 +465,7 @@ def test_hollow_modes_infill_internal_supports_and_manual_holes():
     m = placed(primitives.box(30, 30, 25), 70, 45).world_mesh()
 
     def run(**over):
-        cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", dict(hollow_enable=True, drain_holes=2, **over))
+        cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {"hollow_enable": True, "drain_holes": 2, **over})
         return sla.prepare([m], cfg)
     closed = run()
     for kind in ("grid", "hive"):
