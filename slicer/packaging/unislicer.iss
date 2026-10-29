@@ -21,12 +21,18 @@ UninstallDisplayIcon={app}\UniSlicer.exe
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+ShowLanguageDialog=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
 Name: "hebrew"; MessagesFile: "compiler:Languages\Hebrew.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Registry]
+; the language picked in the installer becomes the app's language (QSettings "UniSlicer/UniSlicer")
+Root: HKCU; Subkey: "Software\UniSlicer\UniSlicer"; ValueType: string; ValueName: "language"; ValueData: "he"; Languages: hebrew
+Root: HKCU; Subkey: "Software\UniSlicer\UniSlicer"; ValueType: string; ValueName: "language"; ValueData: "en"; Languages: english
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"

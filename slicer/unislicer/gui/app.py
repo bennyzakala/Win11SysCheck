@@ -21,6 +21,12 @@ def _trace(msg: str) -> None:
 SMOKE = bool(os.environ.get("UNISLICER_SMOKE_TEST"))
 
 
+def default_language() -> str:
+    """Hebrew when the system is set to Hebrew, otherwise English (the installer stores an explicit choice)."""
+    from PySide6.QtCore import QLocale
+    return "he" if QLocale.system().language() == QLocale.Hebrew else "en"
+
+
 def _relaunch_with_software_opengl() -> int:
     """Restart the app using Qt's bundled software renderer (opengl32sw.dll on Windows)."""
     env = dict(os.environ, QT_OPENGL="software", UNISLICER_SOFTWARE_GL="1")
@@ -54,7 +60,7 @@ def run(paths: list[str] | None = None) -> int:
             QTimer.singleShot(0, app.quit)
 
     def open_window(objects=None):
-        i18n.set_language(store.value("language", "he"))
+        i18n.set_language(store.value("language", default_language()))
         app.setLayoutDirection(Qt.RightToLeft if i18n.LANG == "he" else Qt.LeftToRight)
         _trace("creating main window")
         win = MainWindow(objects)
