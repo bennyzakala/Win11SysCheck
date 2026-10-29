@@ -104,6 +104,11 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         self.status = QLabel(tr("ready"))
         self.statusBar().addWidget(self.status, 1)
+        if os.environ.get("UNISLICER_SOFTWARE_GL"):
+            sw = QLabel("⚠ " + tr("software_gl"))
+            sw.setObjectName("Warning")
+            sw.setToolTip(tr("software_gl_tip"))
+            self.statusBar().addPermanentWidget(sw)
         ver = QLabel(f"UniSlicer {__version__}")
         ver.setObjectName("Faint")
         self.statusBar().addPermanentWidget(ver)
@@ -596,7 +601,7 @@ class MainWindow(QMainWindow):
             if uid not in uids:
                 self.viewer.remove_object(uid)
         for o in self.objects:
-            self.viewer.set_object(o.uid, o.world_mesh(), "outside" if o.uid in outside else "normal")
+            self.viewer.set_object(o.uid, o.mesh, o.world_matrix(), "outside" if o.uid in outside else "normal")
         sel = self.selected()
         self.viewer.set_selected(sel.uid if sel else None)
         self.empty_hint.setVisible(not self.objects or getattr(self, "_gl_failed", False))
@@ -610,16 +615,15 @@ class MainWindow(QMainWindow):
         obj = self.selected()
         self._syncing = True
         if obj:
-            m = obj.world_mesh()
-            size = m.size
+            size = obj.world_size()
             self.pos_x.setValue(obj.x)
             self.pos_y.setValue(obj.y)
             for i in range(3):
                 self.rot[i].setValue(float(obj.rotation[i]))
                 self.scale[i].setValue(float(obj.scale[i] * 100))
                 self.size_spins[i].setValue(float(size[i]))
-            watertight = m.is_watertight()
-            info = f"{len(m.faces):,} {tr('triangles')} · {tr('volume')} {m.volume() / 1000:.2f} cm³"
+            watertight = obj.mesh.is_watertight()   # cached after the first call
+            info = f"{len(obj.mesh.faces):,} {tr('triangles')} · {tr('volume')} {obj.volume / 1000:.2f} cm³"
             if not watertight:
                 info += f"\n⚠ {tr('not_watertight')}"
             self.object_info.setText(info)
@@ -641,7 +645,7 @@ class MainWindow(QMainWindow):
             obj.rotation[axis] = value
         elif what in ("scale", "size"):
             if what == "size":
-                current = obj.world_mesh().size[axis]
+                current = obj.world_size()[axis]
                 if current <= 0:
                     return
                 factor = value / current
@@ -676,7 +680,7 @@ class MainWindow(QMainWindow):
         if obj:
             obj.x += dx
             obj.y += dy
-            self.viewer.set_object(uid, obj.world_mesh(), "normal")
+            self.viewer.set_object_transform(uid, obj.world_matrix())
             self._syncing = True
             self.pos_x.setValue(obj.x)
             self.pos_y.setValue(obj.y)

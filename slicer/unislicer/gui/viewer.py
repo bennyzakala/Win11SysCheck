@@ -26,8 +26,8 @@ void main(){ float t = smoothstep(0.0, 1.0, vUV.y); vec3 c = mix(uBottom, uTop, 
 
 MESH_VS = """#version 330 core
 layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNormal;
-uniform mat4 uMVP; out vec3 vNormal; out vec3 vPos;
-void main(){ vNormal = aNormal; vPos = aPos; gl_Position = uMVP * vec4(aPos, 1.0); }"""
+uniform mat4 uMVP; uniform mat4 uModel; uniform mat3 uNormalMat; out vec3 vNormal; out vec3 vPos;
+void main(){ vec4 w = uModel * vec4(aPos, 1.0); vNormal = uNormalMat * aNormal; vPos = w.xyz; gl_Position = uMVP * w; }"""
 MESH_FS = """#version 330 core
 in vec3 vNormal; in vec3 vPos; out vec4 frag;
 uniform vec3 uColor; uniform vec3 uEye; uniform float uOverhang; uniform int uShowOverhang; uniform float uClipZ; uniform float uAlpha;
@@ -257,7 +257,7 @@ class Viewer(QOpenGLWidget):
         software = bool(os.environ.get("UNISLICER_SOFTWARE_GL"))
         fmt.setProfile(QSurfaceFormat.CompatibilityProfile if software else QSurfaceFormat.CoreProfile)
         fmt.setDepthBufferSize(24)
-        fmt.setSamples(4)
+        fmt.setSamples(0 if software else 4)  # multisampling is costly on the CPU renderer
         QSurfaceFormat.setDefaultFormat(fmt)
 
     # ---------------------------------------------------------- public API
@@ -267,12 +267,25 @@ class Viewer(QOpenGLWidget):
         self._bed_dirty = True
         self.update()
 
-    def set_object(self, uid, mesh: Mesh, state: str = "normal"):
+    def set_object(self, uid, mesh: Mesh, matrix: np.ndarray | None = None, state: str = "normal"):
+        """Show ``mesh`` (in its own coordinates) placed by the 4x4 ``matrix``.
+
+        The mesh is uploaded to the GPU once; later calls with the same mesh only update the matrix,
+        so moving, rotating and scaling stay instant even for very large models."""
+        matrix = np.eye(4) if matrix is None else np.asarray(matrix, dtype=np.float64)
         old = self.objects.get(uid)
-        if old and old.get("buffer"):
-            self._trash(old["buffer"])
-        self.objects[uid] = {"mesh": mesh, "buffer": None, "state": state}
+        if old is not None and old["mesh"] is mesh:
+            old["matrix"], old["state"] = matrix, state
+        else:
+            if old and old.get("buffer"):
+                self._trash(old["buffer"])
+            self.objects[uid] = {"mesh": mesh, "buffer": None, "state": state, "matrix": matrix}
         self.update()
+
+    def set_object_transform(self, uid, matrix: np.ndarray):
+        if uid in self.objects:
+            self.objects[uid]["matrix"] = np.asarray(matrix, dtype=np.float64)
+            self.update()
 
     def set_object_state(self, uid, state: str):
         if uid in self.objects:
@@ -334,13 +347,20 @@ class Viewer(QOpenGLWidget):
         c.yaw, c.pitch = {"iso": (-62.0, 30.0), "top": (-90.0, 89.9), "front": (-90.0, 6.0), "side": (0.0, 6.0)}[name]
         self.update()
 
+    @staticmethod
+    def _world_box(obj) -> np.ndarray:
+        b = obj["mesh"].bounds
+        corners = np.array([[x, y, z] for x in b[:, 0] for y in b[:, 1] for z in b[:, 2]])
+        w = corners @ obj["matrix"][:3, :3].T + obj["matrix"][:3, 3]
+        return np.array([w.min(axis=0), w.max(axis=0)])
+
     def fit_objects(self):
-        meshes = [o["mesh"] for o in self.objects.values()]
-        if not meshes:
+        if not self.objects:
             self.view_preset("iso")
             return
-        lo = np.min([m.bounds[0] for m in meshes], axis=0)
-        hi = np.max([m.bounds[1] for m in meshes], axis=0)
+        boxes = [self._world_box(o) for o in self.objects.values()]
+        lo = np.min([b[0] for b in boxes], axis=0)
+        hi = np.max([b[1] for b in boxes], axis=0)
         self.camera.target = (lo + hi) / 2
         radius = np.linalg.norm(hi - lo) / 2
         self.camera.distance = max(30.0, radius / math.sin(math.radians(self.camera.fov / 2)) * 1.15)
@@ -477,8 +497,10 @@ class Viewer(QOpenGLWidget):
                 color = theme.MODEL_OUTSIDE if state == "outside" else (
                     theme.MODEL_SELECTED if uid == self.selected else theme.MODEL_COLOR)
                 GL.glUniform3f(self._u(p, "uColor"), *color)
+                self._set_model(p, obj["matrix"])
                 obj["buffer"].draw(GL.GL_TRIANGLES)
         GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
+        self._set_model(p, np.eye(4))
         if preview or self.technology == "sla":
             for buf, color in self._extra_buffers:
                 GL.glUniform3f(self._u(p, "uColor"), *color)
@@ -497,6 +519,14 @@ class Viewer(QOpenGLWidget):
             GL.glUniform3fv(self._u(q, "uColors"), len(colors), colors)
             self._paths_buffer.draw(GL.GL_LINES)
         GL.glBindVertexArray(0)
+
+    def _set_model(self, prog, matrix: np.ndarray):
+        lin = matrix[:3, :3]
+        det = np.linalg.det(lin)
+        normal = np.linalg.inv(lin).T if abs(det) > 1e-12 else np.eye(3)
+        GL.glUniformMatrix4fv(self._u(prog, "uModel"), 1, GL.GL_TRUE, matrix.astype(np.float32))
+        GL.glUniformMatrix3fv(self._u(prog, "uNormalMat"), 1, GL.GL_TRUE, normal.astype(np.float32))
+        GL.glFrontFace(GL.GL_CW if det < 0 else GL.GL_CCW)  # mirroring flips the winding
 
     # ---------------------------------------------------------- picking
     def _ray(self, pos: QPointF):
@@ -539,7 +569,11 @@ class Viewer(QOpenGLWidget):
         origin, direction = self._ray(pos)
         best, best_d = None, np.inf
         for uid, obj in self.objects.items():
-            d = self._ray_mesh(origin, direction, obj["mesh"])
+            # intersect in the object's own coordinates; the ray parameter stays comparable
+            inv = np.linalg.inv(obj["matrix"])
+            o_local = inv[:3, :3] @ origin + inv[:3, 3]
+            d_local = inv[:3, :3] @ direction
+            d = self._ray_mesh(o_local, d_local, obj["mesh"])
             if d is not None and d < best_d:
                 best, best_d = uid, d
         return best

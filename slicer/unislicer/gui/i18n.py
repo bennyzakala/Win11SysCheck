@@ -98,6 +98,9 @@ STRINGS = {
     "file_filter": ("מודלים תלת-ממדיים (*.stl *.obj *.3mf);;כל הקבצים (*)", "3D models (*.stl *.obj *.3mf);;All files (*)"),
     "unit_mm": ("מ\"מ", "mm"),
     "hint_nav": ("שמאלי: סיבוב · ימני: הזזה · גלגלת: זום · גרור מודל כדי להזיז", "Left: orbit · Right: pan · Wheel: zoom · Drag a model to move it"),
+    "software_gl": ("תצוגה תוכנתית (איטית)", "Software rendering (slow)"),
+    "software_gl_tip": ("לא נמצא מנהל התקן גרפי עם OpenGL 3.3, ולכן התצוגה מחושבת במעבד. עדכון מנהל ההתקן של כרטיס המסך יאיץ אותה מאוד.",
+                        "No OpenGL 3.3 graphics driver was found, so the 3D view is drawn by the CPU. Updating the graphics driver will make it much faster."),
     "unsaved_tech": ("טכנולוגיה", "Technology"),
 }
 

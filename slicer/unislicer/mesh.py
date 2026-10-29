@@ -18,6 +18,8 @@ class Mesh:
         self.vertices = np.ascontiguousarray(vertices, dtype=np.float64).reshape(-1, 3)
         self.faces = np.ascontiguousarray(faces, dtype=np.int64).reshape(-1, 3)
         self.name = name
+        self._watertight: bool | None = None   # cached: meshes are treated as immutable
+        self._volume: float | None = None
 
     # ------------------------------------------------------------------ build
     @classmethod
@@ -54,6 +56,7 @@ class Mesh:
         f = self.faces
         ok = (f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 0] != f[:, 2])
         self.faces = f[ok]
+        self._watertight = self._volume = None
 
     # ------------------------------------------------------------ properties
     @property
@@ -64,8 +67,8 @@ class Mesh:
     def bounds(self) -> np.ndarray:
         if len(self.vertices) == 0:
             return np.zeros((2, 3))
-        used = self.vertices[np.unique(self.faces)] if len(self.faces) else self.vertices
-        return np.array([used.min(axis=0), used.max(axis=0)])
+        # meshes built here only keep referenced vertices, so all of them count
+        return np.array([self.vertices.min(axis=0), self.vertices.max(axis=0)])
 
     @property
     def size(self) -> np.ndarray:
@@ -84,15 +87,22 @@ class Mesh:
         return 0.5 * np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
 
     def volume(self) -> float:
-        t = self.triangles
-        return float(abs(np.einsum("ij,ij->i", t[:, 0], np.cross(t[:, 1], t[:, 2])).sum()) / 6.0)
+        if self._volume is None:
+            t = self.triangles
+            self._volume = float(abs(np.einsum("ij,ij->i", t[:, 0], np.cross(t[:, 1], t[:, 2])).sum()) / 6.0)
+        return self._volume
 
     def is_watertight(self) -> bool:
-        if len(self.faces) == 0:
-            return False
-        edges = np.sort(self.faces[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2), axis=1)
-        _, counts = np.unique(edges, axis=0, return_counts=True)
-        return bool(np.all(counts == 2))
+        if self._watertight is None:
+            if len(self.faces) == 0:
+                self._watertight = False
+            else:
+                # every edge shared by exactly two faces; edges packed into one int64 for a fast unique
+                e = np.sort(self.faces[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2), axis=1)
+                keys = e[:, 0] * (int(e.max()) + 1) + e[:, 1]
+                _, counts = np.unique(keys, return_counts=True)
+                self._watertight = bool(np.all(counts == 2))
+        return self._watertight
 
     # ------------------------------------------------------------ transforms
     def transform(self, matrix: np.ndarray) -> "Mesh":
@@ -100,19 +110,27 @@ class Mesh:
         m = np.asarray(matrix, dtype=np.float64)
         v = self.vertices @ m[:3, :3].T + m[:3, 3]
         faces = self.faces
-        if np.linalg.det(m[:3, :3]) < 0:
+        det = np.linalg.det(m[:3, :3])
+        if det < 0:
             faces = faces[:, ::-1]
-        return Mesh(v, faces.copy(), self.name)
+        out = Mesh(v, faces.copy(), self.name)
+        out._watertight = self._watertight
+        if self._volume is not None:
+            out._volume = self._volume * abs(det)
+        return out
 
     def translated(self, offset) -> "Mesh":
-        return Mesh(self.vertices + np.asarray(offset, dtype=np.float64), self.faces.copy(), self.name)
+        out = Mesh(self.vertices + np.asarray(offset, dtype=np.float64), self.faces, self.name)
+        out._watertight, out._volume = self._watertight, self._volume
+        return out
 
     def lay_flat_rotation(self) -> np.ndarray:
         """3x3 rotation that puts the largest flat face (by summed area) onto the bed."""
         normals = self.face_normals()
         areas = self.face_areas()
-        keys = np.round(normals * 50).astype(np.int64)
-        uniq, inverse = np.unique(keys, axis=0, return_inverse=True)
+        q = np.round(normals * 50).astype(np.int64) + 64          # 0..128 per axis
+        keys = (q[:, 0] * 129 + q[:, 1]) * 129 + q[:, 2]
+        uniq, inverse = np.unique(keys, return_inverse=True)
         sums = np.bincount(inverse.ravel(), weights=areas, minlength=len(uniq))
         best = np.argmax(sums)
         n = normals[inverse.ravel() == best]

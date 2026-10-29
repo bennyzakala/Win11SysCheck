@@ -29,18 +29,46 @@ class SceneObject:
         return cls(centred, name or mesh.name)
 
     def matrix(self) -> np.ndarray:
+        """Rotation and scale only (no placement)."""
         m = np.eye(4)
         m[:3, :3] = euler_matrix(*self.rotation) @ self.base_rotation @ np.diag(self.scale)
         return m
 
+    def _linear_bounds(self) -> np.ndarray:
+        """Bounds of the rotated/scaled mesh, cached until rotation or scale change."""
+        lin = self.matrix()[:3, :3]
+        key = lin.tobytes()
+        cache = self.__dict__.get("_bounds_cache")
+        if cache is None or cache[0] != key:
+            v = self.mesh.vertices @ lin.T
+            cache = (key, np.array([v.min(axis=0), v.max(axis=0)]))
+            self.__dict__["_bounds_cache"] = cache
+        return cache[1]
+
+    def world_matrix(self) -> np.ndarray:
+        """Full transform to bed coordinates: resting on z = 0 and centred at (x, y)."""
+        m = self.matrix()
+        b = self._linear_bounds()
+        m[:3, 3] = [self.x - (b[0, 0] + b[1, 0]) / 2, self.y - (b[0, 1] + b[1, 1]) / 2, -b[0, 2]]
+        return m
+
+    def world_bounds(self) -> np.ndarray:
+        b = self._linear_bounds()
+        return b + self.world_matrix()[:3, 3]
+
+    def world_size(self) -> np.ndarray:
+        b = self._linear_bounds()
+        return b[1] - b[0]
+
     def world_mesh(self) -> Mesh:
-        """Mesh in bed coordinates: transformed, resting on z = 0 and centred at (x, y)."""
-        m = self.mesh.transform(self.matrix())
-        b = m.bounds
-        offset = np.array([self.x - (b[0, 0] + b[1, 0]) / 2, self.y - (b[0, 1] + b[1, 1]) / 2, -b[0, 2]])
-        out = m.translated(offset)
+        """Mesh in bed coordinates (a new copy; prefer world_bounds/world_matrix for cheap queries)."""
+        out = self.mesh.transform(self.world_matrix())
         out.name = self.name
         return out
+
+    @property
+    def volume(self) -> float:
+        return self.mesh.volume() * abs(float(np.linalg.det(self.matrix()[:3, :3])))
 
     def lay_flat(self) -> None:
         current = self.mesh.transform(self.matrix())
@@ -56,7 +84,7 @@ def arrange(objects: list[SceneObject], bed_x: float, bed_y: float, spacing: flo
     """Shelf-pack object footprints around the bed centre. Returns False if they don't fit."""
     if not objects:
         return True
-    sizes = [o.world_mesh().size for o in objects]
+    sizes = [o.world_size() for o in objects]
     order = sorted(range(len(objects)), key=lambda i: -sizes[i][1])
     rows, row, row_w, row_h = [], [], 0.0, 0.0
     for i in order:
@@ -83,7 +111,7 @@ def arrange(objects: list[SceneObject], bed_x: float, bed_y: float, spacing: flo
 def out_of_bounds(objects: list[SceneObject], bed_x: float, bed_y: float, max_z: float) -> list[SceneObject]:
     bad = []
     for o in objects:
-        b = o.world_mesh().bounds
+        b = o.world_bounds()
         if b[0, 0] < -1e-6 or b[0, 1] < -1e-6 or b[1, 0] > bed_x + 1e-6 or b[1, 1] > bed_y + 1e-6 or b[1, 2] > max_z + 1e-6:
             bad.append(o)
     return bad
