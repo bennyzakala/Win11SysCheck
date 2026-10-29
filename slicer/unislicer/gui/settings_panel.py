@@ -162,6 +162,7 @@ class SettingRow(QWidget):
 class SettingsPanel(QWidget):
     """Printer / material / quality pickers plus all editable settings."""
     changed = Signal()
+    valueEdited = Signal(str, object)      # a value the user typed or picked
     technologyChanged = Signal(str)
 
     def __init__(self, printer: str, material: str | None, quality: str | None, overrides: dict, show_advanced: bool):
@@ -433,7 +434,11 @@ class SettingsPanel(QWidget):
 
     def set_value(self, key: str, value):
         """Programmatic override (e.g. the overhang toggle in the viewport)."""
-        self._on_changed(key, value)
+        self._programmatic = True     # not a user habit: don't teach the assistant
+        try:
+            self._on_changed(key, value)
+        finally:
+            self._programmatic = False
         self.rebuild()
 
     def _on_changed(self, key, value):
@@ -444,6 +449,8 @@ class SettingsPanel(QWidget):
             self.overrides.pop(key, None)
         else:
             self.overrides[key] = value
+            if not getattr(self, "_programmatic", False):
+                self.valueEdited.emit(key, value)
         if key == "sla_support_preset":
             # the preset supplies tip/pillar/spacing: drop manual values and refresh the editors
             for k in SUPPORT_PRESETS["medium"]:

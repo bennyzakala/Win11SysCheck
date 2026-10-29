@@ -5,17 +5,20 @@ import json
 import os
 
 import numpy as np
-from PySide6.QtCore import QSettings, QSize, Qt, Signal
+from PySide6.QtCore import QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDoubleSpinBox, QFileDialog, QInputDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressBar,
                                QPushButton, QSlider, QToolButton, QVBoxLayout, QWidget)
 
-from .. import __version__, fdm, gcode, primitives, project, sla, sla_supports
+from .. import __version__, fdm, gcode, orient, primitives, profiles, project, sla, sla_supports
+from ..assistant import Assistant, hollow_saving_ml
 from ..mesh import SUPPORTED_EXTENSIONS, Mesh, load_mesh, save_stl
 from ..scene import SceneObject, arrange, out_of_bounds
+from ..settings import SCHEMA_BY_KEY
 from ..slicing import MultiPolygon
 from . import theme
+from .assistant_panel import AssistantPanel
 from .i18n import tr
 from .preview_data import toolpath_vertices
 from .settings_panel import SettingsPanel
@@ -101,6 +104,15 @@ class MainWindow(QMainWindow):
         self._dragging = False
         self._support_cache: dict = {}
         self._islands: dict = {}
+        self.assistant = Assistant()
+        self._orient_gain: dict = {}          # uid -> (orientation key, gain)
+        self._orient_task: Task | None = None
+        self._dismissed_session: set = set()
+        self._seen_problems: set = set()
+        self._suggest_timer = QTimer(self)
+        self._suggest_timer.setSingleShot(True)
+        self._suggest_timer.setInterval(600)
+        self._suggest_timer.timeout.connect(self._refresh_suggestions)
 
         central = QWidget()
         root = QVBoxLayout(central)
@@ -174,7 +186,7 @@ class MainWindow(QMainWindow):
             lay.addWidget(b)
             return b
 
-        tool("open", tr("open"), tr("open_tip"), self.open_files)
+        tool("open", tr("open"), tr("open_tip"), lambda: self._act("open", "button", self.open_files))
         shapes = tool("shapes", tr("shapes"), tr("shapes"), None)
         menu = QMenu(self)
         menu.addAction(theme.icon("cube"), tr("shape_cube"), lambda: self.add_mesh(primitives.box(20, 20, 20, "Cube")))
@@ -184,15 +196,15 @@ class MainWindow(QMainWindow):
         shapes.setMenu(menu)
         shapes.setPopupMode(QToolButton.InstantPopup)
         tool("sparkle", tr("auto_prepare"), tr("auto_prepare_tip"), self.auto_prepare)
-        tool("arrange", tr("arrange"), tr("arrange_tip"), self.arrange_objects)
-        tool("copy", tr("duplicate"), tr("duplicate"), self.duplicate_selected)
+        tool("arrange", tr("arrange"), tr("arrange_tip"), lambda: self._act("arrange", "button", self.arrange_objects))
+        tool("copy", tr("duplicate"), tr("duplicate"), lambda: self._act("duplicate", "button", self.duplicate_selected))
         tool("trash", tr("delete"), tr("delete"), self.delete_selected)
-        self.undo_btn = tool("undo", "", tr("undo") + " (Ctrl+Z)", self.undo)
+        self.undo_btn = tool("undo", "", tr("undo") + " (Ctrl+Z)", lambda: self._act("undo", "button", self.undo))
         self.redo_btn = tool("redo", "", tr("redo") + " (Ctrl+Y)", self.redo)
         more = tool("more", tr("more"), tr("more"), None)
         mm = QMenu(self)
         mm.addAction(theme.icon("open"), tr("open_project"), self.open_project)
-        mm.addAction(theme.icon("save"), tr("save_project"), self.save_project)
+        mm.addAction(theme.icon("save"), tr("save_project"), lambda: self._act("save_project", "button", self.save_project))
         mm.addSeparator()
         mm.addAction(theme.icon("download"), tr("export_stl"), self.export_stl)
         mm.addAction(theme.icon("copy"), tr("multiply"), self.multiply_selected)
@@ -216,6 +228,7 @@ class MainWindow(QMainWindow):
         self.preview_btn.clicked.connect(lambda: self.set_mode("preview"))
         lay.addWidget(seg)
         lay.addStretch(1)
+        self.assistant_btn = tool("bulb", tr("assistant"), tr("assistant_tip"), self._toggle_assistant)
         tool("globe", tr("language"), tr("language_tip"), self.languageSwitchRequested.emit)
         return bar
 
@@ -483,6 +496,23 @@ class MainWindow(QMainWindow):
         grid.addWidget(mwrap, 0, 0, Qt.AlignBottom | Qt.AlignLeft)
         self.mask_wrap = mwrap
 
+        # learning assistant
+        self.assistant_panel = AssistantPanel()
+        self.assistant_panel.applyRequested.connect(self._apply_suggestion)
+        self.assistant_panel.dismissed.connect(self._dismiss_suggestion)
+        self.assistant_panel.printReported.connect(self._on_print_report)
+        self.assistant_panel.learningToggled.connect(self._on_learning_toggled)
+        self.assistant_panel.resetRequested.connect(self._on_learning_reset)
+        self.assistant_panel.closeRequested.connect(lambda: self.assistant_wrap.hide())
+        awrap = QWidget()
+        awrap.setObjectName("Overlay")
+        awl = QVBoxLayout(awrap)
+        awl.setContentsMargins(14, 72, 14, 14)
+        awl.addWidget(self.assistant_panel)
+        grid.addWidget(awrap, 0, 0, Qt.AlignTop | Qt.AlignLeft)
+        self.assistant_wrap = awrap
+        awrap.hide()
+
         self.layer_wrap.hide()
         self.legend_wrap.hide()
         self.mask_wrap.hide()
@@ -504,6 +534,7 @@ class MainWindow(QMainWindow):
         self.settings = SettingsPanel(s.value("printer", "creality_ender3v2"), s.value("material", None),
                                       s.value("quality", None), overrides, s.value("advanced", "false") == "true")
         self.settings.changed.connect(self._on_settings_changed)
+        self.settings.valueEdited.connect(lambda k, v: self.assistant.record_override(k, v))
         self.settings.technologyChanged.connect(lambda _t: self._apply_printer())
         lay.addWidget(self.settings, 1)
 
@@ -542,13 +573,13 @@ class MainWindow(QMainWindow):
         self.slice_btn.setObjectName("Primary")
         self.slice_btn.setIconSize(QSize(18, 18))
         self.slice_btn.setCursor(Qt.PointingHandCursor)
-        self.slice_btn.clicked.connect(self.slice_or_cancel)
+        self.slice_btn.clicked.connect(lambda: self._act("slice", "button", self.slice_or_cancel))
         self.export_btn = QPushButton(theme.icon("download", "#08251a", 18), "  " + tr("export_gcode"))
         self.export_btn.setObjectName("Success")
         self.export_btn.setIconSize(QSize(18, 18))
         self.export_btn.setCursor(Qt.PointingHandCursor)
         self.export_btn.setEnabled(False)
-        self.export_btn.clicked.connect(self.export)
+        self.export_btn.clicked.connect(lambda: self._act("export", "button", self.export))
         btns.addWidget(self.slice_btn, 1)
         btns.addWidget(self.export_btn, 1)
         al.addLayout(btns)
@@ -556,12 +587,17 @@ class MainWindow(QMainWindow):
         return panel
 
     def _install_shortcuts(self):
-        for seq, fn in ((QKeySequence.Open, self.open_files), (QKeySequence.Delete, self.delete_selected),
-                        (QKeySequence("A"), self.arrange_objects), (QKeySequence("Ctrl+D"), self.duplicate_selected),
-                        (QKeySequence("Ctrl+R"), self.slice_or_cancel), (QKeySequence("Ctrl+E"), self.export),
+        def via_key(name, fn):
+            return lambda: self._act(name, "shortcut", fn)
+
+        for seq, fn in ((QKeySequence.Open, via_key("open", self.open_files)), (QKeySequence.Delete, self.delete_selected),
+                        (QKeySequence("A"), via_key("arrange", self.arrange_objects)),
+                        (QKeySequence("Ctrl+D"), via_key("duplicate", self.duplicate_selected)),
+                        (QKeySequence("Ctrl+R"), via_key("slice", self.slice_or_cancel)),
+                        (QKeySequence("Ctrl+E"), via_key("export", self.export)),
                         (QKeySequence("Up"), lambda: self._step_layer(1)), (QKeySequence("Down"), lambda: self._step_layer(-1)),
-                        (QKeySequence.Undo, self.undo), (QKeySequence("Ctrl+Y"), self.redo), (QKeySequence.Redo, self.redo),
-                        (QKeySequence.Save, self.save_project), (QKeySequence("Escape"), lambda: self._set_pick_mode(None))):
+                        (QKeySequence.Undo, via_key("undo", self.undo)), (QKeySequence("Ctrl+Y"), self.redo),
+                        (QKeySequence.Redo, self.redo), (QKeySequence.Save, via_key("save_project", self.save_project)), (QKeySequence("Escape"), lambda: self._set_pick_mode(None))):
             act = QAction(self)
             act.setShortcut(seq)
             act.setShortcutContext(Qt.WindowShortcut)
@@ -678,9 +714,14 @@ class MainWindow(QMainWindow):
         cfg = self.settings.config()
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
+            tech = cfg["technology"]
             for o in targets:
-                o.auto_orient(cfg["technology"], cfg["support_angle"])
+                o.auto_orient(tech, cfg["support_angle"], self.assistant.orient_weights(tech))
                 self._drop_supports(o)
+                # remember the choice; if the user turns the model afterwards, that is a lesson
+                mesh = o.mesh.transform(o.matrix())
+                o.__dict__["auto_orient"] = (tech, o.matrix().tobytes(),
+                                             orient.current_features(mesh, tech, cfg["support_angle"]))
         finally:
             QApplication.restoreOverrideCursor()
         self._objects_changed()
@@ -779,6 +820,7 @@ class MainWindow(QMainWindow):
         self.transform_card.setEnabled(sel is not None)
         self._sync_transform()
         self._invalidate()
+        self._schedule_suggestions()
         if outside:
             self.status.setText(tr("out_of_bounds").format(", ".join(sorted(outside.values()))))
 
@@ -915,11 +957,14 @@ class MainWindow(QMainWindow):
         self._push_undo()
         self._ensure_supports_enabled()
         cfg = self.settings.config()
+        learned = self.assistant.learned_config(cfg)   # density and angle learned from earlier edits
         lift = self._lift(cfg)
         for o in self._support_targets():
             world = o.mesh.transform(o.world_matrix())
             world = world.translated([0, 0, lift])
-            o.set_world_support_points(sla_supports.auto_support_points(world, cfg), lift)
+            o.set_world_support_points(sla_supports.auto_support_points(world, learned), lift)
+            o.__dict__["support_session"] = {"auto": len(o.support_points), "added": [], "removed": 0,
+                                             "threshold": learned["support_angle"]}
         self._objects_changed(refresh_list=False)
 
     def clear_supports(self):
@@ -962,7 +1007,19 @@ class MainWindow(QMainWindow):
             o.set_world_support_points(sla_supports.auto_support_points(world, cfg), lift)
         pts = o.world_support_points(lift)
         o.set_world_support_points(np.vstack([pts, p[None, :]]), lift)
+        session = o.__dict__.get("support_session")
+        if session is not None:
+            session["added"].append(self._surface_angle(o, p - [0, 0, lift]))
         self._objects_changed(refresh_list=False)
+
+    @staticmethod
+    def _surface_angle(o: SceneObject, point) -> float:
+        """Overhang angle (from vertical) of the model surface nearest to ``point`` (bed coordinates)."""
+        mesh = o.mesh.transform(o.world_matrix())
+        centers = mesh.triangles.mean(axis=1)
+        k = int(np.argmin(((centers - point) ** 2).sum(axis=1)))
+        nz = float(mesh.face_normals()[k, 2])
+        return float(np.degrees(np.arcsin(np.clip(-nz, -1, 1))))
 
     def _on_support_remove(self, origin, direction):
         lift = self._lift()
@@ -980,6 +1037,9 @@ class MainWindow(QMainWindow):
         self._push_undo()
         _, o, k = best
         o.support_points = np.delete(o.support_points, k, axis=0)
+        session = o.__dict__.get("support_session")
+        if session is not None:
+            session["removed"] += 1
         self._objects_changed(refresh_list=False)
 
     def _update_support_info(self):
@@ -1017,6 +1077,7 @@ class MainWindow(QMainWindow):
             self._update_overhang()
             self._invalidate()
         self._save_state()
+        self._schedule_suggestions()
 
     def _save_state(self):
         s = self.store
@@ -1058,6 +1119,7 @@ class MainWindow(QMainWindow):
         if outside:
             QMessageBox.warning(self, tr("slice"), tr("out_of_bounds").format(", ".join(o.name for o in outside)))
             return
+        self._learn_from_scene(cfg)
         meshes = [o.world_mesh() for o in self.objects]
         manual = [o.world_support_points(0.0) for o in self.objects]
         name = self.objects[0].name or "print"
@@ -1155,7 +1217,14 @@ class MainWindow(QMainWindow):
             self.island_btn.setVisible(bool(self._islands))
         self.result_cfg = cfg
         if warnings:
-            self.warn_label.setText("\n".join(("" if w.startswith(("✓", "▸")) else "⚠ ") + w for w in warnings))
+            import html
+
+            def line(w):
+                color = theme.SUCCESS if w.startswith("✓") else theme.TEXT_DIM if w.startswith("▸") else theme.WARNING
+                text = html.escape(w if w.startswith(("✓", "▸")) else "⚠ " + w)
+                return f'<div style="color:{color}">{text}</div>'
+            self.warn_label.setTextFormat(Qt.RichText)
+            self.warn_label.setText("".join(line(w) for w in warnings))
             self.warn_label.show()
         self.layer_slider.blockSignals(True)
         self.layer_slider.setRange(0, max(0, n - 1))
@@ -1165,6 +1234,7 @@ class MainWindow(QMainWindow):
         self.status.setText(f"{tr('stat_layers')}: {n} · {tr('estimate_note')}")
         self.set_mode("preview", slice_if_needed=False)
         self._on_layer(n - 1)
+        self._schedule_suggestions()
 
     def set_mode(self, mode: str, slice_if_needed: bool = True):
         if mode == "preview" and self.result is None:
@@ -1238,6 +1308,186 @@ class MainWindow(QMainWindow):
         cur = self.layer_slider.value()
         later = [i for i in sorted(self._islands) if i > cur]
         self.layer_slider.setValue(later[0] if later else min(self._islands))
+
+    # ================================================================ assistant
+    def _act(self, name: str, via: str, fn):
+        self.assistant.record_action(name, via)
+        fn()
+
+    def _toggle_assistant(self):
+        show = not self.assistant_wrap.isVisible()
+        self.assistant_wrap.setVisible(show)
+        if show:
+            self._refresh_suggestions()
+
+    def _schedule_suggestions(self):
+        self._suggest_timer.start()
+
+    def _learn_from_scene(self, cfg):
+        """Commit point (slicing): turn what the user changed after the automatic tools into lessons."""
+        learned = False
+        for o in self.objects:
+            state = o.__dict__.pop("auto_orient", None)
+            if state is not None:
+                tech, key, auto_features = state
+                if o.matrix().tobytes() != key and tech == cfg["technology"]:
+                    mesh = o.mesh.transform(o.matrix())
+                    user = orient.current_features(mesh, tech, cfg["support_angle"])
+                    learned |= self.assistant.learn_orientation(tech, auto_features, user)
+            session = o.__dict__.pop("support_session", None)
+            if session is not None:
+                learned |= self.assistant.learn_support_edits(session["auto"], session["added"], session["removed"],
+                                                              session["threshold"])
+        if learned:
+            self.status.setText(tr("assistant_learned"))
+
+    def _scene_context(self) -> dict:
+        cfg = self.settings.config()
+        objects = []
+        for o in self.objects:
+            det = abs(float(np.linalg.det(o.matrix()[:3, :3])))
+            area = float(o.mesh.face_areas().sum()) * det ** (2 / 3)
+            gain = self._orient_gain.get(o.uid)
+            objects.append({
+                "uid": o.uid, "name": o.name, "watertight": o.mesh.is_watertight(),
+                "hollow_saving_ml": hollow_saving_ml(o.volume, area, cfg["hollow_wall"]),
+                "orient_gain": gain[1] if gain and gain[0] == self._orient_key(o) else 0.0,
+            })
+        job = {}
+        if self.result is not None and self.result[0] == "sla":
+            j = self.result[1]
+            job = {"islands": len(j.islands), "cups": len(j.cups), "thin": len(j.thin_layers)}
+        free = 0
+        if len(self.objects) == 1:
+            sx, sy = self.objects[0].world_size()[:2] + 6
+            free = int((cfg["bed_x"] // sx) * (cfg["bed_y"] // sy)) - 1
+        return {"technology": cfg["technology"], "cfg": cfg, "objects": objects, "job": job,
+                "overrides": dict(self.settings.overrides), "plate_free_copies": free,
+                "dismissed_session": self._dismissed_session}
+
+    def _refresh_suggestions(self):
+        if not self.assistant.enabled:
+            items = []
+        else:
+            items = self.assistant.suggestions(self._scene_context())
+        self.assistant_panel.set_suggestions(items)
+        self.assistant_panel.set_learning(self.assistant.enabled, self.assistant.summary())
+        problems = [s for s in items if s.kind == "problem"]
+        self.assistant_btn.setText(f"{tr('assistant')} ({len(items)})" if items else tr("assistant"))
+        self.assistant_btn.setIcon(theme.icon("bulb", theme.WARNING if problems else (theme.ACCENT if items else theme.TEXT), 18))
+        new = {s.id for s in problems} - self._seen_problems
+        if new:
+            self._seen_problems |= new
+            self.assistant_wrap.show()
+        self._analyse_orientations()
+
+    def _orient_key(self, o: SceneObject) -> bytes:
+        return o.matrix().tobytes() + self.settings.config()["technology"].encode()
+
+    def _analyse_orientations(self):
+        """Background: how much better would auto-orient be for each model? (feeds a suggestion)"""
+        if self._orient_task is not None and self._orient_task.isRunning():
+            return
+        cfg = self.settings.config()
+        tech, angle = cfg["technology"], cfg["support_angle"]
+        todo = [o for o in self.objects if self._orient_gain.get(o.uid, (None,))[0] != self._orient_key(o)]
+        if not todo or not self.assistant.enabled:
+            return
+        o = todo[0]
+        key = self._orient_key(o)
+        weights = self.assistant.orient_weights(tech)
+        mesh = o.mesh.transform(o.matrix())
+        uid = o.uid
+
+        def work(progress, cancelled):
+            now = float(orient.current_features(mesh, tech, angle) @ weights)
+            dirs = orient.candidate_directions(mesh, tech, 160)
+            best = float((orient.features(mesh, tech, angle, dirs) @ weights).min())
+            return 0.0 if now <= 1e-9 else max(0.0, 1.0 - best / now)
+
+        def done(gain):
+            self._orient_gain[uid] = (key, gain)
+            self._schedule_suggestions()
+
+        self._orient_task = Task(work, self)
+        self._orient_task.succeeded.connect(done)
+        self._orient_task.start()
+
+    def _apply_suggestion(self, s):
+        a, args = s.action, s.action_args
+        if a == "set":
+            for k, v in args.items():
+                self.settings.set_value(k, v)
+        elif a == "auto_orient_all":
+            self.object_list.setCurrentItem(None)
+            self.auto_orient_selected()
+        elif a == "auto_orient":
+            self._select_uid(args["uid"])
+            self.auto_orient_selected()
+        elif a == "denser_supports":
+            cfg = self.settings.config()
+            self.settings.set_value("sla_support_spacing", round(cfg["sla_support_spacing"] * 0.75, 2))
+            self.object_list.setCurrentItem(None)
+            if cfg["technology"] == "sla":
+                self.generate_supports()
+        elif a == "multiply":
+            if self.objects:
+                self._select_uid(self.objects[0].uid)
+                self.multiply_selected()
+        elif a == "save_default":
+            self._save_as_default(args["key"], args["value"])
+        self._dismissed_session.add(s.id)
+        self._schedule_suggestions()
+
+    def _save_as_default(self, key: str, value):
+        """Write a setting the user keeps choosing into their copy of the matching profile."""
+        st = self.settings
+        cat = SCHEMA_BY_KEY[key].category
+        if cat in ("material", "exposure"):
+            kind, pid = "materials", st.material_id
+        elif cat == "printer" or cat == "gcode":
+            kind, pid = "printers", st.printer_id
+        else:
+            kind, pid = "qualities", st.quality_id
+        prof = profiles.load(kind).get(pid)
+        if not prof:
+            return
+        values = dict(prof.get("values", {}))
+        values[key] = value
+        profiles.save_user_profile(kind, profiles.display_name(prof), values, st.technology, pid=pid,
+                                   vendor=prof.get("vendor", "User"))
+        st.overrides.pop(key, None)
+        st.rebuild()
+        self.status.setText(tr("saved_default").format(profiles.display_name(prof)))
+
+    def _dismiss_suggestion(self, s):
+        if s.persistent_dismiss:
+            self.assistant.dismiss(s.id)
+        else:
+            self._dismissed_session.add(s.id)
+        self._schedule_suggestions()
+
+    def _ask_print_feedback(self):
+        self.assistant_panel.ask_print_feedback()
+        self.assistant_wrap.show()
+        self._refresh_suggestions()
+
+    def _on_print_report(self, outcome):
+        cfg = self.settings.config()
+        extra = self.assistant.record_print(outcome, cfg["technology"], cfg)
+        self.status.setText(tr("print_thanks"))
+        items = extra + self.assistant.suggestions(self._scene_context())
+        self.assistant_panel.set_suggestions(items)
+        self.assistant_panel.set_learning(self.assistant.enabled, self.assistant.summary())
+
+    def _on_learning_toggled(self, on):
+        self.assistant.set_enabled(on)
+        self._refresh_suggestions()
+
+    def _on_learning_reset(self):
+        if QMessageBox.question(self, tr("assistant"), tr("learning_reset_q")) == QMessageBox.Yes:
+            self.assistant.reset()
+            self._refresh_suggestions()
 
     # ================================================================ files
     def save_project(self):
@@ -1322,6 +1572,7 @@ class MainWindow(QMainWindow):
                 return
             self.store.setValue("export_dir", os.path.dirname(path))
             self.status.setText(tr("export_done").format(path))
+            self._ask_print_feedback()
         else:
             job, cfg = self.result[1], self.result[2]
             ext = {"sl1": ".sl1", "ctb": ".ctb", "goo": ".goo", "prz": ".prz"}.get(cfg["sla_format"], ".zip")
@@ -1336,6 +1587,7 @@ class MainWindow(QMainWindow):
 
             def done(p):
                 self.status.setText(tr("export_done").format(p))
+                self._ask_print_feedback()
 
             self._start_task(work, done, tr("exporting"))
             self.result = result

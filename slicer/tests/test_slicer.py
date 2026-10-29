@@ -357,3 +357,47 @@ def test_prz_uses_goo_layout(tmp_path):
     sla.export(job, cfg, str(path), "a")
     f = goo.read(str(path))
     assert f["footer_ok"] and f["header"]["layer_count"] == job.layer_count
+
+
+def test_assistant_learns_orientation_preference(tmp_path):
+    from unislicer import orient
+    from unislicer.assistant import Assistant
+    a = Assistant(str(tmp_path))
+    mesh = primitives.demo_bridge()
+    dirs = orient.candidate_directions(mesh, "sla")
+    feats = orient.features(mesh, "sla", 50, dirs)
+    # a user who always prefers the lowest model height (feature 3) over the default choice
+    for _ in range(12):
+        auto = feats[int(np.argmin(feats @ a.orient_weights("sla")))]
+        user = feats[int(np.argmin(feats[:, 3] + 1e-6 * feats[:, 0]))]
+        a.learn_orientation("sla", auto, user)
+    learned = feats[int(np.argmin(feats @ a.orient_weights("sla")))]
+    default = feats[int(np.argmin(feats @ orient.DEFAULT_WEIGHTS["sla"]))]
+    assert learned[3] < default[3]
+    assert Assistant(str(tmp_path)).data["orient"]["sla"]["examples"] >= 1   # persisted
+
+
+def test_assistant_supports_prints_and_suggestions(tmp_path):
+    from unislicer.assistant import Assistant
+    a = Assistant(str(tmp_path))
+    cfg = profiles.build_config("elegoo_mars3", None, None, {"support_enable": True, "sla_support_type": "pillar"})
+    base = a.learned_config(cfg)["sla_support_spacing"]
+    a.learn_support_edits(auto_count=20, added_angles=[30, 35, 40], removed=0, threshold=50)
+    learned = a.learned_config(cfg)
+    assert learned["sla_support_spacing"] < base and learned["support_angle"] < cfg["support_angle"]
+    tips = a.record_print("fail_supports", "sla", cfg)
+    assert tips and tips[0].action_args == {"sla_support_preset": "heavy"}
+    for _ in range(3):
+        a.record_override("sla_layer_height", 0.03)
+    for _ in range(5):
+        a.record_action("arrange", "button")
+    ctx = {"technology": "sla", "cfg": cfg, "objects": [{"uid": 1, "name": "x", "watertight": False,
+                                                          "hollow_saving_ml": 12.0, "orient_gain": 0.4}],
+           "job": {"cups": 3, "islands": 2}, "overrides": {"sla_layer_height": 0.03}, "plate_free_copies": 5}
+    ids = {s.id for s in a.suggestions(ctx)}
+    assert {"cups_orient", "islands", "watertight_1", "hollow", "tree_supports", "orient_1", "copies",
+            "default_sla_layer_height=0.03", "shortcut_arrange"} <= ids
+    a.dismiss("tree_supports")
+    assert "tree_supports" not in {s.id for s in a.suggestions(ctx)}
+    a.set_enabled(False)
+    assert a.learned_config(cfg)["sla_support_spacing"] == cfg["sla_support_spacing"]

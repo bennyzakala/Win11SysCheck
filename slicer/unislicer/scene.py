@@ -108,10 +108,10 @@ class SceneObject:
         e = euler_matrix(*self.rotation)
         self.base_rotation = e.T @ rot @ e @ self.base_rotation
 
-    def auto_orient(self, technology: str, support_angle: float = 45.0) -> None:
+    def auto_orient(self, technology: str, support_angle: float = 45.0, weights=None) -> None:
         from .orient import best_rotation
         current = self.mesh.transform(self.matrix())
-        self.apply_world_rotation(best_rotation(current, technology, support_angle))
+        self.apply_world_rotation(best_rotation(current, technology, support_angle, weights=weights))
 
     def duplicate(self) -> "SceneObject":
         sp = None if self.support_points is None else self.support_points.copy()
