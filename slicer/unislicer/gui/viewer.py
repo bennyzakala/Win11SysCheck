@@ -9,7 +9,7 @@ import sys
 import numpy as np
 from OpenGL import GL
 from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QSurfaceFormat
+from PySide6.QtGui import QColor, QSurfaceFormat
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 from ..mesh import Mesh
@@ -54,17 +54,17 @@ BED_VS = """#version 330 core
 layout(location=0) in vec3 aPos; uniform mat4 uMVP; out vec2 vXY;
 void main(){ vXY = aPos.xy; gl_Position = uMVP * vec4(aPos, 1.0); }"""
 BED_FS = """#version 330 core
-in vec2 vXY; out vec4 frag; uniform vec2 uBed; uniform vec3 uBase; uniform vec4 uPlate;
+in vec2 vXY; out vec4 frag; uniform vec2 uBed; uniform vec3 uBase; uniform vec4 uPlate; uniform vec3 uGrid; uniform vec3 uAccent;
 float grid(vec2 p, float s, float w){ vec2 c = abs(fract(p / s - 0.5) - 0.5) * s / max(fwidth(p), vec2(1e-4)); return 1.0 - clamp(min(c.x, c.y) - w, 0.0, 1.0); }
 void main(){
   bool onPlate = vXY.x >= uPlate.x && vXY.y >= uPlate.y && vXY.x <= uPlate.z && vXY.y <= uPlate.w;
-  vec3 c = onPlate ? uBase : uBase * 0.55;          // outside the chosen plate: dimmed
-  c = mix(c, vec3(0.30, 0.34, 0.42), grid(vXY, 10.0, 0.0) * (onPlate ? 0.35 : 0.12));
-  c = mix(c, vec3(0.38, 0.44, 0.56), grid(vXY, 50.0, 0.4) * 0.55);
+  vec3 c = onPlate ? uBase : mix(uBase, uGrid, 0.45);   // outside the chosen plate: shaded
+  c = mix(c, uGrid, grid(vXY, 10.0, 0.0) * (onPlate ? 0.35 : 0.12));
+  c = mix(c, uGrid, grid(vXY, 50.0, 0.4) * 0.8);
   vec2 e = min(vXY, uBed - vXY); float edge = min(e.x, e.y);
-  c = mix(c, vec3(0.25, 0.32, 0.45), 1.0 - smoothstep(0.0, max(fwidth(edge) * 2.0, 0.4), edge));
+  c = mix(c, uGrid, 1.0 - smoothstep(0.0, max(fwidth(edge) * 2.0, 0.4), edge));
   vec2 pe = min(vXY - uPlate.xy, uPlate.zw - vXY); float pedge = abs(min(pe.x, pe.y));
-  c = mix(c, vec3(0.31, 0.55, 1.0), 1.0 - smoothstep(0.0, max(fwidth(pedge) * 2.0, 0.4), pedge));
+  c = mix(c, uAccent, 1.0 - smoothstep(0.0, max(fwidth(pedge) * 2.0, 0.4), pedge));
   frag = vec4(c, 1.0);
 }"""
 
@@ -109,6 +109,9 @@ in vec3 fColor; in float fS; in float fTop; out vec4 frag;
 void main(){ float k = sqrt(max(0.0, 1.0 - fS * fS));
   vec3 c = fColor * (0.30 + 0.80 * k) + vec3(0.22) * pow(k, 14.0);
   if (fTop < 0.5) c *= 0.72; frag = vec4(c, 1.0); }"""
+
+
+SEL_TOGGLE, SEL_ADD = 1, 2       # objectClicked flags: Ctrl toggles an object, Shift adds it
 
 
 def _compile(vs: str, fs: str, gs: str | None = None) -> int:
@@ -231,7 +234,9 @@ class Camera:
 
 # ------------------------------------------------------------------ widget
 class Viewer(QOpenGLWidget):
-    objectClicked = Signal(object)            # uid or None
+    objectClicked = Signal(object, int)       # uid or None, SEL_TOGGLE (Ctrl) / SEL_ADD (Shift) flags
+    boxSelected = Signal(object, bool)        # uids inside a Shift/Ctrl-dragged rectangle, additive
+    contextRequested = Signal(object, object)  # uid under a right click (or None), global position
     objectDragged = Signal(object, float, float)
     objectDragFinished = Signal(object)
     glFailed = Signal(str)
@@ -263,7 +268,10 @@ class Viewer(QOpenGLWidget):
         self._gizmo_cache = None
         self.setMouseTracking(True)
         self.objects: dict = {}          # uid -> dict(mesh, buffer, color, dirty)
-        self.selected = None
+        self.selected = None             # primary selection (gizmo, transform panel)
+        self.selection: set = set()      # every selected uid
+        self._band = None                # (origin, QRubberBand) while box-selecting
+        self._click_select = None        # uid to select alone on release (click inside a group)
         self.extra: list = []            # [(mesh, color)] e.g. SLA supports
         self._extra_buffers: list = []
         self._extra_dirty = False
@@ -356,8 +364,9 @@ class Viewer(QOpenGLWidget):
         obj["supports"], obj["sup_buffer"] = mesh, None
         self.update()
 
-    def set_selected(self, uid):
+    def set_selected(self, uid, others=None):
         self.selected = uid
+        self.selection = set(others or ()) | ({uid} if uid is not None else set())
         self.update()
 
     def set_extra_meshes(self, items):
@@ -525,8 +534,10 @@ class Viewer(QOpenGLWidget):
         GL.glUniformMatrix4fv(self._u(self._bed_prog, "uMVP"), 1, GL.GL_TRUE, mvp)
         GL.glUniform2f(self._u(self._bed_prog, "uBed"), self.bed[0], self.bed[1])
         GL.glUniform4f(self._u(self._bed_prog, "uPlate"), *getattr(self, "plate", (0.0, 0.0, self.bed[0], self.bed[1])))
-        base = (0.105, 0.118, 0.145) if self.technology == "fdm" else (0.11, 0.105, 0.14)
-        GL.glUniform3f(self._u(self._bed_prog, "uBase"), *base)
+        GL.glUniform3f(self._u(self._bed_prog, "uBase"), *theme.BED_COLOR)
+        GL.glUniform3f(self._u(self._bed_prog, "uGrid"), *theme.GRID_COLOR)
+        accent = QColor(theme.ACCENT)
+        GL.glUniform3f(self._u(self._bed_prog, "uAccent"), accent.redF(), accent.greenF(), accent.blueF())
         GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)
         GL.glPolygonOffset(1.0, 1.0)
         self._bed_buf.draw(GL.GL_TRIANGLES)
@@ -560,7 +571,7 @@ class Viewer(QOpenGLWidget):
                 if state == "cutter":
                     continue  # drawn translucent after everything opaque
                 color = theme.MODEL_OUTSIDE if state == "outside" else (
-                    theme.MODEL_SELECTED if uid == self.selected else theme.MODEL_COLOR)
+                    theme.MODEL_SELECTED if uid in self.selection else theme.MODEL_COLOR)
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 self._set_model(p, obj["matrix"])
                 obj["buffer"].draw(GL.GL_TRIANGLES)
@@ -582,7 +593,7 @@ class Viewer(QOpenGLWidget):
             GL.glDepthMask(GL.GL_FALSE)
             GL.glUniform1f(self._u(p, "uAlpha"), 0.45)
             for uid, obj in cutters:
-                color = (1.0, 0.55, 0.30) if uid == self.selected else (1.0, 0.36, 0.42)
+                color = (1.0, 0.55, 0.30) if uid in self.selection else (1.0, 0.36, 0.42)
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 self._set_model(p, obj["matrix"])
                 obj["buffer"].draw(GL.GL_TRIANGLES)
@@ -595,8 +606,10 @@ class Viewer(QOpenGLWidget):
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 buf.draw(GL.GL_TRIANGLES)
 
-        if not preview and self.selected in self.objects:
-            self._draw_selection_box(mvp)
+        if not preview:
+            for uid in self.selection:
+                if uid in self.objects:
+                    self._draw_selection_box(mvp, uid, primary=uid == self.selected)
         if self.measure_points:
             pts = np.array(self.measure_points, dtype=np.float32)
             if len(pts) == 1:
@@ -637,8 +650,8 @@ class Viewer(QOpenGLWidget):
             self._paths_buffer.draw(GL.GL_LINES)
         GL.glBindVertexArray(0)
 
-    def _draw_selection_box(self, mvp):
-        box = self._world_box(self.objects[self.selected])
+    def _draw_selection_box(self, mvp, uid, primary: bool = True):
+        box = self._world_box(self.objects[uid])
         pad = 0.6
         lo, hi = box[0] - pad, box[1] + pad
         c = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])], dtype=np.float32)
@@ -646,7 +659,7 @@ class Viewer(QOpenGLWidget):
         buf = _Buffer(np.array([c[i] for e in edges for i in e]), [3])
         GL.glUseProgram(self._line_prog)
         GL.glUniformMatrix4fv(self._u(self._line_prog, "uMVP"), 1, GL.GL_TRUE, mvp)
-        GL.glUniform4f(self._u(self._line_prog, "uColor"), 1.0, 0.64, 0.28, 0.9)
+        GL.glUniform4f(self._u(self._line_prog, "uColor"), 1.0, 0.64, 0.28, 0.9 if primary else 0.45)
         buf.draw(GL.GL_LINES)
         buf.delete()
 
@@ -829,21 +842,33 @@ class Viewer(QOpenGLWidget):
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.tool == "face":
             uid, normal = self.pick_face(e.position())
             if uid is not None:
-                self.objectClicked.emit(uid)
+                self.objectClicked.emit(uid, 0)
                 self.facePicked.emit(uid, normal)
                 self._picked = True
             return
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE:
             uid = self.pick(e.position())
+            mods = (SEL_TOGGLE if e.modifiers() & Qt.ControlModifier else 0) | (SEL_ADD if e.modifiers() & Qt.ShiftModifier else 0)
             if uid is not None and self.tool == "rotate":
-                self.objectClicked.emit(uid)   # select only; rotating happens on the rings
+                self.objectClicked.emit(uid, mods)   # select only; rotating happens on the rings
                 self._picked = True
                 return
             if uid is not None:
-                self.objectClicked.emit(uid)
+                if mods or uid not in self.selection:
+                    self.objectClicked.emit(uid, mods)
+                else:
+                    self._click_select = uid       # a plain click (no drag) inside a group selects it alone
+                if mods and uid not in self.selection:
+                    return                         # Ctrl/Shift-click removed it from the selection: nothing to drag
                 start = self._bed_point(e.position())
                 if start is not None:
                     self._drag = (uid, start)
+            elif mods:
+                from PySide6.QtWidgets import QRubberBand
+                band = QRubberBand(QRubberBand.Rectangle, self)
+                band.setGeometry(int(e.position().x()), int(e.position().y()), 1, 1)
+                band.show()
+                self._band = (e.position(), band)
 
     def mouseMoveEvent(self, e):
         pos = e.position()
@@ -868,6 +893,11 @@ class Viewer(QOpenGLWidget):
                 self.setCursor(Qt.OpenHandCursor if axis is not None else Qt.ArrowCursor)
                 self.update()
             return
+        if self._band is not None:
+            from PySide6.QtCore import QRect
+            origin = self._band[0]
+            self._band[1].setGeometry(QRect(origin.toPoint(), pos.toPoint()).normalized())
+            return
         if self._drag is not None and e.buttons() & Qt.LeftButton:
             uid, start = self._drag
             p = self._bed_point(pos)
@@ -886,8 +916,36 @@ class Viewer(QOpenGLWidget):
             self.camera.target -= right * dx * scale - up * dy * scale
             self.update()
 
+    def objects_in_rect(self, rect) -> list:
+        """uids whose bounding-box centre projects inside the widget rectangle ``rect``."""
+        mvp = self.camera.projection(self.width() / max(1, self.height())) @ self.camera.view()
+        out = []
+        for uid, obj in self.objects.items():
+            box = self._world_box(obj)
+            c = mvp @ np.append((box[0] + box[1]) / 2, 1.0)
+            if c[3] <= 0:
+                continue
+            x = (c[0] / c[3] * 0.5 + 0.5) * self.width()
+            y = (0.5 - c[1] / c[3] * 0.5) * self.height()
+            if rect.contains(int(x), int(y)):
+                out.append(uid)
+        return out
+
     def mouseReleaseEvent(self, e):
         moved = (e.position() - self._press_pos).manhattanLength() > 3
+        click_select, self._click_select = self._click_select, None
+        if self._band is not None:
+            band = self._band[1]
+            rect = band.geometry()
+            band.hide()
+            band.deleteLater()
+            self._band = None
+            self.boxSelected.emit(self.objects_in_rect(rect), True)
+            return
+        if e.button() == Qt.RightButton and not moved:
+            uid = self.pick(e.position()) if self.mode == self.MODE_PREPARE else None
+            self.contextRequested.emit(uid, e.globalPosition().toPoint())
+            return
         if self._rot is not None:
             uid = self._rot[0]
             self._rot = None
@@ -904,10 +962,12 @@ class Viewer(QOpenGLWidget):
         if self._drag is not None:
             if moved:
                 self.objectDragFinished.emit(self._drag[0])
+            elif click_select is not None:
+                self.objectClicked.emit(click_select, 0)
             self._drag = None
             return
         if e.button() == Qt.LeftButton and not moved and self.mode == self.MODE_PREPARE and not self.pick_mode:
-            self.objectClicked.emit(None)
+            self.objectClicked.emit(None, 0)
 
     def wheelEvent(self, e):
         steps = e.angleDelta().y() / 120.0

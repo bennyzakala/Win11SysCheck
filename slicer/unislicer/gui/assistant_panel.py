@@ -47,7 +47,7 @@ class AssistantPanel(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("Card")
-        self.setStyleSheet("QFrame#Card { background: rgba(27,31,39,0.97); }")
+        self.setStyleSheet(f"QFrame#Card {{ background: {theme.overlay(0.97)}; }}")
         self.setFixedWidth(380)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(14, 12, 14, 12)

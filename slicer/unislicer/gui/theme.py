@@ -9,28 +9,63 @@ from PySide6.QtCore import QByteArray, QRectF, QStandardPaths, Qt
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPalette, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
-BG = "#14171d"
-SURFACE = "#1b1f27"
-SURFACE_2 = "#222732"
-SURFACE_3 = "#2a303d"
-BORDER = "#323949"
-TEXT = "#e8ebf2"
-TEXT_DIM = "#9aa3b5"
-TEXT_FAINT = "#6b7385"
-ACCENT = "#4f8cff"
-ACCENT_HOVER = "#6a9fff"
-ACCENT_PRESSED = "#3a74e0"
-SUCCESS = "#2ecc8f"
-WARNING = "#f5b544"
-DANGER = "#ff5d6c"
+# Each theme sets the module colours below; set_theme() must run before any widget is built.
+THEMES = {
+    "dark": dict(
+        BG="#14171d", SURFACE="#1b1f27", SURFACE_2="#222732", SURFACE_3="#2a303d", BORDER="#323949",
+        BORDER_HOVER="#3f4759", TEXT="#e8ebf2", TEXT_DIM="#9aa3b5", TEXT_FAINT="#6b7385",
+        ACCENT="#4f8cff", ACCENT_HOVER="#6a9fff", ACCENT_PRESSED="#3a74e0", ACCENT_SOFT="#263552",
+        ACCENT_DISABLED="#2c3d5e", ACCENT_DISABLED_TEXT="#8ea3c8", ON_ACCENT="#ffffff",
+        SUCCESS="#2ecc8f", WARNING="#f5b544", DANGER="#ff5d6c", OVERLAY=(27, 31, 39),
+        VIEW_BG_TOP=(0.125, 0.140, 0.172), VIEW_BG_BOTTOM=(0.070, 0.078, 0.098),
+        MODEL_COLOR=(0.36, 0.60, 1.00), MODEL_SELECTED=(1.00, 0.66, 0.32), MODEL_OUTSIDE=(1.00, 0.42, 0.45),
+        SUPPORT_COLOR=(0.66, 0.70, 0.78), BED_COLOR=(0.105, 0.118, 0.145), GRID_COLOR=(0.30, 0.34, 0.42),
+        LOGO_GRADIENT=("#6aa8ff", "#7b5cff"), DARK=True),
+    "light": dict(
+        BG="#eef1f6", SURFACE="#ffffff", SURFACE_2="#f3f5f9", SURFACE_3="#e3e7ef", BORDER="#d3d9e4",
+        BORDER_HOVER="#b9c2d3", TEXT="#1a2030", TEXT_DIM="#4f5a70", TEXT_FAINT="#7b859a",
+        ACCENT="#2f6fed", ACCENT_HOVER="#4a83f3", ACCENT_PRESSED="#2259c9", ACCENT_SOFT="#dce7fd",
+        ACCENT_DISABLED="#b8c9ee", ACCENT_DISABLED_TEXT="#f2f5fc", ON_ACCENT="#ffffff",
+        SUCCESS="#13a874", WARNING="#c98a12", DANGER="#e0404f", OVERLAY=(255, 255, 255),
+        VIEW_BG_TOP=(0.93, 0.95, 0.98), VIEW_BG_BOTTOM=(0.80, 0.84, 0.90),
+        MODEL_COLOR=(0.25, 0.50, 0.95), MODEL_SELECTED=(0.98, 0.55, 0.15), MODEL_OUTSIDE=(0.92, 0.25, 0.30),
+        SUPPORT_COLOR=(0.55, 0.60, 0.68), BED_COLOR=(0.86, 0.89, 0.93), GRID_COLOR=(0.68, 0.73, 0.81),
+        LOGO_GRADIENT=("#4a83f3", "#6a4cf0"), DARK=False),
+    # Prodentix: placeholder colours (a clinical teal on white) until the brand colours are supplied;
+    # the logo comes from the file chosen in the Theme menu.
+    "prodentix": dict(
+        BG="#eef5f6", SURFACE="#ffffff", SURFACE_2="#f2f8f9", SURFACE_3="#dfecee", BORDER="#cadfe2",
+        BORDER_HOVER="#a9c9ce", TEXT="#0f2a33", TEXT_DIM="#3f5d66", TEXT_FAINT="#73888f",
+        ACCENT="#0b8a96", ACCENT_HOVER="#13a2ae", ACCENT_PRESSED="#08707a", ACCENT_SOFT="#d3eef0",
+        ACCENT_DISABLED="#a8d5d9", ACCENT_DISABLED_TEXT="#f1fafb", ON_ACCENT="#ffffff",
+        SUCCESS="#1a9c6b", WARNING="#c48a16", DANGER="#d9434f", OVERLAY=(255, 255, 255),
+        VIEW_BG_TOP=(0.94, 0.97, 0.98), VIEW_BG_BOTTOM=(0.80, 0.88, 0.90),
+        MODEL_COLOR=(0.93, 0.91, 0.86), MODEL_SELECTED=(0.04, 0.60, 0.66), MODEL_OUTSIDE=(0.90, 0.28, 0.32),
+        SUPPORT_COLOR=(0.60, 0.70, 0.73), BED_COLOR=(0.85, 0.91, 0.92), GRID_COLOR=(0.62, 0.76, 0.79),
+        LOGO_GRADIENT=("#13a2ae", "#0b5f8a"), DARK=False, BRAND="PRODENTIX"),
+}
+THEME_NAMES = tuple(THEMES)
+CURRENT = "dark"
+BRAND = ""            # wordmark shown next to the logo by branded themes
+LOGO_FILE = ""        # optional image (PNG/SVG/JPG) replacing the built-in logo
 
-# viewport colours (RGB 0..1)
-VIEW_BG_TOP = (0.125, 0.140, 0.172)
-VIEW_BG_BOTTOM = (0.070, 0.078, 0.098)
-MODEL_COLOR = (0.36, 0.60, 1.00)
-MODEL_SELECTED = (1.00, 0.66, 0.32)
-MODEL_OUTSIDE = (1.00, 0.42, 0.45)
-SUPPORT_COLOR = (0.66, 0.70, 0.78)
+
+def set_theme(name: str, logo_file: str = "") -> None:
+    global CURRENT, BRAND, LOGO_FILE
+    CURRENT = name if name in THEMES else "dark"
+    values = THEMES[CURRENT]
+    BRAND = values.get("BRAND", "")
+    LOGO_FILE = logo_file if logo_file and os.path.isfile(logo_file) else ""
+    globals().update({k: v for k, v in values.items() if k != "BRAND"})
+
+
+def overlay(alpha: float) -> str:
+    """Background for cards floating over the 3D view."""
+    r, g, b = OVERLAY
+    return f"rgba({r},{g},{b},{alpha:.2f})"
+
+
+set_theme("dark")
 
 FEATURE_COLORS = {
     "outer_wall": "#ff8a4c",
@@ -50,7 +85,8 @@ def feature_rgb(kind: str) -> tuple[float, float, float]:
     return c.redF(), c.greenF(), c.blueF()
 
 
-STYLESHEET = f"""
+def stylesheet() -> str:
+    return f"""
 * {{ outline: none; }}
 QWidget {{ background: {BG}; color: {TEXT}; font-size: 13px; }}
 QToolTip {{ background: {SURFACE_3}; color: {TEXT}; border: 1px solid {BORDER}; padding: 6px 8px; border-radius: 6px; }}
@@ -70,19 +106,19 @@ QLabel#Warning {{ color: {WARNING}; }}
 QLabel#Error {{ color: {DANGER}; }}
 
 QPushButton {{ background: {SURFACE_2}; border: 1px solid {BORDER}; border-radius: 8px; padding: 7px 14px; color: {TEXT}; }}
-QPushButton:hover {{ background: {SURFACE_3}; border-color: #3f4759; }}
+QPushButton:hover {{ background: {SURFACE_3}; border-color: {BORDER_HOVER}; }}
 QPushButton:pressed {{ background: {BORDER}; }}
 QPushButton:disabled {{ color: {TEXT_FAINT}; background: {SURFACE}; border-color: {SURFACE_3}; }}
-QPushButton#Primary {{ background: {ACCENT}; border: none; color: white; font-weight: 700; font-size: 14px; padding: 11px 18px; border-radius: 10px; }}
+QPushButton#Primary {{ background: {ACCENT}; border: none; color: {ON_ACCENT}; font-weight: 700; font-size: 14px; padding: 11px 18px; border-radius: 10px; }}
 QPushButton#Primary:hover {{ background: {ACCENT_HOVER}; }}
 QPushButton#Primary:pressed {{ background: {ACCENT_PRESSED}; }}
-QPushButton#Primary:disabled {{ background: #2c3d5e; color: #8ea3c8; }}
+QPushButton#Primary:disabled {{ background: {ACCENT_DISABLED}; color: {ACCENT_DISABLED_TEXT}; }}
 QPushButton#Success {{ background: {SUCCESS}; border: none; color: #08251a; font-weight: 700; font-size: 14px; padding: 11px 18px; border-radius: 10px; }}
 QPushButton#Success:hover {{ background: #45dba2; }}
-QPushButton#Success:disabled {{ background: #1f4a3a; color: #6fa58f; }}
+QPushButton#Success:disabled {{ background: {SURFACE_3}; color: {TEXT_FAINT}; }}
 QToolButton {{ background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 6px; color: {TEXT}; }}
 QToolButton:hover {{ background: {SURFACE_3}; border-color: {BORDER}; }}
-QToolButton:pressed, QToolButton:checked {{ background: #263552; border-color: {ACCENT}; }}
+QToolButton:pressed, QToolButton:checked {{ background: {ACCENT_SOFT}; border-color: {ACCENT}; }}
 QToolButton#TextTool {{ padding: 6px 10px; }}
 QToolButton#Reset {{ padding: 2px; border-radius: 6px; }}
 QToolButton#SectionHeader {{ border: none; border-radius: 10px; padding: 10px 12px; font-weight: 600; font-size: 13px; text-align: left; }}
@@ -91,7 +127,7 @@ QToolButton#SectionHeader:checked {{ background: transparent; border: none; }}
 
 QFrame#Segmented {{ background: {SURFACE_2}; border: 1px solid {BORDER}; border-radius: 10px; }}
 QFrame#Segmented QPushButton {{ background: transparent; border: none; border-radius: 8px; padding: 7px 18px; color: {TEXT_DIM}; font-weight: 600; }}
-QFrame#Segmented QPushButton:checked {{ background: {ACCENT}; color: white; }}
+QFrame#Segmented QPushButton:checked {{ background: {ACCENT}; color: {ON_ACCENT}; }}
 QFrame#Segmented QPushButton:hover:!checked {{ color: {TEXT}; }}
 
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit {{
@@ -115,23 +151,23 @@ QCheckBox::indicator:disabled {{ image: url(@ASSETS@/toggle_disabled.svg); }}
 QListWidget {{ background: transparent; border: none; padding: 2px; }}
 QListWidget::item {{ padding: 8px 10px; border-radius: 8px; margin: 1px 0; }}
 QListWidget::item:hover {{ background: {SURFACE_2}; }}
-QListWidget::item:selected {{ background: #263552; color: {TEXT}; }}
+QListWidget::item:selected {{ background: {ACCENT_SOFT}; color: {TEXT}; }}
 
 QScrollArea {{ border: none; background: transparent; }}
 QScrollArea > QWidget > QWidget {{ background: transparent; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
 QScrollBar::handle:vertical {{ background: {SURFACE_3}; border-radius: 4px; min-height: 30px; }}
-QScrollBar::handle:vertical:hover {{ background: #3a4254; }}
+QScrollBar::handle:vertical:hover {{ background: {BORDER_HOVER}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
 QScrollBar:horizontal {{ height: 0; }}
 
 QSlider::groove:vertical {{ background: {SURFACE_3}; width: 6px; border-radius: 3px; }}
 QSlider::sub-page:vertical {{ background: {SURFACE_3}; border-radius: 3px; }}
 QSlider::add-page:vertical {{ background: {ACCENT}; border-radius: 3px; }}
-QSlider::handle:vertical {{ background: white; border: 3px solid {ACCENT}; height: 14px; width: 14px; margin: 0 -7px; border-radius: 10px; }}
+QSlider::handle:vertical {{ background: {SURFACE}; border: 3px solid {ACCENT}; height: 14px; width: 14px; margin: 0 -7px; border-radius: 10px; }}
 QSlider::groove:horizontal {{ background: {SURFACE_3}; height: 6px; border-radius: 3px; }}
 QSlider::sub-page:horizontal {{ background: {ACCENT}; border-radius: 3px; }}
-QSlider::handle:horizontal {{ background: white; border: 3px solid {ACCENT}; height: 14px; width: 14px; margin: -7px 0; border-radius: 10px; }}
+QSlider::handle:horizontal {{ background: {SURFACE}; border: 3px solid {ACCENT}; height: 14px; width: 14px; margin: -7px 0; border-radius: 10px; }}
 
 QProgressBar {{ background: {SURFACE_3}; border: none; border-radius: 4px; height: 8px; text-align: center; color: transparent; }}
 QProgressBar::chunk {{ background: {ACCENT}; border-radius: 4px; }}
@@ -139,7 +175,8 @@ QStatusBar {{ background: {SURFACE}; border-top: 1px solid {BORDER}; color: {TEX
 QStatusBar QLabel {{ color: {TEXT_DIM}; padding: 0 6px; }}
 QMenu {{ background: {SURFACE_2}; border: 1px solid {BORDER}; border-radius: 8px; padding: 6px; }}
 QMenu::item {{ padding: 7px 22px; border-radius: 6px; }}
-QMenu::item:selected {{ background: {ACCENT}; color: white; }}
+QMenu::item:selected {{ background: {ACCENT}; color: {ON_ACCENT}; }}
+QMenu::item:disabled {{ color: {TEXT_FAINT}; }}
 QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 8px; }}
 QMessageBox, QDialog {{ background: {SURFACE}; }}
 QSplitter::handle {{ background: {BORDER}; }}
@@ -152,8 +189,8 @@ def _asset_files() -> dict[str, str]:
               '<circle cx="{cx}" cy="10" r="7" fill="{knob}"/></svg>')
     return {
         "toggle_on.svg": toggle.format(bg=ACCENT, border=ACCENT, cx=26, knob="#ffffff"),
-        "toggle_off.svg": toggle.format(bg=SURFACE_3, border=BORDER, cx=10, knob="#8b93a6"),
-        "toggle_disabled.svg": toggle.format(bg=SURFACE, border=SURFACE_3, cx=10, knob="#4a5163"),
+        "toggle_off.svg": toggle.format(bg=SURFACE_3, border=BORDER, cx=10, knob=TEXT_FAINT),
+        "toggle_disabled.svg": toggle.format(bg=SURFACE, border=SURFACE_3, cx=10, knob=BORDER),
         "chevron.svg": ('<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" '
                         f'stroke="{TEXT_DIM}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">'
                         '<path d="m6 9 6 6 6-6"/></svg>'),
@@ -171,6 +208,7 @@ def _write_assets() -> str | None:
         try:
             os.makedirs(folder, exist_ok=True)
             for name, content in _asset_files().items():
+                name = f"{CURRENT}_{name}"     # one set per theme: switching themes never reuses stale colours
                 with open(os.path.join(folder, name), "w", encoding="utf-8") as fh:
                     fh.write(content)
             return folder.replace(os.sep, "/")
@@ -184,7 +222,7 @@ def apply(app) -> None:
     pal = QPalette()
     for role, color in [(QPalette.Window, BG), (QPalette.WindowText, TEXT), (QPalette.Base, SURFACE_2),
                         (QPalette.AlternateBase, SURFACE), (QPalette.Text, TEXT), (QPalette.Button, SURFACE_2),
-                        (QPalette.ButtonText, TEXT), (QPalette.Highlight, ACCENT), (QPalette.HighlightedText, "#ffffff"),
+                        (QPalette.ButtonText, TEXT), (QPalette.Highlight, ACCENT), (QPalette.HighlightedText, ON_ACCENT),
                         (QPalette.ToolTipBase, SURFACE_3), (QPalette.ToolTipText, TEXT),
                         (QPalette.PlaceholderText, TEXT_FAINT)]:
         pal.setColor(role, QColor(color))
@@ -197,10 +235,11 @@ def apply(app) -> None:
             app.setFont(font)
             break
     assets = _write_assets()
+    sheet = stylesheet()
     if assets:
-        sheet = STYLESHEET.replace("@ASSETS@", assets)
+        sheet = sheet.replace("@ASSETS@/", f"{assets}/{CURRENT}_")
     else:  # plain checkboxes and combo arrows rather than failing to start
-        sheet = "\n".join(line for line in STYLESHEET.splitlines() if "@ASSETS@" not in line)
+        sheet = "\n".join(line for line in sheet.splitlines() if "@ASSETS@" not in line)
     app.setStyleSheet(sheet)
 
 
@@ -258,7 +297,8 @@ _ICONS = {
 }
 
 
-def icon(name: str, color: str = TEXT, size: int = 20) -> QIcon:
+def icon(name: str, color: str | None = None, size: int = 20) -> QIcon:
+    color = color or TEXT        # resolved per call: the theme may have changed since import
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="{color}" '
            f'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{_ICONS[name]}</svg>')
     renderer = QSvgRenderer(QByteArray(svg.encode()))
@@ -275,11 +315,21 @@ def icon(name: str, color: str = TEXT, size: int = 20) -> QIcon:
     return result
 
 
-def logo_pixmap(size: int = 30) -> QPixmap:
-    """Stacked-layers logo with a gradient."""
-    svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+def logo_pixmap(size: int = 30, height: int | None = None) -> QPixmap:
+    """The chosen logo file (scaled to ``height``, keeping its shape) or the built-in stacked-layers logo."""
+    if LOGO_FILE:
+        pm = QPixmap(LOGO_FILE)
+        if not pm.isNull():
+            h = (height or size) * 2
+            pm = pm.scaledToHeight(h, Qt.SmoothTransformation)
+            if pm.width() > h * 6:
+                pm = pm.scaledToWidth(h * 6, Qt.SmoothTransformation)
+            pm.setDevicePixelRatio(2)
+            return pm
+    c0, c1 = LOGO_GRADIENT
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
       <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" stop-color="#6aa8ff"/><stop offset="1" stop-color="#7b5cff"/></linearGradient></defs>
+        <stop offset="0" stop-color="{c0}"/><stop offset="1" stop-color="{c1}"/></linearGradient></defs>
       <rect width="32" height="32" rx="8" fill="url(#g)"/>
       <g fill="none" stroke="white" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
         <path d="M16 7 25 11.5 16 16 7 11.5z" fill="white" fill-opacity="0.95"/>

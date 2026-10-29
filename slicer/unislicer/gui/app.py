@@ -45,10 +45,11 @@ def run(paths: list[str] | None = None) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("UniSlicer")
     app.setOrganizationName(SETTINGS_ORG)
+    store = QSettings(SETTINGS_ORG, SETTINGS_ORG)
+    theme.set_theme(str(store.value("theme", "dark")), str(store.value("logo_file", "")))
     theme.apply(app)
     app.setWindowIcon(theme.icon("layers", theme.ACCENT, 64))
     _trace(f"QApplication ready, platform={app.platformName()}")
-    store = QSettings(SETTINGS_ORG, SETTINGS_ORG)
 
     state = {"window": None, "software_gl": False}
     can_fall_back = sys.platform == "win32" and not os.environ.get("UNISLICER_SOFTWARE_GL")
@@ -65,11 +66,22 @@ def run(paths: list[str] | None = None) -> int:
         _trace("creating main window")
         win = MainWindow(objects)
         win.languageSwitchRequested.connect(lambda: switch_language(win))
+        win.themeChangeRequested.connect(lambda name, logo: switch_theme(win, name, logo))
         win.viewer.glFailed.connect(on_gl_failed)
         state["window"] = win
         win.show()
         _trace("main window shown")
         return win
+
+    def switch_theme(win, name, logo):
+        # every widget reads the theme colours when it is built, so rebuild the window (models are kept)
+        store.setValue("theme", name)
+        store.setValue("logo_file", logo)
+        theme.set_theme(name, logo)
+        theme.apply(app)
+        objects = win.objects
+        win.close()
+        open_window(objects)
 
     def switch_language(win):
         store.setValue("language", "en" if i18n.LANG == "he" else "he")

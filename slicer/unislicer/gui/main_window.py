@@ -5,10 +5,10 @@ import json
 import os
 
 import numpy as np
-from PySide6.QtCore import QSettings, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QItemSelectionModel, QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDoubleSpinBox, QFileDialog, QInputDialog, QFrame, QGridLayout, QHBoxLayout,
-                               QLabel, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressBar,
+                               QLabel, QListWidget, QListWidgetItem, QScrollArea, QMainWindow, QMenu, QMessageBox, QProgressBar,
                                QPushButton, QSlider, QToolButton, QVBoxLayout, QWidget)
 
 from .. import __version__, fdm, gcode, orient, primitives, profiles, project, sla, sla_supports
@@ -88,6 +88,7 @@ class StatTile(QFrame):
 
 class MainWindow(QMainWindow):
     languageSwitchRequested = Signal()
+    themeChangeRequested = Signal(str, str)     # theme name, logo file
 
     def __init__(self, objects: list[SceneObject] | None = None):
         super().__init__()
@@ -157,11 +158,11 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(16, 0, 16, 0)
         lay.setSpacing(6)
         logo = QLabel()
-        logo.setPixmap(theme.logo_pixmap(32))
+        logo.setPixmap(theme.logo_pixmap(32, 36))
         lay.addWidget(logo)
         names = QVBoxLayout()
         names.setSpacing(0)
-        t = QLabel("UniSlicer")
+        t = QLabel(f"{theme.BRAND} · UniSlicer" if theme.BRAND and not theme.LOGO_FILE else "UniSlicer")
         t.setObjectName("AppTitle")
         s = QLabel(tr("app_subtitle"))
         s.setObjectName("AppSubtitle")
@@ -235,8 +236,26 @@ class MainWindow(QMainWindow):
         lay.addWidget(seg)
         lay.addStretch(1)
         self.assistant_btn = tool("bulb", tr("assistant"), tr("assistant_tip"), self._toggle_assistant)
+        look = tool("sun", tr("theme"), tr("theme_tip"), None)
+        tm = QMenu(self)
+        for name in theme.THEME_NAMES:
+            a = tm.addAction(tr(f"theme_{name}"), lambda n=name: self.themeChangeRequested.emit(n, theme.LOGO_FILE))
+            a.setCheckable(True)
+            a.setChecked(name == theme.CURRENT)
+        tm.addSeparator()
+        tm.addAction(theme.icon("open"), tr("theme_logo"), self._choose_logo)
+        if theme.LOGO_FILE:
+            tm.addAction(theme.icon("x"), tr("theme_logo_clear"), lambda: self.themeChangeRequested.emit(theme.CURRENT, ""))
+        look.setMenu(tm)
+        look.setPopupMode(QToolButton.InstantPopup)
         tool("globe", tr("language"), tr("language_tip"), self.languageSwitchRequested.emit)
         return bar
+
+    def _choose_logo(self):
+        path, _ = QFileDialog.getOpenFileName(self, tr("theme_logo"), os.path.expanduser("~"),
+                                              "Images (*.png *.svg *.jpg *.jpeg *.webp *.bmp)")
+        if path:
+            self.themeChangeRequested.emit(theme.CURRENT, path)
 
     def _build_left_panel(self):
         panel = QFrame()
@@ -251,8 +270,11 @@ class MainWindow(QMainWindow):
         ol.setContentsMargins(12, 12, 12, 10)
         ol.addWidget(_title(tr("objects")))
         self.object_list = QListWidget()
-        self.object_list.setMinimumHeight(120)
+        self.object_list.setMinimumHeight(110)
+        self.object_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.object_list.setToolTip(tr("multi_select_tip"))
         self.object_list.currentItemChanged.connect(self._on_list_selection)
+        self.object_list.itemSelectionChanged.connect(self._on_list_multi)
         ol.addWidget(self.object_list, 1)
         self.object_info = QLabel("")
         self.object_info.setObjectName("Faint")
@@ -377,7 +399,15 @@ class MainWindow(QMainWindow):
             self.rot[i].valueChanged.connect(lambda v, i=i: self._edit("rot", v, i))
             self.scale[i].valueChanged.connect(lambda v, i=i: self._edit("scale", v, i))
             self.size_spins[i].valueChanged.connect(lambda v, i=i: self._edit("size", v, i))
-        return panel
+        # short screens: scroll instead of squashing the buttons
+        scroll = QScrollArea()
+        scroll.setObjectName("SideBar")
+        scroll.setWidget(panel)
+        scroll.setWidgetResizable(True)
+        scroll.setFixedWidth(330)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        panel.setFixedWidth(320)
+        return scroll
 
     def _build_viewport(self):
         holder = QWidget()
@@ -385,6 +415,8 @@ class MainWindow(QMainWindow):
         grid.setContentsMargins(0, 0, 0, 0)
         self.viewer = Viewer()
         self.viewer.objectClicked.connect(self._select_uid)
+        self.viewer.boxSelected.connect(self._on_box_select)
+        self.viewer.contextRequested.connect(self._show_context_menu)
         self.viewer.objectDragged.connect(self._on_drag)
         self.viewer.objectDragFinished.connect(self._on_drag_finished)
         self.viewer.surfacePicked.connect(self._on_support_add)
@@ -401,7 +433,7 @@ class MainWindow(QMainWindow):
 
         # floating view tools
         tools = _card()
-        tools.setStyleSheet("QFrame#Card { background: rgba(27,31,39,0.92); }")
+        tools.setStyleSheet(f"QFrame#Card {{ background: {theme.overlay(0.92)}; }}")
         tl = QHBoxLayout(tools)
         tl.setContentsMargins(6, 6, 6, 6)
         tl.setSpacing(2)
@@ -439,7 +471,7 @@ class MainWindow(QMainWindow):
 
         # manual placement tools
         palette = _card()
-        palette.setStyleSheet("QFrame#Card { background: rgba(27,31,39,0.92); }")
+        palette.setStyleSheet(f"QFrame#Card {{ background: {theme.overlay(0.92)}; }}")
         pl = QVBoxLayout(palette)
         pl.setContentsMargins(6, 6, 6, 6)
         pl.setSpacing(2)
@@ -478,7 +510,7 @@ class MainWindow(QMainWindow):
 
         # layer slider
         self.layer_box = _card()
-        self.layer_box.setStyleSheet("QFrame#Card { background: rgba(27,31,39,0.92); }")
+        self.layer_box.setStyleSheet(f"QFrame#Card {{ background: {theme.overlay(0.92)}; }}")
         lb = QVBoxLayout(self.layer_box)
         lb.setContentsMargins(10, 12, 10, 12)
         lb.setSpacing(8)
@@ -511,7 +543,7 @@ class MainWindow(QMainWindow):
 
         # legend
         self.legend = _card()
-        self.legend.setStyleSheet("QFrame#Card { background: rgba(27,31,39,0.92); }")
+        self.legend.setStyleSheet(f"QFrame#Card {{ background: {theme.overlay(0.92)}; }}")
         lg = QVBoxLayout(self.legend)
         lg.setContentsMargins(12, 10, 12, 10)
         lg.setSpacing(4)
@@ -523,7 +555,7 @@ class MainWindow(QMainWindow):
             sw.setStyleSheet(f"background: {theme.FEATURE_COLORS[kind]}; border-radius: 3px;")
             cb = QCheckBox(tr(f"feat_{kind}"))
             cb.setChecked(kind != "travel")
-            cb.setStyleSheet("QCheckBox::indicator { width: 0; height: 0; border: none; } QCheckBox:!checked { color: #5b6273; }")
+            cb.setStyleSheet("QCheckBox::indicator { width: 0; height: 0; border: none; } QCheckBox:!checked { color: " + theme.TEXT_FAINT + "; }")
             cb.setCursor(Qt.PointingHandCursor)
             cb.toggled.connect(lambda v, i=i, sw=sw, kind=kind: (self.viewer.set_feature_visible(i, v), sw.setStyleSheet(
                 f"background: {theme.FEATURE_COLORS[kind] if v else theme.SURFACE_3}; border-radius: 3px;")))
@@ -540,7 +572,7 @@ class MainWindow(QMainWindow):
 
         # resin layer mask
         self.mask_card = _card()
-        self.mask_card.setStyleSheet("QFrame#Card { background: rgba(27,31,39,0.95); }")
+        self.mask_card.setStyleSheet(f"QFrame#Card {{ background: {theme.overlay(0.95)}; }}")
         ml = QVBoxLayout(self.mask_card)
         ml.setContentsMargins(10, 10, 10, 10)
         ml.addWidget(_title(tr("sla_layer_image")))
@@ -654,6 +686,7 @@ class MainWindow(QMainWindow):
         for seq, fn in ((QKeySequence.Open, via_key("open", self.open_files)), (QKeySequence.Delete, self.delete_selected),
                         (QKeySequence("A"), via_key("arrange", self.arrange_objects)),
                         (QKeySequence("Ctrl+D"), via_key("duplicate", self.duplicate_selected)),
+                        (QKeySequence.SelectAll, self.select_all),
                         (QKeySequence("Ctrl+R"), via_key("slice", self.slice_or_cancel)),
                         (QKeySequence("Ctrl+E"), via_key("export", self.export)),
                         (QKeySequence("Up"), lambda: self._step_layer(1)), (QKeySequence("Down"), lambda: self._step_layer(-1)),
@@ -685,6 +718,25 @@ class MainWindow(QMainWindow):
             return None
         uid = item.data(Qt.UserRole)
         return next((o for o in self.objects if o.uid == uid), None)
+
+    def selected_objects(self) -> list[SceneObject]:
+        """Every selected object (Ctrl/Shift-click, box select, Ctrl+A); the current one first."""
+        uids = [it.data(Qt.UserRole) for it in self.object_list.selectedItems()]
+        cur = self.selected()
+        if cur is not None and cur.uid not in uids:
+            uids.insert(0, cur.uid)
+        elif cur is not None:
+            uids.remove(cur.uid)
+            uids.insert(0, cur.uid)
+        by_uid = {o.uid: o for o in self.objects}
+        return [by_uid[u] for u in uids if u in by_uid]
+
+    def select_all(self):
+        if self.objects:
+            self._syncing = True
+            self.object_list.selectAll()
+            self._syncing = False
+            self._on_list_multi()
 
     def open_files(self):
         last = self.store.value("last_dir", os.path.expanduser("~"))
@@ -720,21 +772,22 @@ class MainWindow(QMainWindow):
         return obj
 
     def duplicate_selected(self):
-        obj = self.selected()
-        if obj:
+        group = self.selected_objects()
+        if group:
             self._push_undo()
-            dup = obj.duplicate()
-            self.objects.append(dup)
+            dups = [o.duplicate() for o in group]
+            self.objects += dups
             cfg = self.settings.config()
             arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=plate_rect(cfg))
-            self._refresh_objects(select=dup.uid)
+            self._refresh_objects(select=[d.uid for d in dups])
 
     def delete_selected(self):
-        obj = self.selected()
-        if obj:
+        group = self.selected_objects()
+        if group:
             self._push_undo()
-            self.objects.remove(obj)
-            self.viewer.remove_object(obj.uid)
+            for obj in group:
+                self.objects.remove(obj)
+                self.viewer.remove_object(obj.uid)
             self._refresh_objects(select=self.objects[-1].uid if self.objects else None)
 
     def arrange_objects(self):
@@ -744,30 +797,36 @@ class MainWindow(QMainWindow):
         self._objects_changed()
 
     def lay_flat(self):
-        obj = self.selected()
-        if obj:
+        group = self.selected_objects()
+        if group:
             self._push_undo()
-            obj.lay_flat()
-            self._drop_supports(obj)
+            for obj in group:
+                obj.lay_flat()
+                self._drop_supports(obj)
             self._objects_changed()
 
     def center_selected(self):
-        obj = self.selected()
-        if obj:
+        """Move the selection (as one group) to the middle of the plate."""
+        group = self.selected_objects()
+        if group:
             self._push_undo()
-            cfg = self.settings.config()
-            obj.x, obj.y = self._plate_center(cfg)
+            cx, cy = self._plate_center(self.settings.config())
+            gx, gy = np.mean([o.x for o in group]), np.mean([o.y for o in group])
+            for obj in group:
+                obj.x += cx - gx
+                obj.y += cy - gy
             self._objects_changed()
 
     def reset_transform(self):
-        obj = self.selected()
-        if obj:
+        group = self.selected_objects()
+        if group:
             self._push_undo()
-            obj.rotation[:] = 0
-            obj.scale[:] = 1
-            obj.mirror[:] = 1
-            obj.base_rotation = np.eye(3)
-            self._drop_supports(obj)
+            for obj in group:
+                obj.rotation[:] = 0
+                obj.scale[:] = 1
+                obj.mirror[:] = 1
+                obj.base_rotation = np.eye(3)
+                self._drop_supports(obj)
             self._objects_changed()
 
     def auto_orient_selected(self):
@@ -795,7 +854,7 @@ class MainWindow(QMainWindow):
         if not self.objects:
             self.status.setText(tr("no_models"))
             return
-        self.object_list.setCurrentItem(None)
+        self._select_uid(None)
         self.auto_orient_selected()
         cfg = self.settings.config()
         if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=plate_rect(cfg)):
@@ -833,36 +892,49 @@ class MainWindow(QMainWindow):
         r[i, i], r[i, j], r[j, i], r[j, j] = c, -s, s, c
         return r
 
+    def _rotate_group(self, group, axis: int, degrees: float):
+        """Turn each object about its own centre; around Z the group also turns as a whole."""
+        rot = self._axis_rotation(axis, degrees)
+        if axis == 2 and len(group) > 1:
+            gx, gy = np.mean([o.x for o in group]), np.mean([o.y for o in group])
+            for o in group:
+                o.x, o.y = (rot[:2, :2] @ [o.x - gx, o.y - gy]) + [gx, gy]
+        for o in group:
+            o.apply_world_rotation(rot)
+
     def rotate_selected(self, axis: int, degrees: float):
-        obj = self.selected()
-        if not obj:
+        group = self.selected_objects()
+        if not group:
             self.status.setText(tr("select_first"))
             return
         self._push_undo()
-        obj.apply_world_rotation(self._axis_rotation(axis, degrees))
-        self._drop_supports(obj)
+        self._rotate_group(group, axis, degrees)
+        for obj in group:
+            self._drop_supports(obj)
         self._objects_changed()
 
     def _on_rotate_start(self, uid):
-        obj = next((o for o in self.objects if o.uid == uid), None)
-        if obj:
+        group = self.selected_objects()
+        if any(o.uid == uid for o in group):
             self._push_undo()
-            self._rot_start = obj.state()
+            self._rot_start = [(o, o.state()) for o in group]
 
     def _on_rotate_drag(self, uid, axis, degrees):
-        obj = next((o for o in self.objects if o.uid == uid), None)
-        if obj is None or getattr(self, "_rot_start", None) is None:
+        if not getattr(self, "_rot_start", None):
             return
-        obj.restore(self._rot_start)
-        obj.apply_world_rotation(self._axis_rotation(axis, degrees))
-        self.viewer.set_object_transform(uid, self._display_matrix(obj))
+        group = [o for o, _ in self._rot_start]
+        for o, st in self._rot_start:
+            o.restore(st)
+        self._rotate_group(group, axis, degrees)
+        for o in group:
+            self.viewer.set_object_transform(o.uid, self._display_matrix(o))
         self.status.setText(f"{'XYZ'[axis]}: {degrees:+.0f}°   ·   {tr('rotate_snap_hint')}")
 
     def _on_rotate_end(self, uid):
-        obj = next((o for o in self.objects if o.uid == uid), None)
-        self._rot_start = None
-        if obj:
-            self._drop_supports(obj)
+        start, self._rot_start = getattr(self, "_rot_start", None), None
+        if start:
+            for o, _ in start:
+                self._drop_supports(o)
             self._objects_changed()
 
     def _on_face_picked(self, uid, normal):
@@ -911,12 +983,13 @@ class MainWindow(QMainWindow):
     def _toggle_cutter(self, on):
         if self._syncing:
             return
-        obj = self.selected()
-        if obj:
+        group = self.selected_objects()
+        if group:
             self._push_undo()
-            obj.role = "cutter" if on else "model"
-            obj.support_points = None
-            self._refresh_objects(select=obj.uid)
+            for obj in group:
+                obj.role = "cutter" if on else "model"
+                obj.support_points = None
+            self._refresh_objects(select=[o.uid for o in group])
 
     def add_text(self):
         from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLineEdit
@@ -1026,26 +1099,27 @@ class MainWindow(QMainWindow):
         self._select_uid(uid)
 
     def mirror_selected(self, axis: int):
-        obj = self.selected()
-        if obj:
+        group = self.selected_objects()
+        if group:
             self._push_undo()
-            obj.mirror[axis] *= -1
-            self._drop_supports(obj)
+            for obj in group:
+                obj.mirror[axis] *= -1
+                self._drop_supports(obj)
             self._objects_changed()
 
     def multiply_selected(self):
-        obj = self.selected()
-        if not obj:
+        group = self.selected_objects()
+        if not group:
             return
         count, ok = QInputDialog.getInt(self, tr("multiply"), tr("multiply_count"), 4, 1, 200)
         if not ok:
             return
         self._push_undo()
-        self.objects += [obj.duplicate() for _ in range(count)]
+        self.objects += [obj.duplicate() for obj in group for _ in range(count)]
         cfg = self.settings.config()
         if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=plate_rect(cfg)):
             self.status.setText(tr("arrange_full"))
-        self._refresh_objects(select=obj.uid)
+        self._refresh_objects(select=[o.uid for o in group])
 
     # ---------------------------------------------------------------- undo
     def _snapshot(self):
@@ -1057,11 +1131,13 @@ class MainWindow(QMainWindow):
         self._redo.clear()
 
     def _restore(self, snap):
-        sel = self.selected()
+        sel = [o.uid for o in self.selected_objects()]
         self.objects = [o for o, _ in snap]
         for o, st in snap:
             o.restore(st)
-        self._refresh_objects(select=sel.uid if sel in self.objects else (self.objects[0].uid if self.objects else None))
+        uids = {o.uid for o in self.objects}
+        keep = [u for u in sel if u in uids]
+        self._refresh_objects(select=keep or (self.objects[0].uid if self.objects else None))
 
     def undo(self):
         if self._undo:
@@ -1074,15 +1150,22 @@ class MainWindow(QMainWindow):
             self._restore(self._redo.pop())
 
     def _refresh_objects(self, select=None):
+        """Rebuild the object list; ``select`` is a uid or a list of uids (the first becomes current)."""
+        chosen = list(select) if isinstance(select, (list, tuple, set)) else ([select] if select is not None else [])
         self._syncing = True
         self.object_list.clear()
+        items = {}
         for o in self.objects:
             label = (o.name or "object") + ("  ✂" if o.role == "cutter" else "")
             it = QListWidgetItem(theme.icon("cube", theme.DANGER if o.role == "cutter" else theme.TEXT_DIM, 16), label)
             it.setData(Qt.UserRole, o.uid)
             self.object_list.addItem(it)
-            if o.uid == select:
-                self.object_list.setCurrentItem(it)
+            items[o.uid] = it
+        if chosen and chosen[0] in items:
+            self.object_list.setCurrentItem(items[chosen[0]])
+        for uid in chosen:
+            if uid in items:
+                items[uid].setSelected(True)
         self._syncing = False
         self._objects_changed(refresh_list=False)
         self._sync_transform()
@@ -1101,7 +1184,7 @@ class MainWindow(QMainWindow):
             self.viewer.set_object_holes(o.uid, self._hole_preview(o, cfg))
         sel = self.selected()
         self._update_support_info()
-        self.viewer.set_selected(sel.uid if sel else None)
+        self.viewer.set_selected(sel.uid if sel else None, [o.uid for o in self.selected_objects()])
         self.empty_hint.setVisible(not self.objects or getattr(self, "_gl_failed", False))
         self.transform_card.setEnabled(sel is not None)
         self._sync_transform()
@@ -1123,10 +1206,13 @@ class MainWindow(QMainWindow):
                 self.rot[i].setValue(float(obj.rotation[i]))
                 self.scale[i].setValue(float(obj.scale[i] * 100))
                 self.size_spins[i].setValue(float(size[i]))
+            group = self.selected_objects()
             watertight = obj.mesh.is_watertight()   # cached after the first call
             info = f"{len(obj.mesh.faces):,} {tr('triangles')} · {tr('volume')} {obj.volume / 1000:.2f} cm³"
             if not watertight:
                 info += f"\n⚠ {tr('not_watertight')}"
+            if len(group) > 1:
+                info = tr("group_selected").format(len(group), sum(o.volume for o in group) / 1000) + "\n" + info
             self.object_info.setText(info)
         else:
             self.object_info.setText("")
@@ -1138,17 +1224,18 @@ class MainWindow(QMainWindow):
         obj = self.selected()
         if not obj:
             return
+        group = self.selected_objects()     # edits apply to the whole selection
         self._push_undo()
         if what in ("rot", "scale", "size"):
-            self._drop_supports(obj)
-        if what == "x":
-            obj.x = value
-        elif what == "y":
-            obj.y = value
-        elif what == "z":
-            obj.z = value
+            for o in group:
+                self._drop_supports(o)
+        if what in ("x", "y", "z"):
+            delta = value - getattr(obj, what)   # positions move the group together
+            for o in group:
+                setattr(o, what, max(0.0, o.z + delta) if what == "z" else getattr(o, what) + delta)
         elif what == "rot":
-            obj.rotation[axis] = value
+            for o in group:
+                o.rotation[axis] = value
         elif what in ("scale", "size"):
             if what == "size":
                 current = obj.world_size()[axis]
@@ -1157,42 +1244,167 @@ class MainWindow(QMainWindow):
                 factor = value / current
             else:
                 factor = (value / 100.0) / obj.scale[axis]
-            if self.uniform.isChecked():
-                obj.scale *= factor
-            else:
-                obj.scale[axis] *= factor
+            for o in group:
+                if self.uniform.isChecked():
+                    o.scale *= factor
+                else:
+                    o.scale[axis] *= factor
         self._objects_changed(refresh_list=False)
 
     def _on_list_selection(self, current, _previous):
         if self._syncing:
             return
-        self.viewer.set_selected(current.data(Qt.UserRole) if current else None)
-        self.transform_card.setEnabled(current is not None)
+        self._on_list_multi()
+
+    def _on_list_multi(self):
+        if self._syncing:
+            return
+        sel = self.selected()
+        self.viewer.set_selected(sel.uid if sel else None, [o.uid for o in self.selected_objects()])
+        self.transform_card.setEnabled(sel is not None)
         self._sync_transform()
 
-    def _select_uid(self, uid):
-        if uid is None:
-            self.object_list.setCurrentItem(None)
-            self.object_list.clearSelection()
-            return
+    def _item(self, uid):
         for i in range(self.object_list.count()):
             it = self.object_list.item(i)
             if it.data(Qt.UserRole) == uid:
-                self.object_list.setCurrentItem(it)
-                break
+                return it
+        return None
+
+    def _select_uid(self, uid, flags: int = 0):
+        """Select from the viewport: plain click selects one, Ctrl toggles, Shift adds."""
+        from .viewer import SEL_ADD, SEL_TOGGLE
+        self._syncing = True
+        try:
+            if uid is None:
+                if not flags:
+                    self.object_list.setCurrentItem(None)
+                    self.object_list.clearSelection()
+                return
+            it = self._item(uid)
+            if it is None:
+                return
+            if flags & SEL_TOGGLE and it.isSelected():
+                it.setSelected(False)
+                rest = self.object_list.selectedItems()
+                self.object_list.setCurrentItem(rest[0] if rest else None, QItemSelectionModel.NoUpdate)
+            elif flags & (SEL_TOGGLE | SEL_ADD):
+                self.object_list.setCurrentItem(it, QItemSelectionModel.Select)
+            else:
+                self.object_list.setCurrentItem(it, QItemSelectionModel.ClearAndSelect)
+        finally:
+            self._syncing = False
+            self._on_list_multi()
+
+    def _show_context_menu(self, uid, pos):
+        """Right click in the viewport: orientation and editing for the model under the cursor (or the selection)."""
+        if uid is not None and uid not in {o.uid for o in self.selected_objects()}:
+            self._select_uid(uid)
+        group = self.selected_objects() if uid is not None else []
+        menu = QMenu(self)
+        if group:
+            title = menu.addAction(group[0].name if len(group) == 1 else tr("group_selected").format(
+                len(group), sum(o.volume for o in group) / 1000).split("·")[0].strip())
+            title.setEnabled(False)
+            orient_menu = menu.addMenu(theme.icon("rotate3d"), tr("ctx_orientation"))
+            for axis, name in enumerate("XYZ"):
+                for deg in (90, -90, 45, -45):
+                    orient_menu.addAction(f"{name} {deg:+d}°", lambda a=axis, d=deg: self.rotate_selected(a, d))
+                orient_menu.addSeparator()
+            orient_menu.addAction(theme.icon("rotate3d"), tr("ctx_rotate_exact"), self.rotate_exact_dialog)
+            orient_menu.addAction(theme.icon("rotate3d"), tr("ctx_rotate_tool"), lambda: self.set_tool("rotate"))
+            orient_menu.addAction(theme.icon("face"), tr("ctx_face_tool"), lambda: self.set_tool("face"))
+            orient_menu.addAction(theme.icon("compass"), tr("auto_orient"), self.auto_orient_selected)
+            orient_menu.addAction(theme.icon("flat"), tr("lay_flat"), self.lay_flat)
+            orient_menu.addAction(theme.icon("reset"), tr("reset_transform"), self.reset_transform)
+            mirror_menu = menu.addMenu(tr("mirror"))
+            for axis, name in enumerate("XYZ"):
+                mirror_menu.addAction(name, lambda a=axis: self.mirror_selected(a))
+            menu.addSeparator()
+            menu.addAction(theme.icon("copy"), tr("duplicate") + "\tCtrl+D", self.duplicate_selected)
+            menu.addAction(theme.icon("copy"), tr("multiply"), self.multiply_selected)
+            menu.addAction(theme.icon("center"), tr("center"), self.center_selected)
+            if self.viewer.technology == "sla":
+                menu.addSeparator()
+                menu.addAction(theme.icon("pillar"), tr("sup_auto"), self.generate_supports)
+                menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
+            menu.addSeparator()
+            menu.addAction(theme.icon("square"), tr("cut_height"), self.cut_selected)
+            menu.addAction(theme.icon("grid"), tr("split_parts"), self.split_selected)
+            menu.addAction(theme.icon("settings"), tr("repair_mesh"), self.repair_selected)
+            cutter = menu.addAction(tr("cutter_role"))
+            cutter.setCheckable(True)
+            cutter.setChecked(all(o.role == "cutter" for o in group))
+            cutter.toggled.connect(self._toggle_cutter)
+            menu.addSeparator()
+            menu.addAction(theme.icon("trash", theme.DANGER), tr("delete") + "\tDel", self.delete_selected)
+        menu.addAction(tr("select_all") + "\tCtrl+A", self.select_all)
+        menu.addAction(theme.icon("arrange"), tr("arrange") + "\tA", self.arrange_objects)
+        menu.addAction(theme.icon("fit"), tr("view_fit"), self.viewer.fit_objects)
+        menu.exec(pos)
+
+    def rotate_exact_dialog(self):
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
+        if not self.selected_objects():
+            self.status.setText(tr("select_first"))
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("ctx_rotate_exact"))
+        form = QFormLayout(dlg)
+        spins = [_spin(-360, 360, 5, 1, "°", 110) for _ in range(3)]
+        for name, sp in zip("XYZ", spins):
+            form.addRow(name, sp)
+        note = QLabel(tr("rotate_exact_note"))
+        note.setObjectName("Faint")
+        note.setWordWrap(True)
+        form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        group = self.selected_objects()
+        self._push_undo()
+        for axis, sp in enumerate(spins):
+            if sp.value():
+                self._rotate_group(group, axis, sp.value())
+        for o in group:
+            self._drop_supports(o)
+        self._objects_changed()
+
+    def _on_box_select(self, uids, additive):
+        self._syncing = True
+        if not additive:
+            self.object_list.clearSelection()
+        for k, uid in enumerate(uids):
+            it = self._item(uid)
+            if it is not None:
+                if k == 0 and self.selected() is None:
+                    self.object_list.setCurrentItem(it, QItemSelectionModel.Select)
+                it.setSelected(True)
+        self._syncing = False
+        self._on_list_multi()
+        if uids:
+            self.status.setText(tr("group_selected").format(len(self.selected_objects()),
+                                                           sum(o.volume for o in self.selected_objects()) / 1000))
 
     def _on_drag(self, uid, dx, dy):
-        obj = next((o for o in self.objects if o.uid == uid), None)
-        if obj:
+        group = self.selected_objects()
+        if not any(o.uid == uid for o in group):
+            group = [o for o in self.objects if o.uid == uid]
+        if group:
             if not self._dragging:
                 self._push_undo()
                 self._dragging = True
-            obj.x += dx
-            obj.y += dy
-            self.viewer.set_object_transform(uid, self._display_matrix(obj))
+            for obj in group:
+                obj.x += dx
+                obj.y += dy
+                self.viewer.set_object_transform(obj.uid, self._display_matrix(obj))
+            lead = self.selected() or group[0]
             self._syncing = True
-            self.pos_x.setValue(obj.x)
-            self.pos_y.setValue(obj.y)
+            self.pos_x.setValue(lead.x)
+            self.pos_y.setValue(lead.y)
             self._syncing = False
 
     def _on_drag_finished(self, _uid):
@@ -1238,8 +1450,7 @@ class MainWindow(QMainWindow):
             self.status.setText(tr("supports_cleared"))
 
     def _support_targets(self) -> list[SceneObject]:
-        sel = self.selected()
-        return [sel] if sel else list(self.objects)
+        return self.selected_objects() or list(self.objects)
 
     def generate_supports(self):
         if not self.objects:

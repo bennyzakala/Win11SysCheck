@@ -49,7 +49,7 @@ class ProfileManager(QDialog):
         self.tree.currentItemChanged.connect(self._on_pick)
         self.tree.setStyleSheet(f"QTreeWidget {{ background: {theme.SURFACE}; border: 1px solid {theme.BORDER}; "
                                 f"border-radius: 10px; padding: 6px; }} QTreeWidget::item {{ padding: 5px 4px; }} "
-                                f"QTreeWidget::item:selected {{ background: #263552; color: {theme.TEXT}; border-radius: 6px; }}")
+                                f"QTreeWidget::item:selected {{ background: {theme.ACCENT_SOFT}; color: {theme.TEXT}; border-radius: 6px; }}")
         left.addWidget(self.tree, 1)
         row = QHBoxLayout()
         for text, icon_name, slot in ((tr("pm_new"), "plus", self._new), (tr("pm_duplicate"), "copy", self._duplicate),
