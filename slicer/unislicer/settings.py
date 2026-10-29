@@ -75,7 +75,8 @@ SCHEMA: list[Setting] = [
     S("mirror_x", "bool", False, "printer", "sla", "שיקוף אופקי", "Mirror X"),
     S("mirror_y", "bool", False, "printer", "sla", "שיקוף אנכי", "Mirror Y"),
     S("sla_format", "enum", "sl1", "printer", "sla", "פורמט קובץ פלט", "Output format",
-      options=(("ctb", "CTB (Chitubox v4)", "CTB (Chitubox v4)"), ("goo", "GOO (Elegoo)", "GOO (Elegoo)"), ("sl1", "SL1 (Prusa / UVtools)", "SL1 (Prusa / UVtools)"),
+      options=(("ctb", "CTB (Chitubox v4)", "CTB (Chitubox v4)"), ("goo", "GOO (Elegoo)", "GOO (Elegoo)"),
+               ("prz", "PRZ (Phrozen Sonic Mini 8K S)", "PRZ (Phrozen Sonic Mini 8K S)"), ("sl1", "SL1 (Prusa / UVtools)", "SL1 (Prusa / UVtools)"),
                ("png_zip", "ZIP של תמונות PNG", "ZIP of PNG images"))),
 
     # ---------------------------------------------------------------- quality
@@ -116,6 +117,14 @@ SCHEMA: list[Setting] = [
     S("filament_density", "float", 1.24, "material", "fdm", "צפיפות החומר", "Material density", "g/cm³", 0.5, 3.0, 0.01, advanced=True),
     S("filament_cost", "float", 80.0, "material", "fdm", "מחיר לק\"ג", "Cost per kg", "₪", 0, 2000, 1, advanced=True),
     S("min_layer_time", "float", 6.0, "material", "fdm", "זמן שכבה מינימלי", "Minimum layer time", "s", 0, 60, 1, advanced=True),
+    S("shrink_xy", "float", 0.0, "material", "sla", "פיצוי התכווצות XY", "Shrinkage compensation XY", "%", -5, 5, 0.05,
+      tip_he="מגדיל את המודל כדי לפצות על התכווצות השרף בייבוש ובהקשיה", tip_en="Scales the model up to offset resin shrinkage"),
+    S("shrink_z", "float", 0.0, "material", "sla", "פיצוי התכווצות Z", "Shrinkage compensation Z", "%", -5, 5, 0.05),
+    S("xy_compensation", "float", 0.0, "material", "sla", "פיצוי מידות XY", "XY size compensation", "mm", -1, 1, 0.01,
+      tip_he="חיובי מעבה את הדפנות, שלילי מדק אותן (מתקן חורים צרים מדי או חלקים עבים מדי)",
+      tip_en="Positive grows walls, negative shrinks them (fixes holes that print too small)"),
+    S("bottom_xy_compensation", "float", 0.0, "material", "sla", "פיצוי רגל פיל (שכבות תחתונות)", "Elephant-foot compensation", "mm", 0, 1, 0.01,
+      tip_he="מקטין את השכבות התחתונות, שנחשפות זמן רב ומתרחבות", tip_en="Shrinks the long-exposed bottom layers that tend to spread"),
     S("resin_density", "float", 1.1, "material", "sla", "צפיפות השרף", "Resin density", "g/ml", 0.8, 2.0, 0.01, advanced=True),
     S("resin_cost", "float", 150.0, "material", "sla", "מחיר לליטר", "Cost per liter", "₪", 0, 2000, 1, advanced=True),
 

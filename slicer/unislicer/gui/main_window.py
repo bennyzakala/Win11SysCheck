@@ -1261,7 +1261,7 @@ class MainWindow(QMainWindow):
             self.status.setText(tr("export_done").format(path))
         else:
             job, cfg = self.result[1], self.result[2]
-            ext = {"sl1": ".sl1", "ctb": ".ctb", "goo": ".goo"}.get(cfg["sla_format"], ".zip")
+            ext = {"sl1": ".sl1", "ctb": ".ctb", "goo": ".goo", "prz": ".prz"}.get(cfg["sla_format"], ".zip")
             path, _ = QFileDialog.getSaveFileName(self, tr("export_sla"), os.path.join(last, name + ext), f"*{ext}")
             if not path:
                 return

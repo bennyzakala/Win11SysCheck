@@ -280,5 +280,257 @@
       "sla_format": "goo",
       "material_name": "Standard resin"
     }
+  },
+  "elegoo_mars2_pro": {
+    "name": "Elegoo Mars 2 Pro",
+    "vendor": "Elegoo",
+    "values": {
+      "technology": "sla",
+      "bed_x": 82.62,
+      "bed_y": 130.56,
+      "max_z": 160,
+      "resolution_x": 1620,
+      "resolution_y": 2560,
+      "sla_format": "ctb",
+      "material_name": "Standard resin"
+    }
+  },
+  "elegoo_mars3_pro": {
+    "name": "Elegoo Mars 3 Pro",
+    "vendor": "Elegoo",
+    "values": {
+      "technology": "sla",
+      "bed_x": 143.43,
+      "bed_y": 89.6,
+      "max_z": 175,
+      "resolution_x": 4098,
+      "resolution_y": 2560,
+      "sla_format": "ctb",
+      "material_name": "Standard resin"
+    }
+  },
+  "elegoo_saturn2": {
+    "name": "Elegoo Saturn 2",
+    "vendor": "Elegoo",
+    "values": {
+      "technology": "sla",
+      "bed_x": 218.88,
+      "bed_y": 123.12,
+      "max_z": 250,
+      "resolution_x": 7680,
+      "resolution_y": 4320,
+      "sla_format": "ctb",
+      "material_name": "Standard resin"
+    }
+  },
+  "elegoo_saturn3": {
+    "name": "Elegoo Saturn 3",
+    "vendor": "Elegoo",
+    "values": {
+      "technology": "sla",
+      "bed_x": 218.88,
+      "bed_y": 122.88,
+      "max_z": 250,
+      "resolution_x": 11520,
+      "resolution_y": 5120,
+      "sla_format": "ctb",
+      "material_name": "Standard resin"
+    }
+  },
+  "anycubic_photon_mono_2": {
+    "name": "Anycubic Photon Mono 2",
+    "vendor": "Anycubic",
+    "values": {
+      "technology": "sla",
+      "bed_x": 143.36,
+      "bed_y": 89.6,
+      "max_z": 165,
+      "resolution_x": 4096,
+      "resolution_y": 2560,
+      "sla_format": "sl1",
+      "material_name": "Standard resin"
+    }
+  },
+  "anycubic_photon_mono_x_6k": {
+    "name": "Anycubic Photon Mono X 6K",
+    "vendor": "Anycubic",
+    "values": {
+      "technology": "sla",
+      "bed_x": 198.15,
+      "bed_y": 123.84,
+      "max_z": 245,
+      "resolution_x": 5760,
+      "resolution_y": 3600,
+      "sla_format": "sl1",
+      "material_name": "Standard resin"
+    }
+  },
+  "anycubic_photon_mono_m5s": {
+    "name": "Anycubic Photon Mono M5s",
+    "vendor": "Anycubic",
+    "values": {
+      "technology": "sla",
+      "bed_x": 218.88,
+      "bed_y": 122.88,
+      "max_z": 200,
+      "resolution_x": 11520,
+      "resolution_y": 5120,
+      "sla_format": "sl1",
+      "material_name": "Standard resin"
+    }
+  },
+  "phrozen_sonic_mini_8k": {
+    "name": "Phrozen Sonic Mini 8K",
+    "vendor": "Phrozen",
+    "values": {
+      "technology": "sla",
+      "bed_x": 165.0,
+      "bed_y": 71.28,
+      "max_z": 180,
+      "resolution_x": 7500,
+      "resolution_y": 3240,
+      "sla_format": "ctb",
+      "material_name": "Standard resin"
+    }
+  },
+  "phrozen_sonic_mini_8k_s": {
+    "name": "Phrozen Sonic Mini 8K S",
+    "vendor": "Phrozen",
+    "values": {
+      "technology": "sla",
+      "bed_x": 165.0,
+      "bed_y": 71.28,
+      "max_z": 170,
+      "resolution_x": 7536,
+      "resolution_y": 3240,
+      "sla_format": "prz",
+      "material_name": "Standard resin"
+    }
+  },
+  "phrozen_sonic_mighty_8k": {
+    "name": "Phrozen Sonic Mighty 8K",
+    "vendor": "Phrozen",
+    "values": {
+      "technology": "sla",
+      "bed_x": 218.88,
+      "bed_y": 123.12,
+      "max_z": 235,
+      "resolution_x": 7680,
+      "resolution_y": 4320,
+      "sla_format": "ctb",
+      "material_name": "Standard resin"
+    }
+  },
+  "phrozen_sonic_mega_8k": {
+    "name": "Phrozen Sonic Mega 8K",
+    "vendor": "Phrozen",
+    "values": {
+      "technology": "sla",
+      "bed_x": 330.0,
+      "bed_y": 185.0,
+      "max_z": 400,
+      "resolution_x": 7680,
+      "resolution_y": 4320,
+      "sla_format": "ctb",
+      "material_name": "Standard resin"
+    }
+  },
+  "creality_ender3_s1": {
+    "name": "Creality Ender-3 S1",
+    "vendor": "Creality",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 220,
+      "bed_y": 220,
+      "max_z": 270,
+      "gcode_flavor": "marlin",
+      "retract_length": 0.8
+    }
+  },
+  "creality_ender5_s1": {
+    "name": "Creality Ender-5 S1",
+    "vendor": "Creality",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 220,
+      "bed_y": 220,
+      "max_z": 280,
+      "gcode_flavor": "marlin",
+      "retract_length": 0.8,
+      "print_speed": 120,
+      "wall_speed": 90,
+      "outer_wall_speed": 60,
+      "top_bottom_speed": 80,
+      "travel_speed": 200,
+      "first_layer_speed": 30
+    }
+  },
+  "prusa_xl": {
+    "name": "Prusa XL (single tool)",
+    "vendor": "Prusa Research",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 360,
+      "bed_y": 360,
+      "max_z": 360,
+      "gcode_flavor": "prusa",
+      "retract_length": 0.7,
+      "print_speed": 120,
+      "wall_speed": 80,
+      "outer_wall_speed": 60,
+      "top_bottom_speed": 80,
+      "travel_speed": 200,
+      "first_layer_speed": 25,
+      "relative_e": true
+    }
+  },
+  "sovol_sv06": {
+    "name": "Sovol SV06",
+    "vendor": "Sovol",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 220,
+      "bed_y": 220,
+      "max_z": 250,
+      "gcode_flavor": "marlin",
+      "retract_length": 0.8
+    }
+  },
+  "qidi_xplus3": {
+    "name": "QIDI X-Plus 3",
+    "vendor": "QIDI",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 280,
+      "bed_y": 280,
+      "max_z": 270,
+      "gcode_flavor": "klipper",
+      "retract_length": 0.8,
+      "print_speed": 200,
+      "wall_speed": 150,
+      "outer_wall_speed": 100,
+      "top_bottom_speed": 120,
+      "travel_speed": 300,
+      "first_layer_speed": 50,
+      "relative_e": true
+    }
+  },
+  "elegoo_neptune4max": {
+    "name": "Elegoo Neptune 4 Max",
+    "vendor": "Elegoo",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 420,
+      "bed_y": 420,
+      "max_z": 480,
+      "gcode_flavor": "klipper",
+      "retract_length": 0.8,
+      "print_speed": 200,
+      "wall_speed": 150,
+      "outer_wall_speed": 100,
+      "top_bottom_speed": 120,
+      "travel_speed": 300,
+      "first_layer_speed": 40
+    }
   }
 }

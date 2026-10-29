@@ -176,6 +176,20 @@ def find_islands(layers: list[MultiPolygon], min_area: float = 0.01) -> list[tup
     return out
 
 
+def _shrink_compensate(mesh: Mesh, cfg: Config) -> Mesh:
+    """Scale up around the model's footprint centre to offset resin shrinkage."""
+    sx, sz = 1 + cfg["shrink_xy"] / 100.0, 1 + cfg["shrink_z"] / 100.0
+    if sx == 1 and sz == 1:
+        return mesh
+    lo, hi = mesh.bounds
+    c = np.array([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, lo[2]])
+    m = np.diag([sx, sx, sz, 1.0])
+    m[:3, 3] = c - c * [sx, sx, sz]
+    out = mesh.transform(m)
+    out.name = mesh.name
+    return out
+
+
 # ----------------------------------------------------------------- prepare
 def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
@@ -191,12 +205,12 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     if not meshes:
         raise ValueError("Nothing to slice")
     warnings = [f"'{m.name}' is not watertight; check the layer preview." for m in meshes if not m.is_watertight()]
-    models = list(meshes)
+    models = [_shrink_compensate(m, cfg) for m in meshes]
     supports = None
     points = []
     if cfg["support_enable"]:
         lift = cfg["sla_elevation"] + cfg["sla_raft_thickness"]
-        models = [m.translated([0, 0, lift]) for m in meshes]
+        models = [m.translated([0, 0, lift]) for m in models]
         parts = []
         for i, m in enumerate(models):
             report("support", i / len(models))
@@ -215,6 +229,9 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     split = 0.85 if support_meshes else 1.0
     layers = slice_meshes(models, planes, cfg["resolution"],
                           progress=lambda f: report("slice", f * split), cancelled=cancelled)
+    if cfg["xy_compensation"]:
+        layers = [as_multipolygon(g.buffer(cfg["xy_compensation"], join_style="mitre", mitre_limit=3))
+                  if not g.is_empty else g for g in layers]
     saved = 0.0
     if cfg["hollow_enable"]:
         report("hollow", 0.0)
@@ -224,6 +241,11 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         sup_layers = slice_meshes(support_meshes, planes, cfg["resolution"],
                                   progress=lambda f: report("slice", split + f * (1 - split)), cancelled=cancelled)
         layers = [as_multipolygon(shapely.union_all([a, b])) if not b.is_empty else a for a, b in zip(layers, sup_layers)]
+    foot = cfg["bottom_xy_compensation"]
+    if foot > 0:
+        for i in range(min(int(cfg["bottom_layers"]), len(layers))):
+            if not layers[i].is_empty:
+                layers[i] = as_multipolygon(layers[i].buffer(-foot, join_style="mitre", mitre_limit=3))
     job = SlaJob(layers, lh, models, supports, points, warnings=warnings)
     job.islands = find_islands(layers)
     if job.islands:
@@ -322,9 +344,9 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
 
     ranges = parallel.chunk_ranges(n, 8, parallel.workers() * 4)
     args = [(job.layers[a:b], cfg.values) for a, b in ranges]
-    if fmt in ("ctb", "goo"):
+    if fmt in ("ctb", "goo", "prz"):
         from . import ctb, goo
-        chunks = parallel.run_chunks(_rle_chunk, [a + (fmt,) for a in args],
+        chunks = parallel.run_chunks(_rle_chunk, [a + ("ctb" if fmt == "ctb" else "goo",) for a in args],
                                      lambda f: progress(f * 0.9) if progress else None,
                                      cancelled, [b - a for a, b in ranges])
         rle = ((i, data) for i, data in enumerate(d for chunk in chunks for d in chunk))

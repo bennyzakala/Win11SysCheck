@@ -42,27 +42,65 @@ def display_name(profile: dict, lang: str = "en") -> str:
     return profile.get(f"name_{lang}") or profile.get("name") or "?"
 
 
-def save_user_profile(kind: str, name: str, values: dict, technology: str) -> str:
-    """Store a user profile and return its id."""
+def _user_path(kind: str) -> str:
+    return os.path.join(USER_DIR, f"{kind}.json")
+
+
+def builtin_ids(kind: str) -> set:
+    return set(_load(os.path.join(BUILTIN_DIR, f"{kind}.json")))
+
+
+def new_id(kind: str, name: str) -> str:
+    base = "user_" + (re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "profile")
+    existing = load(kind)
+    pid, n = base, 2
+    while pid in existing:
+        pid, n = f"{base}_{n}", n + 1
+    return pid
+
+
+def save_user_profile(kind: str, name: str, values: dict, technology: str, pid: str | None = None,
+                      vendor: str = "User") -> str:
+    """Store (or overwrite) a user profile and return its id. Saving under a built-in id overrides it."""
     os.makedirs(USER_DIR, exist_ok=True)
-    path = os.path.join(USER_DIR, f"{kind}.json")
-    data = _load(path)
-    pid = "user_" + (re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "profile")
+    data = _load(_user_path(kind))
+    pid = pid or new_id(kind, name)
     clean = {k: v for k, v in values.items() if k in SCHEMA_BY_KEY}
     clean["technology"] = technology
-    data[pid] = {"name": name, "vendor": "User", "technology": technology, "values": clean}
-    with open(path, "w", encoding="utf-8") as fh:
+    data[pid] = {"name": name, "vendor": vendor or "User", "technology": technology, "values": clean}
+    with open(_user_path(kind), "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, ensure_ascii=False)
     return pid
 
 
 def delete_user_profile(kind: str, pid: str) -> None:
-    path = os.path.join(USER_DIR, f"{kind}.json")
-    data = _load(path)
+    """Remove a user profile (for a built-in id this restores the original)."""
+    data = _load(_user_path(kind))
     if pid in data:
         del data[pid]
-        with open(path, "w", encoding="utf-8") as fh:
+        with open(_user_path(kind), "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2, ensure_ascii=False)
+
+
+def export_profiles(kind: str, pids: list[str], path: str) -> None:
+    profiles = load(kind)
+    out = {pid: {k: v for k, v in profiles[pid].items() if k != "user"} for pid in pids if pid in profiles}
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"unislicer_profiles": kind, "profiles": out}, fh, indent=2, ensure_ascii=False)
+
+
+def import_profiles(kind: str, path: str) -> list[str]:
+    """Add profiles from a file written by :func:`export_profiles`. Returns the new ids."""
+    with open(path, "r", encoding="utf-8") as fh:
+        doc = json.load(fh)
+    if doc.get("unislicer_profiles") not in (kind, None):
+        raise ValueError(f"This file contains {doc.get('unislicer_profiles')} profiles")
+    added = []
+    for prof in doc.get("profiles", {}).values():
+        values = prof.get("values", {})
+        added.append(save_user_profile(kind, prof.get("name", "Imported"), values, technology_of(prof),
+                                       vendor=prof.get("vendor", "Imported")))
+    return added
 
 
 def build_config(printer: str | None = None, material: str | None = None, quality: str | None = None,

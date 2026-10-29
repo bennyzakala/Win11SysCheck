@@ -197,6 +197,13 @@ class SettingsPanel(QWidget):
             t.setObjectName("SectionTitle")
             row.addWidget(t)
             row.addStretch(1)
+            if key in ("printer", "material"):
+                lib = QToolButton()
+                lib.setIcon(theme.icon("settings", theme.TEXT_DIM, 16))
+                lib.setToolTip(tr("manage_printers") if key == "printer" else tr("manage_materials"))
+                lib.setCursor(Qt.PointingHandCursor)
+                lib.clicked.connect(lambda _=False, k=key: self.open_library("printers" if k == "printer" else "materials"))
+                row.addWidget(lib)
             if key == "printer":
                 self.profile_menu_btn = QToolButton()
                 self.profile_menu_btn.setIcon(theme.icon("save", theme.TEXT_DIM, 16))
@@ -263,12 +270,13 @@ class SettingsPanel(QWidget):
         items = sorted(profiles.load("printers").items(),
                        key=lambda kv: (profiles.technology_of(kv[1]) != "fdm", kv[1].get("vendor") != "Generic",
                                        kv[1].get("vendor", ""), kv[1]["name"]))
-        last_tech = None
+        last = None
         for pid, p in items:
             tech = profiles.technology_of(p)
-            if last_tech is not None and tech != last_tech:
+            group = (tech, p.get("vendor", ""))
+            if last is not None and group != last:
                 self.printer_combo.insertSeparator(self.printer_combo.count())
-            last_tech = tech
+            last = group
             badge = "FDM" if tech == "fdm" else "RESIN"
             self.printer_combo.addItem(f"{p['name']}   ·  {badge}", pid)
         self.printer_combo.setCurrentIndex(max(0, self.printer_combo.findData(self.printer_id)))
@@ -280,8 +288,18 @@ class SettingsPanel(QWidget):
         for combo, kind, attr in ((self.material_combo, "materials", "material_id"), (self.quality_combo, "qualities", "quality_id")):
             combo.clear()
             available = profiles.for_technology(kind, tech)
-            for pid, p in available.items():
-                combo.addItem(profiles.display_name(p, i18n.LANG), pid)
+            ordered = sorted(available.items(), key=lambda kv: (kv[1].get("vendor", "Generic") != "Generic",
+                                                                kv[1].get("vendor", ""), profiles.display_name(kv[1])))
+            last_vendor = None
+            for pid, p in ordered:
+                vendor = p.get("vendor", "")
+                if kind == "materials" and last_vendor is not None and vendor != last_vendor:
+                    combo.insertSeparator(combo.count())
+                last_vendor = vendor
+                label = profiles.display_name(p, i18n.LANG)
+                if kind == "materials" and vendor and vendor != "Generic":
+                    label = f"{vendor} · {label}"
+                combo.addItem(label, pid)
             current = getattr(self, attr)
             if current not in available:
                 current = next(iter(available), None)
@@ -327,6 +345,28 @@ class SettingsPanel(QWidget):
         self.quality_id = self.quality_combo.itemData(index)
         self._drop_overrides_for("qualities", self.quality_id)
         self.rebuild()
+        self.changed.emit()
+
+    def open_library(self, kind: str):
+        from .profile_manager import ProfileManager
+        current = self.printer_id if kind == "printers" else self.material_id
+        dlg = ProfileManager(kind, self.technology, current, self.window())
+        dlg.exec()
+        old_tech = self.technology
+        if dlg.selected_id:
+            if kind == "printers":
+                self.printer_id = dlg.selected_id
+                self._drop_overrides_for("printers", self.printer_id)
+            else:
+                self.material_id = dlg.selected_id
+                self._drop_overrides_for("materials", self.material_id)
+        if self.printer_id not in profiles.load("printers"):
+            self.printer_id = "generic_fdm"
+        self._fill_printers()
+        self._fill_dependent()
+        self.rebuild()
+        if self.technology != old_tech:
+            self.technologyChanged.emit(self.technology)
         self.changed.emit()
 
     def _save_profile(self, kind: str):
