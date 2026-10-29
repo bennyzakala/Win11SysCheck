@@ -8,7 +8,9 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QHB
 
 from .. import profiles
 from ..gcode import default_end_gcode, default_start_gcode
-from ..settings import CATEGORIES, SCHEMA_BY_KEY, SUPPORT_PRESETS, Config, visible_settings
+from ..settings import CATEGORIES, SCHEMA_BY_KEY, SUPPORT_PRESETS, Config, applies_to_process, visible_settings
+
+PROCESS_BADGE = {"lcd": "LCD", "dlp": "DLP", "laser": "SLA", "polyjet": "POLYJET"}
 from . import theme
 from . import i18n
 from .i18n import category_label, label, option_label, tip, tr
@@ -278,6 +280,10 @@ class SettingsPanel(QWidget):
     def technology(self) -> str:
         return profiles.technology_of(profiles.load("printers")[self.printer_id])
 
+    @property
+    def process(self) -> str:
+        return profiles.process_of(profiles.load("printers")[self.printer_id])
+
     def _fill_printers(self):
         self._building = True
         self.printer_combo.clear()
@@ -291,7 +297,7 @@ class SettingsPanel(QWidget):
             if last is not None and group != last:
                 self.printer_combo.insertSeparator(self.printer_combo.count())
             last = group
-            badge = "FDM" if tech == "fdm" else "RESIN"
+            badge = "FDM" if tech == "fdm" else PROCESS_BADGE.get(p.get("values", {}).get("sla_process", "lcd"), "RESIN")
             self.printer_combo.addItem(f"{p['name']}   ·  {badge}", pid)
             if p.get("note"):
                 self.printer_combo.setItemData(self.printer_combo.count() - 1, p["note"], Qt.ToolTipRole)
@@ -394,7 +400,7 @@ class SettingsPanel(QWidget):
         tech = self.technology
         for combo, kind, attr in ((self.material_combo, "materials", "material_id"), (self.quality_combo, "qualities", "quality_id")):
             combo.clear()
-            available = profiles.for_technology(kind, tech)
+            available = profiles.for_technology(kind, tech, self.process)
             def linked(prof):
                 return self.printer_id in prof.get("printers", [])
             ordered = sorted(available.items(), key=lambda kv: (not linked(kv[1]), kv[1].get("vendor", "Generic") != "Generic",
@@ -446,7 +452,8 @@ class SettingsPanel(QWidget):
         if first_plate:
             self.overrides.update({"plate_width": first_plate["width"], "plate_depth": first_plate["depth"]})
         # printers with their own validated resins start on one of them
-        mats = profiles.for_technology("materials", profiles.technology_of(profiles.load("printers")[pid]))
+        printer = profiles.load("printers")[pid]
+        mats = profiles.for_technology("materials", profiles.technology_of(printer), profiles.process_of(printer))
         linked = [m for m, prof in mats.items() if pid in prof.get("printers", [])]
         if linked and self.material_id not in linked:
             self.material_id = linked[0]
@@ -575,6 +582,8 @@ class SettingsPanel(QWidget):
             self.overrides[key] = value
             if not getattr(self, "_programmatic", False):
                 self.valueEdited.emit(key, value)
+        if key == "sla_process":
+            QTimer.singleShot(0, self.rebuild)       # the process decides which settings apply
         if key == "sla_support_preset":
             # the preset supplies tip/pillar/spacing: drop manual values and refresh the editors
             for k in SUPPORT_PRESETS["medium"]:
@@ -627,6 +636,8 @@ class SettingsPanel(QWidget):
         for cat in CATEGORIES:
             items = visible_settings(cat[0], tech, self.show_advanced or bool(self.filter_text))
             items = [s for s in items if s.key != "technology"]
+            if tech == "sla":
+                items = [s for s in items if applies_to_process(s, cfg["sla_process"])]
             if self.filter_text:
                 items = [s for s in items if self.filter_text in label(s).lower() or self.filter_text in s.key
                          or self.filter_text in s.en.lower()]

@@ -1,595 +1,829 @@
 {
-  "generic_fdm": {
-    "name": "Generic FDM (Marlin)",
-    "vendor": "Generic",
-    "values": {
-      "technology": "fdm"
-    }
-  },
-  "generic_klipper": {
-    "name": "Generic FDM (Klipper)",
-    "vendor": "Generic",
-    "values": {
-      "technology": "fdm",
-      "gcode_flavor": "klipper",
-      "retract_length": 0.8,
-      "retract_speed": 35,
-      "relative_e": true,
-      "print_speed": 150,
-      "wall_speed": 120,
-      "outer_wall_speed": 80,
-      "top_bottom_speed": 100,
-      "support_speed": 120,
-      "travel_speed": 300,
-      "first_layer_speed": 40
-    }
-  },
-  "generic_delta": {
-    "name": "Generic Delta",
-    "vendor": "Generic",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 200,
-      "bed_y": 200,
-      "max_z": 300,
-      "origin_center": true,
-      "retract_length": 4
-    }
-  },
-  "creality_ender3v2": {
-    "name": "Creality Ender-3 V2",
-    "vendor": "Creality",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 220,
-      "bed_y": 220,
-      "max_z": 250,
-      "retract_length": 5,
-      "retract_speed": 45
-    }
-  },
-  "creality_ender3v3se": {
-    "name": "Creality Ender-3 V3 SE",
-    "vendor": "Creality",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 220,
-      "bed_y": 220,
-      "max_z": 250,
-      "retract_length": 0.8,
-      "retract_speed": 40,
-      "print_speed": 120,
-      "wall_speed": 90,
-      "outer_wall_speed": 60,
-      "top_bottom_speed": 80,
-      "travel_speed": 200,
-      "first_layer_speed": 30
-    }
-  },
-  "creality_k1": {
-    "name": "Creality K1",
-    "vendor": "Creality",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 220,
-      "bed_y": 220,
-      "max_z": 250,
-      "gcode_flavor": "klipper",
-      "retract_length": 0.8,
-      "print_speed": 200,
-      "wall_speed": 150,
-      "outer_wall_speed": 100,
-      "top_bottom_speed": 120,
-      "support_speed": 150,
-      "travel_speed": 300,
-      "first_layer_speed": 50
-    }
-  },
-  "prusa_mk4": {
-    "name": "Prusa MK4",
-    "vendor": "Prusa Research",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 250,
-      "bed_y": 210,
-      "max_z": 220,
-      "gcode_flavor": "prusa",
-      "retract_length": 0.7,
-      "retract_speed": 35,
-      "relative_e": true,
-      "print_speed": 120,
-      "wall_speed": 80,
-      "outer_wall_speed": 60,
-      "top_bottom_speed": 80,
-      "travel_speed": 200,
-      "first_layer_speed": 25
-    }
-  },
-  "prusa_mk3s": {
-    "name": "Prusa i3 MK3S+",
-    "vendor": "Prusa Research",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 250,
-      "bed_y": 210,
-      "max_z": 210,
-      "gcode_flavor": "prusa",
-      "retract_length": 0.8,
-      "retract_speed": 35,
-      "relative_e": true
-    }
-  },
-  "prusa_mini": {
-    "name": "Prusa MINI+",
-    "vendor": "Prusa Research",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 180,
-      "bed_y": 180,
-      "max_z": 180,
-      "gcode_flavor": "prusa",
-      "retract_length": 3.2,
-      "retract_speed": 70,
-      "relative_e": true
-    }
-  },
-  "anycubic_kobra2": {
-    "name": "Anycubic Kobra 2",
-    "vendor": "Anycubic",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 220,
-      "bed_y": 220,
-      "max_z": 250,
-      "retract_length": 0.8,
-      "print_speed": 150,
-      "wall_speed": 100,
-      "outer_wall_speed": 70,
-      "travel_speed": 250
-    }
-  },
-  "elegoo_neptune4pro": {
-    "name": "Elegoo Neptune 4 Pro",
-    "vendor": "Elegoo",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 225,
-      "bed_y": 225,
-      "max_z": 265,
-      "gcode_flavor": "klipper",
-      "retract_length": 0.8,
-      "print_speed": 200,
-      "wall_speed": 150,
-      "outer_wall_speed": 100,
-      "top_bottom_speed": 120,
-      "travel_speed": 300,
-      "first_layer_speed": 40
-    }
-  },
-  "voron_24_350": {
-    "name": "Voron 2.4 (350)",
-    "vendor": "Voron Design",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 350,
-      "bed_y": 350,
-      "max_z": 340,
-      "gcode_flavor": "klipper",
-      "retract_length": 0.5,
-      "relative_e": true,
-      "print_speed": 200,
-      "wall_speed": 150,
-      "outer_wall_speed": 100,
-      "top_bottom_speed": 120,
-      "support_speed": 150,
-      "travel_speed": 350,
-      "first_layer_speed": 50
-    }
-  },
-  "artillery_sidewinder_x2": {
-    "name": "Artillery Sidewinder X2",
-    "vendor": "Artillery",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 300,
-      "bed_y": 300,
-      "max_z": 400,
-      "retract_length": 1.0
-    }
-  },
-  "generic_msla": {
-    "name": "Generic MSLA (resin)",
-    "vendor": "Generic",
-    "values": {
-      "technology": "sla",
-      "bed_x": 120.96,
-      "bed_y": 68.04,
-      "max_z": 150,
-      "resolution_x": 2560,
-      "resolution_y": 1440,
-      "material_name": "Standard resin",
-      "sla_format": "ctb"
-    }
-  },
-  "prusa_sl1s": {
-    "name": "Prusa SL1S Speed",
-    "vendor": "Prusa Research",
-    "values": {
-      "technology": "sla",
-      "bed_x": 127.0,
-      "bed_y": 80.0,
-      "max_z": 150,
-      "resolution_x": 2560,
-      "resolution_y": 1620,
-      "exposure_time": 2.0,
-      "bottom_exposure_time": 25,
-      "material_name": "Standard resin"
-    }
-  },
-  "elegoo_mars3": {
-    "name": "Elegoo Mars 3",
-    "vendor": "Elegoo",
-    "values": {
-      "technology": "sla",
-      "bed_x": 143.43,
-      "bed_y": 89.6,
-      "max_z": 175,
-      "resolution_x": 4098,
-      "resolution_y": 2560,
-      "material_name": "Standard resin",
-      "sla_format": "ctb"
-    }
-  },
-  "anycubic_photon_mono_x": {
-    "name": "Anycubic Photon Mono X",
-    "vendor": "Anycubic",
-    "values": {
-      "technology": "sla",
-      "bed_x": 192.0,
-      "bed_y": 120.0,
-      "max_z": 245,
-      "resolution_x": 3840,
-      "resolution_y": 2400,
-      "material_name": "Standard resin"
-    }
-  },
-  "elegoo_saturn3_ultra": {
-    "name": "Elegoo Saturn 3 Ultra",
-    "vendor": "Elegoo",
-    "values": {
-      "technology": "sla",
-      "bed_x": 218.88,
-      "bed_y": 122.88,
-      "max_z": 260,
-      "resolution_x": 11520,
-      "resolution_y": 5120,
-      "sla_format": "goo",
-      "material_name": "Standard resin"
-    }
-  },
-  "elegoo_mars4_ultra": {
-    "name": "Elegoo Mars 4 Ultra",
-    "vendor": "Elegoo",
-    "values": {
-      "technology": "sla",
-      "bed_x": 153.36,
-      "bed_y": 77.76,
-      "max_z": 165,
-      "resolution_x": 8520,
-      "resolution_y": 4320,
-      "sla_format": "goo",
-      "material_name": "Standard resin"
-    }
-  },
-  "elegoo_mars2_pro": {
-    "name": "Elegoo Mars 2 Pro",
-    "vendor": "Elegoo",
-    "values": {
-      "technology": "sla",
-      "bed_x": 82.62,
-      "bed_y": 130.56,
-      "max_z": 160,
-      "resolution_x": 1620,
-      "resolution_y": 2560,
-      "sla_format": "ctb",
-      "material_name": "Standard resin"
-    }
-  },
-  "elegoo_mars3_pro": {
-    "name": "Elegoo Mars 3 Pro",
-    "vendor": "Elegoo",
-    "values": {
-      "technology": "sla",
-      "bed_x": 143.43,
-      "bed_y": 89.6,
-      "max_z": 175,
-      "resolution_x": 4098,
-      "resolution_y": 2560,
-      "sla_format": "ctb",
-      "material_name": "Standard resin"
-    }
-  },
-  "elegoo_saturn2": {
-    "name": "Elegoo Saturn 2",
-    "vendor": "Elegoo",
-    "values": {
-      "technology": "sla",
-      "bed_x": 218.88,
-      "bed_y": 123.12,
-      "max_z": 250,
-      "resolution_x": 7680,
-      "resolution_y": 4320,
-      "sla_format": "ctb",
-      "material_name": "Standard resin"
-    }
-  },
-  "elegoo_saturn3": {
-    "name": "Elegoo Saturn 3",
-    "vendor": "Elegoo",
-    "values": {
-      "technology": "sla",
-      "bed_x": 218.88,
-      "bed_y": 122.88,
-      "max_z": 250,
-      "resolution_x": 11520,
-      "resolution_y": 5120,
-      "sla_format": "ctb",
-      "material_name": "Standard resin"
-    }
-  },
-  "anycubic_photon_mono_2": {
-    "name": "Anycubic Photon Mono 2",
-    "vendor": "Anycubic",
-    "values": {
-      "technology": "sla",
-      "bed_x": 143.36,
-      "bed_y": 89.6,
-      "max_z": 165,
-      "resolution_x": 4096,
-      "resolution_y": 2560,
-      "sla_format": "sl1",
-      "material_name": "Standard resin"
-    }
-  },
-  "anycubic_photon_mono_x_6k": {
-    "name": "Anycubic Photon Mono X 6K",
-    "vendor": "Anycubic",
-    "values": {
-      "technology": "sla",
-      "bed_x": 198.15,
-      "bed_y": 123.84,
-      "max_z": 245,
-      "resolution_x": 5760,
-      "resolution_y": 3600,
-      "sla_format": "sl1",
-      "material_name": "Standard resin"
-    }
-  },
-  "anycubic_photon_mono_m5s": {
-    "name": "Anycubic Photon Mono M5s",
-    "vendor": "Anycubic",
-    "values": {
-      "technology": "sla",
-      "bed_x": 218.88,
-      "bed_y": 122.88,
-      "max_z": 200,
-      "resolution_x": 11520,
-      "resolution_y": 5120,
-      "sla_format": "sl1",
-      "material_name": "Standard resin"
-    }
-  },
-  "phrozen_sonic_mini_8k": {
-    "name": "Phrozen Sonic Mini 8K",
-    "vendor": "Phrozen",
-    "values": {
-      "technology": "sla",
-      "bed_x": 165.0,
-      "bed_y": 71.28,
-      "max_z": 180,
-      "resolution_x": 7500,
-      "resolution_y": 3240,
-      "sla_format": "ctb",
-      "material_name": "Standard resin"
-    }
-  },
-  "phrozen_sonic_mini_8k_s": {
-    "name": "Phrozen Sonic Mini 8K S",
-    "vendor": "Phrozen",
-    "values": {
-      "technology": "sla",
-      "bed_x": 165.0,
-      "bed_y": 71.28,
-      "max_z": 170,
-      "resolution_x": 7536,
-      "resolution_y": 3240,
-      "sla_format": "prz",
-      "material_name": "Standard resin"
-    }
-  },
-  "phrozen_sonic_mighty_8k": {
-    "name": "Phrozen Sonic Mighty 8K",
-    "vendor": "Phrozen",
-    "values": {
-      "technology": "sla",
-      "bed_x": 218.88,
-      "bed_y": 123.12,
-      "max_z": 235,
-      "resolution_x": 7680,
-      "resolution_y": 4320,
-      "sla_format": "ctb",
-      "material_name": "Standard resin"
-    }
-  },
-  "phrozen_sonic_mega_8k": {
-    "name": "Phrozen Sonic Mega 8K",
-    "vendor": "Phrozen",
-    "values": {
-      "technology": "sla",
-      "bed_x": 330.0,
-      "bed_y": 185.0,
-      "max_z": 400,
-      "resolution_x": 7680,
-      "resolution_y": 4320,
-      "sla_format": "ctb",
-      "material_name": "Standard resin"
-    }
-  },
-  "creality_ender3_s1": {
-    "name": "Creality Ender-3 S1",
-    "vendor": "Creality",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 220,
-      "bed_y": 220,
-      "max_z": 270,
-      "gcode_flavor": "marlin",
-      "retract_length": 0.8
-    }
-  },
-  "creality_ender5_s1": {
-    "name": "Creality Ender-5 S1",
-    "vendor": "Creality",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 220,
-      "bed_y": 220,
-      "max_z": 280,
-      "gcode_flavor": "marlin",
-      "retract_length": 0.8,
-      "print_speed": 120,
-      "wall_speed": 90,
-      "outer_wall_speed": 60,
-      "top_bottom_speed": 80,
-      "travel_speed": 200,
-      "first_layer_speed": 30
-    }
-  },
-  "prusa_xl": {
-    "name": "Prusa XL (single tool)",
-    "vendor": "Prusa Research",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 360,
-      "bed_y": 360,
-      "max_z": 360,
-      "gcode_flavor": "prusa",
-      "retract_length": 0.7,
-      "print_speed": 120,
-      "wall_speed": 80,
-      "outer_wall_speed": 60,
-      "top_bottom_speed": 80,
-      "travel_speed": 200,
-      "first_layer_speed": 25,
-      "relative_e": true
-    }
-  },
-  "sovol_sv06": {
-    "name": "Sovol SV06",
-    "vendor": "Sovol",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 220,
-      "bed_y": 220,
-      "max_z": 250,
-      "gcode_flavor": "marlin",
-      "retract_length": 0.8
-    }
-  },
-  "qidi_xplus3": {
-    "name": "QIDI X-Plus 3",
-    "vendor": "QIDI",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 280,
-      "bed_y": 280,
-      "max_z": 270,
-      "gcode_flavor": "klipper",
-      "retract_length": 0.8,
-      "print_speed": 200,
-      "wall_speed": 150,
-      "outer_wall_speed": 100,
-      "top_bottom_speed": 120,
-      "travel_speed": 300,
-      "first_layer_speed": 50,
-      "relative_e": true
-    }
-  },
-  "elegoo_neptune4max": {
-    "name": "Elegoo Neptune 4 Max",
-    "vendor": "Elegoo",
-    "values": {
-      "technology": "fdm",
-      "bed_x": 420,
-      "bed_y": 420,
-      "max_z": 480,
-      "gcode_flavor": "klipper",
-      "retract_length": 0.8,
-      "print_speed": 200,
-      "wall_speed": 150,
-      "outer_wall_speed": 100,
-      "top_bottom_speed": 120,
-      "travel_speed": 300,
-      "first_layer_speed": 40
-    }
-  },
-  "phrozen_sonic_cs_plus": {
-    "name": "Phrozen Sonic CS+ (dental)",
-    "vendor": "Phrozen",
-    "note": "385 nm mono LCD, 22 µm XY. Plates per manufacturer listings: Standard 165 x 71 x 175 mm, Mini 70 x 70 x 175 mm. Screen pixels derived from the 22 µm pixel size (same panel size as Sonic Mini 8K); mini plate assumed centred. Reads .prz from DS Slicer.",
-    "values": {
-      "technology": "sla",
-      "bed_x": 165.0,
-      "bed_y": 71.28,
-      "max_z": 175,
-      "resolution_x": 7500,
-      "resolution_y": 3240,
-      "sla_format": "prz",
-      "sla_layer_height": 0.05,
-      "bottom_layers": 6,
-      "material_name": "Dental resin"
-    },
-    "plates": [
-      {
-        "name": "Standard plate",
-        "width": 165.0,
-        "depth": 71.0,
-        "offset_x": 0.0,
-        "offset_y": 0.0
-      },
-      {
-        "name": "Mini plate",
-        "width": 70.0,
-        "depth": 70.0,
-        "offset_x": 0.0,
-        "offset_y": 0.0
-      }
-    ]
-  },
-  "phrozen_lumii_2k": {
-    "name": "Phrozen Lumii 2K DLP (dental)",
-    "vendor": "Phrozen",
-    "note": "405 nm 2K DLP, 51 µm XY, standard plate 130 x 75 x 160 mm; a mini plate exists but its size is not published (add it from the plate menu). Projector pixels derived from 51 µm over 130 x 75 mm. Uses DS Slicer (.prz assumed, as for the Sonic CS+).",
-    "values": {
-      "technology": "sla",
-      "bed_x": 130.56,
-      "bed_y": 74.97,
-      "max_z": 160,
-      "resolution_x": 2560,
-      "resolution_y": 1470,
-      "sla_format": "prz",
-      "sla_layer_height": 0.05,
-      "bottom_layers": 6,
-      "material_name": "Dental resin"
-    },
-    "plates": [
-      {
-        "name": "Standard plate",
-        "width": 130.0,
-        "depth": 74.97,
-        "offset_x": 0.0,
-        "offset_y": 0.0
-      }
-    ]
+ "generic_fdm": {
+  "name": "Generic FDM (Marlin)",
+  "vendor": "Generic",
+  "values": {
+   "technology": "fdm"
   }
+ },
+ "generic_klipper": {
+  "name": "Generic FDM (Klipper)",
+  "vendor": "Generic",
+  "values": {
+   "technology": "fdm",
+   "gcode_flavor": "klipper",
+   "retract_length": 0.8,
+   "retract_speed": 35,
+   "relative_e": true,
+   "print_speed": 150,
+   "wall_speed": 120,
+   "outer_wall_speed": 80,
+   "top_bottom_speed": 100,
+   "support_speed": 120,
+   "travel_speed": 300,
+   "first_layer_speed": 40
+  }
+ },
+ "generic_delta": {
+  "name": "Generic Delta",
+  "vendor": "Generic",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 200,
+   "bed_y": 200,
+   "max_z": 300,
+   "origin_center": true,
+   "retract_length": 4
+  }
+ },
+ "creality_ender3v2": {
+  "name": "Creality Ender-3 V2",
+  "vendor": "Creality",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 220,
+   "bed_y": 220,
+   "max_z": 250,
+   "retract_length": 5,
+   "retract_speed": 45
+  }
+ },
+ "creality_ender3v3se": {
+  "name": "Creality Ender-3 V3 SE",
+  "vendor": "Creality",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 220,
+   "bed_y": 220,
+   "max_z": 250,
+   "retract_length": 0.8,
+   "retract_speed": 40,
+   "print_speed": 120,
+   "wall_speed": 90,
+   "outer_wall_speed": 60,
+   "top_bottom_speed": 80,
+   "travel_speed": 200,
+   "first_layer_speed": 30
+  }
+ },
+ "creality_k1": {
+  "name": "Creality K1",
+  "vendor": "Creality",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 220,
+   "bed_y": 220,
+   "max_z": 250,
+   "gcode_flavor": "klipper",
+   "retract_length": 0.8,
+   "print_speed": 200,
+   "wall_speed": 150,
+   "outer_wall_speed": 100,
+   "top_bottom_speed": 120,
+   "support_speed": 150,
+   "travel_speed": 300,
+   "first_layer_speed": 50
+  }
+ },
+ "prusa_mk4": {
+  "name": "Prusa MK4",
+  "vendor": "Prusa Research",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 250,
+   "bed_y": 210,
+   "max_z": 220,
+   "gcode_flavor": "prusa",
+   "retract_length": 0.7,
+   "retract_speed": 35,
+   "relative_e": true,
+   "print_speed": 120,
+   "wall_speed": 80,
+   "outer_wall_speed": 60,
+   "top_bottom_speed": 80,
+   "travel_speed": 200,
+   "first_layer_speed": 25
+  }
+ },
+ "prusa_mk3s": {
+  "name": "Prusa i3 MK3S+",
+  "vendor": "Prusa Research",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 250,
+   "bed_y": 210,
+   "max_z": 210,
+   "gcode_flavor": "prusa",
+   "retract_length": 0.8,
+   "retract_speed": 35,
+   "relative_e": true
+  }
+ },
+ "prusa_mini": {
+  "name": "Prusa MINI+",
+  "vendor": "Prusa Research",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 180,
+   "bed_y": 180,
+   "max_z": 180,
+   "gcode_flavor": "prusa",
+   "retract_length": 3.2,
+   "retract_speed": 70,
+   "relative_e": true
+  }
+ },
+ "anycubic_kobra2": {
+  "name": "Anycubic Kobra 2",
+  "vendor": "Anycubic",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 220,
+   "bed_y": 220,
+   "max_z": 250,
+   "retract_length": 0.8,
+   "print_speed": 150,
+   "wall_speed": 100,
+   "outer_wall_speed": 70,
+   "travel_speed": 250
+  }
+ },
+ "elegoo_neptune4pro": {
+  "name": "Elegoo Neptune 4 Pro",
+  "vendor": "Elegoo",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 225,
+   "bed_y": 225,
+   "max_z": 265,
+   "gcode_flavor": "klipper",
+   "retract_length": 0.8,
+   "print_speed": 200,
+   "wall_speed": 150,
+   "outer_wall_speed": 100,
+   "top_bottom_speed": 120,
+   "travel_speed": 300,
+   "first_layer_speed": 40
+  }
+ },
+ "voron_24_350": {
+  "name": "Voron 2.4 (350)",
+  "vendor": "Voron Design",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 350,
+   "bed_y": 350,
+   "max_z": 340,
+   "gcode_flavor": "klipper",
+   "retract_length": 0.5,
+   "relative_e": true,
+   "print_speed": 200,
+   "wall_speed": 150,
+   "outer_wall_speed": 100,
+   "top_bottom_speed": 120,
+   "support_speed": 150,
+   "travel_speed": 350,
+   "first_layer_speed": 50
+  }
+ },
+ "artillery_sidewinder_x2": {
+  "name": "Artillery Sidewinder X2",
+  "vendor": "Artillery",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 300,
+   "bed_y": 300,
+   "max_z": 400,
+   "retract_length": 1.0
+  }
+ },
+ "generic_msla": {
+  "name": "Generic MSLA (resin)",
+  "vendor": "Generic",
+  "values": {
+   "technology": "sla",
+   "bed_x": 120.96,
+   "bed_y": 68.04,
+   "max_z": 150,
+   "resolution_x": 2560,
+   "resolution_y": 1440,
+   "material_name": "Standard resin",
+   "sla_format": "ctb"
+  }
+ },
+ "prusa_sl1s": {
+  "name": "Prusa SL1S Speed",
+  "vendor": "Prusa Research",
+  "values": {
+   "technology": "sla",
+   "bed_x": 127.0,
+   "bed_y": 80.0,
+   "max_z": 150,
+   "resolution_x": 2560,
+   "resolution_y": 1620,
+   "exposure_time": 2.0,
+   "bottom_exposure_time": 25,
+   "material_name": "Standard resin"
+  }
+ },
+ "elegoo_mars3": {
+  "name": "Elegoo Mars 3",
+  "vendor": "Elegoo",
+  "values": {
+   "technology": "sla",
+   "bed_x": 143.43,
+   "bed_y": 89.6,
+   "max_z": 175,
+   "resolution_x": 4098,
+   "resolution_y": 2560,
+   "material_name": "Standard resin",
+   "sla_format": "ctb"
+  }
+ },
+ "anycubic_photon_mono_x": {
+  "name": "Anycubic Photon Mono X",
+  "vendor": "Anycubic",
+  "values": {
+   "technology": "sla",
+   "bed_x": 192.0,
+   "bed_y": 120.0,
+   "max_z": 245,
+   "resolution_x": 3840,
+   "resolution_y": 2400,
+   "material_name": "Standard resin"
+  }
+ },
+ "elegoo_saturn3_ultra": {
+  "name": "Elegoo Saturn 3 Ultra",
+  "vendor": "Elegoo",
+  "values": {
+   "technology": "sla",
+   "bed_x": 218.88,
+   "bed_y": 122.88,
+   "max_z": 260,
+   "resolution_x": 11520,
+   "resolution_y": 5120,
+   "sla_format": "goo",
+   "material_name": "Standard resin"
+  }
+ },
+ "elegoo_mars4_ultra": {
+  "name": "Elegoo Mars 4 Ultra",
+  "vendor": "Elegoo",
+  "values": {
+   "technology": "sla",
+   "bed_x": 153.36,
+   "bed_y": 77.76,
+   "max_z": 165,
+   "resolution_x": 8520,
+   "resolution_y": 4320,
+   "sla_format": "goo",
+   "material_name": "Standard resin"
+  }
+ },
+ "elegoo_mars2_pro": {
+  "name": "Elegoo Mars 2 Pro",
+  "vendor": "Elegoo",
+  "values": {
+   "technology": "sla",
+   "bed_x": 82.62,
+   "bed_y": 130.56,
+   "max_z": 160,
+   "resolution_x": 1620,
+   "resolution_y": 2560,
+   "sla_format": "ctb",
+   "material_name": "Standard resin"
+  }
+ },
+ "elegoo_mars3_pro": {
+  "name": "Elegoo Mars 3 Pro",
+  "vendor": "Elegoo",
+  "values": {
+   "technology": "sla",
+   "bed_x": 143.43,
+   "bed_y": 89.6,
+   "max_z": 175,
+   "resolution_x": 4098,
+   "resolution_y": 2560,
+   "sla_format": "ctb",
+   "material_name": "Standard resin"
+  }
+ },
+ "elegoo_saturn2": {
+  "name": "Elegoo Saturn 2",
+  "vendor": "Elegoo",
+  "values": {
+   "technology": "sla",
+   "bed_x": 218.88,
+   "bed_y": 123.12,
+   "max_z": 250,
+   "resolution_x": 7680,
+   "resolution_y": 4320,
+   "sla_format": "ctb",
+   "material_name": "Standard resin"
+  }
+ },
+ "elegoo_saturn3": {
+  "name": "Elegoo Saturn 3",
+  "vendor": "Elegoo",
+  "values": {
+   "technology": "sla",
+   "bed_x": 218.88,
+   "bed_y": 122.88,
+   "max_z": 250,
+   "resolution_x": 11520,
+   "resolution_y": 5120,
+   "sla_format": "ctb",
+   "material_name": "Standard resin"
+  }
+ },
+ "anycubic_photon_mono_2": {
+  "name": "Anycubic Photon Mono 2",
+  "vendor": "Anycubic",
+  "values": {
+   "technology": "sla",
+   "bed_x": 143.36,
+   "bed_y": 89.6,
+   "max_z": 165,
+   "resolution_x": 4096,
+   "resolution_y": 2560,
+   "sla_format": "sl1",
+   "material_name": "Standard resin"
+  }
+ },
+ "anycubic_photon_mono_x_6k": {
+  "name": "Anycubic Photon Mono X 6K",
+  "vendor": "Anycubic",
+  "values": {
+   "technology": "sla",
+   "bed_x": 198.15,
+   "bed_y": 123.84,
+   "max_z": 245,
+   "resolution_x": 5760,
+   "resolution_y": 3600,
+   "sla_format": "sl1",
+   "material_name": "Standard resin"
+  }
+ },
+ "anycubic_photon_mono_m5s": {
+  "name": "Anycubic Photon Mono M5s",
+  "vendor": "Anycubic",
+  "values": {
+   "technology": "sla",
+   "bed_x": 218.88,
+   "bed_y": 122.88,
+   "max_z": 200,
+   "resolution_x": 11520,
+   "resolution_y": 5120,
+   "sla_format": "sl1",
+   "material_name": "Standard resin"
+  }
+ },
+ "phrozen_sonic_mini_8k": {
+  "name": "Phrozen Sonic Mini 8K",
+  "vendor": "Phrozen",
+  "values": {
+   "technology": "sla",
+   "bed_x": 165.0,
+   "bed_y": 71.28,
+   "max_z": 180,
+   "resolution_x": 7500,
+   "resolution_y": 3240,
+   "sla_format": "ctb",
+   "material_name": "Standard resin"
+  }
+ },
+ "phrozen_sonic_mini_8k_s": {
+  "name": "Phrozen Sonic Mini 8K S",
+  "vendor": "Phrozen",
+  "values": {
+   "technology": "sla",
+   "bed_x": 165.0,
+   "bed_y": 71.28,
+   "max_z": 170,
+   "resolution_x": 7536,
+   "resolution_y": 3240,
+   "sla_format": "prz",
+   "material_name": "Standard resin"
+  }
+ },
+ "phrozen_sonic_mighty_8k": {
+  "name": "Phrozen Sonic Mighty 8K",
+  "vendor": "Phrozen",
+  "values": {
+   "technology": "sla",
+   "bed_x": 218.88,
+   "bed_y": 123.12,
+   "max_z": 235,
+   "resolution_x": 7680,
+   "resolution_y": 4320,
+   "sla_format": "ctb",
+   "material_name": "Standard resin"
+  }
+ },
+ "phrozen_sonic_mega_8k": {
+  "name": "Phrozen Sonic Mega 8K",
+  "vendor": "Phrozen",
+  "values": {
+   "technology": "sla",
+   "bed_x": 330.0,
+   "bed_y": 185.0,
+   "max_z": 400,
+   "resolution_x": 7680,
+   "resolution_y": 4320,
+   "sla_format": "ctb",
+   "material_name": "Standard resin"
+  }
+ },
+ "creality_ender3_s1": {
+  "name": "Creality Ender-3 S1",
+  "vendor": "Creality",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 220,
+   "bed_y": 220,
+   "max_z": 270,
+   "gcode_flavor": "marlin",
+   "retract_length": 0.8
+  }
+ },
+ "creality_ender5_s1": {
+  "name": "Creality Ender-5 S1",
+  "vendor": "Creality",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 220,
+   "bed_y": 220,
+   "max_z": 280,
+   "gcode_flavor": "marlin",
+   "retract_length": 0.8,
+   "print_speed": 120,
+   "wall_speed": 90,
+   "outer_wall_speed": 60,
+   "top_bottom_speed": 80,
+   "travel_speed": 200,
+   "first_layer_speed": 30
+  }
+ },
+ "prusa_xl": {
+  "name": "Prusa XL (single tool)",
+  "vendor": "Prusa Research",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 360,
+   "bed_y": 360,
+   "max_z": 360,
+   "gcode_flavor": "prusa",
+   "retract_length": 0.7,
+   "print_speed": 120,
+   "wall_speed": 80,
+   "outer_wall_speed": 60,
+   "top_bottom_speed": 80,
+   "travel_speed": 200,
+   "first_layer_speed": 25,
+   "relative_e": true
+  }
+ },
+ "sovol_sv06": {
+  "name": "Sovol SV06",
+  "vendor": "Sovol",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 220,
+   "bed_y": 220,
+   "max_z": 250,
+   "gcode_flavor": "marlin",
+   "retract_length": 0.8
+  }
+ },
+ "qidi_xplus3": {
+  "name": "QIDI X-Plus 3",
+  "vendor": "QIDI",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 280,
+   "bed_y": 280,
+   "max_z": 270,
+   "gcode_flavor": "klipper",
+   "retract_length": 0.8,
+   "print_speed": 200,
+   "wall_speed": 150,
+   "outer_wall_speed": 100,
+   "top_bottom_speed": 120,
+   "travel_speed": 300,
+   "first_layer_speed": 50,
+   "relative_e": true
+  }
+ },
+ "elegoo_neptune4max": {
+  "name": "Elegoo Neptune 4 Max",
+  "vendor": "Elegoo",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 420,
+   "bed_y": 420,
+   "max_z": 480,
+   "gcode_flavor": "klipper",
+   "retract_length": 0.8,
+   "print_speed": 200,
+   "wall_speed": 150,
+   "outer_wall_speed": 100,
+   "top_bottom_speed": 120,
+   "travel_speed": 300,
+   "first_layer_speed": 40
+  }
+ },
+ "phrozen_sonic_cs_plus": {
+  "name": "Phrozen Sonic CS+ (dental)",
+  "vendor": "Phrozen",
+  "note": "385 nm mono LCD, 22 µm XY. Plates per manufacturer listings: Standard 165 x 71 x 175 mm, Mini 70 x 70 x 175 mm. Screen pixels derived from the 22 µm pixel size (same panel size as Sonic Mini 8K); mini plate assumed centred. Reads .prz from DS Slicer.",
+  "values": {
+   "technology": "sla",
+   "bed_x": 165.0,
+   "bed_y": 71.28,
+   "max_z": 175,
+   "resolution_x": 7500,
+   "resolution_y": 3240,
+   "sla_format": "prz",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 6,
+   "material_name": "Dental resin"
+  },
+  "plates": [
+   {
+    "name": "Standard plate",
+    "width": 165.0,
+    "depth": 71.0,
+    "offset_x": 0.0,
+    "offset_y": 0.0
+   },
+   {
+    "name": "Mini plate",
+    "width": 70.0,
+    "depth": 70.0,
+    "offset_x": 0.0,
+    "offset_y": 0.0
+   }
+  ]
+ },
+ "phrozen_lumii_2k": {
+  "name": "Phrozen Lumii 2K DLP (dental)",
+  "vendor": "Phrozen",
+  "note": "405 nm 2K DLP, 51 µm XY, standard plate 130 x 75 x 160 mm; a mini plate exists but its size is not published (add it from the plate menu). Projector pixels derived from 51 µm over 130 x 75 mm. Uses DS Slicer (.prz assumed, as for the Sonic CS+).",
+  "values": {
+   "technology": "sla",
+   "bed_x": 130.56,
+   "bed_y": 74.97,
+   "max_z": 160,
+   "resolution_x": 2560,
+   "resolution_y": 1470,
+   "sla_format": "prz",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 6,
+   "material_name": "Dental resin"
+  },
+  "plates": [
+   {
+    "name": "Standard plate",
+    "width": 130.0,
+    "depth": 74.97,
+    "offset_x": 0.0,
+    "offset_y": 0.0
+   }
+  ]
+ },
+ "asiga_max2_62": {
+  "name": "Asiga MAX 2 (62 µm)",
+  "vendor": "Asiga",
+  "note": "Asiga DLP, 385 nm. Asiga printers take builds from Asiga Composer only: export SLC here (contours incl. supports) and import it into Composer, or export 3MF/STL. Build sizes from Asiga's product pages; 62 µm native pixel (1920 x 1080).",
+  "values": {
+   "technology": "sla",
+   "sla_process": "dlp",
+   "bed_x": 119.0,
+   "bed_y": 67.0,
+   "max_z": 75,
+   "resolution_x": 1920,
+   "resolution_y": 1080,
+   "sla_format": "slc",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 4,
+   "material_name": "Asiga material"
+  }
+ },
+ "asiga_max2_50": {
+  "name": "Asiga MAX 2 (50 µm)",
+  "vendor": "Asiga",
+  "note": "Asiga DLP, 385 nm. Asiga printers take builds from Asiga Composer only: export SLC here (contours incl. supports) and import it into Composer, or export 3MF/STL. Build sizes from Asiga's product pages; 50 µm variant per reseller listings (96 x 54 mm); Z assumed as the 62 µm model.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "dlp",
+   "bed_x": 96.0,
+   "bed_y": 54.0,
+   "max_z": 75,
+   "resolution_x": 1920,
+   "resolution_y": 1080,
+   "sla_format": "slc",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 4,
+   "material_name": "Asiga material"
+  }
+ },
+ "asiga_pro4k_45": {
+  "name": "Asiga PRO 4K45",
+  "vendor": "Asiga",
+  "note": "Asiga DLP, 385 nm. Asiga printers take builds from Asiga Composer only: export SLC here (contours incl. supports) and import it into Composer, or export 3MF/STL. Build sizes from Asiga's product pages; 4K mode (pixel shifting) about 32 µm.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "dlp",
+   "bed_x": 122.0,
+   "bed_y": 69.0,
+   "max_z": 200,
+   "resolution_x": 3840,
+   "resolution_y": 2160,
+   "sla_format": "slc",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 4,
+   "material_name": "Asiga material"
+  }
+ },
+ "asiga_pro4k_65": {
+  "name": "Asiga PRO 4K65",
+  "vendor": "Asiga",
+  "note": "Asiga DLP, 385 nm. Asiga printers take builds from Asiga Composer only: export SLC here (contours incl. supports) and import it into Composer, or export 3MF/STL. Build sizes from Asiga's product pages; 4K mode (pixel shifting) about 46 µm.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "dlp",
+   "bed_x": 176.0,
+   "bed_y": 99.0,
+   "max_z": 200,
+   "resolution_x": 3840,
+   "resolution_y": 2160,
+   "sla_format": "slc",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 4,
+   "material_name": "Asiga material"
+  }
+ },
+ "asiga_pro4k_80": {
+  "name": "Asiga PRO 4K80",
+  "vendor": "Asiga",
+  "note": "Asiga DLP, 385 nm. Asiga printers take builds from Asiga Composer only: export SLC here (contours incl. supports) and import it into Composer, or export 3MF/STL. Build sizes from Asiga's product pages; 4K mode (pixel shifting) about 56 µm.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "dlp",
+   "bed_x": 217.0,
+   "bed_y": 122.0,
+   "max_z": 200,
+   "resolution_x": 3840,
+   "resolution_y": 2160,
+   "sla_format": "slc",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 4,
+   "material_name": "Asiga material"
+  }
+ },
+ "asiga_ultra_32": {
+  "name": "Asiga ULTRA 32",
+  "vendor": "Asiga",
+  "note": "Asiga DLP, 385 nm. Asiga printers take builds from Asiga Composer only: export SLC here (contours incl. supports) and import it into Composer, or export 3MF/STL. Build sizes from Asiga's product pages; 32 µm pixel; pixel count derived from build size / pixel size.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "dlp",
+   "bed_x": 119.0,
+   "bed_y": 67.0,
+   "max_z": 130,
+   "resolution_x": 3719,
+   "resolution_y": 2094,
+   "sla_format": "slc",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 4,
+   "material_name": "Asiga material"
+  }
+ },
+ "asiga_ultra_50": {
+  "name": "Asiga ULTRA 50",
+  "vendor": "Asiga",
+  "note": "Asiga DLP, 385 nm. Asiga printers take builds from Asiga Composer only: export SLC here (contours incl. supports) and import it into Composer, or export 3MF/STL. Build sizes from Asiga's product pages; 50 µm pixel; pixel count derived from build size / pixel size.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "dlp",
+   "bed_x": 189.0,
+   "bed_y": 106.0,
+   "max_z": 130,
+   "resolution_x": 3780,
+   "resolution_y": 2120,
+   "sla_format": "slc",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 4,
+   "material_name": "Asiga material"
+  }
+ },
+ "formlabs_form3_plus": {
+  "name": "Formlabs Form 3+",
+  "vendor": "Formlabs",
+  "note": "Laser SLA, 85 µm spot, 405 nm. Formlabs printers print only from PreForm: export 3MF (models and supports) and open it in PreForm, or use PreForm's own supports on an exported STL. CLI export is for open laser systems.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "laser",
+   "bed_x": 145.0,
+   "bed_y": 145.0,
+   "max_z": 185,
+   "sla_format": "3mf",
+   "sla_layer_height": 0.05,
+   "laser_spot": 0.085,
+   "material_name": "Formlabs resin"
+  }
+ },
+ "formlabs_form3l": {
+  "name": "Formlabs Form 3L",
+  "vendor": "Formlabs",
+  "note": "Laser SLA, 85 µm spot, 405 nm. Formlabs printers print only from PreForm: export 3MF (models and supports) and open it in PreForm, or use PreForm's own supports on an exported STL. CLI export is for open laser systems. Build height differs between sources (300 / 320 mm); 300 used.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "laser",
+   "bed_x": 335.0,
+   "bed_y": 200.0,
+   "max_z": 300,
+   "sla_format": "3mf",
+   "sla_layer_height": 0.05,
+   "laser_spot": 0.085,
+   "material_name": "Formlabs resin"
+  }
+ },
+ "generic_laser_sla": {
+  "name": "Generic laser SLA (CLI / SLC)",
+  "vendor": "Generic",
+  "note": "Open laser SLA machine. CLI holds contours and hatch vectors; SLC holds contours only. Set the spot, hatch spacing and scan speed of your machine.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "laser",
+   "bed_x": 250.0,
+   "bed_y": 250.0,
+   "max_z": 250,
+   "sla_format": "cli",
+   "sla_layer_height": 0.1
+  }
+ },
+ "generic_dlp": {
+  "name": "Generic DLP projector printer",
+  "vendor": "Generic",
+  "note": "DLP: layer images like LCD printers. PNG ZIP or SLC for vendor software.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "dlp",
+   "bed_x": 96.0,
+   "bed_y": 54.0,
+   "max_z": 100,
+   "resolution_x": 1920,
+   "resolution_y": 1080,
+   "sla_format": "png_zip",
+   "sla_layer_height": 0.05
+  }
+ },
+ "stratasys_objet30_pro": {
+  "name": "Stratasys Objet30 Pro",
+  "vendor": "Stratasys",
+  "note": "PolyJet printers print only from Stratasys GrabCAD Print. Here you arrange, orient and estimate (model and gel support material); export 3MF (one object per part with its material name) and open it in GrabCAD Print. Build rate is an estimate. Build size 294 x 192 x 148.6 mm, 28 µm layers (16 µm with VeroClear).",
+  "values": {
+   "technology": "sla",
+   "sla_process": "polyjet",
+   "bed_x": 294.0,
+   "bed_y": 192.0,
+   "max_z": 148.6,
+   "sla_format": "3mf",
+   "sla_layer_height": 0.028,
+   "support_enable": true
+  }
+ },
+ "stratasys_j5_dentajet": {
+  "name": "Stratasys J5 DentaJet",
+  "vendor": "Stratasys",
+  "note": "PolyJet printers print only from Stratasys GrabCAD Print. Here you arrange, orient and estimate (model and gel support material); export 3MF (one object per part with its material name) and open it in GrabCAD Print. Build rate is an estimate. Build envelope 140 x 200 x 190 mm on a rotating round tray (1,174 cm²); layers from 18 µm.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "polyjet",
+   "bed_x": 140.0,
+   "bed_y": 200.0,
+   "max_z": 190,
+   "sla_format": "3mf",
+   "sla_layer_height": 0.018,
+   "support_enable": true,
+   "pj_material": "TrueDent"
+  }
+ },
+ "stratasys_j850_da": {
+  "name": "Stratasys J850 Digital Anatomy",
+  "vendor": "Stratasys",
+  "note": "PolyJet printers print only from Stratasys GrabCAD Print. Here you arrange, orient and estimate (model and gel support material); export 3MF (one object per part with its material name) and open it in GrabCAD Print. Build rate is an estimate. Build size 490 x 390 x 200 mm; 14 µm (high quality) or 27 µm layers.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "polyjet",
+   "bed_x": 490.0,
+   "bed_y": 390.0,
+   "max_z": 200,
+   "sla_format": "3mf",
+   "sla_layer_height": 0.027,
+   "support_enable": true
+  }
+ }
 }

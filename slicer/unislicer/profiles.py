@@ -34,8 +34,15 @@ def technology_of(profile: dict) -> str:
     return profile.get("technology") or profile.get("values", {}).get("technology", "fdm")
 
 
-def for_technology(kind: str, technology: str) -> dict:
-    return {k: v for k, v in load(kind).items() if technology_of(v) == technology}
+def process_of(printer: dict) -> str:
+    """Photopolymer process of a printer profile: lcd, dlp, laser or polyjet."""
+    return printer.get("values", {}).get("sla_process", "lcd")
+
+
+def for_technology(kind: str, technology: str, process: str | None = None) -> dict:
+    """Profiles for a technology; with ``process``, only those meant for it (profiles without a list fit all)."""
+    return {k: v for k, v in load(kind).items() if technology_of(v) == technology
+            and (process is None or technology != "sla" or process in v.get("processes", [process]))}
 
 
 def display_name(profile: dict, lang: str = "en") -> str:

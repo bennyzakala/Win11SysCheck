@@ -1164,7 +1164,8 @@ class MainWindow(QMainWindow):
         self.object_list.clear()
         items = {}
         for o in self.objects:
-            label = (o.name or "object") + ("  ✂" if o.role == "cutter" else "") + ("  ⊥" if o.direct else "")
+            label = ((o.name or "object") + ("  ✂" if o.role == "cutter" else "") + ("  ⊥" if o.direct else "")
+                     + (f"  [{o.material}]" if o.material else ""))
             it = QListWidgetItem(theme.icon("cube", theme.DANGER if o.role == "cutter" else theme.TEXT_DIM, 16), label)
             it.setData(Qt.UserRole, o.uid)
             self.object_list.addItem(it)
@@ -1332,7 +1333,10 @@ class MainWindow(QMainWindow):
             menu.addAction(theme.icon("copy"), tr("duplicate") + "\tCtrl+D", self.duplicate_selected)
             menu.addAction(theme.icon("copy"), tr("multiply"), self.multiply_selected)
             menu.addAction(theme.icon("center"), tr("center"), self.center_selected)
-            if self.viewer.technology == "sla":
+            if self.viewer.technology == "sla" and self.settings.config()["sla_process"] == "polyjet":
+                menu.addSeparator()
+                menu.addAction(theme.icon("drop"), tr("material_part"), self.set_part_material)
+            elif self.viewer.technology == "sla":
                 menu.addSeparator()
                 menu.addAction(theme.icon("pillar"), tr("sup_auto"), self.generate_supports)
                 menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
@@ -1355,6 +1359,17 @@ class MainWindow(QMainWindow):
         menu.addAction(theme.icon("arrange"), tr("arrange") + "\tA", self.arrange_objects)
         menu.addAction(theme.icon("fit"), tr("view_fit"), self.viewer.fit_objects)
         menu.exec(pos)
+
+    def set_part_material(self):
+        group = self.selected_objects()
+        if not group:
+            return
+        name, ok = QInputDialog.getText(self, tr("material_part"), tr("material_part_q"), text=group[0].material)
+        if ok:
+            self._push_undo()
+            for o in group:
+                o.material = name.strip()
+            self._refresh_objects(select=[o.uid for o in group])
 
     def _set_direct(self, on: bool):
         group = self.selected_objects()
@@ -1440,7 +1455,8 @@ class MainWindow(QMainWindow):
         return cfg["sla_elevation"] + cfg["sla_raft_thickness"]
 
     def _shows_supports(self, o: SceneObject) -> bool:
-        return o.support_points is not None and self.viewer.technology == "sla" and not o.direct
+        return (o.support_points is not None and self.viewer.technology == "sla" and not o.direct
+                and self.settings.config()["sla_process"] != "polyjet")
 
     def _display_matrix(self, o: SceneObject) -> np.ndarray:
         """Where the model is drawn: raised onto its supports when it has edited supports."""
@@ -1568,7 +1584,7 @@ class MainWindow(QMainWindow):
         self._objects_changed(refresh_list=False)
 
     def _update_support_info(self):
-        sla_mode = self.viewer.technology == "sla"
+        sla_mode = self.viewer.technology == "sla" and self.settings.config()["sla_process"] != "polyjet"
         self.supports_card.setVisible(sla_mode)
         if not sla_mode:
             self._set_pick_mode(None)
@@ -1672,12 +1688,14 @@ class MainWindow(QMainWindow):
         cutters = [o.world_mesh() for o in self.objects if o.role == "cutter"]
         manual = [o.world_support_points(0.0) for o in models]
         direct = [o.direct for o in models]
+        materials = [o.material for o in models]
         holes = [o.world_drain_holes(0.0) for o in models]
         name = self.objects[0].name or "print"
 
         def work(progress, cancelled):
             if cfg["technology"] == "sla":
-                job = sla.prepare(meshes, cfg, progress, cancelled, support_points=manual, direct=direct, holes=holes, cutters=cutters)
+                job = sla.prepare(meshes, cfg, progress, cancelled, support_points=manual, direct=direct, holes=holes, cutters=cutters,
+                                  materials=materials)
                 return ("sla", job, cfg)
             plan = fdm.plan(meshes, cfg, progress, cancelled, cutters=cutters)
             progress("gcode", 0.0)
@@ -1755,7 +1773,10 @@ class MainWindow(QMainWindow):
             self._mask_cfg.values["resolution_y"] = max(1, int(round(cfg["resolution_y"] * scale)))
             self._mask_cfg.values["antialiasing"] = "1"
             self.stat_time.set(gcode.format_duration(job.time_s))
-            self.stat_material.set(f"{job.volume_ml:.1f} ml", tr("stat_resin"))
+            if job.support_layers:
+                self.stat_material.set(f"{job.volume_ml:.1f} + {job.support_ml:.1f} ml", tr("stat_model_support"))
+            else:
+                self.stat_material.set(f"{job.volume_ml:.1f} ml", tr("stat_resin"))
             self.stat_weight.set(f"{job.weight_g:.1f} g")
             self.stat_cost.set(f"₪{job.cost:.2f}")
             warnings = [tr(ENGINE_TEXT[w]) if w in ENGINE_TEXT else w for w in job.warnings]
@@ -1820,6 +1841,10 @@ class MainWindow(QMainWindow):
             job = self.result[1]
             self.viewer.set_layer_range(0, value, clip_z=z)
             img = sla.render_layer(job.layers[value], self._mask_cfg).convert("RGB")
+            if job.support_layers and value < len(job.support_layers) and not job.support_layers[value].is_empty:
+                from PIL import Image as _Image      # PolyJet gel support, drawn grey around the model
+                gel = sla.render_layer(job.support_layers[value], self._mask_cfg)
+                img = _Image.composite(_Image.new("RGB", img.size, (120, 130, 150)), img, gel)
             islands = self._islands.get(value)
             if islands:
                 from PIL import Image as _Image
@@ -2128,7 +2153,8 @@ class MainWindow(QMainWindow):
             self._ask_print_feedback()
         else:
             job, cfg = self.result[1], self.result[2]
-            ext = {"sl1": ".sl1", "ctb": ".ctb", "goo": ".goo", "prz": ".prz"}.get(cfg["sla_format"], ".zip")
+            ext = {"sl1": ".sl1", "ctb": ".ctb", "goo": ".goo", "prz": ".prz", "slc": ".slc", "cli": ".cli",
+                   "3mf": ".3mf"}.get(cfg["sla_format"], ".zip")
             path, _ = QFileDialog.getSaveFileName(self, tr("export_sla"), os.path.join(last, name + ext), f"*{ext}")
             if not path:
                 return

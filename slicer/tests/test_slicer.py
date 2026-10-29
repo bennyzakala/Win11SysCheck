@@ -568,3 +568,32 @@ def test_multi_range_layers_and_exposure():
     assert np.allclose(th[(z > 2.03) & (z <= 3.0)], 0.025) and np.allclose(th[z > 3.11], cfg["sla_layer_height"])
     assert job.exposures[5] == 20 and job.exposures[int(np.argmax(z > 2.5))] == 4
     assert z[-1] == pytest.approx(4.0)
+
+
+def test_vector_formats_and_processes(tmp_path):
+    from unislicer import sla_supports, vector_formats as vf
+    from unislicer.mesh import load_mesh
+    obj = placed(primitives.box(10, 8, 3), 60, 50)
+    # Asiga (DLP) -> SLC contours readable back, one layer per slice, outer ring counter-clockwise
+    cfg = profiles.build_config("asiga_max2_62", None, None, {"support_enable": False})
+    assert cfg["sla_process"] == "dlp" and cfg["sla_format"] == "slc"
+    job = sla.prepare([obj.world_mesh()], cfg)
+    path = sla.export(job, cfg, str(tmp_path / "part.slc"))
+    f = vf.read_slc(path)
+    assert "-SLCVER 2.0" in f["header"] and len(f["layers"]) == job.layer_count
+    ring = f["layers"][3][1][0]
+    assert sla_supports._signed_area(ring) > 0 and abs(sla_supports._signed_area(ring)) == pytest.approx(80, rel=1e-3)
+    # laser SLA -> CLI with contours and hatches, time from scan length
+    cfg = profiles.build_config("generic_laser_sla", None, None, {"support_enable": False})
+    job = sla.prepare([placed(primitives.box(10, 8, 3), 125, 125).world_mesh()], cfg)
+    text = open(sla.export(job, cfg, str(tmp_path / "part.cli"))).read()
+    assert text.count("$$LAYER/") == job.layer_count and "$$HATCHES/" in text and "$$POLYLINE/1,1," in text
+    assert job.time_s > job.layer_count * cfg["laser_recoat_time"]
+    # PolyJet -> gel support under an overhang, 3MF with per-part material
+    cfg = profiles.build_config("stratasys_objet30_pro", "pj_verowhite", "pj_high_speed", {"pj_finish": "glossy"})
+    bridge = placed(primitives.demo_bridge(), 140, 90).world_mesh()
+    job = sla.prepare([bridge], cfg, materials=["VeroClear"])
+    assert job.support_ml > 0 and job.supports is None and job.layer_thickness[0] == pytest.approx(0.028)
+    path = sla.export(job, cfg, str(tmp_path / "plate.3mf"))
+    assert len(load_mesh(path)) == 1
+    assert "VeroClear" in zipfile.ZipFile(path).read("3D/3dmodel.model").decode()

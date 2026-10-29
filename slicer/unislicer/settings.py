@@ -37,6 +37,8 @@ CATEGORIES = [
     ("adhesion", "הידבקות למשטח", "Bed adhesion", "anchor"),
     ("hollow", "חלילה וחורי ניקוז", "Hollowing & drain holes", "drop"),
     ("exposure", "חשיפה ותנועה", "Exposure & motion", "sun"),
+    ("laser", "סריקת לייזר (SLA)", "Laser scanning (SLA)", "sun"),
+    ("jetting", "הזרקה (PolyJet)", "Jetting (PolyJet)", "drop"),
     ("gcode", "G-code", "G-code", "code"),
 ]
 
@@ -60,7 +62,13 @@ S = Setting
 SCHEMA: list[Setting] = [
     # ---------------------------------------------------------------- printer
     S("technology", "enum", "fdm", "printer", "both", "טכנולוגיה", "Technology",
-      options=(("fdm", "FDM (פילמנט)", "FDM (filament)"), ("sla", "SLA / MSLA (שרף)", "SLA / MSLA (resin)"))),
+      options=(("fdm", "FDM (פילמנט)", "FDM (filament)"),
+               ("sla", "פוטופולימר: SLA / DLP / LCD / PolyJet", "Photopolymer: SLA / DLP / LCD / PolyJet"))),
+    S("sla_process", "enum", "lcd", "printer", "sla", "תהליך הדפסה", "Print process",
+      options=(("lcd", "LCD / MSLA (מסך)", "LCD / MSLA (masked screen)"), ("dlp", "DLP (מקרן)", "DLP (projector)"),
+               ("laser", "SLA (לייזר)", "SLA (laser)"), ("polyjet", "PolyJet (הזרקת חומר)", "PolyJet (material jetting)")),
+      tip_he="LCD ו-DLP מאירים שכבה שלמה בבת אחת; SLA סורק בלייזר; PolyJet מזריק טיפות ומקשה ב-UV עם חומר תמיכה ג'ל",
+      tip_en="LCD and DLP cure a whole layer at once; SLA scans it with a laser; PolyJet jets droplets and UV-cures them, with gel support"),
     S("bed_x", "float", 220.0, "printer", "both", "רוחב משטח (X)", "Bed width (X)", "mm", 10, 2000, 1),
     S("bed_y", "float", 220.0, "printer", "both", "עומק משטח (Y)", "Bed depth (Y)", "mm", 10, 2000, 1),
     S("max_z", "float", 250.0, "printer", "both", "גובה הדפסה מרבי", "Max build height", "mm", 10, 2000, 1),
@@ -85,7 +93,10 @@ SCHEMA: list[Setting] = [
     S("sla_format", "enum", "sl1", "printer", "sla", "פורמט קובץ פלט", "Output format",
       options=(("ctb", "CTB (Chitubox v4)", "CTB (Chitubox v4)"), ("goo", "GOO (Elegoo)", "GOO (Elegoo)"),
                ("prz", "PRZ (Phrozen Sonic Mini 8K S)", "PRZ (Phrozen Sonic Mini 8K S)"), ("sl1", "SL1 (Prusa / UVtools)", "SL1 (Prusa / UVtools)"),
-               ("png_zip", "ZIP של תמונות PNG", "ZIP of PNG images"))),
+               ("png_zip", "ZIP של תמונות PNG", "ZIP of PNG images"),
+               ("slc", "SLC (קווי מתאר: Asiga Composer, SLA תעשייתי)", "SLC (contours: Asiga Composer, industrial SLA)"),
+               ("cli", "CLI (קווי מתאר וקווי סריקה ללייזר)", "CLI (contours and hatches for laser SLA)"),
+               ("3mf", "3MF (GrabCAD Print / PreForm / תוכנת היצרן)", "3MF (GrabCAD Print / PreForm / vendor software)"))),
 
     # ---------------------------------------------------------------- quality
     S("layer_height", "float", 0.2, "quality", "fdm", "גובה שכבה", "Layer height", "mm", 0.04, 1.2, 0.02),
@@ -275,6 +286,32 @@ SCHEMA: list[Setting] = [
     S("light_off_delay", "float", 1.0, "exposure", "sla", "השהיית כיבוי (מצב ישן)", "Light-off delay (legacy)", "s", 0, 60, 0.5,
       tip_he="זמן כולל של הרמה, המתנה וחזרה; בשימוש רק במצב המתנה ישן", tip_en="Total time of lift, wait and retract; used only in the legacy waiting mode"),
     S("bottom_light_off_delay", "float", 1.0, "exposure", "sla", "השהיית כיבוי בשכבות תחתונות", "Bottom light-off delay", "s", 0, 60, 0.5, advanced=True),
+    # laser SLA
+    S("laser_spot", "float", 0.085, "laser", "sla", "קוטר נקודת הלייזר", "Laser spot diameter", "mm", 0.01, 1, 0.005,
+      tip_he="קווי המתאר מוזזים פנימה בחצי קוטר (פיצוי קרן)", tip_en="Contours are offset inward by half of it (beam compensation)"),
+    S("laser_contours", "int", 1, "laser", "sla", "מספר קווי מתאר", "Contour passes", "", 0, 5, 1),
+    S("laser_hatch_spacing", "float", 0.1, "laser", "sla", "מרווח קווי סריקה", "Hatch spacing", "mm", 0.01, 2, 0.01),
+    S("laser_hatch_angle", "float", 45.0, "laser", "sla", "זווית סריקה", "Hatch angle", "°", 0, 180, 1),
+    S("laser_hatch_rotation", "float", 90.0, "laser", "sla", "סיבוב הסריקה בכל שכבה", "Hatch rotation per layer", "°", 0, 180, 1),
+    S("laser_scan_speed", "float", 3000.0, "laser", "sla", "מהירות סריקה", "Scan speed", "mm/s", 10, 20000, 50,
+      tip_he="משמשת להערכת זמן ההדפסה", tip_en="Used for the print time estimate"),
+    S("laser_recoat_time", "float", 6.0, "laser", "sla", "זמן קילוף/ציפוי לשכבה", "Peel / recoat time per layer", "s", 0, 120, 0.5),
+
+    # PolyJet
+    S("pj_mode", "enum", "high_quality", "jetting", "sla", "מצב הדפסה", "Print mode",
+      options=(("high_quality", "איכות גבוהה", "High quality"), ("high_speed", "מהירות גבוהה", "High speed"),
+               ("high_mix", "ריבוי חומרים", "High mix"))),
+    S("pj_finish", "enum", "matte", "jetting", "sla", "גימור פני שטח", "Surface finish",
+      options=(("matte", "מט (מצופה בתמיכה)", "Matte (coated in support)"), ("glossy", "מבריק (תמיכה רק היכן שצריך)", "Glossy (support only where needed)"))),
+    S("pj_material", "text", "VeroWhite", "jetting", "sla", "חומר ברירת מחדל", "Default model material",
+      tip_he="שם החומר לחלקים שלא הוקצה להם חומר (קליק ימני על מודל: חומר)", tip_en="Material for parts without their own (right-click a model: Material)"),
+    S("pj_support_material", "text", "SUP706", "jetting", "sla", "חומר תמיכה", "Support material"),
+    S("pj_coat", "float", 0.1, "jetting", "sla", "עובי ציפוי תמיכה במצב מט", "Matte support coating", "mm", 0, 1, 0.05, advanced=True),
+    S("pj_build_speed", "float", 12.0, "jetting", "sla", "קצב בנייה אנכי (הערכה)", "Vertical build rate (estimate)", "mm/h", 1, 100, 0.5,
+      tip_he="להערכת זמן ההדפסה בלבד; הזמן המדויק מחושב ב-GrabCAD Print", tip_en="For the time estimate only; GrabCAD Print computes the exact time"),
+    S("pj_model_cost", "float", 300.0, "jetting", "sla", "מחיר חומר מודל", "Model material price", "/kg", 0, 10000, 5),
+    S("pj_support_cost", "float", 120.0, "jetting", "sla", "מחיר חומר תמיכה", "Support material price", "/kg", 0, 10000, 5),
+
     S("tsmc_enable", "bool", False, "exposure", "sla", "תנועה דו-שלבית (TSMC)", "Two-stage motion (TSMC)",
       tip_he="הרמה איטית בהתחלה ואז מהירה, וחזרה מהירה ואז איטית ליד המיכל", tip_en="Slow then fast lift; fast then slow retract near the vat"),
     S("lift_height_2", "float", 4.0, "exposure", "sla", "גובה הרמה שלב 2", "Lift height, stage 2", "mm", 0, 30, 0.5, advanced=True),
@@ -296,6 +333,32 @@ SUPPORT_PRESETS = {
     "medium": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 3.0},
     "heavy": {"sla_tip_diameter": 0.8, "sla_pillar_diameter": 1.8, "sla_support_spacing": 2.5},
 }
+
+
+# which settings each photopolymer process uses: hidden categories and keys per process
+PROCESS_HIDES = {
+    "lcd": {"categories": {"laser", "jetting"}, "keys": set()},
+    "dlp": {"categories": {"laser", "jetting"}, "keys": set()},
+    "laser": {"categories": {"jetting"},
+              "keys": {"exposure_time", "bottom_exposure_time", "light_pwm", "light_pwm_bottom", "antialiasing", "image_blur",
+                       "transition_layers", "light_off_delay", "bottom_light_off_delay", "resolution_x", "resolution_y"}},
+    "polyjet": {"categories": {"laser", "exposure", "hollow"},
+                "keys": {"resolution_x", "resolution_y", "antialiasing", "image_blur", "mirror_x", "mirror_y",
+                         "sla_adaptive", "sla_layer_min", "sla_layer_max", "sla_adaptive_error", "sla_z_ranges"}},
+}
+POLYJET_SUPPORT_KEYS = {"support_enable"}     # gel support is automatic; the resin support settings don't apply
+
+
+def applies_to_process(setting: Setting, process: str) -> bool:
+    """False if a photopolymer setting is irrelevant for ``process`` (e.g. exposure time for PolyJet)."""
+    if setting.tech != "sla" and setting.category not in ("laser", "jetting"):
+        return True
+    hide = PROCESS_HIDES.get(process)
+    if hide is None:
+        return True
+    if process == "polyjet" and setting.category == "support":
+        return setting.key in POLYJET_SUPPORT_KEYS
+    return setting.category not in hide["categories"] and setting.key not in hide["keys"]
 
 
 def defaults() -> dict[str, Any]:

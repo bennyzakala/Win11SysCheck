@@ -104,7 +104,12 @@
    "resin_density": 1.1,
    "material_name": "Standard resin",
    "resin_cost": 150
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "resin_abs_like": {
   "name": "ABS-like resin",
@@ -121,7 +126,12 @@
    "resin_density": 1.12,
    "material_name": "ABS-like resin",
    "resin_cost": 170
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "resin_water_washable": {
   "name": "Water washable resin",
@@ -138,7 +148,12 @@
    "resin_density": 1.1,
    "material_name": "Water washable resin",
    "resin_cost": 170
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "resin_plant_based": {
   "name": "Plant-based resin",
@@ -155,7 +170,12 @@
    "resin_density": 1.1,
    "material_name": "Plant-based resin",
    "resin_cost": 180
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "resin_high_detail": {
   "name": "High-detail 8K resin",
@@ -172,7 +192,12 @@
    "resin_density": 1.1,
    "material_name": "High-detail 8K resin",
    "resin_cost": 190
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "resin_tough": {
   "name": "Tough / engineering resin",
@@ -190,7 +215,12 @@
    "resin_density": 1.15,
    "material_name": "Tough / engineering resin",
    "resin_cost": 250
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "resin_flexible": {
   "name": "Flexible resin",
@@ -209,7 +239,12 @@
    "material_name": "Flexible resin",
    "resin_cost": 300,
    "rest_after_retract": 1.5
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "resin_high_temp": {
   "name": "High-temperature resin",
@@ -226,7 +261,12 @@
    "resin_density": 1.15,
    "material_name": "High-temperature resin",
    "resin_cost": 350
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "resin_castable": {
   "name": "Castable (jewelry) resin",
@@ -243,7 +283,12 @@
    "resin_density": 1.1,
    "material_name": "Castable (jewelry) resin",
    "resin_cost": 450
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "resin_clear": {
   "name": "Clear resin",
@@ -260,7 +305,12 @@
    "resin_density": 1.1,
    "material_name": "Clear resin",
    "resin_cost": 180
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "elegoo_standard": {
   "name": "Standard Photopolymer",
@@ -277,7 +327,12 @@
    "resin_density": 1.1,
    "material_name": "Elegoo Standard Photopolymer",
    "resin_cost": 140
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "elegoo_abs_like": {
   "name": "ABS-Like 2.0",
@@ -294,7 +349,12 @@
    "resin_density": 1.12,
    "material_name": "Elegoo ABS-Like 2.0",
    "resin_cost": 160
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "elegoo_water_washable": {
   "name": "Water Washable",
@@ -311,7 +371,12 @@
    "resin_density": 1.1,
    "material_name": "Elegoo Water Washable",
    "resin_cost": 160
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "elegoo_plant_based": {
   "name": "Plant-Based",
@@ -328,7 +393,12 @@
    "resin_density": 1.1,
    "material_name": "Elegoo Plant-Based",
    "resin_cost": 170
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "elegoo_8k_standard": {
   "name": "8K Standard",
@@ -345,7 +415,12 @@
    "resin_density": 1.1,
    "material_name": "Elegoo 8K Standard",
    "resin_cost": 170
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "anycubic_standard": {
   "name": "Standard",
@@ -362,7 +437,12 @@
    "resin_density": 1.1,
    "material_name": "Anycubic Standard",
    "resin_cost": 140
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "anycubic_abs_like_plus": {
   "name": "ABS-Like+",
@@ -379,7 +459,12 @@
    "resin_density": 1.12,
    "material_name": "Anycubic ABS-Like+",
    "resin_cost": 170
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "anycubic_water_wash_plus": {
   "name": "Water-Wash+",
@@ -396,7 +481,12 @@
    "resin_density": 1.1,
    "material_name": "Anycubic Water-Wash+",
    "resin_cost": 170
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "anycubic_plant_based": {
   "name": "Plant-based",
@@ -413,7 +503,12 @@
    "resin_density": 1.1,
    "material_name": "Anycubic Plant-based",
    "resin_cost": 170
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "siraya_fast": {
   "name": "Fast",
@@ -430,7 +525,12 @@
    "resin_density": 1.1,
    "material_name": "Siraya Tech Fast",
    "resin_cost": 190
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "siraya_fast_abs_like": {
   "name": "Fast ABS-like",
@@ -447,7 +547,12 @@
    "resin_density": 1.1,
    "material_name": "Siraya Tech Fast ABS-like",
    "resin_cost": 200
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "siraya_blu": {
   "name": "Blu (tough)",
@@ -465,7 +570,12 @@
    "resin_density": 1.15,
    "material_name": "Siraya Tech Blu (tough)",
    "resin_cost": 280
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "siraya_build": {
   "name": "Build",
@@ -482,7 +592,12 @@
    "resin_density": 1.12,
    "material_name": "Siraya Tech Build",
    "resin_cost": 200
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "siraya_tenacious": {
   "name": "Tenacious (flexible)",
@@ -501,7 +616,12 @@
    "material_name": "Siraya Tech Tenacious (flexible)",
    "resin_cost": 300,
    "rest_after_retract": 1.5
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "phrozen_aqua_gray_8k": {
   "name": "Aqua-Gray 8K",
@@ -518,7 +638,12 @@
    "resin_density": 1.1,
    "material_name": "Phrozen Aqua-Gray 8K",
    "resin_cost": 190
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "phrozen_aqua_4k": {
   "name": "Aqua 4K",
@@ -535,7 +660,12 @@
    "resin_density": 1.1,
    "material_name": "Phrozen Aqua 4K",
    "resin_cost": 170
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "phrozen_water_washable": {
   "name": "Water-Washable",
@@ -552,7 +682,12 @@
    "resin_density": 1.1,
    "material_name": "Phrozen Water-Washable",
    "resin_cost": 180
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "phrozen_tr250lv": {
   "name": "TR250LV (high temp)",
@@ -569,7 +704,12 @@
    "resin_density": 1.15,
    "material_name": "Phrozen TR250LV (high temp)",
    "resin_cost": 350
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "phrozen_onyx_rigid": {
   "name": "Onyx Rigid Pro410",
@@ -587,7 +727,12 @@
    "resin_density": 1.15,
    "material_name": "Phrozen Onyx Rigid Pro410",
    "resin_cost": 380
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "sunlu_standard": {
   "name": "Standard",
@@ -604,7 +749,12 @@
    "resin_density": 1.1,
    "material_name": "Sunlu Standard",
    "resin_cost": 130
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "sunlu_abs_like": {
   "name": "ABS-like",
@@ -621,7 +771,12 @@
    "resin_density": 1.12,
    "material_name": "Sunlu ABS-like",
    "resin_cost": 150
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "sunlu_water_washable": {
   "name": "Water washable",
@@ -638,7 +793,12 @@
    "resin_density": 1.1,
    "material_name": "Sunlu Water washable",
    "resin_cost": 150
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "sunlu_plant_based": {
   "name": "Plant-based",
@@ -655,7 +815,12 @@
    "resin_density": 1.1,
    "material_name": "Sunlu Plant-based",
    "resin_cost": 160
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "prusament_tough": {
   "name": "Prusament Resin Tough",
@@ -673,7 +838,12 @@
    "resin_density": 1.15,
    "material_name": "Prusa Research Prusament Resin Tough",
    "resin_cost": 260
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "prusament_model": {
   "name": "Prusament Resin Model",
@@ -690,7 +860,12 @@
    "resin_density": 1.1,
    "material_name": "Prusa Research Prusament Resin Model",
    "resin_cost": 220
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "liqcreate_strong_x": {
   "name": "Strong-X",
@@ -708,7 +883,12 @@
    "resin_density": 1.15,
    "material_name": "Liqcreate Strong-X",
    "resin_cost": 400
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "liqcreate_premium_flex": {
   "name": "Premium Flex",
@@ -727,7 +907,12 @@
    "material_name": "Liqcreate Premium Flex",
    "resin_cost": 450,
    "rest_after_retract": 1.5
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "phrozen_dental_lumii": {
   "name": "Dental resin – Lumii starting values",
@@ -748,7 +933,12 @@
    "retract_speed": 150,
    "resin_density": 1.12,
    "resin_cost": 600
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "dental_model": {
   "name": "Dental model resin",
@@ -770,7 +960,12 @@
    "retract_speed": 150,
    "resin_density": 1.12,
    "resin_cost": 600
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "dental_crown_bridge": {
   "name": "Crown & bridge (temporary)",
@@ -792,7 +987,12 @@
    "retract_speed": 150,
    "resin_density": 1.12,
    "resin_cost": 600
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "dental_surgical_guide": {
   "name": "Surgical guide resin",
@@ -814,7 +1014,12 @@
    "retract_speed": 150,
    "resin_density": 1.12,
    "resin_cost": 600
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "dental_splint": {
   "name": "Splint / night guard (clear)",
@@ -836,7 +1041,12 @@
    "retract_speed": 150,
    "resin_density": 1.12,
    "resin_cost": 600
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "dental_denture_base": {
   "name": "Denture base resin",
@@ -858,7 +1068,12 @@
    "retract_speed": 150,
    "resin_density": 1.12,
    "resin_cost": 600
-  }
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
  },
  "dental_gingiva": {
   "name": "Gingiva mask (flexible)",
@@ -880,6 +1095,118 @@
    "retract_speed": 150,
    "resin_density": 1.12,
    "resin_cost": 600
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
+ },
+ "dlp385_generic": {
+  "name": "DLP 385 nm resin (starting point)",
+  "vendor": "Generic",
+  "technology": "sla",
+  "processes": [
+   "dlp"
+  ],
+  "family": "standard",
+  "printers": [
+   "asiga_max2_62",
+   "asiga_max2_50",
+   "asiga_pro4k_45",
+   "asiga_pro4k_65",
+   "asiga_pro4k_80",
+   "asiga_ultra_32",
+   "asiga_ultra_50",
+   "generic_dlp"
+  ],
+  "note": "Starting values only; calibrate with an exposure test. Asiga Composer uses its own material file when printing. Motion values follow published Asiga examples (separation 8 mm at 2.5 mm/s, approach 4.95 mm/s).",
+  "values": {
+   "exposure_time": 2.0,
+   "bottom_exposure_time": 60,
+   "bottom_layers": 4,
+   "lift_height": 8,
+   "lift_speed": 150,
+   "retract_speed": 297,
+   "resin_density": 1.1,
+   "material_name": "DLP 385 nm resin",
+   "resin_cost": 250
   }
+ },
+ "pj_verowhite": {
+  "name": "VeroWhite (PolyJet)",
+  "vendor": "Stratasys",
+  "technology": "sla",
+  "processes": [
+   "polyjet"
+  ],
+  "note": "Density approximate; used for weight and cost estimates. ",
+  "values": {
+   "pj_material": "VeroWhite",
+   "material_name": "VeroWhite",
+   "resin_density": 1.17
+  }
+ },
+ "pj_veroclear": {
+  "name": "VeroClear (PolyJet)",
+  "vendor": "Stratasys",
+  "technology": "sla",
+  "processes": [
+   "polyjet"
+  ],
+  "note": "Density approximate; used for weight and cost estimates. ",
+  "values": {
+   "pj_material": "VeroClear",
+   "material_name": "VeroClear",
+   "resin_density": 1.18
+  }
+ },
+ "pj_agilus30": {
+  "name": "Agilus30 (PolyJet, rubber-like)",
+  "vendor": "Stratasys",
+  "technology": "sla",
+  "processes": [
+   "polyjet"
+  ],
+  "note": "Density approximate; used for weight and cost estimates. ",
+  "values": {
+   "pj_material": "Agilus30",
+   "material_name": "Agilus30",
+   "resin_density": 1.15
+  }
+ },
+ "pj_truedent": {
+  "name": "TrueDent (PolyJet dental)",
+  "vendor": "Stratasys",
+  "technology": "sla",
+  "processes": [
+   "polyjet"
+  ],
+  "note": "Density approximate; used for weight and cost estimates. Dental material for the J5 DentaJet.",
+  "values": {
+   "pj_material": "TrueDent",
+   "material_name": "TrueDent",
+   "resin_density": 1.18
+  },
+  "printers": [
+   "stratasys_j5_dentajet"
+  ]
+ },
+ "pj_veroglaze": {
+  "name": "VeroGlaze (PolyJet dental)",
+  "vendor": "Stratasys",
+  "technology": "sla",
+  "processes": [
+   "polyjet"
+  ],
+  "note": "Density approximate; used for weight and cost estimates. ",
+  "values": {
+   "pj_material": "VeroGlaze",
+   "material_name": "VeroGlaze",
+   "resin_density": 1.18
+  },
+  "printers": [
+   "stratasys_j5_dentajet"
+  ]
  }
 }

@@ -41,6 +41,9 @@ class SlaJob:
     layer_z: list[float] = field(default_factory=list)          # top of each layer
     layer_thickness: list[float] = field(default_factory=list)
     exposures: list[float] = field(default_factory=list)
+    support_layers: list = field(default_factory=list)          # PolyJet gel support per layer
+    support_ml: float = 0.0
+    part_materials: list = field(default_factory=list)          # PolyJet material name per model ("" = default)
 
     @property
     def layer_count(self) -> int:
@@ -426,7 +429,8 @@ def find_thin(layers: list[MultiPolygon], min_width: float = 0.3, min_area: floa
 def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
             support_points: list[np.ndarray | None] | None = None, direct: list[bool] | None = None,
-            holes: list[np.ndarray | None] | None = None, cutters: list[Mesh] | None = None) -> SlaJob:
+            holes: list[np.ndarray | None] | None = None, cutters: list[Mesh] | None = None,
+            materials: list[str] | None = None) -> SlaJob:
     """Slice resin models. ``support_points[i]`` holds manual contact points for ``meshes[i]``
     (same coordinates, before elevation), or None to place supports automatically."""
     def report(stage, f):
@@ -439,10 +443,12 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         raise ValueError("Nothing to slice")
     warnings = [f"'{m.name}' is not watertight; check the layer preview." for m in meshes if not m.is_watertight()]
     models = [_shrink_compensate(m, cfg) for m in meshes]
-    lift = cfg["sla_elevation"] + cfg["sla_raft_thickness"]
+    process = cfg["sla_process"]
+    jetting = process == "polyjet"
+    lift = 0.0 if jetting else cfg["sla_elevation"] + cfg["sla_raft_thickness"]
     supports = None
     points = []
-    if cfg["support_enable"]:
+    if cfg["support_enable"] and not jetting:     # PolyJet support is gel filling, computed per layer below
         # models marked "direct" stay on the plate without supports (e.g. flat-based dental models)
         on_plate = [bool(direct and i < len(direct) and direct[i]) for i in range(len(models))]
         models = [m if on_plate[i] else m.translated([0, 0, lift]) for i, m in enumerate(models)]
@@ -478,14 +484,14 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         layers = [as_multipolygon(g.buffer(cfg["xy_compensation"], join_style="mitre", mitre_limit=3))
                   if not g.is_empty else g for g in layers]
     saved = 0.0
-    if cfg["hollow_enable"]:
+    if cfg["hollow_enable"] and not jetting:
         report("hollow", 0.0)
         layers, saved, notes = hollow(layers, lh, cfg)
         warnings += notes
-    lifted = lift if cfg["support_enable"] else 0.0
+    lifted = lift if cfg["support_enable"] and not jetting else 0.0
     hole_tubes = []
     for i, group in enumerate(holes or []):
-        flat = cfg["support_enable"] and direct and i < len(direct) and direct[i]
+        flat = jetting or (cfg["support_enable"] and direct and i < len(direct) and direct[i])
         hole_tubes += hole_meshes([group], cfg, 0.0 if flat else lifted)
     cutter_meshes = hole_tubes + [c.translated([0, 0, lifted]) for c in (cutters or [])]
     if cutter_meshes:
@@ -503,6 +509,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             if not layers[i].is_empty:
                 layers[i] = as_multipolygon(layers[i].buffer(-foot, join_style="mitre", mitre_limit=3))
     job = SlaJob(layers, lh, models, supports, points, warnings=warnings)
+    job.part_materials = list(materials or [])
     job.layer_z = [z for z, _ in stack]
     job.layer_thickness = [h for _, h in stack]
     # thicker layers need more light: scale exposure with thickness (linear approximation)
@@ -513,15 +520,45 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         job.exposures.append(fixed if fixed else layer_exposure(i, cfg) * (min(1.8, max(0.5, h / lh)) if varied else 1.0))
     if (varied or any(r[3] for r in ranges)) and cfg["sla_format"] in ("sl1", "png_zip"):
         job.warnings.append(UNIFORM_FORMAT_NOTE)
-    job.islands = find_islands(layers)
-    job.cups = find_cups(layers)
     job.thin_layers = thin
     job.volume_ml = sum(g.area * h for g, h in zip(layers, job.layer_thickness)) / 1000.0
     job.saved_ml = saved
     job.weight_g = job.volume_ml * cfg["resin_density"]
     job.cost = job.volume_ml / 1000.0 * cfg["resin_cost"]
-    job.time_s = print_time(n, cfg, job.exposures)
+    if jetting:
+        report("support", 0.0)
+        job.support_layers = polyjet_support(layers, cfg) if cfg["support_enable"] or cfg["pj_finish"] == "matte" else []
+        job.support_ml = sum(g.area * h for g, h in zip(job.support_layers, job.layer_thickness)) / 1000.0
+        job.weight_g = job.volume_ml * cfg["resin_density"] + job.support_ml * 1.1
+        job.cost = (job.volume_ml * cfg["resin_density"] * cfg["pj_model_cost"] + job.support_ml * 1.1 * cfg["pj_support_cost"]) / 1000.0
+        job.time_s = top / max(cfg["pj_build_speed"], 0.1) * 3600.0
+        return job        # no peel, so no suction cups or unsupported islands
+    job.islands = find_islands(layers)
+    job.cups = find_cups(layers)
+    if process == "laser":
+        from .vector_formats import scan_length
+        job.time_s = sum(scan_length(g, cfg) / max(cfg["laser_scan_speed"], 1.0) + cfg["laser_recoat_time"]
+                         + layer_motion_time(i, cfg) for i, g in enumerate(layers))
+    else:
+        job.time_s = print_time(n, cfg, job.exposures)
     return job
+
+
+def polyjet_support(layers: list[MultiPolygon], cfg: Config) -> list[MultiPolygon]:
+    """Gel support per layer: everything under the model's overhangs, down to the tray (it fills, it is
+    not a structure). Matte finish also coats every surface with a thin support layer."""
+    out = [EMPTY] * len(layers)
+    above = EMPTY
+    coat = cfg["pj_coat"] if cfg["pj_finish"] == "matte" else 0.0
+    for i in range(len(layers) - 1, -1, -1):
+        g = layers[i]
+        sup = above.difference(g) if not above.is_empty else EMPTY
+        if coat > 0 and not g.is_empty:
+            sup = shapely.union_all([sup, g.buffer(coat, quad_segs=2).difference(g)])
+        out[i] = as_multipolygon(sup)
+        if not g.is_empty:
+            above = shapely.union_all([above, g]).simplify(0.02)
+    return out
 
 
 def render_layer(geom: MultiPolygon, cfg: Config) -> Image.Image:
@@ -605,6 +642,8 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
     bottom = min(int(cfg["bottom_layers"]), n)
     from . import parallel
 
+    if fmt in ("slc", "cli", "3mf"):
+        return _export_vector(job, cfg, path, fmt, progress)
     ranges = parallel.chunk_ranges(n, 8, parallel.workers() * 4)
     args = [(job.layers[a:b], cfg.values) for a, b in ranges]
     if fmt in ("ctb", "goo", "prz"):
@@ -652,6 +691,24 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
             }
             zf.writestr("metadata.json", json.dumps(meta, indent=2, ensure_ascii=False))
     return path
+
+
+def _export_vector(job: SlaJob, cfg: Config, path: str, fmt: str, progress) -> str:
+    from . import vector_formats as vf
+    meshes = list(job.models) + ([job.supports] if job.supports is not None and len(job.supports.faces) else [])
+    lo = np.min([m.bounds[0] for m in meshes], axis=0)
+    hi = np.max([m.bounds[1] for m in meshes], axis=0)
+    extents = (tuple(lo), tuple(hi))
+    if fmt == "slc":
+        return vf.write_slc(path, job.layers, job.layer_z, job.layer_thickness, extents, progress=progress)
+    if fmt == "cli":
+        return vf.write_cli(path, job.layers, job.layer_z, cfg, extents, progress=progress)
+    default = cfg["pj_material"] if cfg["sla_process"] == "polyjet" else cfg["material_name"]
+    parts = [(m.name or f"part {k + 1}", m, (job.part_materials[k] if k < len(job.part_materials) and job.part_materials[k]
+                                              else default)) for k, m in enumerate(job.models)]
+    if job.supports is not None and len(job.supports.faces):
+        parts.append(("Supports", job.supports, default))
+    return vf.write_3mf(path, parts)
 
 
 def _sl1_config(job: SlaJob, cfg: Config, safe: str, bottom: int) -> str:
