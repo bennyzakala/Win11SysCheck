@@ -12,7 +12,7 @@ from typing import Callable
 import numpy as np
 import shapely
 from PIL import Image, ImageDraw, ImageFilter
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
 
 from . import __version__
 from .mesh import Mesh
@@ -29,6 +29,8 @@ class SlaJob:
     supports: Mesh | None
     support_points: list[np.ndarray] = field(default_factory=list)
     islands: list[tuple[int, object]] = field(default_factory=list)   # (layer index, polygon)
+    cups: list[tuple[int, float]] = field(default_factory=list)       # (layer index, sealed area mm2)
+    thin_layers: list[int] = field(default_factory=list)
     volume_ml: float = 0.0
     saved_ml: float = 0.0              # resin saved by hollowing
     time_s: float = 0.0
@@ -190,6 +192,51 @@ def _shrink_compensate(mesh: Mesh, cfg: Config) -> Mesh:
     return out
 
 
+# ------------------------------------------------------------ validation
+def find_cups(layers: list[MultiPolygon], min_area: float = 10.0) -> list[tuple[int, float]]:
+    """Suction cups: empty space enclosed by walls and sealed on the build-plate side.
+
+    Each peel pulls a vacuum in such a cavity. Returns (layer, area mm2) for layers where one is open
+    towards the vat. A drain hole through a wall or the floor breaks the seal and clears the warning."""
+    out = []
+    sealed = EMPTY
+    for i, g in enumerate(layers):
+        holes = [Polygon(h) for p in polygons_of(g) for h in p.interiors]
+        if not holes:
+            sealed = EMPTY
+            continue
+        space = shapely.union_all(holes).difference(g)
+        below = layers[i - 1] if i else EMPTY
+        floor = shapely.union_all([below, sealed]) if not sealed.is_empty else below
+        # a cavity is sealed only if all of it sits on solid or on a cavity that is itself sealed;
+        # any opening (e.g. a drain hole) vents the whole cavity
+        keep = [c for c in polygons_of(space) if not floor.is_empty and c.difference(floor).area < 0.01 * c.area + 1e-6]
+        sealed = as_multipolygon(shapely.union_all(keep)) if keep else EMPTY
+        area = sealed.area
+        if area >= min_area:
+            out.append((i, area))
+    return out
+
+
+def find_thin(layers: list[MultiPolygon], min_width: float = 0.3, min_area: float = 0.05,
+              layer_height: float = 0.05, persist: float = 0.5) -> list[int]:
+    """Layers with model features narrower than ``min_width`` (likely to break or not form).
+
+    Only regions that stay thin through ``persist`` mm of height count (a real thin wall or fin), so the
+    small slivers at the tips of tilted parts are not reported."""
+    r = min_width / 2
+    thin = []
+    for g in layers:
+        if g.is_empty:
+            thin.append(EMPTY)
+            continue
+        opened = g.buffer(-r).buffer(r).buffer(0.01)
+        thin.append(as_multipolygon(g.difference(opened)))
+    k = max(1, int(round(persist / layer_height / 2)))
+    lasting = _window_intersection(thin, k)
+    return [i for i, t in enumerate(lasting) if t.area > min_area]
+
+
 # ----------------------------------------------------------------- prepare
 def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
@@ -237,6 +284,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         report("hollow", 0.0)
         layers, saved, notes = hollow(layers, lh, cfg)
         warnings += notes
+    thin = find_thin(layers, layer_height=lh)
     if support_meshes:
         sup_layers = slice_meshes(support_meshes, planes, cfg["resolution"],
                                   progress=lambda f: report("slice", split + f * (1 - split)), cancelled=cancelled)
@@ -248,10 +296,8 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
                 layers[i] = as_multipolygon(layers[i].buffer(-foot, join_style="mitre", mitre_limit=3))
     job = SlaJob(layers, lh, models, supports, points, warnings=warnings)
     job.islands = find_islands(layers)
-    if job.islands:
-        first = ", ".join(str(i + 1) for i in job.island_layers[:8])
-        job.warnings.append(f"{len(job.islands)} unsupported island(s) start in mid-air (layers {first}"
-                            f"{'…' if len(job.island_layers) > 8 else ''}). Add supports there.")
+    job.cups = find_cups(layers)
+    job.thin_layers = thin
     area = sum(g.area for g in layers)
     job.volume_ml = area * lh / 1000.0
     job.saved_ml = saved

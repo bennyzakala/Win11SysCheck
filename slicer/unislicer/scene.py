@@ -103,6 +103,16 @@ class SceneObject:
         self.rotation, self.scale, self.base_rotation, self.mirror = rot.copy(), scale.copy(), base.copy(), mirror.copy()
         self.support_points = None if sp is None else sp.copy()
 
+    def apply_world_rotation(self, rot: np.ndarray) -> None:
+        """Turn the object by ``rot`` (in bed coordinates), keeping its other settings."""
+        e = euler_matrix(*self.rotation)
+        self.base_rotation = e.T @ rot @ e @ self.base_rotation
+
+    def auto_orient(self, technology: str, support_angle: float = 45.0) -> None:
+        from .orient import best_rotation
+        current = self.mesh.transform(self.matrix())
+        self.apply_world_rotation(best_rotation(current, technology, support_angle))
+
     def duplicate(self) -> "SceneObject":
         sp = None if self.support_points is None else self.support_points.copy()
         return SceneObject(self.mesh, self.name, self.x, self.y, self.rotation.copy(), self.scale.copy(),

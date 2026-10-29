@@ -293,3 +293,67 @@ def test_tree_supports_merge_and_use_less_resin():
             first = slice_meshes([job.supports], [cfg["sla_raft_thickness"] + 0.5])[0]
             assert len(first.geoms) < len(job.support_points) / 2
     assert volumes["tree"] < volumes["pillar"]
+
+
+def test_print_checks_cups_and_thin_features():
+    from unislicer.mesh import Mesh
+
+    def check(mesh, **over):
+        cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", over)
+        return sla.prepare([placed(mesh, 70, 45).world_mesh()], cfg)
+    assert check(primitives.box(20, 20, 20)).cups == []
+    assert check(primitives.box(20, 20, 20), hollow_enable=True, drain_holes=0).cups
+    assert check(primitives.box(20, 20, 20), hollow_enable=True, drain_holes=2).cups == []
+    cup = Mesh.merge([primitives.box(20, 20, 2), primitives.box(20, 2, 10).translated([0, 0, 2]),
+                      primitives.box(20, 2, 10).translated([0, 18, 2]), primitives.box(2, 16, 10).translated([0, 2, 2]),
+                      primitives.box(2, 16, 10).translated([18, 2, 2])])
+    assert check(cup).cups
+    fin = Mesh.merge([primitives.box(10, 10, 3), primitives.box(0.2, 8, 5).translated([4, 1, 3])])
+    assert check(fin).thin_layers and check(primitives.box(10, 10, 8)).thin_layers == []
+
+
+def test_auto_orient():
+    from unislicer.scene import SceneObject
+    plate = SceneObject.from_mesh(primitives.box(30, 20, 5))
+    plate.rotation[:] = [35, 20, 0]
+    plate.auto_orient("fdm", 50)
+    assert plate.world_size()[2] == pytest.approx(5)          # lying on its largest face
+    bridge = SceneObject.from_mesh(primitives.demo_bridge())
+    bridge.auto_orient("sla", 50)
+    n = bridge.world_mesh().face_normals()
+    assert not np.any(np.abs(n[:, 2]) > 0.999)   # resin: tilted, no faces parallel to the screen
+
+
+def test_compensation_and_profile_library(tmp_path, monkeypatch):
+    m = placed(primitives.box(20, 20, 10), 70, 45).world_mesh()
+    base = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast"))
+    grown = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", {"shrink_xy": 1, "bottom_xy_compensation": 0.2}))
+    assert grown.layers[50].area == pytest.approx(20.2 ** 2, rel=1e-3)
+    assert grown.layers[0].area < base.layers[0].area
+    # every resin builds; user profiles can override, export and import
+    resins = profiles.for_technology("materials", "sla")
+    assert len(resins) >= 30
+    for pid in resins:
+        profiles.build_config("elegoo_mars3", pid)
+    monkeypatch.setattr(profiles, "USER_DIR", str(tmp_path))
+    pid = profiles.save_user_profile("materials", "My resin", {"exposure_time": 2.1}, "sla")
+    assert profiles.build_config("elegoo_mars3", pid)["exposure_time"] == 2.1
+    profiles.save_user_profile("materials", "Elegoo tweak", {"exposure_time": 2.9}, "sla", pid="elegoo_standard", vendor="Elegoo")
+    assert profiles.build_config("elegoo_mars3", "elegoo_standard")["exposure_time"] == 2.9
+    profiles.delete_user_profile("materials", "elegoo_standard")
+    assert profiles.build_config("elegoo_mars3", "elegoo_standard")["exposure_time"] == 2.5
+    out = tmp_path / "p.json"
+    profiles.export_profiles("materials", [pid], str(out))
+    (new,) = profiles.import_profiles("materials", str(out))
+    assert new != pid and profiles.load("materials")[new]["values"]["exposure_time"] == 2.1
+
+
+def test_prz_uses_goo_layout(tmp_path):
+    from unislicer import goo
+    cfg = profiles.build_config("phrozen_sonic_mini_8k_s", None, "sla_fast")
+    assert cfg["sla_format"] == "prz"
+    job = sla.prepare([placed(primitives.box(10, 10, 2), 80, 35).world_mesh()], cfg)
+    path = tmp_path / "a.prz"
+    sla.export(job, cfg, str(path), "a")
+    f = goo.read(str(path))
+    assert f["footer_ok"] and f["header"]["layer_count"] == job.layer_count

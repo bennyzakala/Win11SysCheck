@@ -7,7 +7,7 @@ import os
 import numpy as np
 from PySide6.QtCore import QSettings, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QDoubleSpinBox, QFileDialog, QInputDialog, QFrame, QGridLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDoubleSpinBox, QFileDialog, QInputDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressBar,
                                QPushButton, QSlider, QToolButton, QVBoxLayout, QWidget)
 
@@ -23,6 +23,13 @@ from .viewer import Viewer
 from .worker import Task
 
 SETTINGS_ORG = "UniSlicer"
+
+# engine messages shown in the UI language
+ENGINE_TEXT = {
+    "The cavity is too small for the drain holes.": "note_cavity_small",
+    "Hollowed without drain holes: uncured resin will stay trapped inside.": "note_no_drain",
+    "The model is too thin to hollow with this wall thickness.": "note_too_thin",
+}
 
 
 def _card(parent=None) -> QFrame:
@@ -176,6 +183,7 @@ class MainWindow(QMainWindow):
         menu.addAction(tr("shape_bridge"), lambda: self.add_mesh(primitives.demo_bridge()))
         shapes.setMenu(menu)
         shapes.setPopupMode(QToolButton.InstantPopup)
+        tool("sparkle", tr("auto_prepare"), tr("auto_prepare_tip"), self.auto_prepare)
         tool("arrange", tr("arrange"), tr("arrange_tip"), self.arrange_objects)
         tool("copy", tr("duplicate"), tr("duplicate"), self.duplicate_selected)
         tool("trash", tr("delete"), tr("delete"), self.delete_selected)
@@ -280,14 +288,15 @@ class MainWindow(QMainWindow):
         g.addLayout(mirror_row, 7, 0, 1, 4)
         btns = QGridLayout()
         btns.setSpacing(6)
-        for k, (icon_name, text, tip, slot) in enumerate((("flat", tr("lay_flat"), tr("lay_flat_tip"), self.lay_flat),
+        for k, (icon_name, text, tip, slot) in enumerate((("compass", tr("auto_orient"), tr("auto_orient_tip"), self.auto_orient_selected),
+                                           ("flat", tr("lay_flat"), tr("lay_flat_tip"), self.lay_flat),
                                            ("center", tr("center"), tr("center"), self.center_selected),
                                            ("reset", tr("reset_transform"), tr("reset_transform"), self.reset_transform))):
             b = QPushButton(theme.icon(icon_name, theme.TEXT, 16), text)
             b.setToolTip(tip)
             b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(slot)
-            btns.addWidget(b, 0 if k == 0 else 1, 0 if k == 0 else k - 1, 1, 2 if k == 0 else 1)
+            btns.addWidget(b, k // 2, k % 2)
         g.addLayout(btns, 8, 0, 1, 4)
         self.transform_card = tr_card
         lay.addWidget(tr_card)
@@ -660,6 +669,37 @@ class MainWindow(QMainWindow):
             obj.base_rotation = np.eye(3)
             self._drop_supports(obj)
             self._objects_changed()
+
+    def auto_orient_selected(self):
+        targets = self._support_targets()
+        if not targets:
+            return
+        self._push_undo()
+        cfg = self.settings.config()
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            for o in targets:
+                o.auto_orient(cfg["technology"], cfg["support_angle"])
+                self._drop_supports(o)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self._objects_changed()
+
+    def auto_prepare(self):
+        """PreForm-style one click: orient every model, arrange the plate and (for resin) add supports."""
+        if not self.objects:
+            self.status.setText(tr("no_models"))
+            return
+        self.object_list.setCurrentItem(None)
+        self.auto_orient_selected()
+        cfg = self.settings.config()
+        if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"]):
+            self.status.setText(tr("arrange_full"))
+        if cfg["technology"] == "sla":
+            self.generate_supports()
+        self._objects_changed()
+        self.viewer.fit_objects()
+        self.status.setText(tr("auto_prepare_done"))
 
     def mirror_selected(self, axis: int):
         obj = self.selected()
@@ -1105,7 +1145,8 @@ class MainWindow(QMainWindow):
             self.stat_material.set(f"{job.volume_ml:.1f} ml", tr("stat_resin"))
             self.stat_weight.set(f"{job.weight_g:.1f} g")
             self.stat_cost.set(f"₪{job.cost:.2f}")
-            warnings = list(job.warnings)
+            warnings = [tr(ENGINE_TEXT[w]) if w in ENGINE_TEXT else w for w in job.warnings]
+            warnings = self._print_checks(job) + warnings
             if job.saved_ml > 0:
                 warnings.insert(0, tr("saved_resin").format(job.saved_ml))
             self._islands = {}
@@ -1114,7 +1155,7 @@ class MainWindow(QMainWindow):
             self.island_btn.setVisible(bool(self._islands))
         self.result_cfg = cfg
         if warnings:
-            self.warn_label.setText("\n".join(("" if w.startswith("✓") else "⚠ ") + w for w in warnings))
+            self.warn_label.setText("\n".join(("" if w.startswith(("✓", "▸")) else "⚠ ") + w for w in warnings))
             self.warn_label.show()
         self.layer_slider.blockSignals(True)
         self.layer_slider.setRange(0, max(0, n - 1))
@@ -1168,6 +1209,28 @@ class MainWindow(QMainWindow):
             qimg = QImage(img.tobytes(), img.width, img.height, img.width * 3, QImage.Format_RGB888).copy()
             pm = QPixmap.fromImage(qimg).scaled(self.mask_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.mask_label.setPixmap(pm)
+
+    @staticmethod
+    def _print_checks(job) -> list[str]:
+        """PreForm-style validation lines; ✓ lines are passes, the others are warnings."""
+        def layers_text(idx):
+            idx = sorted(set(idx))
+            return ", ".join(str(i + 1) for i in idx[:6]) + ("…" if len(idx) > 6 else "")
+        out = [tr("check_title")]
+        if job.islands:
+            out.append(tr("check_islands").format(len(job.islands), layers_text(job.island_layers)))
+        else:
+            out.append("✓ " + tr("check_no_islands"))
+        if job.cups:
+            first, last = job.cups[0][0], job.cups[-1][0]
+            out.append(tr("check_cups").format(first + 1, last + 1, max(a for _, a in job.cups)))
+        else:
+            out.append("✓ " + tr("check_no_cups"))
+        if job.thin_layers:
+            out.append(tr("check_thin").format(len(job.thin_layers), job.thin_layers[0] + 1))
+        else:
+            out.append("✓ " + tr("check_no_thin"))
+        return out
 
     def _next_island(self):
         if not self._islands:
