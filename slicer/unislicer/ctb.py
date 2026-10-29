@@ -174,7 +174,7 @@ def make_preview(layers, cfg: Config, size: tuple[int, int]) -> Image.Image:
 # ------------------------------------------------------------------ write
 def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, cfg: Config, *,
           layer_height: float, exposures: list[float], volume_ml: float, weight_g: float, cost: float,
-          print_time_s: float, preview_layers, machine_name: str = "UniSlicer", encrypt: bool = True,
+          print_time_s: float, layer_z: list[float] | None = None, preview_layers, machine_name: str = "UniSlicer", encrypt: bool = True,
           progress: Callable[[float], None] | None = None) -> None:
     """Write a CTB v4 file. ``layer_rle`` yields (index, RLE bytes from :func:`encode_layer`) in order."""
     bottom = min(int(cfg["bottom_layers"]), layer_count)
@@ -226,7 +226,7 @@ def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, c
         for i, rle in layer_rle:
             rle = crypt_layer(seed, i, rle)
             is_bottom = i < bottom
-            z = round((i + 1) * layer_height, 5)
+            z = round(layer_z[i] if layer_z else (i + 1) * layer_height, 5)
             ex_offset = fh.tell()
             data_address = ex_offset + LAYER_TABLE_SIZE
             rests = layer_rests(i, cfg)

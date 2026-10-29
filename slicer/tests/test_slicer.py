@@ -518,3 +518,23 @@ def test_model_tools_text_cut_split_repair_and_cutters():
     plan = fdm.plan([plate.world_mesh()], profiles.build_config("generic_fdm", "pla", "standard"),
                     cutters=[cutter.world_mesh()])
     assert plan.layers[-1].paths
+
+
+def test_adaptive_layers_follow_slope(tmp_path):
+    from unislicer import goo
+    cfg = profiles.build_config("elegoo_mars4_ultra", "resin_standard", "sla_fast",
+                                {"support_enable": False, "sla_adaptive": True, "sla_layer_min": 0.025,
+                                 "sla_layer_max": 0.1, "sla_adaptive_error": 0.01})
+    mesh = placed(primitives.sphere(6), 70, 40).world_mesh()
+    job = sla.prepare([mesh], cfg)
+    th = job.layer_thickness
+    assert len(job.layer_z) == job.layer_count == len(th) == len(job.exposures)
+    assert np.all(np.diff(job.layer_z) > 0) and job.layer_z[-1] >= mesh.bounds[1, 2] - 1e-6
+    mid = job.layer_count // 2
+    assert th[mid] > th[2] and th[mid] > th[-3]     # steep equator thick, flat poles thin
+    assert min(th) >= 0.025 - 1e-9 and max(th) <= 0.1 + 1e-9
+    assert job.volume_ml == pytest.approx(4 / 3 * np.pi * 6 ** 3 / 1000, rel=0.03)
+    path = tmp_path / "ball.goo"
+    sla.export(job, cfg, str(path), "ball")
+    layers = goo.read(str(path))["layers"]
+    assert [round(l["z"], 4) for l in layers] == [round(z, 4) for z in job.layer_z]

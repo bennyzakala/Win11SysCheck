@@ -25,7 +25,7 @@ from .slicing import EMPTY, MultiPolygon, as_multipolygon, polygons_of, slice_me
 @dataclass
 class SlaJob:
     layers: list[MultiPolygon]
-    layer_height: float
+    layer_height: float                 # nominal height (adaptive jobs vary per layer)
     models: list[Mesh]                 # elevated models
     supports: Mesh | None
     support_points: list[np.ndarray] = field(default_factory=list)
@@ -38,6 +38,9 @@ class SlaJob:
     weight_g: float = 0.0
     cost: float = 0.0
     warnings: list[str] = field(default_factory=list)
+    layer_z: list[float] = field(default_factory=list)          # top of each layer
+    layer_thickness: list[float] = field(default_factory=list)
+    exposures: list[float] = field(default_factory=list)
 
     @property
     def layer_count(self) -> int:
@@ -79,8 +82,38 @@ def layer_motion_time(i: int, cfg: Config) -> float:
     return sum(layer_rests(i, cfg)) + up + down
 
 
-def print_time(n: int, cfg: Config) -> float:
-    return sum(layer_exposure(i, cfg) + layer_motion_time(i, cfg) for i in range(n))
+def print_time(n: int, cfg: Config, exposures: list[float] | None = None) -> float:
+    return sum((exposures[i] if exposures else layer_exposure(i, cfg)) + layer_motion_time(i, cfg) for i in range(n))
+
+
+def adaptive_layers(meshes: list[Mesh], top: float, cfg: Config) -> list[tuple[float, float]]:
+    """(top z, thickness) per layer: thin where shallow slopes would show steps, thick on steep walls.
+
+    The step a layer of height h leaves on a face with normal n is about h * |n_z| (flat faces leave
+    none), so each layer is as thick as the most demanding face it crosses allows."""
+    hmin, hmax = cfg["sla_layer_min"], max(cfg["sla_layer_max"], cfg["sla_layer_min"])
+    err = cfg["sla_adaptive_error"]
+    zmins, zmaxs, limits = [], [], []
+    for m in meshes:
+        t = m.triangles
+        nz = np.abs(m.face_normals()[:, 2])
+        sloped = (nz > 1e-3) & (nz < 0.999)
+        zmins.append(t[sloped, :, 2].min(axis=1))
+        zmaxs.append(t[sloped, :, 2].max(axis=1))
+        limits.append(np.clip(err / nz[sloped], hmin, hmax))
+    zmin, zmax, limit = (np.concatenate(a) if a else np.zeros(0) for a in (zmins, zmaxs, limits))
+    order = np.argsort(zmin)
+    zmin, zmax, limit = zmin[order], zmax[order], limit[order]
+    out, z = [], 0.0
+    step = 0.005
+    while z < top - 1e-6:
+        hi = np.searchsorted(zmin, z + hmax, side="right")
+        cand = np.nonzero(zmax[:hi] > z)[0]
+        h = float(limit[cand].min()) if len(cand) else hmax
+        h = max(hmin, min(hmax, math.floor(h / step + 1e-9) * step))
+        z = round(min(z + h, max(top, z + hmin)), 5)
+        out.append((z, h))
+    return out
 
 
 # --------------------------------------------------------------- hollowing
@@ -385,8 +418,13 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     lh = cfg["sla_layer_height"]
     support_meshes = [supports] if supports is not None and len(supports.faces) else []
     top = max(float(m.bounds[1, 2]) for m in models + support_meshes)
-    n = max(1, int(np.ceil(top / lh - 1e-9)))
-    planes = [(k + 0.5) * lh for k in range(n)]
+    if cfg["sla_adaptive"]:
+        stack = adaptive_layers(models, top, cfg)
+    else:
+        n = max(1, int(np.ceil(top / lh - 1e-9)))
+        stack = [(round((k + 1) * lh, 5), lh) for k in range(n)]
+    n = len(stack)
+    planes = [z - h / 2 for z, h in stack]
     split = 0.85 if support_meshes else 1.0
     layers = slice_meshes(models, planes, cfg["resolution"],
                           progress=lambda f: report("slice", f * split), cancelled=cancelled)
@@ -415,15 +453,21 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             if not layers[i].is_empty:
                 layers[i] = as_multipolygon(layers[i].buffer(-foot, join_style="mitre", mitre_limit=3))
     job = SlaJob(layers, lh, models, supports, points, warnings=warnings)
+    job.layer_z = [z for z, _ in stack]
+    job.layer_thickness = [h for _, h in stack]
+    # thicker layers need more light: scale exposure with thickness (linear approximation)
+    job.exposures = [layer_exposure(i, cfg) * (min(1.8, max(0.5, h / lh)) if cfg["sla_adaptive"] else 1.0)
+                     for i, (_, h) in enumerate(stack)]
+    if cfg["sla_adaptive"] and cfg["sla_format"] == "sl1":
+        job.warnings.append("The SL1 format stores one layer height; use CTB, GOO or PRZ for adaptive layers.")
     job.islands = find_islands(layers)
     job.cups = find_cups(layers)
     job.thin_layers = thin
-    area = sum(g.area for g in layers)
-    job.volume_ml = area * lh / 1000.0
+    job.volume_ml = sum(g.area * h for g, h in zip(layers, job.layer_thickness)) / 1000.0
     job.saved_ml = saved
     job.weight_g = job.volume_ml * cfg["resin_density"]
     job.cost = job.volume_ml / 1000.0 * cfg["resin_cost"]
-    job.time_s = print_time(n, cfg)
+    job.time_s = print_time(n, cfg, job.exposures)
     return job
 
 
@@ -516,7 +560,7 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
                                      lambda f: progress(f * 0.9) if progress else None,
                                      cancelled, [b - a for a, b in ranges])
         rle = ((i, data) for i, data in enumerate(d for chunk in chunks for d in chunk))
-        common = dict(layer_height=job.layer_height, exposures=[layer_exposure(i, cfg) for i in range(n)],
+        common = dict(layer_height=job.layer_height, exposures=job.exposures, layer_z=job.layer_z,
                       volume_ml=job.volume_ml, weight_g=job.weight_g, cost=job.cost, print_time_s=job.time_s,
                       progress=lambda f: progress(0.9 + 0.1 * f) if progress else None)
         if fmt == "ctb":

@@ -1512,7 +1512,7 @@ class MainWindow(QMainWindow):
             self.viewer.set_toolpaths(None, 0.4)
             self.viewer.set_extra_meshes(extras)
             n = job.layer_count
-            self._layer_z = [(i + 1) * job.layer_height for i in range(n)]
+            self._layer_z = list(job.layer_z) or [(i + 1) * job.layer_height for i in range(n)]
             self._mask_cfg = cfg.copy()
             scale = 320.0 / cfg["resolution_x"]
             self._mask_cfg.values["resolution_x"] = 320

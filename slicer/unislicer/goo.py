@@ -115,7 +115,7 @@ def _rgb565(img: Image.Image, size: tuple[int, int]) -> bytes:
 # ------------------------------------------------------------------ write
 def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, cfg: Config, *,
           layer_height: float, exposures: list[float], volume_ml: float, weight_g: float, cost: float,
-          print_time_s: float, preview: Image.Image, machine_name: str = "UniSlicer",
+          print_time_s: float, layer_z: list[float] | None = None, preview: Image.Image, machine_name: str = "UniSlicer",
           progress: Callable[[float], None] | None = None) -> None:
     """Write a GOO file. ``layer_rle`` yields (index, bytes from :func:`encode_layer`) in order."""
     bottom = min(int(cfg["bottom_layers"]), layer_count)
@@ -155,7 +155,7 @@ def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, c
         count = 0
         for i, rle in layer_rle:
             m = bm if i < bottom else nm
-            fh.write(LAYER_DEF.pack(0, cfg["max_z"], round((i + 1) * layer_height, 5), exposures[i],
+            fh.write(LAYER_DEF.pack(0, cfg["max_z"], round(layer_z[i] if layer_z else (i + 1) * layer_height, 5), exposures[i],
                                     layer_light_off(i, cfg), *layer_rests(i, cfg), *m, layer_pwm(i, cfg),
                                     DELIMITER, len(rle)))
             fh.write(rle)
