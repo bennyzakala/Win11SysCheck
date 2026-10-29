@@ -1,42 +1,256 @@
 {
-  "generic_fdm": {"name": "Generic FDM (Marlin)", "vendor": "Generic", "values": {"technology": "fdm"}},
-  "generic_klipper": {"name": "Generic FDM (Klipper)", "vendor": "Generic",
-    "values": {"technology": "fdm", "gcode_flavor": "klipper", "retract_length": 0.8, "retract_speed": 35, "relative_e": true,
-               "print_speed": 150, "wall_speed": 120, "outer_wall_speed": 80, "top_bottom_speed": 100, "support_speed": 120, "travel_speed": 300, "first_layer_speed": 40}},
-  "generic_delta": {"name": "Generic Delta", "vendor": "Generic",
-    "values": {"technology": "fdm", "bed_x": 200, "bed_y": 200, "max_z": 300, "origin_center": true, "retract_length": 4}},
-  "creality_ender3v2": {"name": "Creality Ender-3 V2", "vendor": "Creality",
-    "values": {"technology": "fdm", "bed_x": 220, "bed_y": 220, "max_z": 250, "retract_length": 5, "retract_speed": 45}},
-  "creality_ender3v3se": {"name": "Creality Ender-3 V3 SE", "vendor": "Creality",
-    "values": {"technology": "fdm", "bed_x": 220, "bed_y": 220, "max_z": 250, "retract_length": 0.8, "retract_speed": 40,
-               "print_speed": 120, "wall_speed": 90, "outer_wall_speed": 60, "top_bottom_speed": 80, "travel_speed": 200, "first_layer_speed": 30}},
-  "creality_k1": {"name": "Creality K1", "vendor": "Creality",
-    "values": {"technology": "fdm", "bed_x": 220, "bed_y": 220, "max_z": 250, "gcode_flavor": "klipper", "retract_length": 0.8,
-               "print_speed": 200, "wall_speed": 150, "outer_wall_speed": 100, "top_bottom_speed": 120, "support_speed": 150, "travel_speed": 300, "first_layer_speed": 50}},
-  "prusa_mk4": {"name": "Prusa MK4", "vendor": "Prusa Research",
-    "values": {"technology": "fdm", "bed_x": 250, "bed_y": 210, "max_z": 220, "gcode_flavor": "prusa", "retract_length": 0.7, "retract_speed": 35,
-               "relative_e": true, "print_speed": 120, "wall_speed": 80, "outer_wall_speed": 60, "top_bottom_speed": 80, "travel_speed": 200, "first_layer_speed": 25}},
-  "prusa_mk3s": {"name": "Prusa i3 MK3S+", "vendor": "Prusa Research",
-    "values": {"technology": "fdm", "bed_x": 250, "bed_y": 210, "max_z": 210, "gcode_flavor": "prusa", "retract_length": 0.8, "retract_speed": 35, "relative_e": true}},
-  "prusa_mini": {"name": "Prusa MINI+", "vendor": "Prusa Research",
-    "values": {"technology": "fdm", "bed_x": 180, "bed_y": 180, "max_z": 180, "gcode_flavor": "prusa", "retract_length": 3.2, "retract_speed": 70, "relative_e": true}},
-  "anycubic_kobra2": {"name": "Anycubic Kobra 2", "vendor": "Anycubic",
-    "values": {"technology": "fdm", "bed_x": 220, "bed_y": 220, "max_z": 250, "retract_length": 0.8, "print_speed": 150, "wall_speed": 100, "outer_wall_speed": 70, "travel_speed": 250}},
-  "elegoo_neptune4pro": {"name": "Elegoo Neptune 4 Pro", "vendor": "Elegoo",
-    "values": {"technology": "fdm", "bed_x": 225, "bed_y": 225, "max_z": 265, "gcode_flavor": "klipper", "retract_length": 0.8,
-               "print_speed": 200, "wall_speed": 150, "outer_wall_speed": 100, "top_bottom_speed": 120, "travel_speed": 300, "first_layer_speed": 40}},
-  "voron_24_350": {"name": "Voron 2.4 (350)", "vendor": "Voron Design",
-    "values": {"technology": "fdm", "bed_x": 350, "bed_y": 350, "max_z": 340, "gcode_flavor": "klipper", "retract_length": 0.5, "relative_e": true,
-               "print_speed": 200, "wall_speed": 150, "outer_wall_speed": 100, "top_bottom_speed": 120, "support_speed": 150, "travel_speed": 350, "first_layer_speed": 50}},
-  "artillery_sidewinder_x2": {"name": "Artillery Sidewinder X2", "vendor": "Artillery",
-    "values": {"technology": "fdm", "bed_x": 300, "bed_y": 300, "max_z": 400, "retract_length": 1.0}},
-  "generic_msla": {"name": "Generic MSLA (resin)", "vendor": "Generic",
-    "values": {"technology": "sla", "bed_x": 120.96, "bed_y": 68.04, "max_z": 150, "resolution_x": 2560, "resolution_y": 1440, "material_name": "Standard resin"}},
-  "prusa_sl1s": {"name": "Prusa SL1S Speed", "vendor": "Prusa Research",
-    "values": {"technology": "sla", "bed_x": 127.0, "bed_y": 80.0, "max_z": 150, "resolution_x": 2560, "resolution_y": 1620,
-               "exposure_time": 2.0, "bottom_exposure_time": 25, "material_name": "Standard resin"}},
-  "elegoo_mars3": {"name": "Elegoo Mars 3", "vendor": "Elegoo",
-    "values": {"technology": "sla", "bed_x": 143.43, "bed_y": 89.6, "max_z": 175, "resolution_x": 4098, "resolution_y": 2560, "material_name": "Standard resin"}},
-  "anycubic_photon_mono_x": {"name": "Anycubic Photon Mono X", "vendor": "Anycubic",
-    "values": {"technology": "sla", "bed_x": 192.0, "bed_y": 120.0, "max_z": 245, "resolution_x": 3840, "resolution_y": 2400, "material_name": "Standard resin"}}
+  "generic_fdm": {
+    "name": "Generic FDM (Marlin)",
+    "vendor": "Generic",
+    "values": {
+      "technology": "fdm"
+    }
+  },
+  "generic_klipper": {
+    "name": "Generic FDM (Klipper)",
+    "vendor": "Generic",
+    "values": {
+      "technology": "fdm",
+      "gcode_flavor": "klipper",
+      "retract_length": 0.8,
+      "retract_speed": 35,
+      "relative_e": true,
+      "print_speed": 150,
+      "wall_speed": 120,
+      "outer_wall_speed": 80,
+      "top_bottom_speed": 100,
+      "support_speed": 120,
+      "travel_speed": 300,
+      "first_layer_speed": 40
+    }
+  },
+  "generic_delta": {
+    "name": "Generic Delta",
+    "vendor": "Generic",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 200,
+      "bed_y": 200,
+      "max_z": 300,
+      "origin_center": true,
+      "retract_length": 4
+    }
+  },
+  "creality_ender3v2": {
+    "name": "Creality Ender-3 V2",
+    "vendor": "Creality",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 220,
+      "bed_y": 220,
+      "max_z": 250,
+      "retract_length": 5,
+      "retract_speed": 45
+    }
+  },
+  "creality_ender3v3se": {
+    "name": "Creality Ender-3 V3 SE",
+    "vendor": "Creality",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 220,
+      "bed_y": 220,
+      "max_z": 250,
+      "retract_length": 0.8,
+      "retract_speed": 40,
+      "print_speed": 120,
+      "wall_speed": 90,
+      "outer_wall_speed": 60,
+      "top_bottom_speed": 80,
+      "travel_speed": 200,
+      "first_layer_speed": 30
+    }
+  },
+  "creality_k1": {
+    "name": "Creality K1",
+    "vendor": "Creality",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 220,
+      "bed_y": 220,
+      "max_z": 250,
+      "gcode_flavor": "klipper",
+      "retract_length": 0.8,
+      "print_speed": 200,
+      "wall_speed": 150,
+      "outer_wall_speed": 100,
+      "top_bottom_speed": 120,
+      "support_speed": 150,
+      "travel_speed": 300,
+      "first_layer_speed": 50
+    }
+  },
+  "prusa_mk4": {
+    "name": "Prusa MK4",
+    "vendor": "Prusa Research",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 250,
+      "bed_y": 210,
+      "max_z": 220,
+      "gcode_flavor": "prusa",
+      "retract_length": 0.7,
+      "retract_speed": 35,
+      "relative_e": true,
+      "print_speed": 120,
+      "wall_speed": 80,
+      "outer_wall_speed": 60,
+      "top_bottom_speed": 80,
+      "travel_speed": 200,
+      "first_layer_speed": 25
+    }
+  },
+  "prusa_mk3s": {
+    "name": "Prusa i3 MK3S+",
+    "vendor": "Prusa Research",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 250,
+      "bed_y": 210,
+      "max_z": 210,
+      "gcode_flavor": "prusa",
+      "retract_length": 0.8,
+      "retract_speed": 35,
+      "relative_e": true
+    }
+  },
+  "prusa_mini": {
+    "name": "Prusa MINI+",
+    "vendor": "Prusa Research",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 180,
+      "bed_y": 180,
+      "max_z": 180,
+      "gcode_flavor": "prusa",
+      "retract_length": 3.2,
+      "retract_speed": 70,
+      "relative_e": true
+    }
+  },
+  "anycubic_kobra2": {
+    "name": "Anycubic Kobra 2",
+    "vendor": "Anycubic",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 220,
+      "bed_y": 220,
+      "max_z": 250,
+      "retract_length": 0.8,
+      "print_speed": 150,
+      "wall_speed": 100,
+      "outer_wall_speed": 70,
+      "travel_speed": 250
+    }
+  },
+  "elegoo_neptune4pro": {
+    "name": "Elegoo Neptune 4 Pro",
+    "vendor": "Elegoo",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 225,
+      "bed_y": 225,
+      "max_z": 265,
+      "gcode_flavor": "klipper",
+      "retract_length": 0.8,
+      "print_speed": 200,
+      "wall_speed": 150,
+      "outer_wall_speed": 100,
+      "top_bottom_speed": 120,
+      "travel_speed": 300,
+      "first_layer_speed": 40
+    }
+  },
+  "voron_24_350": {
+    "name": "Voron 2.4 (350)",
+    "vendor": "Voron Design",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 350,
+      "bed_y": 350,
+      "max_z": 340,
+      "gcode_flavor": "klipper",
+      "retract_length": 0.5,
+      "relative_e": true,
+      "print_speed": 200,
+      "wall_speed": 150,
+      "outer_wall_speed": 100,
+      "top_bottom_speed": 120,
+      "support_speed": 150,
+      "travel_speed": 350,
+      "first_layer_speed": 50
+    }
+  },
+  "artillery_sidewinder_x2": {
+    "name": "Artillery Sidewinder X2",
+    "vendor": "Artillery",
+    "values": {
+      "technology": "fdm",
+      "bed_x": 300,
+      "bed_y": 300,
+      "max_z": 400,
+      "retract_length": 1.0
+    }
+  },
+  "generic_msla": {
+    "name": "Generic MSLA (resin)",
+    "vendor": "Generic",
+    "values": {
+      "technology": "sla",
+      "bed_x": 120.96,
+      "bed_y": 68.04,
+      "max_z": 150,
+      "resolution_x": 2560,
+      "resolution_y": 1440,
+      "material_name": "Standard resin",
+      "sla_format": "ctb"
+    }
+  },
+  "prusa_sl1s": {
+    "name": "Prusa SL1S Speed",
+    "vendor": "Prusa Research",
+    "values": {
+      "technology": "sla",
+      "bed_x": 127.0,
+      "bed_y": 80.0,
+      "max_z": 150,
+      "resolution_x": 2560,
+      "resolution_y": 1620,
+      "exposure_time": 2.0,
+      "bottom_exposure_time": 25,
+      "material_name": "Standard resin"
+    }
+  },
+  "elegoo_mars3": {
+    "name": "Elegoo Mars 3",
+    "vendor": "Elegoo",
+    "values": {
+      "technology": "sla",
+      "bed_x": 143.43,
+      "bed_y": 89.6,
+      "max_z": 175,
+      "resolution_x": 4098,
+      "resolution_y": 2560,
+      "material_name": "Standard resin",
+      "sla_format": "ctb"
+    }
+  },
+  "anycubic_photon_mono_x": {
+    "name": "Anycubic Photon Mono X",
+    "vendor": "Anycubic",
+    "values": {
+      "technology": "sla",
+      "bed_x": 192.0,
+      "bed_y": 120.0,
+      "max_z": 245,
+      "resolution_x": 3840,
+      "resolution_y": 2400,
+      "material_name": "Standard resin"
+    }
+  }
 }

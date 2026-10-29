@@ -75,7 +75,8 @@ SCHEMA: list[Setting] = [
     S("mirror_x", "bool", False, "printer", "sla", "שיקוף אופקי", "Mirror X"),
     S("mirror_y", "bool", False, "printer", "sla", "שיקוף אנכי", "Mirror Y"),
     S("sla_format", "enum", "sl1", "printer", "sla", "פורמט קובץ פלט", "Output format",
-      options=(("sl1", "SL1 (Prusa / UVtools)", "SL1 (Prusa / UVtools)"), ("png_zip", "ZIP של תמונות PNG", "ZIP of PNG images"))),
+      options=(("ctb", "CTB (Chitubox v4)", "CTB (Chitubox v4)"), ("sl1", "SL1 (Prusa / UVtools)", "SL1 (Prusa / UVtools)"),
+               ("png_zip", "ZIP של תמונות PNG", "ZIP of PNG images"))),
 
     # ---------------------------------------------------------------- quality
     S("layer_height", "float", 0.2, "quality", "fdm", "גובה שכבה", "Layer height", "mm", 0.04, 1.2, 0.02),

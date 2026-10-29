@@ -296,6 +296,13 @@ def _png_bytes(img: Image.Image) -> bytes:
     return buf.getvalue()
 
 
+def _rle_chunk(layers: list, values: dict) -> list[bytes]:
+    """CTB run-length data for a run of layers (process-pool entry point)."""
+    from .ctb import encode_layer
+    cfg = Config(dict(values))
+    return [encode_layer(np.asarray(render_layer(g, cfg))) for g in layers]
+
+
 def _render_chunk(layers: list, values: dict) -> list[bytes]:
     """PNG data for a run of layers (process-pool entry point)."""
     cfg = Config(dict(values))
@@ -312,6 +319,16 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
 
     ranges = parallel.chunk_ranges(n, 8, parallel.workers() * 4)
     args = [(job.layers[a:b], cfg.values) for a, b in ranges]
+    if fmt == "ctb":
+        from . import ctb
+        chunks = parallel.run_chunks(_rle_chunk, args, lambda f: progress(f * 0.9) if progress else None,
+                                     cancelled, [b - a for a, b in ranges])
+        rle = ((i, data) for i, data in enumerate(d for chunk in chunks for d in chunk))
+        ctb.write(path, rle, n, cfg, layer_height=job.layer_height,
+                  exposures=[layer_exposure(i, cfg) for i in range(n)], volume_ml=job.volume_ml,
+                  weight_g=job.weight_g, cost=job.cost, print_time_s=job.time_s, preview_layers=job.layers,
+                  progress=lambda f: progress(0.9 + 0.1 * f) if progress else None)
+        return path
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as zf:
         # layer images are drawn and PNG-encoded on all cores; the zip is written here in order
         def write_chunk(k, pngs):

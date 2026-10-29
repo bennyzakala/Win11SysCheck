@@ -49,7 +49,7 @@ def slice_command(args) -> int:
     if cfg["technology"] == "sla":
         from . import sla
         job = sla.prepare(meshes, cfg, _progress)
-        out = args.output or job_name + (".sl1" if cfg["sla_format"] == "sl1" else ".zip")
+        out = args.output or job_name + {"sl1": ".sl1", "ctb": ".ctb"}.get(cfg["sla_format"], ".zip")
         sla.export(job, cfg, out, job_name, lambda f: _progress("export", f))
         sys.stderr.write("\n")
         for w in job.warnings:

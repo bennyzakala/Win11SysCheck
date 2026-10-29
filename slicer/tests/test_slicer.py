@@ -112,7 +112,7 @@ def test_flavors_and_relative_e(flavor):
 
 
 def test_sla_export(tmp_path):
-    cfg = profiles.build_config("elegoo_mars3", "resin_standard", "sla_fast", {"support_enable": True})
+    cfg = profiles.build_config("elegoo_mars3", "resin_standard", "sla_fast", {"support_enable": True, "sla_format": "sl1"})
     obj = placed(primitives.sphere(6), 70, 45)
     job = sla.prepare([obj.world_mesh()], cfg)
     assert job.supports is not None and len(job.supports.faces) > 0
@@ -232,3 +232,23 @@ def test_mirror_and_project_roundtrip(tmp_path):
     assert len(objs) == 2 and objs[0].mesh is objs[1].mesh
     assert np.allclose(objs[0].world_bounds(), b) and objs[0].support_points.shape == (1, 3)
     assert state["overrides"]["hollow_enable"] is True
+
+
+def test_ctb_roundtrip(tmp_path):
+    from unislicer import ctb
+    cfg = profiles.build_config("elegoo_mars3", "resin_standard", "sla_fast",
+                                {"support_enable": True, "transition_layers": 3, "sla_format": "ctb"})
+    job = sla.prepare([placed(primitives.sphere(6), 70, 45).world_mesh()], cfg)
+    path = tmp_path / "ball.ctb"
+    sla.export(job, cfg, str(path), "ball")
+    f = ctb.read(str(path))
+    h = f["header"]
+    assert (h["magic"], h["version"], h["layer_count"]) == (ctb.MAGIC_CTB_V4, 4, job.layer_count)
+    assert (h["res_x"], h["res_y"]) == (cfg["resolution_x"], cfg["resolution_y"]) and h["seed"] > 0
+    assert f["disclaimer"] == ctb.DISCLAIMER and f["transition_layers"] == 3
+    for i in (0, job.layer_count // 2, job.layer_count - 1):
+        img = np.asarray(sla.render_layer(job.layers[i], cfg)).ravel()
+        assert np.array_equal(ctb.decode_layer(f["layers"][i]["rle"], img.size) >> 1, img >> 1)
+        assert f["layers"][i]["exposure"] == pytest.approx(sla.layer_exposure(i, cfg))
+    run = np.array([0] * 5 + [255] * 70000 + [64] + [0] * 3, dtype=np.uint8)
+    assert np.array_equal(ctb.decode_layer(ctb.encode_layer(run), run.size) >> 1, run >> 1)
