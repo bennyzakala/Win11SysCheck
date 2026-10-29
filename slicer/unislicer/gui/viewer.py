@@ -249,6 +249,8 @@ class Viewer(QOpenGLWidget):
     holePicked = Signal(object, object, object)  # uid, world point, world normal (drain hole tool)
     measured = Signal(object, object)            # first and second world point
     rayPicked = Signal(object, object)         # origin, direction (support "remove" mode)
+    supportEdit = Signal(object, object, object, object, bool)  # origin, direction, uid, hit point, Shift (add only)
+    hoverRay = Signal(object, object)          # origin, direction under the cursor (support "edit" mode)
 
     MODE_PREPARE, MODE_PREVIEW = "prepare", "preview"
 
@@ -260,7 +262,8 @@ class Viewer(QOpenGLWidget):
         self.bed = (220.0, 220.0, 250.0)
         self.technology = "fdm"
         self.mode = self.MODE_PREPARE
-        self.pick_mode: str | None = None        # None | "add" | "remove"
+        self.pick_mode: str | None = None        # None | "add" | "remove" | "edit" (click support: remove, model: add)
+        self.marker = None                       # highlighted support contact point (edit mode hover)
         self.tool = "move"                       # move | rotate | face | hole | measure
         self.measure_points: list = []
         self._rot = None                         # active ring drag: (uid, axis, start angle, last degrees)
@@ -291,6 +294,7 @@ class Viewer(QOpenGLWidget):
         self._last = QPointF()
         self._picked = False
         self._press_pos = QPointF()
+        self.last_click = QPointF()
 
     @staticmethod
     def configure_default_format():
@@ -368,6 +372,14 @@ class Viewer(QOpenGLWidget):
         self.selected = uid
         self.selection = set(others or ()) | ({uid} if uid is not None else set())
         self.update()
+
+    def set_marker(self, point):
+        """Highlight one support contact point (None hides it)."""
+        same = (point is None and self.marker is None) or (
+            point is not None and self.marker is not None and np.allclose(point, self.marker))
+        if not same:
+            self.marker = None if point is None else np.asarray(point, dtype=float)
+            self.update()
 
     def set_extra_meshes(self, items):
         self.extra = list(items)
@@ -622,6 +634,18 @@ class Viewer(QOpenGLWidget):
             buf.draw(GL.GL_LINES)
             buf.delete()
             GL.glEnable(GL.GL_DEPTH_TEST)
+        if self.marker is not None and not preview:
+            GL.glDisable(GL.GL_DEPTH_TEST)
+            GL.glUseProgram(p)
+            GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
+            GL.glUniform1f(self._u(p, "uClipZ"), 1e9)
+            GL.glUniform3f(self._u(p, "uColor"), 1.0, 0.3, 0.38)
+            self._set_model(p, np.eye(4))
+            from ..primitives import sphere
+            ball = _Buffer(mesh_vertices(sphere(0.9, 8, 12).translated(self.marker - [0, 0, 0.9])), [3, 3])
+            ball.draw(GL.GL_TRIANGLES)
+            ball.delete()
+            GL.glEnable(GL.GL_DEPTH_TEST)
         rings = self._gizmo_meshes()
         if rings:
             GL.glClear(GL.GL_DEPTH_BUFFER_BIT)   # rings stay visible through the model but hide their own back
@@ -797,11 +821,18 @@ class Viewer(QOpenGLWidget):
 
     # ---------------------------------------------------------- mouse
     def mousePressEvent(self, e):
+        self.last_click = e.position()            # where the floating edit bar opens
         self._last = e.position()
         self._press_pos = e.position()
         self._drag = None
         self._picked = False
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.pick_mode:
+            if self.pick_mode == "edit":
+                origin, direction = self._ray(e.position())
+                uid, point = self.pick_hit(e.position())
+                self.supportEdit.emit(origin, direction, uid, point, bool(e.modifiers() & Qt.ShiftModifier))
+                self._picked = True
+                return
             if self.pick_mode == "add":
                 uid, point = self.pick_hit(e.position())
                 if uid is not None:
@@ -884,6 +915,9 @@ class Viewer(QOpenGLWidget):
                 if delta != self._rot[3]:
                     self._rot = (uid, axis, start, delta)
                     self.rotateDragged.emit(uid, axis, float(delta))
+            return
+        if self.pick_mode == "edit" and not e.buttons():
+            self.hoverRay.emit(*self._ray(pos))
             return
         if self.tool == "rotate" and not e.buttons():
             hit = self._ring_hit(pos)

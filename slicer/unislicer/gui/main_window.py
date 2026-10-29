@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QDoubleSpinBox, QFileDia
 from .. import __version__, fdm, gcode, orient, primitives, profiles, project, sla, sla_supports
 from ..assistant import Assistant, hollow_saving_ml
 from ..mesh import SUPPORTED_EXTENSIONS, Mesh, load_mesh, save_stl
-from ..scene import SceneObject, arrange, out_of_bounds, plate_rect
+from ..scene import SceneObject, out_of_bounds, plate_rect
 from ..settings import SCHEMA_BY_KEY
 from ..slicing import MultiPolygon
 from . import theme
@@ -200,7 +200,14 @@ class MainWindow(QMainWindow):
         shapes.setMenu(menu)
         shapes.setPopupMode(QToolButton.InstantPopup)
         tool("sparkle", tr("auto_prepare"), tr("auto_prepare_tip"), self.auto_prepare)
-        tool("arrange", tr("arrange"), tr("arrange_tip"), lambda: self._act("arrange", "button", self.arrange_objects))
+        arr = tool("arrange", tr("arrange"), tr("arrange_tip"), None)
+        am = QMenu(self)
+        am.addAction(theme.icon("arrange"), tr("layout_quick") + "\tA", lambda: self._act("arrange", "button", self.arrange_objects))
+        am.addAction(theme.icon("settings"), tr("auto_layout") + "…\tShift+A", lambda: self.auto_layout())
+        am.addAction(theme.icon("copy"), tr("lay_fill"), self._fill_plate_quick)
+        arr.setMenu(am)
+        arr.setPopupMode(QToolButton.MenuButtonPopup)
+        arr.clicked.connect(lambda: self._act("arrange", "button", self.arrange_objects))
         tool("copy", tr("duplicate"), tr("duplicate"), lambda: self._act("duplicate", "button", self.duplicate_selected))
         tool("trash", tr("delete"), tr("delete"), self.delete_selected)
         self.undo_btn = tool("undo", "", tr("undo") + " (Ctrl+Z)", lambda: self._act("undo", "button", self.undo))
@@ -381,9 +388,15 @@ class MainWindow(QMainWindow):
             b.toggled.connect(lambda on, mode=mode: self._set_pick_mode(mode if on else None))
         self.sup_clear_btn = QPushButton(theme.icon("trash", theme.TEXT, 16), tr("sup_clear"))
         self.sup_clear_btn.clicked.connect(self.clear_supports)
-        for k, b in enumerate((self.sup_auto_btn, self.sup_add_btn, self.sup_remove_btn, self.sup_clear_btn)):
+        self.sup_edit_btn = QPushButton(theme.icon("pillar", theme.ACCENT, 16), tr("sup_edit"))
+        self.sup_edit_btn.setToolTip(tr("sup_edit_tip"))
+        self.sup_edit_btn.setCheckable(True)
+        self.sup_edit_btn.toggled.connect(lambda on: self._set_pick_mode("edit" if on else None))
+        for k, b in enumerate((self.sup_auto_btn, self.sup_clear_btn, self.sup_add_btn, self.sup_remove_btn)):
             b.setCursor(Qt.PointingHandCursor)
             row.addWidget(b, k // 2, k % 2)
+        self.sup_edit_btn.setCursor(Qt.PointingHandCursor)
+        row.addWidget(self.sup_edit_btn, 2, 0, 1, 2)
         sl.addLayout(row)
         self.sup_info = QLabel(tr("sup_none"))
         self.sup_info.setObjectName("Faint")
@@ -415,7 +428,7 @@ class MainWindow(QMainWindow):
         grid = QGridLayout(holder)
         grid.setContentsMargins(0, 0, 0, 0)
         self.viewer = Viewer()
-        self.viewer.objectClicked.connect(self._select_uid)
+        self.viewer.objectClicked.connect(self._on_view_click)
         self.viewer.boxSelected.connect(self._on_box_select)
         self.viewer.contextRequested.connect(self._show_context_menu)
         self.viewer.objectDragged.connect(self._on_drag)
@@ -429,6 +442,8 @@ class MainWindow(QMainWindow):
         self.viewer.measured.connect(self._on_measured)
         self.viewer.previewObjectClicked.connect(self._on_preview_click)
         self.viewer.rayPicked.connect(self._on_support_remove)
+        self.viewer.supportEdit.connect(self._on_support_edit)
+        self.viewer.hoverRay.connect(self._on_support_hover)
         self.viewer.glFailed.connect(self._on_gl_failed)
         grid.addWidget(self.viewer, 0, 0)
 
@@ -498,6 +513,7 @@ class MainWindow(QMainWindow):
         self.palette_wrap = pwrap
 
         # empty state
+        self._build_edit_bar(holder)
         self.empty_hint = QLabel(tr("no_objects"))
         self.empty_hint.setAlignment(Qt.AlignCenter)
         self.empty_hint.setStyleSheet(f"color: {theme.TEXT_FAINT}; font-size: 15px; background: transparent;")
@@ -688,6 +704,9 @@ class MainWindow(QMainWindow):
                         (QKeySequence("A"), via_key("arrange", self.arrange_objects)),
                         (QKeySequence("Ctrl+D"), via_key("duplicate", self.duplicate_selected)),
                         (QKeySequence.SelectAll, self.select_all),
+                        (QKeySequence("Shift+A"), lambda: self.auto_layout()),
+                        (QKeySequence("S"), lambda: self._set_pick_mode(None if self.viewer.pick_mode == "edit" else "edit")
+                         if self.supports_card.isVisible() else None),
                         (QKeySequence("Ctrl+R"), via_key("slice", self.slice_or_cancel)),
                         (QKeySequence("Ctrl+E"), via_key("export", self.export)),
                         (QKeySequence("Up"), lambda: self._step_layer(1)), (QKeySequence("Down"), lambda: self._step_layer(-1)),
@@ -792,17 +811,123 @@ class MainWindow(QMainWindow):
             self._refresh_objects(select=self.objects[-1].uid if self.objects else None)
 
     def _arrange(self, cfg) -> bool:
-        """Auto-arrange inside the plate, keeping the edge margin free."""
-        m = cfg["arrange_margin"]
-        x0, y0, x1, y1 = plate_rect(cfg)
-        rect = (x0 + m, y0 + m, x1 - m, y1 - m) if x1 - x0 > 2 * m and y1 - y0 > 2 * m else (x0, y0, x1, y1)
-        return arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=rect)
+        """Auto layout of every part with the learned options (used after adding parts). True if all fit."""
+        from .. import layout
+        opts = self._layout_defaults()
+        options = layout.LayoutOptions(**{k: opts[k] for k in ("strategy", "spacing", "margin", "rotation", "anchor", "sort")})
+        return not layout.auto_layout(self.objects, plate_rect(cfg), options)
 
     def arrange_objects(self):
+        """Quick auto layout (A) with the options learned from earlier layouts."""
+        self.auto_layout(dialog=False)
+
+    def _fill_plate_quick(self):
+        if not self.selected():
+            self.status.setText(tr("select_first"))
+            return
+        from .. import layout
+        opts = self._layout_defaults()
+        self._push_undo()
+        options = layout.LayoutOptions(**{k: opts[k] for k in ("strategy", "spacing", "margin", "rotation", "anchor", "sort")})
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            added = layout.fill_plate(self.objects, self.selected(), plate_rect(self.settings.config()), options)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.objects += added
+        self._refresh_objects(select=self.selected().uid)
+        self.status.setText(tr("fill_done").format(len(added)))
+
+    def _layout_defaults(self) -> dict:
+        cfg = self.settings.config()
+        base = {"strategy": "contour", "spacing": cfg["arrange_spacing"], "margin": cfg["arrange_margin"],
+                "rotation": "none", "anchor": "center", "sort": "area"}
+        return self.assistant.learned_layout(base)
+
+    def auto_layout(self, scope: str | None = None, dialog: bool = True):
+        """Auto layout with PreForm / CHITUBOX / Composer style options; the assistant learns the choices."""
+        from .. import layout
+        if not self.objects:
+            return
+        opts = self._layout_defaults()
+        opts["scope"] = scope or ("selected" if len(self.selected_objects()) > 1 and dialog else "all")
+        fill = False
+        if dialog:
+            got = self._layout_dialog(opts)
+            if got is None:
+                return
+            opts, fill = got
+        learned = opts.pop("learned", False)
         self._push_undo()
         cfg = self.settings.config()
-        self._arrange(cfg)
-        self._objects_changed()
+        plate = plate_rect(cfg)
+        options = layout.LayoutOptions(**{k: opts[k] for k in ("strategy", "spacing", "margin", "rotation", "scope",
+                                                               "anchor", "sort")})
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            if fill and self.selected():
+                added = layout.fill_plate(self.objects, self.selected(), plate, options)
+                self.objects += added
+                failed = []
+                self.status.setText(tr("fill_done").format(len(added)))
+            else:
+                failed = layout.auto_layout(self.objects, plate, options, self.selected_objects())
+        finally:
+            QApplication.restoreOverrideCursor()
+        if dialog:
+            self.assistant.record_layout_choice(opts)
+        self._layout_pending = True            # the final arrangement at slicing time is a lesson
+        self._refresh_objects(select=[o.uid for o in self.selected_objects()] or None)
+        if failed:
+            self.status.setText(tr("layout_failed").format(len(failed)))
+        elif not fill:
+            self.status.setText(tr("layout_done_learned") if learned else tr("layout_done"))
+
+    def _layout_dialog(self, opts: dict):
+        from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("auto_layout"))
+        form = QFormLayout(dlg)
+
+        def combo(items, current):
+            c = QComboBox()
+            for value, key in items:
+                c.addItem(tr(key), value)
+            c.setCurrentIndex(max(0, c.findData(current)))
+            return c
+        strategy = combo((("contour", "lay_contour"), ("box", "lay_box"), ("grid", "lay_grid")), opts["strategy"])
+        rotation = combo((("none", "lay_rot_none"), ("90", "lay_rot_90"), ("free", "lay_rot_free")), opts["rotation"])
+        scope = combo((("all", "lay_all"), ("selected", "lay_selected"), ("outside", "lay_outside")), opts["scope"])
+        anchor = combo((("center", "lay_center"), ("front_left", "lay_front_left"), ("front_right", "lay_front_right"),
+                        ("back_left", "lay_back_left"), ("back_right", "lay_back_right")), opts["anchor"])
+        sort = combo((("area", "lay_sort_area"), ("height", "lay_sort_height"), ("name", "lay_sort_name"),
+                      ("none", "lay_sort_none")), opts["sort"])
+        spacing = _spin(0, 50, 0.5, 1, " mm", 110)
+        spacing.setValue(opts["spacing"])
+        margin = _spin(0, 30, 0.5, 1, " mm", 110)
+        margin.setValue(opts["margin"])
+        fill = QCheckBox(tr("lay_fill"))
+        fill.setToolTip(tr("lay_fill_tip"))
+        fill.setEnabled(len(self.selected_objects()) == 1)
+        for label, w in (("lay_strategy", strategy), ("lay_spacing", spacing), ("lay_margin", margin),
+                         ("lay_rotation", rotation), ("lay_scope", scope), ("lay_anchor", anchor), ("lay_sort", sort)):
+            form.addRow(tr(label), w)
+        form.addRow(fill)
+        if opts.get("learned"):
+            note = QLabel(tr("lay_learned_note"))
+            note.setObjectName("Faint")
+            note.setWordWrap(True)
+            form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return None
+        out = {"strategy": strategy.currentData(), "spacing": spacing.value(), "margin": margin.value(),
+               "rotation": rotation.currentData(), "scope": scope.currentData(), "anchor": anchor.currentData(),
+               "sort": sort.currentData(), "learned": opts.get("learned", False)}
+        return out, fill.isChecked()
 
     def lay_flat(self):
         group = self.selected_objects()
@@ -875,6 +1000,7 @@ class MainWindow(QMainWindow):
 
     # ---------------------------------------------------------- manual orientation
     def set_tool(self, name: str):
+        self.edit_bar.hide()
         for n, b in self.tool_buttons.items():
             b.setChecked(n == name)
         self.viewer.tool = name
@@ -1305,6 +1431,184 @@ class MainWindow(QMainWindow):
             self._syncing = False
             self._on_list_multi()
 
+    # ---------------------------------------------------------- floating edit bar
+    def _build_edit_bar(self, holder):
+        """Bar of the common editing actions that opens next to a model when it is clicked."""
+        bar = QFrame(holder)
+        bar.setObjectName("Card")
+        bar.setStyleSheet(f"QFrame#Card {{ background: {theme.overlay(0.97)}; }}")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(6, 4, 6, 4)
+        lay.setSpacing(2)
+        self.edit_title = QLabel("")
+        self.edit_title.setObjectName("Dim")
+        self.edit_title.setMaximumWidth(150)
+        lay.addWidget(self.edit_title)
+
+        def button(icon_name, tip, slot=None, menu=None):
+            b = QToolButton()
+            b.setIcon(theme.icon(icon_name, theme.TEXT, 18))
+            b.setIconSize(QSize(18, 18))
+            b.setToolTip(tip)
+            b.setCursor(Qt.PointingHandCursor)
+            if menu is not None:
+                b.setMenu(menu)
+                b.setPopupMode(QToolButton.InstantPopup)
+            else:
+                b.clicked.connect(slot)
+            lay.addWidget(b)
+            return b
+
+        self._orient_menu = QMenu(self)
+        self._fill_orientation_menu(self._orient_menu)
+        button("rotate3d", tr("ctx_orientation"), menu=self._orient_menu)
+        button("compass", tr("auto_orient"), self.auto_orient_selected)
+        button("face", tr("ctx_face_tool"), lambda: self.set_tool("face"))
+        button("move", tr("move_to"), self.move_to_dialog)
+        button("fit", tr("scale_to"), self.scale_dialog)
+        mirror = QMenu(self)
+        for axis, name in enumerate("XYZ"):
+            mirror.addAction(f"{tr('mirror')} {name}", lambda a=axis: self.mirror_selected(a))
+        button("view_side", tr("mirror"), menu=mirror)
+        button("flat", tr("drop_to_plate"), self.drop_to_plate)
+        button("copy", tr("duplicate"), self.duplicate_selected)
+        sup_menu = QMenu(self)
+        sup_menu.addAction(theme.icon("pillar"), tr("sup_auto"), self.generate_supports)
+        sup_menu.addAction(theme.icon("pillar"), tr("sup_edit") + "\tS", lambda: self._set_pick_mode("edit"))
+        sup_menu.addAction(theme.icon("plus"), tr("sup_add"), lambda: self._set_pick_mode("add"))
+        sup_menu.addAction(theme.icon("x"), tr("sup_remove"), lambda: self._set_pick_mode("remove"))
+        sup_menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
+        self.edit_sup_btn = button("pillar", tr("supports_card"), menu=sup_menu)
+        button("trash", tr("delete"), self.delete_selected)
+        button("more", tr("more"), lambda: self._show_context_menu(
+            self.selected().uid if self.selected() else None, self.edit_bar.mapToGlobal(self.edit_bar.rect().bottomRight())))
+        close = button("x", tr("close"), lambda: self.edit_bar.hide())
+        close.setIconSize(QSize(14, 14))
+        bar.hide()
+        self.edit_bar = bar
+
+    def _fill_orientation_menu(self, menu):
+        for axis, name in enumerate("XYZ"):
+            for deg in (90, -90, 45, -45):
+                menu.addAction(f"{name} {deg:+d}°", lambda a=axis, d=deg: self.rotate_selected(a, d))
+            menu.addSeparator()
+        menu.addAction(theme.icon("rotate3d"), tr("ctx_rotate_exact"), self.rotate_exact_dialog)
+        menu.addAction(theme.icon("rotate3d"), tr("ctx_rotate_tool"), lambda: self.set_tool("rotate"))
+        menu.addAction(theme.icon("face"), tr("ctx_face_tool"), lambda: self.set_tool("face"))
+        menu.addAction(theme.icon("compass"), tr("auto_orient"), self.auto_orient_selected)
+        menu.addAction(theme.icon("flat"), tr("lay_flat"), self.lay_flat)
+        menu.addAction(theme.icon("reset"), tr("reset_transform"), self.reset_transform)
+
+    def _show_edit_bar(self):
+        group = self.selected_objects()
+        if not group or self.viewer.mode != "prepare" or self.viewer.tool != "move" or self.viewer.pick_mode:
+            self.edit_bar.hide()
+            return
+        self.edit_title.setText(group[0].name if len(group) == 1 else tr("n_models").format(len(group)))
+        sla_supports_on = self.viewer.technology == "sla" and self.settings.config()["sla_process"] != "polyjet"
+        self.edit_sup_btn.setVisible(sla_supports_on)
+        self.edit_bar.adjustSize()
+        holder = self.edit_bar.parentWidget()
+        p = self.viewer.mapTo(holder, self.viewer.last_click.toPoint())
+        x = min(max(8, p.x() - self.edit_bar.width() // 2), holder.width() - self.edit_bar.width() - 8)
+        y = p.y() - self.edit_bar.height() - 24
+        if y < 70:
+            y = p.y() + 28
+        self.edit_bar.move(x, min(y, holder.height() - self.edit_bar.height() - 8))
+        self.edit_bar.show()
+        self.edit_bar.raise_()
+
+    def move_to_dialog(self):
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
+        obj = self.selected()
+        if not obj:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("move_to"))
+        form = QFormLayout(dlg)
+        spins = []
+        for name, value in (("X", obj.x), ("Y", obj.y), ("Z", obj.z)):
+            sp = _spin(-5000 if name != "Z" else 0, 5000, 1, 2, " mm", 120)
+            sp.setValue(value)
+            form.addRow(name, sp)
+            spins.append(sp)
+        note = QLabel(tr("move_to_note"))
+        note.setObjectName("Faint")
+        note.setWordWrap(True)
+        form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        self._push_undo()
+        dx, dy, dz = spins[0].value() - obj.x, spins[1].value() - obj.y, spins[2].value() - obj.z
+        for o in self.selected_objects():
+            o.x, o.y, o.z = o.x + dx, o.y + dy, max(0.0, o.z + dz)
+        self._objects_changed()
+
+    def scale_dialog(self):
+        from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout
+        group = self.selected_objects()
+        if not group:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("scale_to"))
+        form = QFormLayout(dlg)
+        mode = QComboBox()
+        mode.addItem(tr("scale_percent"), "percent")
+        mode.addItem(tr("scale_fit_height"), "height")
+        mode.addItem(tr("scale_fit_longest"), "longest")
+        mode.addItem(tr("scale_inch"), "inch")
+        value = _spin(0.01, 100000, 1, 2, "", 120)
+        value.setValue(100.0)
+        mode.currentIndexChanged.connect(lambda _i: value.setValue(
+            {"percent": 100.0, "height": float(group[0].world_size()[2]), "longest": float(max(group[0].world_size())),
+             "inch": 2540.0}[mode.currentData()]))
+        form.addRow(tr("scale_mode"), mode)
+        form.addRow(tr("scale_value"), value)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        self._push_undo()
+        for o in group:
+            size = o.world_size()
+            m = mode.currentData()
+            if m in ("percent", "inch"):
+                factor = value.value() / 100.0
+            elif m == "height":
+                factor = value.value() / size[2] if size[2] > 0 else 1.0
+            else:
+                factor = value.value() / max(size) if max(size) > 0 else 1.0
+            o.scale *= factor
+            self._drop_supports(o)
+        self._objects_changed()
+
+    def drop_to_plate(self):
+        group = self.selected_objects()
+        if group:
+            self._push_undo()
+            for o in group:
+                o.z = 0.0
+            self._objects_changed()
+
+    def rename_selected(self):
+        obj = self.selected()
+        if obj:
+            name, ok = QInputDialog.getText(self, tr("rename"), tr("rename"), text=obj.name)
+            if ok and name.strip():
+                self._push_undo()
+                obj.name = name.strip()
+                self._refresh_objects(select=[o.uid for o in self.selected_objects()])
+
+    def _on_view_click(self, uid, flags):
+        self._select_uid(uid, flags)
+        QTimer.singleShot(0, self._show_edit_bar)
+
     def _show_context_menu(self, uid, pos):
         """Right click in the viewport: orientation and editing for the model under the cursor (or the selection)."""
         if uid is not None and uid not in {o.uid for o in self.selected_objects()}:
@@ -1315,17 +1619,12 @@ class MainWindow(QMainWindow):
             title = menu.addAction(group[0].name if len(group) == 1 else tr("group_selected").format(
                 len(group), sum(o.volume for o in group) / 1000).split("·")[0].strip())
             title.setEnabled(False)
+            self.edit_bar.hide()
             orient_menu = menu.addMenu(theme.icon("rotate3d"), tr("ctx_orientation"))
-            for axis, name in enumerate("XYZ"):
-                for deg in (90, -90, 45, -45):
-                    orient_menu.addAction(f"{name} {deg:+d}°", lambda a=axis, d=deg: self.rotate_selected(a, d))
-                orient_menu.addSeparator()
-            orient_menu.addAction(theme.icon("rotate3d"), tr("ctx_rotate_exact"), self.rotate_exact_dialog)
-            orient_menu.addAction(theme.icon("rotate3d"), tr("ctx_rotate_tool"), lambda: self.set_tool("rotate"))
-            orient_menu.addAction(theme.icon("face"), tr("ctx_face_tool"), lambda: self.set_tool("face"))
-            orient_menu.addAction(theme.icon("compass"), tr("auto_orient"), self.auto_orient_selected)
-            orient_menu.addAction(theme.icon("flat"), tr("lay_flat"), self.lay_flat)
-            orient_menu.addAction(theme.icon("reset"), tr("reset_transform"), self.reset_transform)
+            self._fill_orientation_menu(orient_menu)
+            menu.addAction(theme.icon("move"), tr("move_to"), self.move_to_dialog)
+            menu.addAction(theme.icon("fit"), tr("scale_to"), self.scale_dialog)
+            menu.addAction(theme.icon("flat"), tr("drop_to_plate"), self.drop_to_plate)
             mirror_menu = menu.addMenu(tr("mirror"))
             for axis, name in enumerate("XYZ"):
                 mirror_menu.addAction(name, lambda a=axis: self.mirror_selected(a))
@@ -1333,12 +1632,16 @@ class MainWindow(QMainWindow):
             menu.addAction(theme.icon("copy"), tr("duplicate") + "\tCtrl+D", self.duplicate_selected)
             menu.addAction(theme.icon("copy"), tr("multiply"), self.multiply_selected)
             menu.addAction(theme.icon("center"), tr("center"), self.center_selected)
+            menu.addAction(theme.icon("arrange"), tr("layout_selected"), lambda: self.auto_layout(scope="selected"))
+            menu.addAction(theme.icon("code"), tr("rename"), self.rename_selected)
+            menu.addAction(theme.icon("download"), tr("export_selection_stl"), lambda: self.export_stl(selection_only=True))
             if self.viewer.technology == "sla" and self.settings.config()["sla_process"] == "polyjet":
                 menu.addSeparator()
                 menu.addAction(theme.icon("drop"), tr("material_part"), self.set_part_material)
             elif self.viewer.technology == "sla":
                 menu.addSeparator()
                 menu.addAction(theme.icon("pillar"), tr("sup_auto"), self.generate_supports)
+                menu.addAction(theme.icon("pillar"), tr("sup_edit") + "\tS", lambda: self._set_pick_mode("edit"))
                 menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
                 flat = menu.addAction(theme.icon("flat"), tr("direct_on_plate"))
                 flat.setToolTip(tr("direct_on_plate_tip"))
@@ -1435,6 +1738,7 @@ class MainWindow(QMainWindow):
             if not self._dragging:
                 self._push_undo()
                 self._dragging = True
+                self.edit_bar.hide()
             for obj in group:
                 obj.x += dx
                 obj.y += dy
@@ -1447,6 +1751,7 @@ class MainWindow(QMainWindow):
 
     def _on_drag_finished(self, _uid):
         self._dragging = False
+        QTimer.singleShot(0, self._show_edit_bar)
         self._objects_changed(refresh_list=False)
 
     # ================================================================ supports
@@ -1507,6 +1812,8 @@ class MainWindow(QMainWindow):
             o.__dict__["support_session"] = {"auto": len(o.support_points), "added": [], "removed": 0,
                                              "threshold": learned["support_angle"]}
         self._objects_changed(refresh_list=False)
+        if self.viewer.mode == "prepare":
+            self._set_pick_mode("edit")      # ready to fine-tune: click a support to remove it, the model to add
 
     def clear_supports(self):
         targets = [o for o in self._support_targets() if o.support_points is not None]
@@ -1521,14 +1828,16 @@ class MainWindow(QMainWindow):
             self.settings.set_value("support_enable", True)
 
     def _set_pick_mode(self, mode):
-        for b, m in ((self.sup_add_btn, "add"), (self.sup_remove_btn, "remove")):
+        for b, m in ((self.sup_add_btn, "add"), (self.sup_remove_btn, "remove"), (self.sup_edit_btn, "edit")):
             b.blockSignals(True)
             b.setChecked(mode == m)
             b.blockSignals(False)
         self.viewer.pick_mode = mode
+        self.viewer.set_marker(None)
         self.viewer.setCursor(Qt.CrossCursor if mode else Qt.ArrowCursor)
         if mode:
-            self.status.setText(tr("sup_add_hint") if mode == "add" else tr("sup_remove_hint"))
+            self.edit_bar.hide()
+            self.status.setText({"add": tr("sup_add_hint"), "remove": tr("sup_remove_hint")}.get(mode, tr("sup_edit_hint")))
 
     def _on_support_add(self, uid, point):
         o = next((x for x in self.objects if x.uid == uid), None)
@@ -1562,18 +1871,55 @@ class MainWindow(QMainWindow):
         nz = float(mesh.face_normals()[k, 2])
         return float(np.degrees(np.arcsin(np.clip(-nz, -1, 1))))
 
-    def _on_support_remove(self, origin, direction):
+    def _nearest_support(self, origin, direction):
+        """(distance, object, index) of the support whose head or pillar passes closest to the view ray."""
         lift = self._lift()
+        origin = np.asarray(origin, dtype=float)
+        direction = np.asarray(direction, dtype=float)
+        direction = direction / (np.linalg.norm(direction) or 1.0)
         best = None
+        t = np.linspace(0.0, 1.0, 12)[None, :, None]
         for o in self.objects:
             if not self._shows_supports(o) or len(o.support_points) == 0:
                 continue
             pts = o.world_support_points(lift)
-            d = np.linalg.norm(np.cross(pts - origin, direction), axis=1)
+            foot = pts.copy()
+            foot[:, 2] = 0.0
+            # sample each support from the contact point down to the plate; the nearest sample to the ray wins
+            samples = pts[:, None, :] + (foot - pts)[:, None, :] * t
+            d = np.linalg.norm(np.cross(samples - origin, direction), axis=2).min(axis=1)
+            d += np.linalg.norm(np.cross(pts - origin, direction), axis=1) * 0.15   # prefer the head
             k = int(np.argmin(d))
-            if d[k] < 3.0 and (best is None or d[k] < best[0]):
-                best = (d[k], o, k)
-        if best is None:
+            if best is None or d[k] < best[0]:
+                best = (float(d[k]), o, k)
+        return best
+
+    def _support_reach(self) -> float:
+        cfg = self.settings.config()
+        return max(1.5, cfg["sla_pillar_diameter"] * 1.5)
+
+    def _on_support_hover(self, origin, direction):
+        best = self._nearest_support(origin, direction)
+        if best is not None and best[0] < self._support_reach():
+            _, o, k = best
+            self.viewer.set_marker(o.world_support_points(self._lift())[k])
+        else:
+            self.viewer.set_marker(None)
+
+    def _on_support_edit(self, origin, direction, uid, point, add_only):
+        """Edit mode: a click on a support removes it, a click on the model adds one (Shift: always add)."""
+        best = None if add_only else self._nearest_support(origin, direction)
+        if best is not None and best[0] < self._support_reach():
+            self._on_support_remove(origin, direction)
+            self.status.setText(tr("sup_removed_one"))
+        elif uid is not None:
+            self._on_support_add(uid, point)
+            self.status.setText(tr("sup_added_one"))
+        self.viewer.set_marker(None)
+
+    def _on_support_remove(self, origin, direction):
+        best = self._nearest_support(origin, direction)
+        if best is None or best[0] > max(3.0, self._support_reach()):
             return
         self._push_undo()
         _, o, k = best
@@ -1615,7 +1961,7 @@ class MainWindow(QMainWindow):
                 o.x += dx
                 o.y += dy
             if out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=rect):
-                arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=rect)
+                self._arrange(cfg)
             self.viewer.view_preset("iso")
         self._plate = rect
         self.stat_material.set("—", tr("stat_resin") if tech == "sla" else tr("stat_filament"))
@@ -1809,6 +2155,7 @@ class MainWindow(QMainWindow):
         self._schedule_suggestions()
 
     def set_mode(self, mode: str, slice_if_needed: bool = True):
+        self.edit_bar.hide()
         if mode == "preview" and self.result is None:
             if slice_if_needed and self.objects:
                 self.slice()
@@ -1914,6 +2261,10 @@ class MainWindow(QMainWindow):
             if session is not None:
                 learned |= self.assistant.learn_support_edits(session["auto"], session["added"], session["removed"],
                                                               session["threshold"])
+        if getattr(self, "_layout_pending", False):
+            from .. import layout
+            self._layout_pending = False
+            learned |= self.assistant.learn_layout(layout.layout_stats(self.objects, plate_rect(cfg)))
         if learned:
             self.status.setText(tr("assistant_learned"))
 
@@ -1940,7 +2291,22 @@ class MainWindow(QMainWindow):
             free = int(((x1 - x0) // sx) * ((y1 - y0) // sy)) - 1
         return {"technology": cfg["technology"], "cfg": cfg, "objects": objects, "job": job,
                 "overrides": dict(self.settings.overrides), "plate_free_copies": free,
+                "overlapping": self._overlapping_count(),
                 "dismissed_session": self._dismissed_session}
+
+    def _overlapping_count(self) -> int:
+        """Parts whose footprints overlap another part (they would print fused)."""
+        from ..layout import footprint
+        parts = [o for o in self.objects if o.role != "cutter"]
+        if len(parts) < 2 or len(parts) > 60:
+            return 0
+        prints = [footprint(o) for o in parts]
+        bad = set()
+        for i in range(len(prints)):
+            for j in range(i + 1, len(prints)):
+                if prints[i].intersection(prints[j]).area > 1.0:
+                    bad |= {i, j}
+        return len(bad)
 
     def _refresh_suggestions(self):
         if not self.assistant.enabled:
@@ -1996,15 +2362,17 @@ class MainWindow(QMainWindow):
             for k, v in args.items():
                 self.settings.set_value(k, v)
         elif a == "auto_orient_all":
-            self.object_list.setCurrentItem(None)
+            self._select_uid(None)
             self.auto_orient_selected()
+        elif a == "auto_layout":
+            self.auto_layout(scope="all", dialog=False)
         elif a == "auto_orient":
             self._select_uid(args["uid"])
             self.auto_orient_selected()
         elif a == "denser_supports":
             cfg = self.settings.config()
             self.settings.set_value("sla_support_spacing", round(cfg["sla_support_spacing"] * 0.75, 2))
-            self.object_list.setCurrentItem(None)
+            self._select_uid(None)
             if cfg["technology"] == "sla":
                 self.generate_supports()
         elif a == "multiply":
@@ -2104,18 +2472,19 @@ class MainWindow(QMainWindow):
         self._refresh_objects(select=objects[0].uid if objects else None)
         self.viewer.fit_objects()
 
-    def export_stl(self):
+    def export_stl(self, selection_only: bool = False):
         if not self.objects:
             return
+        chosen = self.selected_objects() if selection_only else self.objects
         cfg = self.settings.config()
         last = self.store.value("export_dir", os.path.expanduser("~"))
         name = self.objects[0].name or "model"
         path, _ = QFileDialog.getSaveFileName(self, tr("export_stl"), os.path.join(last, name + ".stl"), "STL (*.stl)")
         if not path:
             return
-        models = [o for o in self.objects if o.role != "cutter"]
+        models = [o for o in chosen if o.role != "cutter"]
         meshes = [o.world_mesh() for o in models]
-        if cfg["technology"] == "sla" and cfg["support_enable"]:
+        if cfg["technology"] == "sla" and cfg["support_enable"] and cfg["sla_process"] != "polyjet":
             lift = self._lift(cfg)
             parts = []
             for o, m in zip(models, meshes):

@@ -7,6 +7,8 @@ What it learns
   score move towards the user's choice (pairwise logistic update on normalised features);
 - supports: supports added or removed after auto-generation change the density and the overhang angle;
 - print results: reported failures adjust supports / orientation and produce targeted suggestions;
+- layout: the options picked in Auto layout and how the user rearranges parts afterwards (gap between
+  parts, distance from the plate edge, centred or gathered in a corner) become the next layout's defaults;
 - habits: settings the user keeps changing to the same value, and actions done the slow way.
 """
 from __future__ import annotations
@@ -50,6 +52,7 @@ def _default_data() -> dict:
         "actions": {},
         "prints": {"success": 0, "fail_supports": 0, "fail_suction": 0, "fail_adhesion": 0, "fail_other": 0},
         "dismissed": [],
+        "layout": {"choices": {}, "gap": None, "edge": None, "offcentre": None, "samples": 0, "runs": 0},
     }
 
 
@@ -151,6 +154,63 @@ class Assistant:
         self.save()
         return True
 
+    # --------------------------------------------------------------- layout
+    def record_layout_choice(self, options: dict) -> None:
+        """Options the user ran Auto layout with (strategy, rotation, anchor, scope, sort, spacing, margin)."""
+        if not self.enabled:
+            return
+        lay = self.data["layout"]
+        for k in ("strategy", "rotation", "anchor", "sort"):
+            if k in options:
+                counts = lay["choices"].setdefault(k, {})
+                counts[str(options[k])] = counts.get(str(options[k]), 0) + 1
+        for k in ("spacing", "margin"):
+            if k in options:
+                lay["choices"].setdefault(k + "_values", []).append(float(options[k]))
+                del lay["choices"][k + "_values"][:-20]
+        lay["runs"] = int(lay.get("runs", 0)) + 1
+        self.save()
+
+    def learn_layout(self, stats: dict | None) -> bool:
+        """The final arrangement at slicing time, after the user adjusted an automatic layout."""
+        if not self.enabled or not stats or stats.get("count", 0) < 2 or stats.get("gap") is None:
+            return False
+        if stats["gap"] < 0.3 or stats["edge"] < 0:
+            return False      # overlapping or off-plate parts are a mistake, not a preference
+        lay = self.data["layout"]
+        n = int(lay.get("samples", 0))
+        rate = 1.0 / (n + 1) if n < 4 else 0.25           # running mean first, then an exponential average
+        for k, lo, hi in (("gap", 0.0, 60.0), ("edge", 0.0, 60.0), ("offcentre", 0.0, 1.0)):
+            v = float(np.clip(stats[k], lo, hi))
+            lay[k] = v if lay.get(k) is None else lay[k] + rate * (v - lay[k])
+        lay["samples"] = n + 1
+        self.save()
+        return True
+
+    def learned_layout(self, base: dict) -> dict:
+        """Layout defaults: ``base`` updated with what the user usually picks and how they adjust layouts."""
+        out = dict(base)
+        if not self.enabled:
+            return out
+        lay = self.data["layout"]
+        for k in ("strategy", "rotation", "anchor", "sort"):
+            counts = lay["choices"].get(k, {})
+            if counts and max(counts.values()) >= 2:
+                out[k] = max(counts, key=counts.get)
+        if lay.get("samples", 0) >= 2:
+            out["spacing"] = round(float(lay["gap"]) * 2) / 2
+            out["margin"] = round(min(float(lay["edge"]), 30.0) * 2) / 2
+            anchors = lay["choices"].get("anchor", {})
+            if not anchors or max(anchors.values()) < 2:      # no explicit habit: follow where parts end up
+                out["anchor"] = "center" if lay["offcentre"] < 0.35 else "front_left"
+        else:
+            for k in ("spacing", "margin"):
+                vals = lay["choices"].get(k + "_values", [])
+                if len(vals) >= 2:
+                    out[k] = float(np.median(vals))
+        out["learned"] = lay.get("samples", 0) >= 2 or lay.get("runs", 0) >= 2
+        return out
+
     # --------------------------------------------------------------- prints
     def record_print(self, outcome: str, technology: str, cfg: Config) -> list[Suggestion]:
         """Store a print result; returns suggestions aimed at that failure."""
@@ -241,6 +301,14 @@ class Assistant:
             if gain >= 0.2:
                 out.append(Suggestion(f"orient_{o['uid']}", "improve", "sg_orient", (o["name"], int(gain * 100)),
                                       "auto_orient", {"uid": o["uid"]}, False))
+        lay = self.data["layout"]
+        if cfg is not None and lay.get("samples", 0) >= 3 and lay.get("gap") is not None \
+                and abs(lay["gap"] - cfg["arrange_spacing"]) >= 1.5:
+            spacing = round(lay["gap"] * 2) / 2
+            out.append(Suggestion(f"layout_gap_{spacing}", "learned", "sg_layout_spacing", (spacing,),
+                                  "save_default", {"key": "arrange_spacing", "value": spacing}))
+        if ctx.get("overlapping", 0):
+            out.append(Suggestion("overlap", "problem", "sg_overlap", (ctx["overlapping"],), "auto_layout", {}, False))
         free = ctx.get("plate_free_copies", 0)
         if len(ctx.get("objects", [])) == 1 and free >= 3:
             out.append(Suggestion("copies", "tip", "sg_copies", (free,), "multiply", {}, False))
@@ -274,6 +342,8 @@ class Assistant:
             "angle_offset": round(s["angle_offset"], 1),
             "support_sessions": s["sessions"],
             "prints": dict(self.data["prints"]),
+            "layout_samples": int(self.data["layout"].get("samples", 0)),
+            "layout_runs": int(self.data["layout"].get("runs", 0)),
         }
 
 

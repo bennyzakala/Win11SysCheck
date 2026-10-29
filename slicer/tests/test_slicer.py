@@ -597,3 +597,33 @@ def test_vector_formats_and_processes(tmp_path):
     path = sla.export(job, cfg, str(tmp_path / "plate.3mf"))
     assert len(load_mesh(path)) == 1
     assert "VeroClear" in zipfile.ZipFile(path).read("3D/3dmodel.model").decode()
+
+
+def test_auto_layout_options_and_learning(tmp_path):
+    from unislicer import layout
+    from unislicer.assistant import Assistant
+    plate = (0.0, 0.0, 143.0, 89.0)
+    objs = [SceneObject.from_mesh(primitives.box(30, 12, 5) if k % 2 else primitives.cylinder(8, 10, 48)) for k in range(6)]
+    for strategy in ("contour", "box"):
+        opt = layout.LayoutOptions(strategy=strategy, spacing=4, margin=3)
+        assert layout.auto_layout(objs, plate, opt) == []
+        st = layout.layout_stats(objs, plate)
+        assert st["gap"] >= 4 - 0.05 and st["edge"] >= 3 - 0.05
+    # corner anchor gathers parts away from the centre; "selected" leaves the others alone
+    layout.auto_layout(objs, plate, layout.LayoutOptions(anchor="front_left"))
+    assert layout.layout_stats(objs, plate)["offcentre"] > 0.2
+    keep = [(o.x, o.y) for o in objs[2:]]
+    layout.auto_layout(objs, plate, layout.LayoutOptions(scope="selected"), selected=objs[:2])
+    assert [(o.x, o.y) for o in objs[2:]] == keep and layout.layout_stats(objs, plate)["gap"] > 0
+    added = layout.fill_plate(objs[:1], objs[0], plate, layout.LayoutOptions(spacing=2))
+    assert len(added) >= 8
+    # the assistant learns the options picked and the user's corrections
+    a = Assistant(str(tmp_path))
+    for _ in range(2):
+        a.record_layout_choice({"strategy": "grid", "rotation": "90", "anchor": "back_left", "sort": "height",
+                                "spacing": 3, "margin": 1})
+        a.learn_layout({"gap": 2.5, "edge": 4.0, "offcentre": 0.1, "count": 5})
+    got = a.learned_layout({"strategy": "contour", "spacing": 6, "margin": 2, "rotation": "none", "anchor": "center", "sort": "area"})
+    assert got["learned"] and got["strategy"] == "grid" and got["rotation"] == "90" and got["anchor"] == "back_left"
+    assert got["spacing"] == 2.5 and got["margin"] == 4.0
+    assert not a.learn_layout({"gap": 0.0, "edge": 1, "offcentre": 0, "count": 3})   # overlapping parts are not a preference
