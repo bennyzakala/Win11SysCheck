@@ -23,6 +23,8 @@ class SceneObject:
     mirror: np.ndarray = field(default_factory=lambda: np.ones(3))         # -1 flips that axis
     # resin support contact points in the mesh's own coordinates; None = place automatically
     support_points: np.ndarray | None = None
+    # manual drain holes: (N, 6) surface point and outward normal, in the mesh's own coordinates
+    drain_holes: np.ndarray = field(default_factory=lambda: np.zeros((0, 6)))
     uid: int = field(default_factory=lambda: next(_ids))
 
     @classmethod
@@ -93,13 +95,33 @@ class SceneObject:
         inv = np.linalg.inv(m[:3, :3])
         self.support_points = (np.asarray(points, dtype=np.float64).reshape(-1, 3) - [0, 0, lift] - m[:3, 3]) @ inv.T
 
+    def world_drain_holes(self, lift: float = 0.0) -> np.ndarray:
+        """Drain holes in bed coordinates as (N, 6) point + unit normal."""
+        if len(self.drain_holes) == 0:
+            return np.zeros((0, 6))
+        m = self.world_matrix()
+        pts = self.drain_holes[:, :3] @ m[:3, :3].T + m[:3, 3] + [0, 0, lift]
+        n = self.drain_holes[:, 3:] @ np.linalg.inv(m[:3, :3])        # normals use the inverse transpose
+        n /= np.linalg.norm(n, axis=1, keepdims=True)
+        return np.hstack([pts, n])
+
+    def add_world_drain_hole(self, point, normal, lift: float = 0.0) -> None:
+        m = self.world_matrix()
+        inv = np.linalg.inv(m[:3, :3])
+        p = (np.asarray(point, dtype=float) - [0, 0, lift] - m[:3, 3]) @ inv.T
+        n = np.asarray(normal, dtype=float) @ m[:3, :3]
+        n /= np.linalg.norm(n) or 1.0
+        self.drain_holes = np.vstack([self.drain_holes, np.concatenate([p, n])[None, :]])
+
     def state(self) -> tuple:
         """Snapshot of everything the user can change (for undo)."""
         sp = None if self.support_points is None else self.support_points.copy()
-        return (self.x, self.y, self.rotation.copy(), self.scale.copy(), self.base_rotation.copy(), self.mirror.copy(), sp)
+        return (self.x, self.y, self.rotation.copy(), self.scale.copy(), self.base_rotation.copy(), self.mirror.copy(), sp,
+                self.drain_holes.copy())
 
     def restore(self, state: tuple) -> None:
-        self.x, self.y, rot, scale, base, mirror, sp = state
+        self.x, self.y, rot, scale, base, mirror, sp, holes = state
+        self.drain_holes = holes.copy()
         self.rotation, self.scale, self.base_rotation, self.mirror = rot.copy(), scale.copy(), base.copy(), mirror.copy()
         self.support_points = None if sp is None else sp.copy()
 
@@ -116,7 +138,7 @@ class SceneObject:
     def duplicate(self) -> "SceneObject":
         sp = None if self.support_points is None else self.support_points.copy()
         return SceneObject(self.mesh, self.name, self.x, self.y, self.rotation.copy(), self.scale.copy(),
-                           self.base_rotation.copy(), self.mirror.copy(), sp)
+                           self.base_rotation.copy(), self.mirror.copy(), sp, self.drain_holes.copy())
 
 
 def plate_rect(cfg) -> tuple[float, float, float, float]:

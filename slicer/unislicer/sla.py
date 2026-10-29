@@ -118,10 +118,23 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config) -> tuple[list[Mul
     saved = sum(c.area for c in cavity) * lh / 1000.0
     if saved <= 0:
         return layers, 0.0, ["The model is too thin to hollow with this wall thickness."]
-    out = [g.difference(c) if not c.is_empty else g for g, c in zip(layers, cavity)]
     notes = []
-    holes = int(cfg["drain_holes"])
-    if holes > 0:
+    if cfg["hollow_mode"] == "bottom":
+        # open base: the cavity continues down through the floor (walls stay)
+        first = next(i for i, c in enumerate(cavity) if not c.is_empty)
+        for i in range(first):
+            if not eroded[i].is_empty:
+                cavity[i] = eroded[i]
+    out = [g.difference(c) if not c.is_empty else g for g, c in zip(layers, cavity)]
+    pattern = _infill_pattern(cavity, cfg)
+    if pattern is not None:
+        out = [o.union(c.intersection(pattern)) if not c.is_empty else o for o, c in zip(out, cavity)]
+    elif cfg["sla_internal_supports"] and cfg["support_enable"]:
+        out = _internal_pillars(out, cavity, cfg)
+    holes = 0 if cfg["hollow_mode"] == "bottom" else int(cfg["drain_holes"])
+    if cfg["hollow_mode"] == "bottom":
+        pass
+    elif holes > 0:
         bottom = next(i for i, g in enumerate(layers) if not g.is_empty)
         r = cfg["drain_hole_diameter"] / 2
         # the lowest cavity layer that is wide enough for a hole
@@ -142,6 +155,86 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config) -> tuple[list[Mul
     else:
         notes.append("Hollowed without drain holes: uncured resin will stay trapped inside.")
     return [as_multipolygon(g) for g in out], saved, notes
+
+
+def _infill_pattern(cavity: list, cfg: Config):
+    """2D wall pattern (grid or honeycomb) covering all cavities, or None."""
+    kind = cfg["hollow_infill"]
+    if kind == "none":
+        return None
+    cav = [c for c in cavity if not c.is_empty]
+    if not cav:
+        return None
+    minx = min(c.bounds[0] for c in cav)
+    miny = min(c.bounds[1] for c in cav)
+    maxx = max(c.bounds[2] for c in cav)
+    maxy = max(c.bounds[3] for c in cav)
+    sp, t = cfg["hollow_infill_spacing"], cfg["hollow_infill_thickness"]
+    lines = []
+    vents = []     # slots in the middle of every wall so no cell is a sealed chamber (resin must drain)
+    slot = max(1.2, t * 1.5)
+    if kind == "grid":
+        for x in np.arange(minx - sp, maxx + sp, sp):
+            lines.append([(x, miny - sp), (x, maxy + sp)])
+            for y in np.arange(miny - sp, maxy + sp, sp):
+                vents.append(Point(x, y + sp / 2))
+        for y in np.arange(miny - sp, maxy + sp, sp):
+            lines.append([(minx - sp, y), (maxx + sp, y)])
+            for x in np.arange(minx - sp, maxx + sp, sp):
+                vents.append(Point(x + sp / 2, y))
+    else:
+        r = sp / math.sqrt(3)            # hexagon circumradius so that opposite walls are ``sp`` apart
+        w, h = math.sqrt(3) * r, 1.5 * r
+        for row, y in enumerate(np.arange(miny - 2 * r, maxy + 2 * r, h)):
+            for x in np.arange(minx - 2 * w, maxx + 2 * w, w):
+                cx = x + (w / 2 if row % 2 else 0)
+                hexagon = [(cx + r * math.cos(math.radians(60 * k + 30)), y + r * math.sin(math.radians(60 * k + 30)))
+                           for k in range(7)]
+                lines.append(hexagon)
+                vents += [Point((hexagon[k][0] + hexagon[k + 1][0]) / 2, (hexagon[k][1] + hexagon[k + 1][1]) / 2)
+                          for k in range(6)]
+    walls = shapely.union_all([shapely.LineString(l) for l in lines]).buffer(t / 2, cap_style="flat")
+    return walls.difference(shapely.union_all([v.buffer(slot / 2, quad_segs=4) for v in vents]))
+
+
+def _internal_pillars(layers: list, cavity: list, cfg: Config) -> list:
+    """Pillars inside cavities; a pillar only starts on solid material or on its own pillar below."""
+    cav = [c for c in cavity if not c.is_empty]
+    if not cav:
+        return layers
+    r = cfg["sla_pillar_diameter"] / 2
+    sp = cfg["sla_internal_spacing"]
+    minx = min(c.bounds[0] for c in cav)
+    miny = min(c.bounds[1] for c in cav)
+    maxx = max(c.bounds[2] for c in cav)
+    maxy = max(c.bounds[3] for c in cav)
+    xs, ys = np.meshgrid(np.arange(minx + sp / 2, maxx, sp), np.arange(miny + sp / 2, maxy, sp))
+    px, py = xs.ravel(), ys.ravel()
+    if px.size == 0:
+        return layers
+    circles = [Point(x, y).buffer(r, quad_segs=6) for x, y in zip(px, py)]
+    active = np.zeros(px.size, dtype=bool)
+    out = list(layers)
+    for i, c in enumerate(cavity):
+        if c.is_empty:
+            active[:] = False
+            continue
+        room = c.buffer(-r * 0.5)
+        if room.is_empty:
+            active[:] = False
+            continue
+        shapely.prepare(room)
+        inside = shapely.contains_xy(room, px, py)
+        below = out[i - 1] if i else EMPTY
+        if not below.is_empty:
+            shapely.prepare(below)
+            on_solid = shapely.contains_xy(below, px, py)
+        else:
+            on_solid = np.zeros(px.size, dtype=bool)
+        active = inside & (active | on_solid)
+        if active.any():
+            out[i] = as_multipolygon(out[i].union(shapely.union_all([circles[k] for k in np.flatnonzero(active)])))
+    return out
 
 
 def _spread_points(area, count: int) -> list[tuple[float, float]]:
@@ -179,6 +272,22 @@ def find_islands(layers: list[MultiPolygon], min_area: float = 0.01) -> list[tup
         for poly in polygons_of(layers[i]):
             if poly.area >= min_area and not prev.intersects(poly):
                 out.append((i, poly))
+    return out
+
+
+def hole_meshes(holes, cfg: Config, lift: float = 0.0) -> list[Mesh]:
+    """Cylinders for manually placed drain holes. ``holes[i]`` is (N, 6): surface point and outward normal."""
+    from .primitives import tube
+    out = []
+    r = cfg["drain_hole_diameter"] / 2
+    depth = cfg["drain_hole_depth"] or (cfg["hollow_wall"] + 1.0)
+    for group in holes or []:
+        if group is None:
+            continue
+        for row in np.asarray(group, dtype=np.float64).reshape(-1, 6):
+            p, n = row[:3] + [0, 0, lift], row[3:]
+            n = n / (np.linalg.norm(n) or 1.0)
+            out.append(tube(p + n * 1.0, p - n * depth, r, r, 24))
     return out
 
 
@@ -244,7 +353,8 @@ def find_thin(layers: list[MultiPolygon], min_width: float = 0.3, min_area: floa
 # ----------------------------------------------------------------- prepare
 def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
-            support_points: list[np.ndarray | None] | None = None) -> SlaJob:
+            support_points: list[np.ndarray | None] | None = None,
+            holes: list[np.ndarray | None] | None = None) -> SlaJob:
     """Slice resin models. ``support_points[i]`` holds manual contact points for ``meshes[i]``
     (same coordinates, before elevation), or None to place supports automatically."""
     def report(stage, f):
@@ -257,10 +367,10 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         raise ValueError("Nothing to slice")
     warnings = [f"'{m.name}' is not watertight; check the layer preview." for m in meshes if not m.is_watertight()]
     models = [_shrink_compensate(m, cfg) for m in meshes]
+    lift = cfg["sla_elevation"] + cfg["sla_raft_thickness"]
     supports = None
     points = []
     if cfg["support_enable"]:
-        lift = cfg["sla_elevation"] + cfg["sla_raft_thickness"]
         models = [m.translated([0, 0, lift]) for m in models]
         parts = []
         for i, m in enumerate(models):
@@ -288,6 +398,11 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         report("hollow", 0.0)
         layers, saved, notes = hollow(layers, lh, cfg)
         warnings += notes
+    cutters = hole_meshes(holes, cfg, lift if cfg["support_enable"] else 0.0)
+    if cutters:
+        cut_layers = slice_meshes(cutters, planes, cfg["resolution"])
+        layers = [as_multipolygon(g.difference(c)) if not c.is_empty and not g.is_empty else g
+                  for g, c in zip(layers, cut_layers)]
     thin = find_thin(layers, layer_height=lh)
     if support_meshes:
         sup_layers = slice_meshes(support_meshes, planes, cfg["resolution"],

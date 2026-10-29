@@ -241,6 +241,7 @@ class Viewer(QOpenGLWidget):
     rotateDragged = Signal(object, int, float) # uid, axis (0 x, 1 y, 2 z), degrees since the drag started
     rotateFinished = Signal(object)
     facePicked = Signal(object, object)        # uid, world normal of the clicked face
+    holePicked = Signal(object, object, object)  # uid, world point, world normal (drain hole tool)
     rayPicked = Signal(object, object)         # origin, direction (support "remove" mode)
 
     MODE_PREPARE, MODE_PREVIEW = "prepare", "preview"
@@ -328,9 +329,19 @@ class Viewer(QOpenGLWidget):
     def remove_object(self, uid):
         obj = self.objects.pop(uid, None)
         if obj:
-            for key in ("buffer", "sup_buffer"):
+            for key in ("buffer", "sup_buffer", "hole_buffer"):
                 if obj.get(key):
                     self._trash(obj[key])
+        self.update()
+
+    def set_object_holes(self, uid, mesh: Mesh | None):
+        """Drain-hole markers in the object's own coordinates."""
+        obj = self.objects.get(uid)
+        if obj is None:
+            return
+        if obj.get("hole_buffer"):
+            self._trash(obj["hole_buffer"])
+        obj["holes"], obj["hole_buffer"] = mesh, None
         self.update()
 
     def set_object_supports(self, uid, mesh: Mesh | None):
@@ -463,6 +474,8 @@ class Viewer(QOpenGLWidget):
                 obj["buffer"] = _Buffer(mesh_vertices(obj["mesh"]), [3, 3])
             if obj.get("supports") is not None and obj.get("sup_buffer") is None and len(obj["supports"].faces):
                 obj["sup_buffer"] = _Buffer(mesh_vertices(obj["supports"]), [3, 3])
+            if obj.get("holes") is not None and obj.get("hole_buffer") is None and len(obj["holes"].faces):
+                obj["hole_buffer"] = _Buffer(mesh_vertices(obj["holes"]), [3, 3])
         if self._extra_dirty:
             for b, _ in self._extra_buffers:
                 b.delete()
@@ -547,6 +560,11 @@ class Viewer(QOpenGLWidget):
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 self._set_model(p, obj["matrix"])
                 obj["buffer"].draw(GL.GL_TRIANGLES)
+                if obj.get("hole_buffer") is not None and not preview:
+                    GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
+                    GL.glUniform3f(self._u(p, "uColor"), 1.0, 0.35, 0.42)
+                    obj["hole_buffer"].draw(GL.GL_TRIANGLES)
+                    GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
                 if obj.get("sup_buffer") is not None and not preview and self.technology == "sla":
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
                     GL.glUniform3f(self._u(p, "uColor"), *theme.SUPPORT_COLOR)
@@ -758,6 +776,13 @@ class Viewer(QOpenGLWidget):
                 self.rotateStarted.emit(self.selected)
                 self.update()
                 return
+        if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.tool == "hole":
+            uid, point = self.pick_hit(e.position())
+            if uid is not None:
+                _, normal = self.pick_face(e.position())
+                self.holePicked.emit(uid, point, normal)
+                self._picked = True
+            return
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.tool == "face":
             uid, normal = self.pick_face(e.position())
             if uid is not None:

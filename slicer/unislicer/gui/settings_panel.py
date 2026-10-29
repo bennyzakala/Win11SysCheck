@@ -255,6 +255,7 @@ class SettingsPanel(QWidget):
         self.quality_combo.currentIndexChanged.connect(self._on_quality)
         self._fill_printers()
         self._fill_dependent()
+        self._default_plate()
         self.rebuild()
 
     # -------------------------------------------------------------- profiles
@@ -296,6 +297,13 @@ class SettingsPanel(QWidget):
                 self.printer_combo.setItemData(self.printer_combo.count() - 1, p["note"], Qt.ToolTipRole)
         self.printer_combo.setCurrentIndex(max(0, self.printer_combo.findData(self.printer_id)))
         self._building = False
+
+    def _default_plate(self):
+        """A printer with manufacturer plates starts on its first one unless a plate was chosen."""
+        if not any(k in self.overrides for k in PLATE_KEYS):
+            first = (profiles.plates(self.printer_id) or [None])[0]
+            if first:
+                self.overrides.update({"plate_width": first["width"], "plate_depth": first["depth"]})
 
     def _fill_plates(self):
         self._building = True
@@ -408,7 +416,8 @@ class SettingsPanel(QWidget):
                     combo.setItemData(combo.count() - 1, p["note"], Qt.ToolTipRole)
             current = getattr(self, attr)
             if current not in available:
-                current = next(iter(available), None)
+                linked_ids = [k for k, v in available.items() if self.printer_id in v.get("printers", [])]
+                current = linked_ids[0] if linked_ids else next(iter(available), None)
                 if kind == "qualities":
                     current = "standard" if "standard" in available else ("sla_normal" if "sla_normal" in available else current)
                 setattr(self, attr, current)

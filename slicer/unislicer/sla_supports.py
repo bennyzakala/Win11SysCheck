@@ -4,10 +4,12 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from shapely.geometry import MultiPoint
+from shapely.affinity import scale as shapely_scale
+from shapely.geometry import LineString, MultiPoint
+from shapely.geometry import Polygon as ShapelyPolygon
 
 from .mesh import Mesh
-from .primitives import ball, frustum, prism, tube
+from .primitives import ball, frustum, tube
 from .settings import Config
 
 SEGMENTS = 10
@@ -187,6 +189,101 @@ def _grow_trees(starts: np.ndarray, under: _Underside, cfg: Config, floor: float
     return segments, list(zip(nodes, weights))
 
 
+SHAPE_SEGMENTS = {"cylinder": SEGMENTS, "prism": 6, "cube": 4}
+
+
+def _sample_convex(poly, n: int = 48) -> np.ndarray:
+    """n points on a convex polygon's boundary at evenly spaced angles around its centroid."""
+    c = np.array(poly.centroid.coords[0])
+    big = max(poly.bounds[2] - poly.bounds[0], poly.bounds[3] - poly.bounds[1]) * 2 + 1
+    pts = []
+    ring = poly.exterior
+    for a in np.linspace(0, 2 * np.pi, n, endpoint=False):
+        far = c + big * np.array([np.cos(a), np.sin(a)])
+        hit = LineString([tuple(c), tuple(far)]).intersection(ring)
+        coords = [np.array(g.coords[0]) for g in getattr(hit, "geoms", [hit]) if not g.is_empty]
+        pts.append(max(coords, key=lambda q: np.hypot(*(q - c))) if coords else c)
+    return np.array(pts)
+
+
+def _slab(poly, z0: float, z1: float, slope_deg: float) -> Mesh:
+    """Convex raft slab; with a slope below 90 degrees its top edge is set back (chamfered sides)."""
+    inset = 0.0 if slope_deg >= 89.9 else (z1 - z0) / math.tan(math.radians(slope_deg))
+    bottom = poly
+    top = poly.buffer(-inset) if inset > 0 else poly
+    if top.is_empty or top.area < poly.area * 0.2:
+        top = poly
+    b, t = _sample_convex(bottom), _sample_convex(top)
+    n = len(b)
+    v = np.vstack([np.column_stack([b, np.full(n, z0)]), np.column_stack([t, np.full(n, z1)]),
+                   [[*b.mean(axis=0), z0], [*t.mean(axis=0), z1]]])
+    i = np.arange(n)
+    j = (i + 1) % n
+    sides = np.vstack([np.column_stack([i, j, i + n]), np.column_stack([j, j + n, i + n])])
+    caps = np.vstack([np.column_stack([np.full(n, 2 * n), j, i]), np.column_stack([np.full(n, 2 * n + 1), i + n, j + n])])
+    return Mesh(v, np.vstack([sides, caps]), "Raft")
+
+
+def _rafts(feet: list, cfg: Config, pad: float) -> list[Mesh]:
+    """Raft geometry under the support feet for the chosen raft type."""
+    kind = cfg["sla_raft_type"]
+    raft = cfg["sla_raft_thickness"]
+    if kind == "none" or raft <= 0 or not feet:
+        return []
+    pts = np.array(feet)
+    margin = pad + cfg["sla_raft_margin"]
+    slope = cfg["sla_raft_slope"]
+    scale = math.sqrt(max(cfg["sla_raft_area_ratio"], 1.0) / 100.0)
+
+    def outline(group):
+        hull = MultiPoint([tuple(q) for q in group]).buffer(margin, quad_segs=6).convex_hull
+        return shapely_scale(hull, scale, scale, origin="centroid") if scale != 1 else hull
+
+    if kind == "mini":
+        # group feet that are close together; each group gets its own small raft
+        parent = list(range(len(pts)))
+
+        def find(a):
+            while parent[a] != a:
+                parent[a] = parent[parent[a]]
+                a = parent[a]
+            return a
+        reach = max(6.0, 2 * margin + 2)
+        for a in range(len(pts)):
+            d = np.hypot(*(pts - pts[a]).T)
+            for b in np.flatnonzero(d < reach):
+                parent[find(a)] = find(int(b))
+        groups: dict = {}
+        for a in range(len(pts)):
+            groups.setdefault(find(a), []).append(pts[a])
+        return [_slab(outline(g), 0.0, raft, slope) for g in groups.values()]
+    hull = outline(pts)
+    if kind == "grid":
+        # outline band plus parallel bars, every piece convex so it can be a closed slab
+        out = []
+        ring = _sample_convex(hull, 32)
+        for k in range(len(ring)):
+            a, b = ring[k], ring[(k + 1) % len(ring)]
+            d = b - a
+            n = np.array([-d[1], d[0]]) / (np.hypot(*d) or 1) * 0.8
+            quad = ShapelyPolygon([tuple(a - n), tuple(b - n), tuple(b + n), tuple(a + n)]).convex_hull
+            out.append(_slab(quad, 0.0, raft, 90))
+        for q in pts:   # every foot stands on a pad, never over a gap of the grid
+            out.append(_slab(ShapelyPolygon(MultiPoint([tuple(q)]).buffer(pad * 0.6 + 0.5, quad_segs=4).exterior.coords),
+                             0.0, raft, 90))
+        minx, miny, maxx, maxy = hull.bounds
+        for y in np.arange(miny + 2.5, maxy, 5.0):
+            bar = hull.intersection(ShapelyPolygon([(minx, y - 0.6), (maxx, y - 0.6), (maxx, y + 0.6), (minx, y + 0.6)]))
+            if not bar.is_empty and bar.area > 0.5:
+                out.append(_slab(bar.convex_hull, 0.0, raft, 90))
+        for x in np.arange(minx + 2.5, maxx, 5.0):
+            bar = hull.intersection(ShapelyPolygon([(x - 0.6, miny), (x + 0.6, miny), (x + 0.6, maxy), (x - 0.6, maxy)]))
+            if not bar.is_empty and bar.area > 0.5:
+                out.append(_slab(bar.convex_hull, 0.0, raft, 90))
+        return out
+    return [_slab(hull, 0.0, raft, slope)]
+
+
 def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) -> tuple[Mesh, np.ndarray]:
     """Support geometry for a model that already sits at its elevated height.
 
@@ -198,19 +295,35 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) ->
     caster = _Caster(mesh)
     tip_r = cfg["sla_tip_diameter"] / 2
     pillar_r = max(cfg["sla_pillar_diameter"] / 2, tip_r)
-    raft = cfg["sla_raft_thickness"]
+    raft = 0.0 if cfg["sla_raft_type"] == "none" else cfg["sla_raft_thickness"]
     depth = cfg["sla_contact_depth"]
     on_model = cfg["sla_supports_on_model"]
-    head_len = max(1.0, pillar_r * 3)
+    head_len = cfg["sla_head_length"] or max(1.0, pillar_r * 3)
+    segs = SHAPE_SEGMENTS.get(cfg["sla_pillar_shape"], SEGMENTS)
+    base_shape = cfg["sla_base_shape"]
+    sphere_tip = cfg["sla_tip_shape"] == "sphere"
     tree = cfg["sla_support_type"] == "tree"
     parts, feet, used, tree_tips = [], [], [], []
 
     def foot_on_bed(x, y, r, top):
-        """Wide cone sitting on the raft, from the raft up to height ``top``."""
-        foot = min(1.0, (top - raft) * 0.5)
-        parts.append(frustum(r * 2, r, foot + 0.05, SEGMENTS, raft - 0.05, (x, y)))
+        """Base standing on the raft (or the plate), from there up to at most ``top``. Returns its top height."""
         feet.append(np.array([x, y]))
-        return raft + foot
+        if base_shape == "none":
+            return raft - 0.05
+        base_r = cfg["sla_base_diameter"] / 2 or r * 2
+        h = min(cfg["sla_base_thickness"], (top - raft) * 0.5)
+        if base_shape == "disk":
+            parts.append(frustum(base_r, base_r, h + 0.05, segs, raft - 0.05, (x, y)))
+        elif base_shape == "cube":
+            parts.append(frustum(base_r * 1.2, base_r * 1.2, h + 0.05, 4, raft - 0.05, (x, y)))
+        else:
+            parts.append(frustum(base_r, r, h + 0.05, segs, raft - 0.05, (x, y)))
+        return raft + h
+
+    def head(x, y, top, h, r_body):
+        parts.append(frustum(r_body, tip_r, h, segs, top - h, (x, y)))
+        if sphere_tip:
+            parts.append(ball([x, y, top - tip_r * 0.3], tip_r * 1.25, 4, 10))
 
     for p in points:
         base = caster.base_below(p)
@@ -223,23 +336,23 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) ->
         height = top - bottom
         if height < 0.5:
             continue
-        head = min(head_len, height * 0.5)
+        h_len = min(head_len, height * 0.5)
         used.append(p)
-        if tree and on_bed and height > head + 3.0:
+        if tree and on_bed and height > h_len + 3.0:
             # the head is built now; the branch below it is decided when the trees are grown
-            parts.append(frustum(pillar_r * 0.8, tip_r, head, SEGMENTS, top - head, (x, y)))
-            tree_tips.append(np.array([x, y, top - head]))
+            head(x, y, top, h_len, pillar_r * 0.8)
+            tree_tips.append(np.array([x, y, top - h_len]))
             continue
         if on_bed:
-            body_z = foot_on_bed(x, y, pillar_r, top - head)
+            body_z = foot_on_bed(x, y, pillar_r, top - h_len)
         else:
-            foot = min(head, height * 0.25)
-            parts.append(frustum(tip_r, pillar_r, foot + depth, SEGMENTS, bottom - depth, (x, y)))
+            foot = min(h_len, height * 0.25)
+            parts.append(frustum(tip_r, pillar_r, foot + depth, segs, bottom - depth, (x, y)))
             body_z = bottom + foot
-        body_h = top - head - body_z
+        body_h = top - h_len - body_z
         if body_h > 0:
-            parts.append(frustum(pillar_r, pillar_r, body_h + 0.01, SEGMENTS, body_z, (x, y)))
-        parts.append(frustum(pillar_r, tip_r, head, SEGMENTS, top - head, (x, y)))
+            parts.append(frustum(pillar_r, pillar_r, body_h + 0.01, segs, body_z, (x, y)))
+        head(x, y, top, h_len, pillar_r)
 
     if tree_tips:
         under = _Underside(mesh)
@@ -250,22 +363,17 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) ->
 
         segments, roots = _grow_trees(np.array(tree_tips), under, cfg, raft + 3.0, radius)
         for a, b, ra, rb in segments:
-            parts.append(tube(a, b, ra, rb, SEGMENTS))
+            parts.append(tube(a, b, ra, rb, segs))
             parts.append(ball(a, ra, 3, SEGMENTS))
             parts.append(ball(b, rb, 3, SEGMENTS))
         for node, weight in roots:
             r = radius(weight)
             body_z = foot_on_bed(node[0], node[1], r, node[2])
             if node[2] > body_z:
-                parts.append(frustum(r, r, node[2] - body_z + 0.01, SEGMENTS, body_z, (node[0], node[1])))
+                parts.append(frustum(r, r, node[2] - body_z + 0.01, segs, body_z, (node[0], node[1])))
             parts.append(ball(node, r, 3, SEGMENTS))
 
-    if raft > 0 and feet:
-        hull = MultiPoint([tuple(f) for f in feet]).buffer(pillar_r * 4 + cfg["sla_raft_margin"], quad_segs=4).convex_hull
-        ring = np.asarray(hull.exterior.coords)[:-1]
-        if _signed_area(ring) < 0:
-            ring = ring[::-1]
-        parts.append(prism(ring, 0.0, raft))
+    parts += _rafts(feet, cfg, pillar_r * 4)
     return Mesh.merge(parts, "Supports"), np.array(used).reshape(-1, 3)
 
 

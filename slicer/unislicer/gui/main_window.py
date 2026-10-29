@@ -378,6 +378,7 @@ class MainWindow(QMainWindow):
         self.viewer.rotateDragged.connect(self._on_rotate_drag)
         self.viewer.rotateFinished.connect(self._on_rotate_end)
         self.viewer.facePicked.connect(self._on_face_picked)
+        self.viewer.holePicked.connect(self._on_hole_picked)
         self.viewer.previewObjectClicked.connect(self._on_preview_click)
         self.viewer.rayPicked.connect(self._on_support_remove)
         self.viewer.glFailed.connect(self._on_gl_failed)
@@ -428,7 +429,8 @@ class MainWindow(QMainWindow):
         pl.setContentsMargins(6, 6, 6, 6)
         pl.setSpacing(2)
         self.tool_buttons = {}
-        for name, icon_name, key in (("move", "move", "M"), ("rotate", "rotate3d", "R"), ("face", "face", "F")):
+        for name, icon_name, key in (("move", "move", "M"), ("rotate", "rotate3d", "R"), ("face", "face", "F"),
+                                     ("hole", "drop", "H")):
             b = QToolButton()
             b.setIcon(theme.icon(icon_name, theme.TEXT, 20))
             b.setIconSize(QSize(20, 20))
@@ -643,7 +645,7 @@ class MainWindow(QMainWindow):
                         (QKeySequence.Undo, via_key("undo", self.undo)), (QKeySequence("Ctrl+Y"), self.redo),
                         (QKeySequence.Redo, self.redo), (QKeySequence.Save, via_key("save_project", self.save_project)), (QKeySequence("Escape"), lambda: (self._set_pick_mode(None), self.set_tool("move"))),
                         (QKeySequence("M"), lambda: self.set_tool("move")), (QKeySequence("R"), lambda: self.set_tool("rotate")),
-                        (QKeySequence("F"), lambda: self.set_tool("face"))):
+                        (QKeySequence("F"), lambda: self.set_tool("face")), (QKeySequence("H"), lambda: self.set_tool("hole"))):
             act = QAction(self)
             act.setShortcut(seq)
             act.setShortcutContext(Qt.WindowShortcut)
@@ -793,12 +795,12 @@ class MainWindow(QMainWindow):
         for n, b in self.tool_buttons.items():
             b.setChecked(n == name)
         self.viewer.tool = name
-        self.viewer.setCursor(Qt.CrossCursor if name == "face" else Qt.ArrowCursor)
+        self.viewer.setCursor(Qt.CrossCursor if name in ("face", "hole") else Qt.ArrowCursor)
         if name != "move":
             self._set_pick_mode(None)
             if self.viewer.mode != "prepare":
                 self.set_mode("prepare")
-        hint = {"rotate": "tool_rotate_hint", "face": "tool_face_hint"}.get(name)
+        hint = {"rotate": "tool_rotate_hint", "face": "tool_face_hint", "hole": "tool_hole_hint"}.get(name)
         if hint:
             self.status.setText(tr(hint))
         self.viewer.update()
@@ -854,6 +856,34 @@ class MainWindow(QMainWindow):
         self._drop_supports(obj)
         self._objects_changed()
         self.status.setText(tr("face_done"))
+
+    def _on_hole_picked(self, uid, point, normal):
+        o = next((x for x in self.objects if x.uid == uid), None)
+        if o is None:
+            return
+        self._push_undo()
+        lift = self._lift() if self._shows_supports(o) else 0.0
+        existing = o.world_drain_holes(lift)
+        reach = max(2.0, self.settings.config()["drain_hole_diameter"])
+        if len(existing):
+            d = np.linalg.norm(existing[:, :3] - np.asarray(point), axis=1)
+            k = int(np.argmin(d))
+            if d[k] < reach:              # clicking an existing hole removes it
+                o.drain_holes = np.delete(o.drain_holes, k, axis=0)
+                self._objects_changed(refresh_list=False)
+                self.status.setText(tr("hole_removed"))
+                return
+        o.add_world_drain_hole(point, normal, lift)
+        self._objects_changed(refresh_list=False)
+        self.status.setText(tr("hole_added").format(len(o.drain_holes)))
+
+    def _hole_preview(self, o: SceneObject, cfg):
+        """Red cylinders marking manual drain holes, in the object's own coordinates."""
+        if len(o.drain_holes) == 0:
+            return None
+        lift = self._lift(cfg) if self._shows_supports(o) else 0.0
+        tubes = sla.hole_meshes([o.world_drain_holes(lift)], cfg)
+        return Mesh.merge(tubes).transform(np.linalg.inv(self._display_matrix(o)))
 
     def _on_preview_click(self, uid):
         self.set_mode("prepare")
@@ -930,6 +960,7 @@ class MainWindow(QMainWindow):
         for o in self.objects:
             self.viewer.set_object(o.uid, o.mesh, self._display_matrix(o), "outside" if o.uid in outside else "normal")
             self.viewer.set_object_supports(o.uid, self._support_preview(o, cfg))
+            self.viewer.set_object_holes(o.uid, self._hole_preview(o, cfg))
         sel = self.selected()
         self._update_support_info()
         self.viewer.set_selected(sel.uid if sel else None)
@@ -1258,11 +1289,12 @@ class MainWindow(QMainWindow):
         self._learn_from_scene(cfg)
         meshes = [o.world_mesh() for o in self.objects]
         manual = [o.world_support_points(0.0) for o in self.objects]
+        holes = [o.world_drain_holes(0.0) for o in self.objects]
         name = self.objects[0].name or "print"
 
         def work(progress, cancelled):
             if cfg["technology"] == "sla":
-                job = sla.prepare(meshes, cfg, progress, cancelled, support_points=manual)
+                job = sla.prepare(meshes, cfg, progress, cancelled, support_points=manual, holes=holes)
                 return ("sla", job, cfg)
             plan = fdm.plan(meshes, cfg, progress, cancelled)
             progress("gcode", 0.0)

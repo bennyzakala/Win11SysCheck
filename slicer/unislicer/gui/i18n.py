@@ -244,6 +244,11 @@ STRINGS = {
     "plate_offset_y": ("היסט מהמרכז Y", "Offset from centre Y"),
     "plate_add_note": ("הזן את המידות שהיצרן מפרסם למשטח. במדפסות שרף המשטח הוא אזור ההדפסה על המסך (בדרך כלל ממורכז).",
                        "Enter the plate size the manufacturer publishes. On resin printers the plate is the printable area on the screen (usually centred)."),
+    "tool_hole": ("חור ניקוז ידני", "Drain hole"),
+    "tool_hole_tip": ("לחץ על המודל כדי לקדוח חור ניקוז בניצב לפני השטח; לחיצה על חור קיים מסירה אותו", "Click the model to drill a drain hole perpendicular to the surface; click a hole again to remove it"),
+    "tool_hole_hint": ("לחץ במקום שבו צריך חור ניקוז (מומלץ קרוב למשטח, בצד התחתון)", "Click where a drain hole should go (best near the plate, on the lower side)"),
+    "hole_added": ("נוסף חור ניקוז ({} במודל)", "Drain hole added ({} on this model)"),
+    "hole_removed": ("חור הניקוז הוסר", "Drain hole removed"),
     "unsaved_tech": ("טכנולוגיה", "Technology"),
 }
 

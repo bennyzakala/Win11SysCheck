@@ -736,7 +736,6 @@
   "family": "dental",
   "note": "Phrozen's Lumii dental profile: 0.05 mm, bottom 25–35 s x 6 layers, normal 2.0–2.5 s (midpoints used).",
   "printers": [
-   "phrozen_sonic_cs_plus",
    "phrozen_lumii_2k"
   ],
   "values": {

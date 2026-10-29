@@ -459,3 +459,31 @@ def test_phrozen_dental_printers():
     cfg = profiles.build_config("phrozen_sonic_cs_plus", None, None, {"plate_width": 70, "plate_depth": 70})
     x0, y0, x1, y1 = plate_rect(cfg)
     assert (x1 - x0, y1 - y0) == (70, 70)
+
+
+def test_hollow_modes_infill_internal_supports_and_manual_holes():
+    m = placed(primitives.box(30, 30, 25), 70, 45).world_mesh()
+
+    def run(**over):
+        cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", dict(hollow_enable=True, drain_holes=2, **over))
+        return sla.prepare([m], cfg)
+    closed = run()
+    for kind in ("grid", "hive"):
+        job = run(hollow_infill=kind)
+        assert job.volume_ml > closed.volume_ml and job.cups == [] and job.islands == []
+    assert run(hollow_mode="bottom").volume_ml < closed.volume_ml
+    supported = run(support_enable=True, sla_internal_supports=True)
+    assert supported.islands == []
+    sealed = run(drain_holes=0)
+    assert sealed.cups
+    vented = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", dict(hollow_enable=True, drain_holes=0)),
+                         holes=[np.array([[70, 30, 3, 0, -1, 0]])])
+    assert len(vented.cups) < len(sealed.cups)
+
+
+def test_support_shapes_and_raft_types():
+    m = placed(primitives.demo_bridge(), 70, 45).world_mesh()
+    for over in ({"sla_raft_type": "grid"}, {"sla_raft_type": "mini"}, {"sla_raft_type": "none"},
+                 {"sla_tip_shape": "sphere", "sla_pillar_shape": "cube", "sla_base_shape": "disk", "sla_support_type": "pillar"}):
+        job = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", dict(support_enable=True, **over)))
+        assert job.islands == [], over
