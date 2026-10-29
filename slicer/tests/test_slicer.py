@@ -1,0 +1,149 @@
+import re
+import zipfile
+
+import numpy as np
+import pytest
+
+from unislicer import fdm, gcode, primitives, profiles, sla
+from unislicer.mesh import Mesh, load_mesh, save_stl
+from unislicer.scene import SceneObject, arrange, out_of_bounds
+from unislicer.slicing import slice_mesh
+
+
+def placed(mesh, x=110, y=110):
+    o = SceneObject.from_mesh(mesh)
+    o.x, o.y = x, y
+    return o
+
+
+def test_cube_cross_section():
+    layers = slice_mesh(primitives.box(20, 10, 5), [0.1, 2.5, 4.9])
+    assert [round(g.area, 3) for g in layers] == [200, 200, 200]
+
+
+def test_sphere_cross_section_area():
+    area = slice_mesh(primitives.sphere(10, 48, 96), [10.0])[0].area
+    assert area == pytest.approx(np.pi * 100, rel=0.01)
+
+
+def test_hollow_section_has_hole():
+    outer = primitives.box(20, 20, 10)
+    inner = primitives.box(10, 10, 10).translated([5, 5, 0])
+    inner = Mesh(inner.vertices, inner.faces[:, ::-1])  # inward normals = cavity
+    area = slice_mesh(Mesh.merge([outer, inner]), [5])[0].area
+    assert area == pytest.approx(300)
+
+
+def test_stl_roundtrip(tmp_path):
+    path = tmp_path / "cube.stl"
+    save_stl(primitives.box(10, 10, 10), str(path))
+    mesh = load_mesh(str(path))[0]
+    assert mesh.is_watertight()
+    assert mesh.volume() == pytest.approx(1000)
+
+
+def test_ascii_stl_and_obj(tmp_path):
+    tris = primitives.box(5, 5, 5).triangles
+    lines = ["solid t"]
+    for t in tris:
+        lines += ["facet normal 0 0 0", "outer loop"] + [f"vertex {x} {y} {z}" for x, y, z in t] + ["endloop", "endfacet"]
+    (tmp_path / "a.stl").write_text("\n".join(lines + ["endsolid t"]))
+    assert load_mesh(str(tmp_path / "a.stl"))[0].volume() == pytest.approx(125)
+    m = primitives.box(2, 3, 4)
+    obj = "\n".join([f"v {x} {y} {z}" for x, y, z in m.vertices] + [f"f {a + 1} {b + 1} {c + 1}" for a, b, c in m.faces])
+    (tmp_path / "a.obj").write_text(obj)
+    assert load_mesh(str(tmp_path / "a.obj"))[0].volume() == pytest.approx(24)
+
+
+def test_3mf(tmp_path):
+    m = primitives.box(4, 4, 4)
+    verts = "".join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x, y, z in m.vertices)
+    tris = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in m.faces)
+    model = (f'<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources>'
+             f'<object id="1" type="model"><mesh><vertices>{verts}</vertices><triangles>{tris}</triangles></mesh></object>'
+             f'</resources><build><item objectid="1"/></build></model>')
+    path = tmp_path / "a.3mf"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("3D/3dmodel.model", model)
+    assert load_mesh(str(path))[0].volume() == pytest.approx(64)
+
+
+@pytest.mark.parametrize("pattern", ["grid", "lines", "triangles", "gyroid", "concentric"])
+def test_fdm_gcode(pattern):
+    cfg = profiles.build_config("creality_ender3v2", "pla", "standard", {"infill_pattern": pattern})
+    plan = fdm.plan([placed(primitives.box(20, 20, 4)).world_mesh()], cfg)
+    assert len(plan.layers) == 20
+    kinds = {p.kind for layer in plan.layers for p in layer.paths}
+    assert {"outer_wall", "inner_wall", "skin", "skirt"} <= kinds
+    assert "infill" in kinds
+    text, stats = gcode.generate(plan, cfg)
+    assert stats.time_s > 0 and stats.filament_mm > 0
+    xs = [float(v) for v in re.findall(r"^G[01] X([\d.]+)", text, re.M)]
+    assert min(xs) >= 0 and max(xs) <= cfg["bed_x"]
+    es = [float(v) for v in re.findall(r"^G1 X\S+ Y\S+ E([\d.\-]+)", text, re.M)]
+    assert es and all(e > 0 for e in es)
+
+
+def test_filament_volume_close_to_model_volume():
+    cfg = profiles.build_config("generic_fdm", "pla", "standard", {"infill_density": 100, "adhesion_type": "none"})
+    plan = fdm.plan([placed(primitives.box(20, 20, 10)).world_mesh()], cfg)
+    _, stats = gcode.generate(plan, cfg)
+    extruded_volume = stats.filament_mm * np.pi * (1.75 / 2) ** 2
+    assert extruded_volume == pytest.approx(4000, rel=0.05)
+
+
+def test_supports_generated_under_bridge():
+    cfg = profiles.build_config("creality_ender3v2", "pla", "standard", {"support_enable": True})
+    plan = fdm.plan([placed(primitives.demo_bridge()).world_mesh()], cfg)
+    assert any(p.kind == "support" for p in plan.layers[10].paths)
+    cfg.update({"support_enable": False})
+    plan = fdm.plan([placed(primitives.demo_bridge()).world_mesh()], cfg)
+    assert not any(p.kind in ("support", "interface") for layer in plan.layers for p in layer.paths)
+
+
+@pytest.mark.parametrize("flavor", ["marlin", "klipper", "reprap", "prusa", "smoothie"])
+def test_flavors_and_relative_e(flavor):
+    cfg = profiles.build_config("generic_fdm", None, None, {"gcode_flavor": flavor, "relative_e": True, "origin_center": True})
+    plan = fdm.plan([placed(primitives.cylinder(5, 2), 0, 0).world_mesh()], cfg)
+    text, _ = gcode.generate(plan, cfg)
+    assert "M83" in text
+    xs = [float(v) for v in re.findall(r"^G[01] X(-?[\d.]+)", text, re.M)]
+    assert min(xs) < 0  # coordinates are relative to the bed centre
+
+
+def test_sla_export(tmp_path):
+    cfg = profiles.build_config("elegoo_mars3", "resin_standard", "sla_fast", {"support_enable": True})
+    obj = placed(primitives.sphere(6), 70, 45)
+    job = sla.prepare([obj.world_mesh()], cfg)
+    assert job.supports is not None and len(job.supports.faces) > 0
+    assert job.volume_ml > 0.9  # sphere ~0.9 ml plus supports
+    path = tmp_path / "out.sl1"
+    sla.export(job, cfg, str(path), "ball")
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        assert "config.ini" in names
+        assert sum(n.endswith(".png") for n in names) == job.layer_count
+        assert "numFast = %d" % job.layer_count in zf.read("config.ini").decode()
+
+
+def test_sla_mask_pixels():
+    cfg = profiles.build_config("generic_msla", None, None, {"antialiasing": "1"})
+    obj = placed(primitives.box(10, 10, 1), 60, 34)
+    job = sla.prepare([obj.world_mesh()], cfg)
+    img = np.asarray(sla.render_layer(job.layers[0], cfg))
+    px_area = (img > 127).sum() * (cfg["bed_x"] / cfg["resolution_x"]) * (cfg["bed_y"] / cfg["resolution_y"])
+    assert px_area == pytest.approx(100, rel=0.05)
+
+
+def test_arrange_and_bounds():
+    objs = [SceneObject.from_mesh(primitives.box(50, 50, 10)) for _ in range(4)]
+    assert arrange(objs, 220, 220)
+    assert out_of_bounds(objs, 220, 220, 250) == []
+    big = SceneObject.from_mesh(primitives.box(300, 10, 10))
+    assert out_of_bounds([big], 220, 220, 250) == [big]
+
+
+def test_all_profiles_build():
+    for kind in ("printers", "materials", "qualities"):
+        for pid in profiles.load(kind):
+            profiles.build_config(**{kind[:-1] if kind != "qualities" else "quality": pid})

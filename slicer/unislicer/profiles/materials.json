@@ -1,0 +1,13 @@
+{
+  "pla":   {"name": "PLA", "technology": "fdm", "values": {"material_name": "PLA", "nozzle_temp": 205, "first_layer_nozzle_temp": 210, "bed_temp": 60, "first_layer_bed_temp": 65, "fan_speed": 100, "filament_density": 1.24}},
+  "petg":  {"name": "PETG", "technology": "fdm", "values": {"material_name": "PETG", "nozzle_temp": 235, "first_layer_nozzle_temp": 240, "bed_temp": 75, "first_layer_bed_temp": 80, "fan_speed": 40, "filament_density": 1.27}},
+  "abs":   {"name": "ABS", "technology": "fdm", "values": {"material_name": "ABS", "nozzle_temp": 245, "first_layer_nozzle_temp": 250, "bed_temp": 100, "first_layer_bed_temp": 105, "fan_speed": 0, "filament_density": 1.04}},
+  "asa":   {"name": "ASA", "technology": "fdm", "values": {"material_name": "ASA", "nozzle_temp": 250, "first_layer_nozzle_temp": 255, "bed_temp": 100, "first_layer_bed_temp": 105, "fan_speed": 20, "filament_density": 1.07}},
+  "tpu":   {"name": "TPU (flexible)", "technology": "fdm", "values": {"material_name": "TPU", "nozzle_temp": 225, "first_layer_nozzle_temp": 225, "bed_temp": 50, "first_layer_bed_temp": 50, "fan_speed": 60,
+             "filament_density": 1.21, "print_speed": 25, "wall_speed": 25, "outer_wall_speed": 20, "top_bottom_speed": 25, "retract_length": 0.5, "retract_speed": 20}},
+  "nylon": {"name": "Nylon (PA)", "technology": "fdm", "values": {"material_name": "PA", "nozzle_temp": 255, "first_layer_nozzle_temp": 260, "bed_temp": 80, "first_layer_bed_temp": 85, "fan_speed": 0, "filament_density": 1.14}},
+  "resin_standard": {"name": "Standard resin", "technology": "sla", "values": {"material_name": "Standard resin", "exposure_time": 2.5, "bottom_exposure_time": 30, "resin_density": 1.1}},
+  "resin_abs_like": {"name": "ABS-like resin", "technology": "sla", "values": {"material_name": "ABS-like resin", "exposure_time": 3.0, "bottom_exposure_time": 35, "resin_density": 1.12}},
+  "resin_water_washable": {"name": "Water washable resin", "technology": "sla", "values": {"material_name": "Water washable resin", "exposure_time": 2.2, "bottom_exposure_time": 25, "resin_density": 1.1}},
+  "resin_tough": {"name": "Tough resin", "technology": "sla", "values": {"material_name": "Tough resin", "exposure_time": 3.5, "bottom_exposure_time": 40, "resin_density": 1.15}}
+}

@@ -1,0 +1,9 @@
+{
+  "draft":    {"name_he": "טיוטה (0.28)", "name_en": "Draft (0.28)", "technology": "fdm", "values": {"layer_height": 0.28, "first_layer_height": 0.28, "wall_count": 2, "top_layers": 3, "bottom_layers": 3, "infill_density": 15}},
+  "standard": {"name_he": "רגיל (0.20)", "name_en": "Standard (0.20)", "technology": "fdm", "values": {"layer_height": 0.2, "first_layer_height": 0.24, "wall_count": 3, "top_layers": 4, "bottom_layers": 3, "infill_density": 20}},
+  "fine":     {"name_he": "עדין (0.12)", "name_en": "Fine (0.12)", "technology": "fdm", "values": {"layer_height": 0.12, "first_layer_height": 0.2, "wall_count": 3, "top_layers": 7, "bottom_layers": 5, "infill_density": 20}},
+  "ultra":    {"name_he": "אולטרה (0.08)", "name_en": "Ultra (0.08)", "technology": "fdm", "values": {"layer_height": 0.08, "first_layer_height": 0.2, "wall_count": 4, "top_layers": 10, "bottom_layers": 8, "infill_density": 25}},
+  "sla_fast":   {"name_he": "מהיר (0.10)", "name_en": "Fast (0.10)", "technology": "sla", "values": {"sla_layer_height": 0.1}},
+  "sla_normal": {"name_he": "רגיל (0.05)", "name_en": "Normal (0.05)", "technology": "sla", "values": {"sla_layer_height": 0.05}},
+  "sla_detail": {"name_he": "פרטני (0.025)", "name_en": "Detail (0.025)", "technology": "sla", "values": {"sla_layer_height": 0.025}}
+}

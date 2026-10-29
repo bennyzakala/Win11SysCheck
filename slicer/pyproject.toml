@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unislicer"
+version = "1.0.0"
+description = "Universal slicer for FDM and resin (SLA/MSLA) 3D printers"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+dependencies = ["numpy>=1.24", "shapely>=2.0", "Pillow>=10.0", "PySide6>=6.5", "PyOpenGL>=3.1.7"]
+
+[project.scripts]
+unislicer = "unislicer.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["unislicer*"]
+
+[tool.setuptools.package-data]
+unislicer = ["profiles/*.json"]
