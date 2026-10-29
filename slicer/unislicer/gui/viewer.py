@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ctypes
 import math
+import os
 import sys
 
 import numpy as np
@@ -252,7 +253,9 @@ class Viewer(QOpenGLWidget):
     def configure_default_format():
         fmt = QSurfaceFormat()
         fmt.setVersion(3, 3)
-        fmt.setProfile(QSurfaceFormat.CoreProfile)
+        # Qt's software renderer (Mesa) may only offer 3.3+ as a compatibility context
+        software = bool(os.environ.get("UNISLICER_SOFTWARE_GL"))
+        fmt.setProfile(QSurfaceFormat.CompatibilityProfile if software else QSurfaceFormat.CoreProfile)
         fmt.setDepthBufferSize(24)
         fmt.setSamples(4)
         QSurfaceFormat.setDefaultFormat(fmt)
@@ -348,7 +351,9 @@ class Viewer(QOpenGLWidget):
         try:
             fmt = self.context().format()
             if (fmt.majorVersion(), fmt.minorVersion()) < (3, 3):
-                raise RuntimeError(f"OpenGL {fmt.majorVersion()}.{fmt.minorVersion()} context; 3.3 is required")
+                renderer = GL.glGetString(GL.GL_RENDERER)
+                renderer = renderer.decode(errors="replace") if renderer else "unknown renderer"
+                raise RuntimeError(f"OpenGL {fmt.majorVersion()}.{fmt.minorVersion()} ({renderer}); 3.3 is required")
             self._bg = _compile(BG_VS, BG_FS)
             self._mesh_prog = _compile(MESH_VS, MESH_FS)
             self._bed_prog = _compile(BED_VS, BED_FS)
