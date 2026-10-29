@@ -47,10 +47,12 @@ jobs:
 
       - name: Smoke test - slice from the built exe
         run: |
-          python -c "from unislicer import primitives; from unislicer.mesh import save_stl; save_stl(primitives.demo_bridge(), 'smoke.stl')"
+          python -c "from unislicer import primitives; from unislicer.mesh import save_stl; save_stl(primitives.demo_bridge(), 'smoke.stl'); save_stl(primitives.sphere(25, 200, 400), 'big.stl')"
           $runs = @(
             @('slice', 'smoke.stl', '-p', 'creality_ender3v2', '-s', 'support_enable=true', '-o', 'smoke.gcode'),
-            @('slice', 'smoke.stl', '-p', 'elegoo_mars3', '-q', 'sla_fast', '-s', 'support_enable=true', '-o', 'smoke.sl1')
+            @('slice', 'smoke.stl', '-p', 'elegoo_mars3', '-q', 'sla_fast', '-s', 'support_enable=true', '-o', 'smoke.sl1'),
+            # big enough to use the multi-core worker pool inside the packaged exe
+            @('slice', 'big.stl', '-p', 'elegoo_mars3', '-s', 'support_enable=true', '-o', 'big.sl1')
           )
           foreach ($a in $runs) {
             $p = Start-Process dist\UniSlicer\UniSlicer.exe -ArgumentList $a -PassThru
@@ -59,6 +61,8 @@ jobs:
           }
           if ((Get-Item smoke.gcode).Length -lt 10000) { throw 'G-code output is too small' }
           if ((Get-Item smoke.sl1).Length -lt 10000) { throw 'SL1 output is too small' }
+          if ((Get-Item big.sl1).Length -lt 100000) { throw 'multi-core SL1 output is too small' }
+          if (Select-String -Path "$env:TEMP\unislicer.log" -Pattern 'process pool unavailable' -Quiet) { throw 'the worker pool did not start in the packaged app' }
           Get-Content "$env:TEMP\unislicer.log" -ErrorAction SilentlyContinue
 
       - name: Smoke test - GUI starts and exits
