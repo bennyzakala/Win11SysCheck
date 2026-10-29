@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """Double-click / run this file to start UniSlicer (also the entry point of the Windows build)."""
+import multiprocessing
 import os
 import sys
 import tempfile
+
+if __name__ == "__main__":
+    # in the packaged app, worker processes start this executable again: hand them over right away
+    multiprocessing.freeze_support()
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

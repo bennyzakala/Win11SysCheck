@@ -147,3 +147,22 @@ def test_all_profiles_build():
     for kind in ("printers", "materials", "qualities"):
         for pid in profiles.load(kind):
             profiles.build_config(**{kind[:-1] if kind != "qualities" else "quality": pid})
+
+
+def test_parallel_matches_serial(monkeypatch):
+    from unislicer import parallel
+    w = placed(primitives.sphere(20, 120, 240)).world_mesh()
+    planes = [0.1 + 0.2 * i for i in range(200)]
+    monkeypatch.setenv("UNISLICER_WORKERS", "1")
+    serial = slice_mesh(w, planes)
+    monkeypatch.setenv("UNISLICER_WORKERS", "2")
+    try:
+        par = slice_mesh(w, planes)
+        cfg = profiles.build_config("generic_fdm", "pla", "standard")
+        plan_par = fdm.plan([w], cfg)
+    finally:
+        parallel.shutdown()
+    assert [round(g.area, 6) for g in par] == [round(g.area, 6) for g in serial]
+    monkeypatch.setenv("UNISLICER_WORKERS", "1")
+    plan_ser = fdm.plan([w], cfg)
+    assert gcode.generate(plan_par, cfg)[0] == gcode.generate(plan_ser, cfg)[0]

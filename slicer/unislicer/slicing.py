@@ -190,19 +190,11 @@ def loops_to_geometry(loops) -> MultiPolygon:
     return as_multipolygon(result)
 
 
-def slice_mesh(mesh: Mesh, z_planes: Iterable[float], resolution: float = 0.01,
-               progress: Callable[[float], None] | None = None,
-               cancelled: Callable[[], bool] | None = None) -> list[MultiPolygon]:
-    """Cross-sections of ``mesh`` at each height in ``z_planes``."""
-    z_planes = list(z_planes)
-    tris = mesh.triangles
-    if len(tris) == 0:
-        return [EMPTY for _ in z_planes]
-    normals = mesh.face_normals()
+def _slice_sorted(tris: np.ndarray, normals: np.ndarray, z_planes: list[float], resolution: float,
+                  progress=None, cancelled=None) -> list[MultiPolygon]:
+    """Slice triangles already sorted by their lowest z."""
     zmin = tris[:, :, 2].min(axis=1)
     zmax = tris[:, :, 2].max(axis=1)
-    order = np.argsort(zmin)
-    tris, normals, zmin, zmax = tris[order], normals[order], zmin[order], zmax[order]
     out = []
     for li, z in enumerate(z_planes):
         if cancelled and cancelled():
@@ -222,6 +214,40 @@ def slice_mesh(mesh: Mesh, z_planes: Iterable[float], resolution: float = 0.01,
         if progress and (li % 5 == 0 or li == len(z_planes) - 1):
             progress((li + 1) / len(z_planes))
     return out
+
+
+def _slice_chunk(tris: np.ndarray, normals: np.ndarray, z_planes: list[float], resolution: float):
+    """Process-pool entry point."""
+    return _slice_sorted(tris, normals, z_planes, resolution)
+
+
+def slice_mesh(mesh: Mesh, z_planes: Iterable[float], resolution: float = 0.01,
+               progress: Callable[[float], None] | None = None,
+               cancelled: Callable[[], bool] | None = None) -> list[MultiPolygon]:
+    """Cross-sections of ``mesh`` at each height in ``z_planes`` (uses all CPU cores for big jobs)."""
+    from . import parallel
+
+    z_planes = list(z_planes)
+    tris = mesh.triangles
+    if len(tris) == 0:
+        return [EMPTY for _ in z_planes]
+    normals = mesh.face_normals()
+    zmin = tris[:, :, 2].min(axis=1)
+    zmax = tris[:, :, 2].max(axis=1)
+    order = np.argsort(zmin)
+    tris, normals, zmin, zmax = tris[order], normals[order], zmin[order], zmax[order]
+    n_workers = parallel.workers()
+    if n_workers < 2 or len(z_planes) < 40 or len(z_planes) * len(tris) < 2_000_000:
+        return _slice_sorted(tris, normals, z_planes, resolution, progress, cancelled)
+    # each chunk only receives the triangles that reach its height range
+    args, weights = [], []
+    for a, b in parallel.chunk_ranges(len(z_planes), 8, n_workers * 4):
+        lo, hi = z_planes[a] - 1e-4, z_planes[b - 1] + 1e-4
+        sel = np.nonzero((zmax >= lo) & (zmin <= hi))[0]
+        args.append((tris[sel], normals[sel], z_planes[a:b], resolution))
+        weights.append(len(sel) * (b - a))
+    parts = parallel.run_chunks(_slice_chunk, args, progress, cancelled, weights)
+    return [g for part in parts for g in part]
 
 
 def slice_meshes(meshes: list[Mesh], z_planes, resolution: float = 0.01, progress=None,

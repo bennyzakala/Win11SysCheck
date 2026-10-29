@@ -237,35 +237,57 @@ def plan(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None]
         report("support", 0.0)
         support, interface = compute_supports(regions, heights, cfg, w)
 
+    from . import parallel
+
+    n_top, n_bottom = int(cfg["top_layers"]), int(cfg["bottom_layers"])
+    ranges = parallel.chunk_ranges(n, 6, parallel.workers() * 3) if n >= 30 else [(0, n)]
+    args = []
+    for a, b in ranges:
+        lo, hi = max(0, a - n_bottom), min(n, b + n_top)   # neighbours needed for top/bottom skins
+        args.append((a, b, lo, regions[lo:hi], n, heights, support[a:b], interface[a:b], cfg.values, w))
+    report("paths", 0.0)
+    chunks = parallel.run_chunks(_plan_layers, args, lambda f: report("paths", f), cancelled,
+                                 [b - a for a, b in ranges])
+    report("paths", 1.0)
+    return FdmPlan([layer for chunk in chunks for layer in chunk], w, warnings)
+
+
+def _plan_layers(start: int, end: int, offset: int, regions_window: list, n: int, heights, support, interface,
+                 values: dict, w: float) -> list[Layer]:
+    """Toolpaths for layers start..end-1. ``regions_window[k]`` is layer ``offset + k`` (process-pool entry point)."""
+    cfg = Config(dict(values))
     walls = int(cfg["wall_count"])
     n_top, n_bottom = int(cfg["top_layers"]), int(cfg["bottom_layers"])
     overlap = cfg["skin_overlap"] / 100.0 * w
     density = cfg["infill_density"] / 100.0
     pattern = cfg["infill_pattern"]
     base_angle = cfg["infill_angle"]
-    rng = random.Random(1)
+    rng = random.Random(start + 1)
+
+    def region_at(k):
+        return regions_window[k - offset]
 
     layers = []
     pos = np.array([0.0, 0.0])
-    for i in range(n):
-        report("paths", i / max(1, n))
+    for i in range(start, end):
         top_z, th = heights[i]
         b = _LayerBuilder(cfg, w, rng)
         # centre-to-centre distance of touching extrusions (rounded-edge model, as in Slic3r)
         sp = w - th * (1 - math.pi / 4)
         b.pos = pos
-        region = regions[i]
+        region = region_at(i)
+        sup_i, iface_i = support[i - start], interface[i - start]
 
         # area that is solid both below and above -> sparse infill allowed there
-        below = [regions[k] for k in range(i - n_bottom, i)] if i - n_bottom >= 0 else None
-        above = [regions[k] for k in range(i + 1, i + 1 + n_top)] if i + n_top < n else None
+        below = [region_at(k) for k in range(i - n_bottom, i)] if i - n_bottom >= 0 else None
+        above = [region_at(k) for k in range(i + 1, i + 1 + n_top)] if i + n_top < n else None
         if below is None or above is None:
             sparse_ok = EMPTY
         else:
             sparse_ok = _intersect_all(below + above + [region])
 
         if i == 0:
-            _adhesion(b, region.union(support[0]) if not support[0].is_empty else region, cfg, w)
+            _adhesion(b, region.union(sup_i) if not sup_i.is_empty else region, cfg, w)
 
         islands = polygons_of(region)
         islands = _order_by_proximity(islands, [np.asarray(p.representative_point().coords[0]) for p in islands], b.pos)
@@ -297,21 +319,18 @@ def plan(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None]
                 b.lines(pattern_fill(sparse, pattern, density, sp, i, top_z, base_angle), "infill")
 
         b.comb = None
-        if not support[i].is_empty:
-            sup = support[i]
-            iface = interface[i]
-            body = sup.difference(iface) if not iface.is_empty else sup
+        if not sup_i.is_empty:
+            body = sup_i.difference(iface_i) if not iface_i.is_empty else sup_i
             sup_density = max(cfg["support_density"], 1.0) / 100.0
             if not body.is_empty:
                 b.comb = body.buffer(w)
                 b.lines(line_fill(body, w / sup_density, 0.0), "support")
-            if not iface.is_empty:
-                b.comb = iface.buffer(w)
-                b.lines(line_fill(iface, w / 0.75, 90.0 if i % 2 else 0.0), "interface")
+            if not iface_i.is_empty:
+                b.comb = iface_i.buffer(w)
+                b.lines(line_fill(iface_i, w / 0.75, 90.0 if i % 2 else 0.0), "interface")
         layers.append(Layer(i, top_z, th, b.paths))
         pos = b.pos
-    report("paths", 1.0)
-    return FdmPlan(layers, w, warnings)
+    return layers
 
 
 def _adhesion(b: _LayerBuilder, first: BaseGeometry, cfg: Config, w: float):

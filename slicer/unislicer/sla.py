@@ -128,8 +128,14 @@ def render_layer(geom: MultiPolygon, cfg: Config) -> Image.Image:
 
 def _png_bytes(img: Image.Image) -> bytes:
     buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=False, compress_level=6)
+    img.save(buf, format="PNG", optimize=False, compress_level=3)
     return buf.getvalue()
+
+
+def _render_chunk(layers: list, values: dict) -> list[bytes]:
+    """PNG data for a run of layers (process-pool entry point)."""
+    cfg = Config(dict(values))
+    return [_png_bytes(render_layer(g, cfg)) for g in layers]
 
 
 def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
@@ -138,14 +144,21 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in job_name) or "print"
     n = job.layer_count
     bottom = min(int(cfg["bottom_layers"]), n)
+    from . import parallel
+
+    ranges = parallel.chunk_ranges(n, 8, parallel.workers() * 4)
+    args = [(job.layers[a:b], cfg.values) for a, b in ranges]
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as zf:
-        for i, geom in enumerate(job.layers):
-            if cancelled and cancelled():
-                raise InterruptedError
-            name = f"{safe}{i:05d}.png" if fmt == "sl1" else f"layers/layer_{i:05d}.png"
-            zf.writestr(name, _png_bytes(render_layer(geom, cfg)))
-            if progress and (i % 10 == 0 or i == n - 1):
-                progress((i + 1) / n)
+        # layer images are drawn and PNG-encoded on all cores; the zip is written here in order
+        def write_chunk(k, pngs):
+            a = ranges[k][0]
+            for j, data in enumerate(pngs):
+                name = f"{safe}{a + j:05d}.png" if fmt == "sl1" else f"layers/layer_{a + j:05d}.png"
+                zf.writestr(name, data)
+
+        chunks = parallel.run_chunks(_render_chunk, args, progress, cancelled, [b - a for a, b in ranges])
+        for k, pngs in enumerate(chunks):
+            write_chunk(k, pngs)
         if fmt == "sl1":
             zf.writestr("config.ini", _sl1_config(job, cfg, safe, bottom))
             zf.writestr("prusaslicer.ini", _sl1_printer_ini(job, cfg))
