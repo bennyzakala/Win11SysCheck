@@ -299,6 +299,19 @@ class MainWindow(QMainWindow):
             b.clicked.connect(lambda _=False, i=i: self.mirror_selected(i))
             mirror_row.addWidget(b)
         g.addLayout(mirror_row, 7, 0, 1, 4)
+        turn_row = QHBoxLayout()
+        turn_row.setSpacing(4)
+        tl90 = QLabel(tr("rotate_90"))
+        tl90.setObjectName("Dim")
+        turn_row.addWidget(tl90)
+        for i, a in enumerate("XYZ"):
+            b = QPushButton(a)
+            b.setStyleSheet("padding: 4px 0; font-weight: 700;")
+            b.setToolTip(tr("rotate_90_tip").format(a))
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _=False, i=i: self.rotate_selected(i, -90 if QApplication.keyboardModifiers() & Qt.ShiftModifier else 90))
+            turn_row.addWidget(b)
+        g.addLayout(turn_row, 8, 0, 1, 4)
         btns = QGridLayout()
         btns.setSpacing(6)
         for k, (icon_name, text, tip, slot) in enumerate((("compass", tr("auto_orient"), tr("auto_orient_tip"), self.auto_orient_selected),
@@ -310,7 +323,7 @@ class MainWindow(QMainWindow):
             b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(slot)
             btns.addWidget(b, k // 2, k % 2)
-        g.addLayout(btns, 8, 0, 1, 4)
+        g.addLayout(btns, 9, 0, 1, 4)
         self.transform_card = tr_card
         lay.addWidget(tr_card)
 
@@ -361,6 +374,11 @@ class MainWindow(QMainWindow):
         self.viewer.objectDragged.connect(self._on_drag)
         self.viewer.objectDragFinished.connect(self._on_drag_finished)
         self.viewer.surfacePicked.connect(self._on_support_add)
+        self.viewer.rotateStarted.connect(self._on_rotate_start)
+        self.viewer.rotateDragged.connect(self._on_rotate_drag)
+        self.viewer.rotateFinished.connect(self._on_rotate_end)
+        self.viewer.facePicked.connect(self._on_face_picked)
+        self.viewer.previewObjectClicked.connect(self._on_preview_click)
         self.viewer.rayPicked.connect(self._on_support_remove)
         self.viewer.glFailed.connect(self._on_gl_failed)
         grid.addWidget(self.viewer, 0, 0)
@@ -402,6 +420,32 @@ class MainWindow(QMainWindow):
         wl.addStretch(1)
         wrap.setAttribute(Qt.WA_TransparentForMouseEvents, False)
         grid.addWidget(wrap, 0, 0, Qt.AlignTop | Qt.AlignLeft)
+
+        # manual placement tools
+        palette = _card()
+        palette.setStyleSheet("QFrame#Card { background: rgba(27,31,39,0.92); }")
+        pl = QVBoxLayout(palette)
+        pl.setContentsMargins(6, 6, 6, 6)
+        pl.setSpacing(2)
+        self.tool_buttons = {}
+        for name, icon_name, key in (("move", "move", "M"), ("rotate", "rotate3d", "R"), ("face", "face", "F")):
+            b = QToolButton()
+            b.setIcon(theme.icon(icon_name, theme.TEXT, 20))
+            b.setIconSize(QSize(20, 20))
+            b.setCheckable(True)
+            b.setToolTip(f"{tr('tool_' + name)} ({key})\n{tr('tool_' + name + '_tip')}")
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _=False, n=name: self.set_tool(n))
+            pl.addWidget(b)
+            self.tool_buttons[name] = b
+        self.tool_buttons["move"].setChecked(True)
+        pwrap = QWidget()
+        pwrap.setObjectName("Overlay")
+        pwl = QVBoxLayout(pwrap)
+        pwl.setContentsMargins(14, 0, 14, 0)
+        pwl.addWidget(palette)
+        grid.addWidget(pwrap, 0, 0, Qt.AlignVCenter | Qt.AlignLeft)
+        self.palette_wrap = pwrap
 
         # empty state
         self.empty_hint = QLabel(tr("no_objects"))
@@ -597,7 +641,9 @@ class MainWindow(QMainWindow):
                         (QKeySequence("Ctrl+E"), via_key("export", self.export)),
                         (QKeySequence("Up"), lambda: self._step_layer(1)), (QKeySequence("Down"), lambda: self._step_layer(-1)),
                         (QKeySequence.Undo, via_key("undo", self.undo)), (QKeySequence("Ctrl+Y"), self.redo),
-                        (QKeySequence.Redo, self.redo), (QKeySequence.Save, via_key("save_project", self.save_project)), (QKeySequence("Escape"), lambda: self._set_pick_mode(None))):
+                        (QKeySequence.Redo, self.redo), (QKeySequence.Save, via_key("save_project", self.save_project)), (QKeySequence("Escape"), lambda: (self._set_pick_mode(None), self.set_tool("move"))),
+                        (QKeySequence("M"), lambda: self.set_tool("move")), (QKeySequence("R"), lambda: self.set_tool("rotate")),
+                        (QKeySequence("F"), lambda: self.set_tool("face"))):
             act = QAction(self)
             act.setShortcut(seq)
             act.setShortcutContext(Qt.WindowShortcut)
@@ -741,6 +787,77 @@ class MainWindow(QMainWindow):
         self._objects_changed()
         self.viewer.fit_objects()
         self.status.setText(tr("auto_prepare_done"))
+
+    # ---------------------------------------------------------- manual orientation
+    def set_tool(self, name: str):
+        for n, b in self.tool_buttons.items():
+            b.setChecked(n == name)
+        self.viewer.tool = name
+        self.viewer.setCursor(Qt.CrossCursor if name == "face" else Qt.ArrowCursor)
+        if name != "move":
+            self._set_pick_mode(None)
+            if self.viewer.mode != "prepare":
+                self.set_mode("prepare")
+        hint = {"rotate": "tool_rotate_hint", "face": "tool_face_hint"}.get(name)
+        if hint:
+            self.status.setText(tr(hint))
+        self.viewer.update()
+
+    @staticmethod
+    def _axis_rotation(axis: int, degrees: float) -> np.ndarray:
+        a = np.radians(degrees)
+        c, s = np.cos(a), np.sin(a)
+        i, j = (axis + 1) % 3, (axis + 2) % 3
+        r = np.eye(3)
+        r[i, i], r[i, j], r[j, i], r[j, j] = c, -s, s, c
+        return r
+
+    def rotate_selected(self, axis: int, degrees: float):
+        obj = self.selected()
+        if not obj:
+            self.status.setText(tr("select_first"))
+            return
+        self._push_undo()
+        obj.apply_world_rotation(self._axis_rotation(axis, degrees))
+        self._drop_supports(obj)
+        self._objects_changed()
+
+    def _on_rotate_start(self, uid):
+        obj = next((o for o in self.objects if o.uid == uid), None)
+        if obj:
+            self._push_undo()
+            self._rot_start = obj.state()
+
+    def _on_rotate_drag(self, uid, axis, degrees):
+        obj = next((o for o in self.objects if o.uid == uid), None)
+        if obj is None or getattr(self, "_rot_start", None) is None:
+            return
+        obj.restore(self._rot_start)
+        obj.apply_world_rotation(self._axis_rotation(axis, degrees))
+        self.viewer.set_object_transform(uid, self._display_matrix(obj))
+        self.status.setText(f"{'XYZ'[axis]}: {degrees:+.0f}°   ·   {tr('rotate_snap_hint')}")
+
+    def _on_rotate_end(self, uid):
+        obj = next((o for o in self.objects if o.uid == uid), None)
+        self._rot_start = None
+        if obj:
+            self._drop_supports(obj)
+            self._objects_changed()
+
+    def _on_face_picked(self, uid, normal):
+        obj = next((o for o in self.objects if o.uid == uid), None)
+        if obj is None:
+            return
+        from ..mesh import rotation_between
+        self._push_undo()
+        obj.apply_world_rotation(rotation_between(np.asarray(normal, dtype=float), np.array([0.0, 0.0, -1.0])))
+        self._drop_supports(obj)
+        self._objects_changed()
+        self.status.setText(tr("face_done"))
+
+    def _on_preview_click(self, uid):
+        self.set_mode("prepare")
+        self._select_uid(uid)
 
     def mirror_selected(self, axis: int):
         obj = self.selected()

@@ -165,6 +165,21 @@ def mesh_vertices(mesh: Mesh) -> np.ndarray:
     return np.concatenate([tris, normals], axis=2).reshape(-1, 6)
 
 
+def _torus(centre, axis: int, radius: float, tube: float, segments: int = 96, sides: int = 8) -> Mesh:
+    """Ring around ``centre`` in the plane perpendicular to world axis ``axis``."""
+    u, v, n = np.eye(3)[(axis + 1) % 3], np.eye(3)[(axis + 2) % 3], np.eye(3)[axis]
+    a = np.linspace(0, 2 * np.pi, segments, endpoint=False)
+    b = np.linspace(0, 2 * np.pi, sides, endpoint=False)
+    ring = np.cos(a)[:, None] * u + np.sin(a)[:, None] * v                 # (segments, 3)
+    verts = (np.asarray(centre)[None, None, :] + ring[:, None, :] * (radius + tube * np.cos(b))[None, :, None]
+             + n[None, None, :] * (tube * np.sin(b))[None, :, None]).reshape(-1, 3)
+    i, j = np.meshgrid(np.arange(segments), np.arange(sides), indexing="ij")
+    i2, j2 = (i + 1) % segments, (j + 1) % sides
+    a0, a1, b0, b1 = i * sides + j, i2 * sides + j, i * sides + j2, i2 * sides + j2
+    faces = np.concatenate([np.stack([a0, a1, b1], -1).reshape(-1, 3), np.stack([a0, b1, b0], -1).reshape(-1, 3)])
+    return Mesh(verts, faces, "ring")
+
+
 # ------------------------------------------------------------------ camera
 def _perspective(fov_deg, aspect, near, far):
     f = 1.0 / math.tan(math.radians(fov_deg) / 2)
@@ -218,6 +233,11 @@ class Viewer(QOpenGLWidget):
     objectDragFinished = Signal(object)
     glFailed = Signal(str)
     surfacePicked = Signal(object, object)     # uid, world point (support "add" mode)
+    previewObjectClicked = Signal(object)      # a model was clicked while previewing
+    rotateStarted = Signal(object)             # uid
+    rotateDragged = Signal(object, int, float) # uid, axis (0 x, 1 y, 2 z), degrees since the drag started
+    rotateFinished = Signal(object)
+    facePicked = Signal(object, object)        # uid, world normal of the clicked face
     rayPicked = Signal(object, object)         # origin, direction (support "remove" mode)
 
     MODE_PREPARE, MODE_PREVIEW = "prepare", "preview"
@@ -231,6 +251,11 @@ class Viewer(QOpenGLWidget):
         self.technology = "fdm"
         self.mode = self.MODE_PREPARE
         self.pick_mode: str | None = None        # None | "add" | "remove"
+        self.tool = "move"                       # move | rotate | face
+        self._rot = None                         # active ring drag: (uid, axis, start angle, last degrees)
+        self._hover_axis = None
+        self._gizmo_cache = None
+        self.setMouseTracking(True)
         self.objects: dict = {}          # uid -> dict(mesh, buffer, color, dirty)
         self.selected = None
         self.extra: list = []            # [(mesh, color)] e.g. SLA supports
@@ -529,6 +554,22 @@ class Viewer(QOpenGLWidget):
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 buf.draw(GL.GL_TRIANGLES)
 
+        if not preview and self.selected in self.objects:
+            self._draw_selection_box(mvp)
+        rings = self._gizmo_meshes()
+        if rings:
+            GL.glClear(GL.GL_DEPTH_BUFFER_BIT)   # rings stay visible through the model but hide their own back
+            GL.glUseProgram(p)
+            GL.glUniform1f(self._u(p, "uClipZ"), 1e9)
+            GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
+            self._set_model(p, np.eye(4))
+            active = self._rot[1] if self._rot else self._hover_axis
+            for k, buf in enumerate(rings):
+                base = ((1.0, 0.35, 0.42), (0.30, 0.85, 0.55), (0.35, 0.60, 1.0))[k]
+                color = tuple(min(1.0, c * 1.35 + 0.15) for c in base) if k == active else base
+                GL.glUniform3f(self._u(p, "uColor"), *color)
+                buf.draw(GL.GL_TRIANGLES)
+
         if preview and self._paths_buffer is not None:
             q = self._path_prog
             GL.glUseProgram(q)
@@ -542,6 +583,19 @@ class Viewer(QOpenGLWidget):
             GL.glUniform3fv(self._u(q, "uColors"), len(colors), colors)
             self._paths_buffer.draw(GL.GL_LINES)
         GL.glBindVertexArray(0)
+
+    def _draw_selection_box(self, mvp):
+        box = self._world_box(self.objects[self.selected])
+        pad = 0.6
+        lo, hi = box[0] - pad, box[1] + pad
+        c = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])], dtype=np.float32)
+        edges = [(0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7), (0, 4), (1, 5), (2, 6), (3, 7)]
+        buf = _Buffer(np.array([c[i] for e in edges for i in e]), [3])
+        GL.glUseProgram(self._line_prog)
+        GL.glUniformMatrix4fv(self._u(self._line_prog, "uMVP"), 1, GL.GL_TRUE, mvp)
+        GL.glUniform4f(self._u(self._line_prog, "uColor"), 1.0, 0.64, 0.28, 0.9)
+        buf.draw(GL.GL_LINES)
+        buf.delete()
 
     def _set_model(self, prog, matrix: np.ndarray):
         lin = matrix[:3, :3]
@@ -586,7 +640,11 @@ class Viewer(QOpenGLWidget):
         v = (q @ direction) * inv_det
         dist = np.einsum("ij,ij->i", e2, q) * inv_det
         hit = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (dist > 0)
-        return float(dist[hit].min()) if hit.any() else None
+        if not hit.any():
+            return None
+        idx = np.flatnonzero(hit)
+        k = idx[np.argmin(dist[idx])]
+        return float(dist[k]), int(k)
 
     def pick(self, pos: QPointF):
         return self.pick_hit(pos)[0]
@@ -600,10 +658,69 @@ class Viewer(QOpenGLWidget):
             inv = np.linalg.inv(obj["matrix"])
             o_local = inv[:3, :3] @ origin + inv[:3, 3]
             d_local = inv[:3, :3] @ direction
-            d = self._ray_mesh(o_local, d_local, obj["mesh"])
-            if d is not None and d < best_d:
-                best, best_d = uid, d
+            r = self._ray_mesh(o_local, d_local, obj["mesh"])
+            if r is not None and r[0] < best_d:
+                best, best_d, self._last_face = uid, r[0], r[1]
         return (best, origin + direction * best_d) if best is not None else (None, None)
+
+    def pick_face(self, pos: QPointF):
+        """(uid, world-space normal) of the face under the cursor, or (None, None)."""
+        uid, _ = self.pick_hit(pos)
+        if uid is None:
+            return None, None
+        obj = self.objects[uid]
+        mesh = obj["mesh"]
+        tri = mesh.triangles[self._last_face]
+        n = np.cross(tri[1] - tri[0], tri[2] - tri[0])
+        lin = obj["matrix"][:3, :3]
+        n = np.linalg.inv(lin).T @ n
+        return uid, n / (np.linalg.norm(n) or 1.0)
+
+    # ---------------------------------------------------------- rotate gizmo
+    def _gizmo(self):
+        """(centre, radius) of the rotation rings around the selected model, or None."""
+        if self.tool != "rotate" or self.mode != self.MODE_PREPARE or self.selected not in self.objects:
+            return None
+        box = self._world_box(self.objects[self.selected])
+        centre = (box[0] + box[1]) / 2
+        return centre, float(np.linalg.norm(box[1] - box[0])) * 0.55 + 2.0
+
+    def _ring_hit(self, pos: QPointF, only_axis: int | None = None):
+        """(axis, angle, ray t) where the cursor ray meets a rotation ring, or None."""
+        g = self._gizmo()
+        if g is None:
+            return None
+        c, radius = g
+        origin, d = self._ray(pos)
+        best = None
+        for k in ([only_axis] if only_axis is not None else (0, 1, 2)):
+            n = np.eye(3)[k]
+            denom = float(d @ n)
+            if abs(denom) < 1e-6:
+                continue
+            t = float((c - origin) @ n) / denom
+            if t < 0:
+                continue
+            rel = origin + d * t - c
+            u, v = np.eye(3)[(k + 1) % 3], np.eye(3)[(k + 2) % 3]
+            ang = math.degrees(math.atan2(rel @ v, rel @ u))
+            if only_axis is None and abs(np.linalg.norm(rel) - radius) > radius * 0.12:
+                continue
+            if best is None or t < best[2]:
+                best = (k, ang, t)
+        return best
+
+    def _gizmo_meshes(self):
+        g = self._gizmo()
+        if g is None:
+            return None
+        key = (tuple(np.round(g[0], 3)), round(g[1], 3))
+        if self._gizmo_cache is None or self._gizmo_cache[0] != key:
+            for b in (self._gizmo_cache[1] if self._gizmo_cache else []):
+                self._trash(b)
+            bufs = [_Buffer(mesh_vertices(_torus(g[0], k, g[1], max(0.25, g[1] * 0.022))), [3, 3]) for k in range(3)]
+            self._gizmo_cache = (key, bufs)
+        return self._gizmo_cache[1]
 
     def _bed_point(self, pos: QPointF, z: float = 0.0):
         origin, direction = self._ray(pos)
@@ -629,8 +746,26 @@ class Viewer(QOpenGLWidget):
                 self.rayPicked.emit(origin, direction)
                 self._picked = True
             return
+        if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.tool == "rotate":
+            hit = self._ring_hit(e.position())
+            if hit is not None:
+                self._rot = (self.selected, hit[0], hit[1], 0.0)
+                self.rotateStarted.emit(self.selected)
+                self.update()
+                return
+        if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.tool == "face":
+            uid, normal = self.pick_face(e.position())
+            if uid is not None:
+                self.objectClicked.emit(uid)
+                self.facePicked.emit(uid, normal)
+                self._picked = True
+            return
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE:
             uid = self.pick(e.position())
+            if uid is not None and self.tool == "rotate":
+                self.objectClicked.emit(uid)   # select only; rotating happens on the rings
+                self._picked = True
+                return
             if uid is not None:
                 self.objectClicked.emit(uid)
                 start = self._bed_point(e.position())
@@ -641,6 +776,25 @@ class Viewer(QOpenGLWidget):
         pos = e.position()
         dx, dy = pos.x() - self._last.x(), pos.y() - self._last.y()
         self._last = pos
+        if self._rot is not None and e.buttons() & Qt.LeftButton:
+            uid, axis, start, _ = self._rot
+            hit = self._ring_hit(pos, only_axis=axis)
+            if hit is not None:
+                delta = (hit[1] - start + 180.0) % 360.0 - 180.0
+                step = 15.0 if e.modifiers() & Qt.ShiftModifier else 1.0
+                delta = round(delta / step) * step
+                if delta != self._rot[3]:
+                    self._rot = (uid, axis, start, delta)
+                    self.rotateDragged.emit(uid, axis, float(delta))
+            return
+        if self.tool == "rotate" and not e.buttons():
+            hit = self._ring_hit(pos)
+            axis = hit[0] if hit else None
+            if axis != self._hover_axis:
+                self._hover_axis = axis
+                self.setCursor(Qt.OpenHandCursor if axis is not None else Qt.ArrowCursor)
+                self.update()
+            return
         if self._drag is not None and e.buttons() & Qt.LeftButton:
             uid, start = self._drag
             p = self._bed_point(pos)
@@ -661,6 +815,19 @@ class Viewer(QOpenGLWidget):
 
     def mouseReleaseEvent(self, e):
         moved = (e.position() - self._press_pos).manhattanLength() > 3
+        if self._rot is not None:
+            uid = self._rot[0]
+            self._rot = None
+            self.rotateFinished.emit(uid)
+            self.update()
+            return
+        if self._picked:
+            return
+        if e.button() == Qt.LeftButton and not moved and self.mode == self.MODE_PREVIEW:
+            uid = self.pick(e.position())
+            if uid is not None:
+                self.previewObjectClicked.emit(uid)
+            return
         if self._drag is not None:
             if moved:
                 self.objectDragFinished.emit(self._drag[0])

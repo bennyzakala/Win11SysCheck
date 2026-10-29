@@ -28,7 +28,7 @@ DANGER = "#ff5d6c"
 VIEW_BG_TOP = (0.125, 0.140, 0.172)
 VIEW_BG_BOTTOM = (0.070, 0.078, 0.098)
 MODEL_COLOR = (0.36, 0.60, 1.00)
-MODEL_SELECTED = (0.47, 0.82, 1.00)
+MODEL_SELECTED = (1.00, 0.66, 0.32)
 MODEL_OUTSIDE = (1.00, 0.42, 0.45)
 SUPPORT_COLOR = (0.66, 0.70, 0.78)
 
@@ -246,6 +246,9 @@ _ICONS = {
     "x": '<path d="M6 6l12 12M18 6 6 18"/>',
     "info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
     "plus": '<path d="M12 5v14M5 12h14"/>',
+    "move": '<path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/>',
+    "rotate3d": '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/><ellipse cx="12" cy="12" rx="9" ry="3.5"/>',
+    "face": '<path d="M3 20h18"/><path d="M7 16 12 6l5 10z"/><path d="M12 6v-3"/>',
     "bulb": '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2.2h5c.1-1 .5-1.7 1.1-2.2A6 6 0 0 0 12 3z"/>',
     "sparkle": '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
     "compass": '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
