@@ -86,6 +86,45 @@ def print_time(n: int, cfg: Config, exposures: list[float] | None = None) -> flo
     return sum((exposures[i] if exposures else layer_exposure(i, cfg)) + layer_motion_time(i, cfg) for i in range(n))
 
 
+UNIFORM_FORMAT_NOTE = "This output format stores one layer height and exposure; use CTB, GOO or PRZ for varying layers."
+
+
+def parse_z_ranges(text: str) -> list[tuple[float, float, float | None, float | None]]:
+    """Height ranges with their own layer height and/or exposure (Asiga "multi-range").
+
+    Format: ``from-to: layer_mm, exposure_s; ...`` where either value may be ``*`` (keep the default),
+    e.g. ``0-0.3: *, 40; 5-12: 0.025, 3``. Malformed entries are ignored."""
+    out = []
+    for part in (text or "").replace("\n", ";").split(";"):
+        if ":" not in part or "-" not in part.split(":")[0]:
+            continue
+        span, values = part.split(":", 1)
+        try:
+            z0, z1 = (float(v) for v in span.split("-", 1))
+            vals = [v.strip() for v in values.split(",")] + ["*"]
+            lh = None if vals[0] in ("", "*") else float(vals[0])
+            exp = None if vals[1] in ("", "*") else float(vals[1])
+        except ValueError:
+            continue
+        if z1 > z0 and (lh is None or 0.005 <= lh <= 0.5) and (exp is None or exp > 0):
+            out.append((z0, z1, lh, exp))
+    return out
+
+
+def ranged_layers(top: float, lh: float, ranges) -> list[tuple[float, float]]:
+    """(top z, thickness) per layer with the layer height of whichever range a layer starts in."""
+    out, z = [], 0.0
+    while z < top - 1e-6:
+        h = next((r[2] for r in ranges if r[2] and r[0] - 1e-9 <= z < r[1] - 1e-9), lh)
+        # never step over the start of the next range, so it begins exactly where it is set
+        nxt = min((r[0] for r in ranges if r[0] > z + 1e-6), default=None)
+        if nxt is not None and z + h > nxt + 1e-6 and nxt - z >= 0.005:
+            h = nxt - z
+        z = round(z + h, 5)
+        out.append((z, round(h, 5)))
+    return out
+
+
 def adaptive_layers(meshes: list[Mesh], top: float, cfg: Config) -> list[tuple[float, float]]:
     """(top z, thickness) per layer: thin where shallow slopes would show steps, thick on steep walls.
 
@@ -386,7 +425,7 @@ def find_thin(layers: list[MultiPolygon], min_width: float = 0.3, min_area: floa
 # ----------------------------------------------------------------- prepare
 def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
-            support_points: list[np.ndarray | None] | None = None,
+            support_points: list[np.ndarray | None] | None = None, direct: list[bool] | None = None,
             holes: list[np.ndarray | None] | None = None, cutters: list[Mesh] | None = None) -> SlaJob:
     """Slice resin models. ``support_points[i]`` holds manual contact points for ``meshes[i]``
     (same coordinates, before elevation), or None to place supports automatically."""
@@ -404,10 +443,14 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     supports = None
     points = []
     if cfg["support_enable"]:
-        models = [m.translated([0, 0, lift]) for m in models]
+        # models marked "direct" stay on the plate without supports (e.g. flat-based dental models)
+        on_plate = [bool(direct and i < len(direct) and direct[i]) for i in range(len(models))]
+        models = [m if on_plate[i] else m.translated([0, 0, lift]) for i, m in enumerate(models)]
         parts = []
         for i, m in enumerate(models):
             report("support", i / len(models))
+            if on_plate[i]:
+                continue
             manual = support_points[i] if support_points and i < len(support_points) else None
             if manual is not None:
                 manual = np.asarray(manual, dtype=np.float64).reshape(-1, 3) + [0, 0, lift]
@@ -418,8 +461,11 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     lh = cfg["sla_layer_height"]
     support_meshes = [supports] if supports is not None and len(supports.faces) else []
     top = max(float(m.bounds[1, 2]) for m in models + support_meshes)
+    ranges = parse_z_ranges(cfg["sla_z_ranges"])
     if cfg["sla_adaptive"]:
         stack = adaptive_layers(models, top, cfg)
+    elif any(r[2] for r in ranges):
+        stack = ranged_layers(top, lh, ranges)
     else:
         n = max(1, int(np.ceil(top / lh - 1e-9)))
         stack = [(round((k + 1) * lh, 5), lh) for k in range(n)]
@@ -437,7 +483,11 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         layers, saved, notes = hollow(layers, lh, cfg)
         warnings += notes
     lifted = lift if cfg["support_enable"] else 0.0
-    cutter_meshes = hole_meshes(holes, cfg, lifted) + [c.translated([0, 0, lifted]) for c in (cutters or [])]
+    hole_tubes = []
+    for i, group in enumerate(holes or []):
+        flat = cfg["support_enable"] and direct and i < len(direct) and direct[i]
+        hole_tubes += hole_meshes([group], cfg, 0.0 if flat else lifted)
+    cutter_meshes = hole_tubes + [c.translated([0, 0, lifted]) for c in (cutters or [])]
     if cutter_meshes:
         cut_layers = slice_meshes(cutter_meshes, planes, cfg["resolution"])
         layers = [as_multipolygon(g.difference(c)) if not c.is_empty and not g.is_empty else g
@@ -456,10 +506,13 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     job.layer_z = [z for z, _ in stack]
     job.layer_thickness = [h for _, h in stack]
     # thicker layers need more light: scale exposure with thickness (linear approximation)
-    job.exposures = [layer_exposure(i, cfg) * (min(1.8, max(0.5, h / lh)) if cfg["sla_adaptive"] else 1.0)
-                     for i, (_, h) in enumerate(stack)]
-    if cfg["sla_adaptive"] and cfg["sla_format"] == "sl1":
-        job.warnings.append("The SL1 format stores one layer height; use CTB, GOO or PRZ for adaptive layers.")
+    varied = cfg["sla_adaptive"] or any(r[2] for r in ranges)
+    job.exposures = []
+    for i, (z, h) in enumerate(stack):
+        fixed = next((r[3] for r in ranges if r[3] and r[0] - 1e-9 <= z - h < r[1] - 1e-9), None)
+        job.exposures.append(fixed if fixed else layer_exposure(i, cfg) * (min(1.8, max(0.5, h / lh)) if varied else 1.0))
+    if (varied or any(r[3] for r in ranges)) and cfg["sla_format"] in ("sl1", "png_zip"):
+        job.warnings.append(UNIFORM_FORMAT_NOTE)
     job.islands = find_islands(layers)
     job.cups = find_cups(layers)
     job.thin_layers = thin

@@ -538,3 +538,33 @@ def test_adaptive_layers_follow_slope(tmp_path):
     sla.export(job, cfg, str(path), "ball")
     layers = goo.read(str(path))["layers"]
     assert [round(l["z"], 4) for l in layers] == [round(z, 4) for z in job.layer_z]
+
+
+def test_support_options_and_direct_models():
+    from unislicer import sla_supports
+    m = placed(primitives.sphere(8), 70, 45).world_mesh().translated([0, 0, 20])
+    base = profiles.build_config("elegoo_mars3", "resin_standard", "sla_fast", {"support_enable": True, "sla_support_type": "pillar"})
+    plain, used = sla_supports.build_supports(m, base)
+    dense = sla_supports.build_supports(m, base.copy().update({"sla_density": 300}))[1]
+    assert len(dense) > len(used) * 2
+    braced = sla_supports.build_supports(m, base.copy().update({"sla_bracing": True, "sla_brace_spacing": 4}))[0]
+    assert len(braced.faces) > len(plain.faces)
+    tilted = sla_supports.build_supports(m, base.copy().update({"sla_head_tilt": 40}))[0]
+    assert tilted.is_watertight() or len(tilted.faces) > len(plain.faces)
+    wide = sla_supports.build_supports(m, base.copy().update({"sla_pillar_widening": 50}))[0]
+    assert wide.volume() > plain.volume()
+    # a model printed straight on the plate gets no supports and stays at z = 0
+    box = placed(primitives.box(10, 10, 4), 70, 45).world_mesh()
+    job = sla.prepare([box], base, direct=[True])
+    assert len(job.support_points) == 0 and job.layer_z[-1] == pytest.approx(4.0)
+
+
+def test_multi_range_layers_and_exposure():
+    cfg = profiles.build_config("elegoo_mars4_ultra", "resin_standard", "sla_fast",
+                                {"sla_z_ranges": "0-1: *, 20; 2-3: 0.025, 4"})
+    job = sla.prepare([placed(primitives.box(10, 10, 4), 70, 40).world_mesh()], cfg)
+    z = np.array(job.layer_z)
+    th = np.array(job.layer_thickness)
+    assert np.allclose(th[(z > 2.03) & (z <= 3.0)], 0.025) and np.allclose(th[z > 3.11], cfg["sla_layer_height"])
+    assert job.exposures[5] == 20 and job.exposures[int(np.argmax(z > 2.5))] == 4
+    assert z[-1] == pytest.approx(4.0)

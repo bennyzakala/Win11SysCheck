@@ -32,6 +32,7 @@ ENGINE_TEXT = {
     "The cavity is too small for the drain holes.": "note_cavity_small",
     "Hollowed without drain holes: uncured resin will stay trapped inside.": "note_no_drain",
     "The model is too thin to hollow with this wall thickness.": "note_too_thin",
+    sla.UNIFORM_FORMAT_NOTE: "note_uniform_format",
 }
 
 
@@ -767,7 +768,7 @@ class MainWindow(QMainWindow):
         obj.x, obj.y = self._plate_center(cfg)
         self.objects.append(obj)
         if rearrange:
-            arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=plate_rect(cfg))
+            self._arrange(cfg)
         self._refresh_objects(select=obj.uid)
         return obj
 
@@ -778,7 +779,7 @@ class MainWindow(QMainWindow):
             dups = [o.duplicate() for o in group]
             self.objects += dups
             cfg = self.settings.config()
-            arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=plate_rect(cfg))
+            self._arrange(cfg)
             self._refresh_objects(select=[d.uid for d in dups])
 
     def delete_selected(self):
@@ -790,10 +791,17 @@ class MainWindow(QMainWindow):
                 self.viewer.remove_object(obj.uid)
             self._refresh_objects(select=self.objects[-1].uid if self.objects else None)
 
+    def _arrange(self, cfg) -> bool:
+        """Auto-arrange inside the plate, keeping the edge margin free."""
+        m = cfg["arrange_margin"]
+        x0, y0, x1, y1 = plate_rect(cfg)
+        rect = (x0 + m, y0 + m, x1 - m, y1 - m) if x1 - x0 > 2 * m and y1 - y0 > 2 * m else (x0, y0, x1, y1)
+        return arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=rect)
+
     def arrange_objects(self):
         self._push_undo()
         cfg = self.settings.config()
-        arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=plate_rect(cfg))
+        self._arrange(cfg)
         self._objects_changed()
 
     def lay_flat(self):
@@ -857,7 +865,7 @@ class MainWindow(QMainWindow):
         self._select_uid(None)
         self.auto_orient_selected()
         cfg = self.settings.config()
-        if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=plate_rect(cfg)):
+        if not self._arrange(cfg):
             self.status.setText(tr("arrange_full"))
         if cfg["technology"] == "sla":
             self.generate_supports()
@@ -1117,7 +1125,7 @@ class MainWindow(QMainWindow):
         self._push_undo()
         self.objects += [obj.duplicate() for obj in group for _ in range(count)]
         cfg = self.settings.config()
-        if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=plate_rect(cfg)):
+        if not self._arrange(cfg):
             self.status.setText(tr("arrange_full"))
         self._refresh_objects(select=[o.uid for o in group])
 
@@ -1156,7 +1164,7 @@ class MainWindow(QMainWindow):
         self.object_list.clear()
         items = {}
         for o in self.objects:
-            label = (o.name or "object") + ("  ✂" if o.role == "cutter" else "")
+            label = (o.name or "object") + ("  ✂" if o.role == "cutter" else "") + ("  ⊥" if o.direct else "")
             it = QListWidgetItem(theme.icon("cube", theme.DANGER if o.role == "cutter" else theme.TEXT_DIM, 16), label)
             it.setData(Qt.UserRole, o.uid)
             self.object_list.addItem(it)
@@ -1328,6 +1336,11 @@ class MainWindow(QMainWindow):
                 menu.addSeparator()
                 menu.addAction(theme.icon("pillar"), tr("sup_auto"), self.generate_supports)
                 menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
+                flat = menu.addAction(theme.icon("flat"), tr("direct_on_plate"))
+                flat.setToolTip(tr("direct_on_plate_tip"))
+                flat.setCheckable(True)
+                flat.setChecked(all(o.direct for o in group))
+                flat.toggled.connect(self._set_direct)
             menu.addSeparator()
             menu.addAction(theme.icon("square"), tr("cut_height"), self.cut_selected)
             menu.addAction(theme.icon("grid"), tr("split_parts"), self.split_selected)
@@ -1342,6 +1355,16 @@ class MainWindow(QMainWindow):
         menu.addAction(theme.icon("arrange"), tr("arrange") + "\tA", self.arrange_objects)
         menu.addAction(theme.icon("fit"), tr("view_fit"), self.viewer.fit_objects)
         menu.exec(pos)
+
+    def _set_direct(self, on: bool):
+        group = self.selected_objects()
+        if group:
+            self._push_undo()
+            for o in group:
+                o.direct = on
+                if on:
+                    o.support_points = None
+            self._refresh_objects(select=[o.uid for o in group])
 
     def rotate_exact_dialog(self):
         from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
@@ -1417,7 +1440,7 @@ class MainWindow(QMainWindow):
         return cfg["sla_elevation"] + cfg["sla_raft_thickness"]
 
     def _shows_supports(self, o: SceneObject) -> bool:
-        return o.support_points is not None and self.viewer.technology == "sla"
+        return o.support_points is not None and self.viewer.technology == "sla" and not o.direct
 
     def _display_matrix(self, o: SceneObject) -> np.ndarray:
         """Where the model is drawn: raised onto its supports when it has edited supports."""
@@ -1430,8 +1453,7 @@ class MainWindow(QMainWindow):
         """Support structure in the object's own coordinates (cached; moving the object keeps it valid)."""
         if not self._shows_supports(o) or len(o.support_points) == 0:
             return None
-        keys = ("sla_tip_diameter", "sla_pillar_diameter", "sla_contact_depth", "sla_supports_on_model",
-                "sla_elevation", "sla_raft_thickness", "sla_raft_margin")
+        keys = sorted(k for k in cfg.values if k.startswith("sla_") and not k.startswith("sla_layer"))
         key = (o.uid, o.support_points.tobytes(), o.matrix().tobytes(), tuple(cfg[k] for k in keys))
         hit = self._support_cache.get(o.uid)
         if hit is not None and hit[0] == key:
@@ -1461,6 +1483,8 @@ class MainWindow(QMainWindow):
         learned = self.assistant.learned_config(cfg)   # density and angle learned from earlier edits
         lift = self._lift(cfg)
         for o in self._support_targets():
+            if o.direct or o.role == "cutter":
+                continue
             world = o.mesh.transform(o.world_matrix())
             world = world.translated([0, 0, lift])
             o.set_world_support_points(sla_supports.auto_support_points(world, learned), lift)
@@ -1647,12 +1671,13 @@ class MainWindow(QMainWindow):
         meshes = [o.world_mesh() for o in models]
         cutters = [o.world_mesh() for o in self.objects if o.role == "cutter"]
         manual = [o.world_support_points(0.0) for o in models]
+        direct = [o.direct for o in models]
         holes = [o.world_drain_holes(0.0) for o in models]
         name = self.objects[0].name or "print"
 
         def work(progress, cancelled):
             if cfg["technology"] == "sla":
-                job = sla.prepare(meshes, cfg, progress, cancelled, support_points=manual, holes=holes, cutters=cutters)
+                job = sla.prepare(meshes, cfg, progress, cancelled, support_points=manual, direct=direct, holes=holes, cutters=cutters)
                 return ("sla", job, cfg)
             plan = fdm.plan(meshes, cfg, progress, cancelled, cutters=cutters)
             progress("gcode", 0.0)

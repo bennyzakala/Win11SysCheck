@@ -58,12 +58,17 @@ class _Caster:
         return float(z[below].max()) if np.any(below) else 0.0
 
 
+def effective_spacing(cfg: Config) -> float:
+    """Grid spacing of support points: the set spacing, tightened or loosened by the density percentage."""
+    return cfg["sla_support_spacing"] / math.sqrt(max(cfg["sla_density"], 1.0) / 100.0)
+
+
 def auto_support_points(mesh: Mesh, cfg: Config) -> np.ndarray:
     """Contact points (N, 3) on the underside of ``mesh`` that need support."""
     caster = _Caster(mesh)
     threshold = -math.sin(math.radians(cfg["support_angle"]))
     overhang = caster.normals[:, 2] < threshold
-    spacing = cfg["sla_support_spacing"]
+    spacing = effective_spacing(cfg)
     lo, hi = mesh.bounds
     xs = np.arange(lo[0] + spacing / 2, hi[0], spacing)
     ys = np.arange(lo[1] + spacing / 2, hi[1], spacing)
@@ -153,7 +158,7 @@ def _grow_trees(starts: np.ndarray, under: _Underside, cfg: Config, floor: float
 
     Returns (segments [(p, q, r_p, r_q)], roots [(point, weight)])."""
     tan_a = math.tan(math.radians(min(max(cfg["sla_branch_angle"], 5.0), 75.0)))
-    max_d = max(6.0, cfg["sla_support_spacing"] * 4)
+    max_d = cfg["sla_branch_reach"] or max(6.0, effective_spacing(cfg) * 4)
     nodes = [np.array(p, dtype=np.float64) for p in starts]
     weights = [1] * len(nodes)
     segments = []
@@ -187,6 +192,33 @@ def _grow_trees(starts: np.ndarray, under: _Underside, cfg: Config, floor: float
         if not merged:
             break
     return segments, list(zip(nodes, weights))
+
+
+def _braces(pillars: list, under: "_Underside", cfg: Config, segs: int) -> list[Mesh]:
+    """Zig-zag struts between each pillar and its nearest neighbours, every brace interval in height."""
+    step = cfg["sla_brace_spacing"]
+    reach = max(8.0, effective_spacing(cfg) * 3)
+    xy = np.array([[p[0], p[1]] for p in pillars])
+    done, out = set(), []
+    for i, (x, y, z0, z1, r) in enumerate(pillars):
+        d = np.hypot(*(xy - xy[i]).T)
+        for j in np.argsort(d)[1:3]:                 # two nearest neighbours
+            key = (min(i, j), max(i, j))
+            if d[j] > reach or key in done:
+                continue
+            done.add(key)
+            lo = max(z0, pillars[j][2]) + 0.5
+            hi = min(z1, pillars[j][3]) - 0.5
+            rb = min(r, pillars[j][4]) * 0.5
+            z, flip = lo, False
+            while z + step <= hi:
+                a = np.array([x, y, z + (step if flip else 0)])
+                b = np.array([pillars[j][0], pillars[j][1], z + (0 if flip else step)])
+                if under.clear(a, b, rb + 0.5) and under.clear(b, a, rb + 0.5):
+                    out.append(tube(a, b, rb, rb, max(4, segs // 2)))
+                z += step
+                flip = not flip
+    return out
 
 
 SHAPE_SEGMENTS = {"cylinder": SEGMENTS, "prism": 6, "cube": 4}
@@ -303,7 +335,28 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) ->
     base_shape = cfg["sla_base_shape"]
     sphere_tip = cfg["sla_tip_shape"] == "sphere"
     tree = cfg["sla_support_type"] == "tree"
-    parts, feet, used, tree_tips = [], [], [], []
+    max_tilt = math.radians(cfg["sla_head_tilt"])
+    widen = cfg["sla_pillar_widening"] / 100.0 / 10.0      # extra radius fraction per mm of height
+    parts, feet, used, tree_tips, pillars = [], [], [], [], []
+
+    def widened(r, height):
+        return r * (1.0 + widen * max(height, 0.0))
+
+    def head_direction(p):
+        """Unit vector from the contact point down along the head: the surface normal, limited to ``max_tilt``."""
+        if max_tilt <= 0:
+            return None
+        z, faces = caster.hits(p[0], p[1])
+        if len(z) == 0:
+            return None
+        n = caster.normals[faces[int(np.argmin(np.abs(z - p[2])))]]
+        if n[2] >= -1e-3:
+            return None
+        horiz = math.hypot(n[0], n[1])
+        ang = min(math.atan2(horiz, -n[2]), max_tilt)
+        if ang < math.radians(2) or horiz < 1e-9:
+            return None
+        return np.array([n[0] / horiz * math.sin(ang), n[1] / horiz * math.sin(ang), -math.cos(ang)])
 
     def foot_on_bed(x, y, r, top):
         """Base standing on the raft (or the plate), from there up to at most ``top``. Returns its top height."""
@@ -320,39 +373,69 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) ->
             parts.append(frustum(base_r, r, h + 0.05, segs, raft - 0.05, (x, y)))
         return raft + h
 
-    def head(x, y, top, h, r_body):
-        parts.append(frustum(r_body, tip_r, h, segs, top - h, (x, y)))
+    def head(x, y, top, h, r_body, tip=None):
+        if tip is None:
+            parts.append(frustum(r_body, tip_r, h, segs, top - h, (x, y)))
+            tip = np.array([x, y, top])
+        else:      # leaning head from the top of the pillar to the contact point
+            parts.append(tube([x, y, top - h], tip, r_body, tip_r, segs))
+            parts.append(ball([x, y, top - h], r_body, 3, segs))
         if sphere_tip:
-            parts.append(ball([x, y, top - tip_r * 0.3], tip_r * 1.25, 4, 10))
+            parts.append(ball(tip - [0, 0, tip_r * 0.3], tip_r * 1.25, 4, 10))
 
     for p in points:
-        base = caster.base_below(p)
+        d = head_direction(p)
+        tip = None
+        if d is not None:
+            # the pillar stands under the far end of the leaning head
+            tip = p - d * depth
+            q = p + d * head_len
+            if caster.base_below(q) > 0 and caster.base_below(p) <= 0:
+                d, tip = None, None        # leaning would put the pillar on the model: stay vertical
+        base = caster.base_below(p if d is None else q)
         if base > 0 and not on_model:
             continue  # the pillar would have to stand on the model
-        x, y, top = p
-        top += depth  # penetrate into the model for a solid bond
+        if d is None:
+            x, y, top = p
+            top += depth  # penetrate into the model for a solid bond
+        else:
+            x, y = q[0], q[1]
+            top = q[2] + head_len
         on_bed = base <= 1e-6
         bottom = raft if on_bed else base
         height = top - bottom
         if height < 0.5:
             continue
-        h_len = min(head_len, height * 0.5)
+        h_len = head_len if d is not None else min(head_len, height * 0.5)
+        if d is not None and height - h_len < 0.5:     # too close to the plate to lean: vertical head
+            d, tip = None, None
+            x, y, top = p[0], p[1], p[2] + depth
+            base = caster.base_below(p)
+            on_bed = base <= 1e-6
+            bottom = raft if on_bed else base
+            height = top - bottom
+            if height < 0.5 or (not on_bed and not on_model):
+                continue
+            h_len = min(head_len, height * 0.5)
         used.append(p)
         if tree and on_bed and height > h_len + 3.0:
             # the head is built now; the branch below it is decided when the trees are grown
-            head(x, y, top, h_len, pillar_r * 0.8)
+            head(x, y, top, h_len, pillar_r * 0.8, tip)
             tree_tips.append(np.array([x, y, top - h_len]))
             continue
+        r_low = widened(pillar_r, top - h_len - bottom) if on_bed else pillar_r
         if on_bed:
-            body_z = foot_on_bed(x, y, pillar_r, top - h_len)
+            body_z = foot_on_bed(x, y, r_low, top - h_len)
         else:
             foot = min(h_len, height * 0.25)
             parts.append(frustum(tip_r, pillar_r, foot + depth, segs, bottom - depth, (x, y)))
             body_z = bottom + foot
         body_h = top - h_len - body_z
         if body_h > 0:
-            parts.append(frustum(pillar_r, pillar_r, body_h + 0.01, segs, body_z, (x, y)))
-        head(x, y, top, h_len, pillar_r)
+            parts.append(frustum(r_low, pillar_r, body_h + 0.01, segs, body_z, (x, y)))
+            if on_bed:
+                pillars.append((x, y, body_z, top - h_len, pillar_r))
+        head(x, y, top, h_len, pillar_r, tip)
 
     if tree_tips:
         under = _Underside(mesh)
@@ -368,10 +451,15 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None) ->
             parts.append(ball(b, rb, 3, SEGMENTS))
         for node, weight in roots:
             r = radius(weight)
-            body_z = foot_on_bed(node[0], node[1], r, node[2])
+            r_low = widened(r, node[2] - raft)
+            body_z = foot_on_bed(node[0], node[1], r_low, node[2])
             if node[2] > body_z:
-                parts.append(frustum(r, r, node[2] - body_z + 0.01, segs, body_z, (node[0], node[1])))
+                parts.append(frustum(r_low, r, node[2] - body_z + 0.01, segs, body_z, (node[0], node[1])))
+                pillars.append((node[0], node[1], body_z, node[2], r))
             parts.append(ball(node, r, 3, SEGMENTS))
+
+    if cfg["sla_bracing"] and len(pillars) > 1:
+        parts += _braces(pillars, _Underside(mesh), cfg, segs)
 
     parts += _rafts(feet, cfg, pillar_r * 4)
     return Mesh.merge(parts, "Supports"), np.array(used).reshape(-1, 3)

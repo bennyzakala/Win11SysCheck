@@ -27,6 +27,8 @@ class SceneObject:
     drain_holes: np.ndarray = field(default_factory=lambda: np.zeros((0, 6)))
     role: str = "model"                          # model | cutter (subtracted from the other models)
     z: float = 0.0                               # height of the model's lowest point above the plate
+    direct: bool = False                         # resin: printed straight on the plate, no supports or elevation
+    material: str = ""                           # PolyJet: material assigned to this part ("" = the default)
     uid: int = field(default_factory=lambda: next(_ids))
 
     @classmethod
@@ -119,10 +121,10 @@ class SceneObject:
         """Snapshot of everything the user can change (for undo)."""
         sp = None if self.support_points is None else self.support_points.copy()
         return (self.x, self.y, self.rotation.copy(), self.scale.copy(), self.base_rotation.copy(), self.mirror.copy(), sp,
-                self.drain_holes.copy(), self.role, self.z)
+                self.drain_holes.copy(), self.role, self.z, self.direct, self.material)
 
     def restore(self, state: tuple) -> None:
-        self.x, self.y, rot, scale, base, mirror, sp, holes, self.role, self.z = state
+        self.x, self.y, rot, scale, base, mirror, sp, holes, self.role, self.z, self.direct, self.material = state
         self.drain_holes = holes.copy()
         self.rotation, self.scale, self.base_rotation, self.mirror = rot.copy(), scale.copy(), base.copy(), mirror.copy()
         self.support_points = None if sp is None else sp.copy()
@@ -140,7 +142,8 @@ class SceneObject:
     def duplicate(self) -> "SceneObject":
         sp = None if self.support_points is None else self.support_points.copy()
         return SceneObject(self.mesh, self.name, self.x, self.y, self.rotation.copy(), self.scale.copy(),
-                           self.base_rotation.copy(), self.mirror.copy(), sp, self.drain_holes.copy(), self.role, self.z)
+                           self.base_rotation.copy(), self.mirror.copy(), sp, self.drain_holes.copy(), self.role, self.z,
+                           self.direct, self.material)
 
 
 def plate_rect(cfg) -> tuple[float, float, float, float]:

@@ -45,6 +45,37 @@ THEMES = {
         LOGO_GRADIENT=("#13a2ae", "#0b5f8a"), DARK=False, BRAND="PRODENTIX"),
 }
 THEME_NAMES = tuple(THEMES)
+# the active theme's colours (filled in by set_theme)
+BG: object = None
+SURFACE: object = None
+SURFACE_2: object = None
+SURFACE_3: object = None
+BORDER: object = None
+BORDER_HOVER: object = None
+TEXT: object = None
+TEXT_DIM: object = None
+TEXT_FAINT: object = None
+ACCENT: object = None
+ACCENT_HOVER: object = None
+ACCENT_PRESSED: object = None
+ACCENT_SOFT: object = None
+ACCENT_DISABLED: object = None
+ACCENT_DISABLED_TEXT: object = None
+ON_ACCENT: object = None
+SUCCESS: object = None
+WARNING: object = None
+DANGER: object = None
+OVERLAY: object = None
+VIEW_BG_TOP: object = None
+VIEW_BG_BOTTOM: object = None
+MODEL_COLOR: object = None
+MODEL_SELECTED: object = None
+MODEL_OUTSIDE: object = None
+SUPPORT_COLOR: object = None
+BED_COLOR: object = None
+GRID_COLOR: object = None
+LOGO_GRADIENT: object = None
+DARK: object = None
 CURRENT = "dark"
 BRAND = ""            # wordmark shown next to the logo by branded themes
 LOGO_FILE = ""        # optional image (PNG/SVG/JPG) replacing the built-in logo
