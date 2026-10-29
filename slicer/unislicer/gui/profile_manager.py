@@ -182,6 +182,8 @@ class ProfileManager(QDialog):
             self.badge.setText(tr("pm_badge_builtin"))
         else:
             self.badge.setText(tr("pm_badge_user"))
+        if p.get("note"):
+            self.badge.setText(self.badge.text() + "\n" + p["note"])
         self.delete_btn.setText(tr("pm_restore") if builtin else tr("pm_delete"))
         self.delete_btn.setEnabled(not builtin or bool(p.get("user")))
         self._build_form()

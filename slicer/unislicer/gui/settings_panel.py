@@ -292,6 +292,8 @@ class SettingsPanel(QWidget):
             last = group
             badge = "FDM" if tech == "fdm" else "RESIN"
             self.printer_combo.addItem(f"{p['name']}   ·  {badge}", pid)
+            if p.get("note"):
+                self.printer_combo.setItemData(self.printer_combo.count() - 1, p["note"], Qt.ToolTipRole)
         self.printer_combo.setCurrentIndex(max(0, self.printer_combo.findData(self.printer_id)))
         self._building = False
 
@@ -385,18 +387,25 @@ class SettingsPanel(QWidget):
         for combo, kind, attr in ((self.material_combo, "materials", "material_id"), (self.quality_combo, "qualities", "quality_id")):
             combo.clear()
             available = profiles.for_technology(kind, tech)
-            ordered = sorted(available.items(), key=lambda kv: (kv[1].get("vendor", "Generic") != "Generic",
+            def linked(prof):
+                return self.printer_id in prof.get("printers", [])
+            ordered = sorted(available.items(), key=lambda kv: (not linked(kv[1]), kv[1].get("vendor", "Generic") != "Generic",
                                                                 kv[1].get("vendor", ""), profiles.display_name(kv[1])))
-            last_vendor = None
+            last_group = None
             for pid, p in ordered:
                 vendor = p.get("vendor", "")
-                if kind == "materials" and last_vendor is not None and vendor != last_vendor:
+                group = (linked(p), vendor)
+                if kind == "materials" and last_group is not None and group != last_group:
                     combo.insertSeparator(combo.count())
-                last_vendor = vendor
+                last_group = group
                 label = profiles.display_name(p, i18n.LANG)
                 if kind == "materials" and vendor and vendor != "Generic":
                     label = f"{vendor} · {label}"
+                if kind == "materials" and linked(p):
+                    label = "★ " + label
                 combo.addItem(label, pid)
+                if p.get("note"):
+                    combo.setItemData(combo.count() - 1, p["note"], Qt.ToolTipRole)
             current = getattr(self, attr)
             if current not in available:
                 current = next(iter(available), None)
@@ -422,8 +431,16 @@ class SettingsPanel(QWidget):
         old_tech = self.technology
         self.printer_id = pid
         self._drop_overrides_for("printers", pid)
-        for k in PLATE_KEYS:              # a new printer starts on its full plate
+        for k in PLATE_KEYS:              # a new printer starts on its first plate
             self.overrides.pop(k, None)
+        first_plate = (profiles.plates(pid) or [None])[0]
+        if first_plate:
+            self.overrides.update({"plate_width": first_plate["width"], "plate_depth": first_plate["depth"]})
+        # printers with their own validated resins start on one of them
+        mats = profiles.for_technology("materials", profiles.technology_of(profiles.load("printers")[pid]))
+        linked = [m for m, prof in mats.items() if pid in prof.get("printers", [])]
+        if linked and self.material_id not in linked:
+            self.material_id = linked[0]
         self._fill_dependent()
         self.rebuild()
         if self.technology != old_tech:

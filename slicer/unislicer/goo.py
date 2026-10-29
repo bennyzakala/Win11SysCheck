@@ -15,6 +15,7 @@ from PIL import Image
 
 from . import __version__
 from .settings import Config
+from .sla_timing import layer_light_off, layer_pwm, layer_rests
 
 VERSION = b"V3.0"
 MAGIC = bytes([0x07, 0x00, 0x00, 0x00, 0x44, 0x4C, 0x50, 0x00])
@@ -130,7 +131,8 @@ def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, c
             return (lift, lift_speed, lift2, speed2, lift + lift2 - slow, retract_speed, slow, cfg["retract_speed_2"])
         return (lift, lift_speed, 0.0, lift_speed, lift, retract_speed, 0.0, retract_speed)
 
-    rest = (cfg["rest_before_lift"], cfg["rest_after_lift"], cfg["light_off_delay"])
+    rest = (cfg["rest_before_lift"], cfg["rest_after_lift"], cfg["rest_after_retract"])
+    bottom_rest = (cfg["bottom_rest_before_lift"], cfg["bottom_rest_after_lift"], cfg["bottom_rest_after_retract"])
     bm, nm = motion(True), motion(False)
     pwm = int(cfg["light_pwm"])
     stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
@@ -144,17 +146,18 @@ def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, c
         fh.write(HEADER_PRINT.pack(
             layer_count, int(cfg["resolution_x"]), int(cfg["resolution_y"]), bool(cfg["mirror_x"]), bool(cfg["mirror_y"]),
             cfg["bed_x"], cfg["bed_y"], cfg["max_z"], layer_height, cfg["exposure_time"],
-            True, cfg["light_off_delay"], *rest, *rest, cfg["bottom_exposure_time"], bottom,
+            cfg["wait_mode"] != "light_off", cfg["light_off_delay"], *bottom_rest, *rest, cfg["bottom_exposure_time"], bottom,
             bm[0], bm[1], nm[0], nm[1], bm[4], bm[5], nm[4], nm[5],
             bm[2], bm[3], nm[2], nm[3], bm[6], bm[7], nm[6], nm[7],
-            pwm, pwm, True, int(print_time_s), volume_ml * 1000.0, weight_g, cost, _text("$", 8),
+            int(cfg["light_pwm_bottom"]), pwm, True, int(print_time_s), volume_ml * 1000.0, weight_g, cost, _text("$", 8),
             HEADER_SIZE, True, int(cfg["transition_layers"])))
         assert fh.tell() == HEADER_SIZE
         count = 0
         for i, rle in layer_rle:
             m = bm if i < bottom else nm
             fh.write(LAYER_DEF.pack(0, cfg["max_z"], round((i + 1) * layer_height, 5), exposures[i],
-                                    cfg["light_off_delay"], *rest, *m, pwm, DELIMITER, len(rle)))
+                                    layer_light_off(i, cfg), *layer_rests(i, cfg), *m, layer_pwm(i, cfg),
+                                    DELIMITER, len(rle)))
             fh.write(rle)
             fh.write(DELIMITER)
             count += 1

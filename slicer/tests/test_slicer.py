@@ -424,3 +424,38 @@ def test_build_plate_sizes(tmp_path, monkeypatch):
     profiles.add_plate("phrozen_sonic_mini_8k", "Mini", 70, 70)
     assert profiles.plates("phrozen_sonic_mini_8k")[0]["width"] == 70
     assert profiles.build_config("phrozen_sonic_mini_8k")["bed_x"] == cfg["bed_x"]   # printer itself unchanged
+
+
+def test_waiting_modes_and_bottom_parameters(tmp_path):
+    from unislicer import ctb, goo
+    cfg = profiles.build_config("elegoo_mars3", None, None, {"bottom_layers": 2, "rest_before_lift": 1, "rest_after_lift": 2,
+                                                            "rest_after_retract": 3, "bottom_rest_after_retract": 7,
+                                                            "light_pwm": 200, "light_pwm_bottom": 255})
+    assert sla.layer_rests(0, cfg) == (0.0, 0.0, 7.0) and sla.layer_rests(5, cfg) == (1.0, 2.0, 3.0)
+    resting = sla.print_time(10, cfg)
+    cfg.update({"wait_mode": "light_off", "light_off_delay": 30, "bottom_light_off_delay": 30})
+    assert sla.print_time(10, cfg) > resting
+    cfg.update({"wait_mode": "rest", "sla_layer_height": 0.1})
+    job = sla.prepare([placed(primitives.box(8, 8, 1), 70, 45).world_mesh()], cfg)
+    for fmt, mod in (("ctb", ctb), ("goo", goo)):
+        cfg.update({"sla_format": fmt})
+        path = tmp_path / f"a.{fmt}"
+        sla.export(job, cfg, str(path), "a")
+        mod.read(str(path))
+    layers = ctb.read(str(tmp_path / "a.ctb"))["layers"]
+    assert layers[0]["ex"][-1] == 255 and layers[5]["ex"][-1] == 200          # per-layer PWM
+    assert layers[0]["ex"][-2] == 7 and layers[5]["ex"][-2] == 3              # rest after retract
+
+
+def test_phrozen_dental_printers():
+    from unislicer.scene import plate_rect
+    for pid in ("phrozen_sonic_cs_plus", "phrozen_lumii_2k"):
+        cfg = profiles.build_config(pid)
+        assert cfg["sla_format"] == "prz" and profiles.plates(pid)
+        linked = [m for m, p in profiles.for_technology("materials", "sla").items() if pid in p.get("printers", [])]
+        assert linked
+    plates = {p["name"]: p for p in profiles.plates("phrozen_sonic_cs_plus")}
+    assert (plates["Mini plate"]["width"], plates["Mini plate"]["depth"]) == (70.0, 70.0)
+    cfg = profiles.build_config("phrozen_sonic_cs_plus", None, None, {"plate_width": 70, "plate_depth": 70})
+    x0, y0, x1, y1 = plate_rect(cfg)
+    assert (x1 - x0, y1 - y0) == (70, 70)

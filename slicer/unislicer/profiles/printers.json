@@ -532,5 +532,64 @@
       "travel_speed": 300,
       "first_layer_speed": 40
     }
+  },
+  "phrozen_sonic_cs_plus": {
+    "name": "Phrozen Sonic CS+ (dental)",
+    "vendor": "Phrozen",
+    "note": "385 nm mono LCD, 22 µm XY. Plates per manufacturer listings: Standard 165 x 71 x 175 mm, Mini 70 x 70 x 175 mm. Screen pixels derived from the 22 µm pixel size (same panel size as Sonic Mini 8K); mini plate assumed centred. Reads .prz from DS Slicer.",
+    "values": {
+      "technology": "sla",
+      "bed_x": 165.0,
+      "bed_y": 71.28,
+      "max_z": 175,
+      "resolution_x": 7500,
+      "resolution_y": 3240,
+      "sla_format": "prz",
+      "sla_layer_height": 0.05,
+      "bottom_layers": 6,
+      "material_name": "Dental resin"
+    },
+    "plates": [
+      {
+        "name": "Standard plate",
+        "width": 165.0,
+        "depth": 71.0,
+        "offset_x": 0.0,
+        "offset_y": 0.0
+      },
+      {
+        "name": "Mini plate",
+        "width": 70.0,
+        "depth": 70.0,
+        "offset_x": 0.0,
+        "offset_y": 0.0
+      }
+    ]
+  },
+  "phrozen_lumii_2k": {
+    "name": "Phrozen Lumii 2K DLP (dental)",
+    "vendor": "Phrozen",
+    "note": "405 nm 2K DLP, 51 µm XY, standard plate 130 x 75 x 160 mm; a mini plate exists but its size is not published (add it from the plate menu). Projector pixels derived from 51 µm over 130 x 75 mm. Uses DS Slicer (.prz assumed, as for the Sonic CS+).",
+    "values": {
+      "technology": "sla",
+      "bed_x": 130.56,
+      "bed_y": 74.97,
+      "max_z": 160,
+      "resolution_x": 2560,
+      "resolution_y": 1470,
+      "sla_format": "prz",
+      "sla_layer_height": 0.05,
+      "bottom_layers": 6,
+      "material_name": "Dental resin"
+    },
+    "plates": [
+      {
+        "name": "Standard plate",
+        "width": 130.0,
+        "depth": 74.97,
+        "offset_x": 0.0,
+        "offset_y": 0.0
+      }
+    ]
   }
 }

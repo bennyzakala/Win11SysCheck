@@ -15,6 +15,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from .settings import Config
+from .sla_timing import layer_light_off, layer_pwm, layer_rests
 
 MAGIC_CTB_V4 = 0x12FD0106
 VERSION = 4
@@ -199,7 +200,7 @@ def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, c
         print_params_offset = fh.tell()
         fh.write(PRINT_PARAMS.pack(
             cfg["bottom_lift_height"], cfg["bottom_lift_speed"], cfg["lift_height"], cfg["lift_speed"],
-            cfg["retract_speed"], volume_ml, weight_g, cost, cfg["light_off_delay"], cfg["light_off_delay"],
+            cfg["retract_speed"], volume_ml, weight_g, cost, cfg["bottom_light_off_delay"], cfg["light_off_delay"],
             bottom, 0, 0, 0, 0))
 
         slicer_offset = fh.tell()
@@ -207,14 +208,14 @@ def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, c
         fh.write(SLICER_INFO.pack(
             lift2, speed2, lift2, speed2, ret2, rspeed2, cfg["rest_after_lift"],
             slicer_offset + SLICER_INFO.size, len(name), 0x0F, 0, PER_LAYER_SETTINGS,
-            int(time.time() // 60) & 0xFFFFFFFF, aa, SOFTWARE_VERSION, cfg["light_off_delay"], 0.0,
+            int(time.time() // 60) & 0xFFFFFFFF, aa, SOFTWARE_VERSION, cfg["rest_after_retract"], 0.0,
             int(cfg["transition_layers"]), v4_address, 0, 0))
         fh.write(name)
         disclaimer_address = fh.tell()
         fh.write(DISCLAIMER)
         assert fh.tell() == v4_address
         fh.write(PRINT_PARAMS_V4.pack(
-            cfg["bottom_retract_speed"], rspeed2, 0, 4.0, 0, 4.0, cfg["light_off_delay"], cfg["rest_after_lift"],
+            cfg["bottom_retract_speed"], rspeed2, 0, 4.0, 0, 4.0, cfg["rest_after_retract"], cfg["rest_after_lift"],
             cfg["rest_before_lift"], ret2, 0.0, 0, 5, max(0, layer_count - 1), 0, 0, 0, 0,
             disclaimer_address, len(DISCLAIMER), 0))
         fh.write(b"\0" * RESERVED_V4)
@@ -228,7 +229,8 @@ def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, c
             z = round((i + 1) * layer_height, 5)
             ex_offset = fh.tell()
             data_address = ex_offset + LAYER_TABLE_SIZE
-            layer_def = LAYER_DEF.pack(z, exposures[i], cfg["light_off_delay"], data_address, len(rle), 0,
+            rests = layer_rests(i, cfg)
+            layer_def = LAYER_DEF.pack(z, exposures[i], layer_light_off(i, cfg), data_address, len(rle), 0,
                                        LAYER_TABLE_SIZE, 0, 0)
             fh.write(layer_def)
             fh.write(LAYER_DEF_EX.pack(
@@ -237,8 +239,7 @@ def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, c
                 cfg["bottom_lift_speed"] if is_bottom else cfg["lift_speed"],
                 lift2, speed2,
                 cfg["bottom_retract_speed"] if is_bottom else cfg["retract_speed"],
-                ret2, rspeed2, cfg["rest_before_lift"], cfg["rest_after_lift"], cfg["light_off_delay"],
-                float(cfg["light_pwm"])))
+                ret2, rspeed2, *rests, float(layer_pwm(i, cfg))))
             fh.write(rle)
             table.append(layer_def)
             if progress and (i % 10 == 0 or i == layer_count - 1):
@@ -255,7 +256,7 @@ def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, c
             round(layer_count * layer_height, 5), layer_height, cfg["exposure_time"], cfg["bottom_exposure_time"],
             cfg["light_off_delay"], bottom, int(cfg["resolution_x"]), int(cfg["resolution_y"]),
             offsets["large"], table_offset, layer_count, offsets["small"], int(print_time_s), 0,
-            print_params_offset, PRINT_PARAMS.size, 1, int(cfg["light_pwm"]), int(cfg["light_pwm"]), seed,
+            print_params_offset, PRINT_PARAMS.size, 1, int(cfg["light_pwm"]), int(cfg["light_pwm_bottom"]), seed,
             slicer_offset, SLICER_INFO.size))
         fh.seek(end)
 

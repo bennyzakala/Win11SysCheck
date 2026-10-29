@@ -205,10 +205,10 @@
    "lift_speed": 40,
    "retract_speed": 100,
    "rest_after_lift": 1.0,
-   "light_off_delay": 1.5,
    "resin_density": 1.1,
    "material_name": "Flexible resin",
-   "resin_cost": 300
+   "resin_cost": 300,
+   "rest_after_retract": 1.5
   }
  },
  "resin_high_temp": {
@@ -497,10 +497,10 @@
    "lift_speed": 40,
    "retract_speed": 100,
    "rest_after_lift": 1.0,
-   "light_off_delay": 1.5,
    "resin_density": 1.1,
    "material_name": "Siraya Tech Tenacious (flexible)",
-   "resin_cost": 300
+   "resin_cost": 300,
+   "rest_after_retract": 1.5
   }
  },
  "phrozen_aqua_gray_8k": {
@@ -723,10 +723,164 @@
    "lift_speed": 40,
    "retract_speed": 100,
    "rest_after_lift": 1.0,
-   "light_off_delay": 1.5,
    "resin_density": 1.1,
    "material_name": "Liqcreate Premium Flex",
-   "resin_cost": 450
+   "resin_cost": 450,
+   "rest_after_retract": 1.5
+  }
+ },
+ "phrozen_dental_lumii": {
+  "name": "Dental resin – Lumii starting values",
+  "vendor": "Phrozen Dental",
+  "technology": "sla",
+  "family": "dental",
+  "note": "Phrozen's Lumii dental profile: 0.05 mm, bottom 25–35 s x 6 layers, normal 2.0–2.5 s (midpoints used).",
+  "printers": [
+   "phrozen_sonic_cs_plus",
+   "phrozen_lumii_2k"
+  ],
+  "values": {
+   "material_name": "Dental resin – Lumii starting values",
+   "exposure_time": 2.25,
+   "bottom_exposure_time": 30.0,
+   "bottom_layers": 6,
+   "transition_layers": 3,
+   "lift_speed": 60,
+   "retract_speed": 150,
+   "resin_density": 1.12,
+   "resin_cost": 600
+  }
+ },
+ "dental_model": {
+  "name": "Dental model resin",
+  "vendor": "Phrozen Dental",
+  "technology": "sla",
+  "family": "dental",
+  "note": "Generic starting point; use the resin maker's validated parameters.",
+  "printers": [
+   "phrozen_sonic_cs_plus",
+   "phrozen_lumii_2k"
+  ],
+  "values": {
+   "material_name": "Dental model resin",
+   "exposure_time": 2.3,
+   "bottom_exposure_time": 30.0,
+   "bottom_layers": 6,
+   "transition_layers": 3,
+   "lift_speed": 60,
+   "retract_speed": 150,
+   "resin_density": 1.12,
+   "resin_cost": 600
+  }
+ },
+ "dental_crown_bridge": {
+  "name": "Crown & bridge (temporary)",
+  "vendor": "Phrozen Dental",
+  "technology": "sla",
+  "family": "dental",
+  "note": "Generic starting point; use the resin maker's validated parameters.",
+  "printers": [
+   "phrozen_sonic_cs_plus",
+   "phrozen_lumii_2k"
+  ],
+  "values": {
+   "material_name": "Crown & bridge (temporary)",
+   "exposure_time": 2.6,
+   "bottom_exposure_time": 30.0,
+   "bottom_layers": 6,
+   "transition_layers": 3,
+   "lift_speed": 60,
+   "retract_speed": 150,
+   "resin_density": 1.12,
+   "resin_cost": 600
+  }
+ },
+ "dental_surgical_guide": {
+  "name": "Surgical guide resin",
+  "vendor": "Phrozen Dental",
+  "technology": "sla",
+  "family": "dental",
+  "note": "Generic starting point; use the resin maker's validated parameters.",
+  "printers": [
+   "phrozen_sonic_cs_plus",
+   "phrozen_lumii_2k"
+  ],
+  "values": {
+   "material_name": "Surgical guide resin",
+   "exposure_time": 2.5,
+   "bottom_exposure_time": 30.0,
+   "bottom_layers": 6,
+   "transition_layers": 3,
+   "lift_speed": 60,
+   "retract_speed": 150,
+   "resin_density": 1.12,
+   "resin_cost": 600
+  }
+ },
+ "dental_splint": {
+  "name": "Splint / night guard (clear)",
+  "vendor": "Phrozen Dental",
+  "technology": "sla",
+  "family": "dental",
+  "note": "Generic starting point; use the resin maker's validated parameters.",
+  "printers": [
+   "phrozen_sonic_cs_plus",
+   "phrozen_lumii_2k"
+  ],
+  "values": {
+   "material_name": "Splint / night guard (clear)",
+   "exposure_time": 2.8,
+   "bottom_exposure_time": 32.0,
+   "bottom_layers": 6,
+   "transition_layers": 3,
+   "lift_speed": 60,
+   "retract_speed": 150,
+   "resin_density": 1.12,
+   "resin_cost": 600
+  }
+ },
+ "dental_denture_base": {
+  "name": "Denture base resin",
+  "vendor": "Phrozen Dental",
+  "technology": "sla",
+  "family": "dental",
+  "note": "Generic starting point; use the resin maker's validated parameters.",
+  "printers": [
+   "phrozen_sonic_cs_plus",
+   "phrozen_lumii_2k"
+  ],
+  "values": {
+   "material_name": "Denture base resin",
+   "exposure_time": 3.0,
+   "bottom_exposure_time": 35.0,
+   "bottom_layers": 6,
+   "transition_layers": 3,
+   "lift_speed": 60,
+   "retract_speed": 150,
+   "resin_density": 1.12,
+   "resin_cost": 600
+  }
+ },
+ "dental_gingiva": {
+  "name": "Gingiva mask (flexible)",
+  "vendor": "Phrozen Dental",
+  "technology": "sla",
+  "family": "dental",
+  "note": "Generic starting point; use the resin maker's validated parameters.",
+  "printers": [
+   "phrozen_sonic_cs_plus",
+   "phrozen_lumii_2k"
+  ],
+  "values": {
+   "material_name": "Gingiva mask (flexible)",
+   "exposure_time": 3.2,
+   "bottom_exposure_time": 35.0,
+   "bottom_layers": 6,
+   "transition_layers": 3,
+   "lift_speed": 60,
+   "retract_speed": 150,
+   "resin_density": 1.12,
+   "resin_cost": 600
   }
  }
 }

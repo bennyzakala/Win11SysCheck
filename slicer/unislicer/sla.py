@@ -18,6 +18,7 @@ from . import __version__
 from .mesh import Mesh
 from .settings import Config
 from .sla_supports import build_supports
+from .sla_timing import layer_light_off, layer_rests
 from .slicing import EMPTY, MultiPolygon, as_multipolygon, polygons_of, slice_meshes
 
 
@@ -72,7 +73,10 @@ def layer_motion_time(i: int, cfg: Config) -> float:
         down = (lift + lift2 - slow) / retract_speed + slow / (cfg["retract_speed_2"] / 60.0)
     else:
         up, down = lift / lift_speed, lift / retract_speed
-    return cfg["rest_before_lift"] + up + cfg["rest_after_lift"] + down + cfg["light_off_delay"]
+    if cfg["wait_mode"] == "light_off":
+        # legacy: the delay covers lift, wait and retract; the motion still needs its time
+        return max(layer_light_off(i, cfg), up + down)
+    return sum(layer_rests(i, cfg)) + up + down
 
 
 def print_time(n: int, cfg: Config) -> float:
@@ -421,7 +425,9 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
         else:
             keys = ("exposure_time", "bottom_exposure_time", "bottom_layers", "transition_layers", "light_pwm",
                     "lift_height", "lift_speed", "bottom_lift_height", "bottom_lift_speed", "retract_speed",
-                    "bottom_retract_speed", "rest_before_lift", "rest_after_lift", "light_off_delay", "tsmc_enable",
+                    "bottom_retract_speed", "wait_mode", "rest_before_lift", "rest_after_lift", "rest_after_retract",
+                    "bottom_rest_before_lift", "bottom_rest_after_lift", "bottom_rest_after_retract", "light_off_delay",
+                    "bottom_light_off_delay", "light_pwm_bottom", "tsmc_enable",
                     "lift_height_2", "lift_speed_2", "retract_height_2", "retract_speed_2", "antialiasing",
                     "image_blur", "mirror_x", "mirror_y", "material_name")
             meta = {
