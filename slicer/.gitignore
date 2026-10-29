@@ -6,3 +6,4 @@ build/
 dist/
 *.gcode
 *.sl1
+*.spec

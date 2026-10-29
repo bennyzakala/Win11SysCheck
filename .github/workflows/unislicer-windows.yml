@@ -1,0 +1,90 @@
+name: UniSlicer Windows build
+
+on:
+  push:
+    paths:
+      - "slicer/**"
+      - ".github/workflows/unislicer-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: slicer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy shapely Pillow PySide6-Essentials PyOpenGL pyinstaller pytest
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Build UniSlicer.exe
+        run: >
+          pyinstaller --noconfirm --clean --windowed --name UniSlicer
+          --icon packaging/unislicer.ico
+          --add-data "unislicer/profiles;unislicer/profiles"
+          --collect-submodules OpenGL
+          run_unislicer.py
+
+      - name: Smoke test - slice from the built exe
+        run: |
+          python -c "from unislicer import primitives; from unislicer.mesh import save_stl; save_stl(primitives.demo_bridge(), 'smoke.stl')"
+          $runs = @(
+            @('slice', 'smoke.stl', '-p', 'creality_ender3v2', '-s', 'support_enable=true', '-o', 'smoke.gcode'),
+            @('slice', 'smoke.stl', '-p', 'elegoo_mars3', '-q', 'sla_fast', '-s', 'support_enable=true', '-o', 'smoke.sl1')
+          )
+          foreach ($a in $runs) {
+            $p = Start-Process dist\UniSlicer\UniSlicer.exe -ArgumentList $a -PassThru
+            if (-not $p.WaitForExit(300000)) { $p.Kill(); throw "timed out: $a" }
+            if ($p.ExitCode -ne 0) { Get-Content "$env:TEMP\unislicer.log" -ErrorAction SilentlyContinue; throw "exit code $($p.ExitCode): $a" }
+          }
+          if ((Get-Item smoke.gcode).Length -lt 10000) { throw 'G-code output is too small' }
+          if ((Get-Item smoke.sl1).Length -lt 10000) { throw 'SL1 output is too small' }
+          Get-Content "$env:TEMP\unislicer.log" -ErrorAction SilentlyContinue
+
+      - name: Smoke test - GUI starts and exits
+        env:
+          UNISLICER_SMOKE_TEST: "1"
+        run: |
+          $p = Start-Process dist\UniSlicer\UniSlicer.exe -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw 'GUI did not exit' }
+          Get-Content "$env:TEMP\unislicer.log" -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { throw "GUI exit code $($p.ExitCode)" }
+
+      - name: Build installer
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          $version = python -c "import unislicer; print(unislicer.__version__)"
+          & $iscc "/DMyAppVersion=$version" packaging\unislicer.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
+          Compress-Archive -Path dist\UniSlicer -DestinationPath dist\UniSlicer-portable-win64.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UniSlicer-windows
+          path: |
+            slicer/dist/UniSlicer-Setup.exe
+            slicer/dist/UniSlicer-portable-win64.zip
+
+      - name: Publish download (release "unislicer-latest")
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete unislicer-latest --cleanup-tag --yes 2>$null
+          $notes = "Windows build of UniSlicer from commit $env:GITHUB_SHA.`n`n- UniSlicer-Setup.exe: installer`n- UniSlicer-portable-win64.zip: unzip and run UniSlicer.exe"
+          gh release create unislicer-latest dist/UniSlicer-Setup.exe dist/UniSlicer-portable-win64.zip --target $env:GITHUB_SHA --prerelease --title "UniSlicer (Windows) - latest build" --notes $notes

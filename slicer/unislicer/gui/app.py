@@ -1,9 +1,10 @@
 """Application bootstrap."""
 from __future__ import annotations
 
+import os
 import sys
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtWidgets import QApplication
 
 from . import i18n, theme
@@ -41,4 +42,6 @@ def run(paths: list[str] | None = None) -> int:
     win = open_window()
     if paths:
         win.load_files(paths)
+    if os.environ.get("UNISLICER_SMOKE_TEST"):
+        QTimer.singleShot(4000, app.quit)  # used by the build pipeline to check the app starts
     return app.exec()

@@ -11,7 +11,14 @@ G-code למדפסות פילמנט, ותמונות שכבה (`.sl1` או ZIP ש�
 |---|---|
 | ![](docs/prepare-he.jpg) | ![](docs/preview-resin.jpg) |
 
-## התקנה והפעלה
+## הורדה ל-Windows
+
+- **קובץ התקנה:** [UniSlicer-Setup.exe](https://github.com/bennyzakala/Win11SysCheck/releases/download/unislicer-latest/UniSlicer-Setup.exe)
+- **גרסה ניידת (בלי התקנה):** [UniSlicer-portable-win64.zip](https://github.com/bennyzakala/Win11SysCheck/releases/download/unislicer-latest/UniSlicer-portable-win64.zip). מחלצים ומריצים את `UniSlicer.exe`.
+
+הקבצים נבנים אוטומטית ב-GitHub Actions (`.github/workflows/unislicer-windows.yml`) בכל עדכון של הקוד. הקובץ אינו חתום דיגיטלית, ולכן Windows עשוי להציג אזהרת SmartScreen. כדי להמשיך לוחצים על "מידע נוסף" ואז על "הפעל בכל זאת".
+
+## הרצה מקוד המקור
 
 נדרש Python 3.10 ומעלה וכרטיס מסך שתומך ב-OpenGL 3.3.
 
