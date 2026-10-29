@@ -246,6 +246,8 @@ _ICONS = {
     "x": '<path d="M6 6l12 12M18 6 6 18"/>',
     "info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
     "plus": '<path d="M12 5v14M5 12h14"/>',
+    "redo": '<path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>',
+    "more": '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
 }
 
 

@@ -1,19 +1,19 @@
 """Profile pickers and the schema-driven settings editor."""
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QScrollArea, QSizePolicy, QSpinBox,
                                QToolButton, QVBoxLayout, QWidget)
 
 from .. import profiles
 from ..gcode import default_end_gcode, default_start_gcode
-from ..settings import CATEGORIES, SCHEMA_BY_KEY, Config, visible_settings
+from ..settings import CATEGORIES, SCHEMA_BY_KEY, SUPPORT_PRESETS, Config, visible_settings
 from . import theme
 from . import i18n
 from .i18n import category_label, label, option_label, tip, tr
 
-EXPANDED_BY_DEFAULT = {"quality", "walls", "infill", "support", "adhesion", "material", "exposure"}
+EXPANDED_BY_DEFAULT = {"quality", "walls", "infill", "support", "adhesion", "material", "exposure", "hollow"}
 
 
 class _NoWheelMixin:
@@ -365,6 +365,25 @@ class SettingsPanel(QWidget):
                     self.changed.emit()
                 return
 
+    def state(self) -> dict:
+        return {"printer": self.printer_id, "material": self.material_id, "quality": self.quality_id,
+                "overrides": dict(self.overrides)}
+
+    def load_state(self, state: dict):
+        printers = profiles.load("printers")
+        old_tech = self.technology
+        if state.get("printer") in printers:
+            self.printer_id = state["printer"]
+        self.material_id = state.get("material")
+        self.quality_id = state.get("quality")
+        self.overrides = {k: v for k, v in (state.get("overrides") or {}).items() if k in SCHEMA_BY_KEY}
+        self._fill_printers()
+        self._fill_dependent()
+        self.rebuild()
+        if self.technology != old_tech:
+            self.technologyChanged.emit(self.technology)
+        self.changed.emit()
+
     # -------------------------------------------------------------- values
     def base_config(self) -> Config:
         return profiles.build_config(self.printer_id, self.material_id, self.quality_id)
@@ -385,6 +404,14 @@ class SettingsPanel(QWidget):
             self.overrides.pop(key, None)
         else:
             self.overrides[key] = value
+        if key == "sla_support_preset":
+            # the preset supplies tip/pillar/spacing: drop manual values and refresh the editors
+            for k in SUPPORT_PRESETS["medium"]:
+                self.overrides.pop(k, None)
+            QTimer.singleShot(0, self.rebuild)
+        elif key in SUPPORT_PRESETS["medium"] and self.config()["sla_support_preset"] != "custom":
+            self.overrides["sla_support_preset"] = "custom"
+            QTimer.singleShot(0, self.rebuild)
         row = self._rows.get(key)
         if row is not None:
             modified = key in self.overrides

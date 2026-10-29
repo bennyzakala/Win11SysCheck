@@ -35,7 +35,8 @@ CATEGORIES = [
     ("retraction", "נסיגה", "Retraction", "undo"),
     ("support", "תמיכות", "Supports", "pillar"),
     ("adhesion", "הידבקות למשטח", "Bed adhesion", "anchor"),
-    ("exposure", "חשיפה", "Exposure", "sun"),
+    ("hollow", "חלילה וחורי ניקוז", "Hollowing & drain holes", "drop"),
+    ("exposure", "חשיפה ותנועה", "Exposure & motion", "sun"),
     ("gcode", "G-code", "G-code", "code"),
 ]
 
@@ -82,7 +83,9 @@ SCHEMA: list[Setting] = [
     S("line_width", "float", 0.0, "quality", "fdm", "רוחב קו (0 = לפי הנחיר)", "Line width (0 = nozzle)", "mm", 0, 3.0, 0.02),
     S("sla_layer_height", "float", 0.05, "quality", "sla", "גובה שכבה", "Layer height", "mm", 0.01, 0.3, 0.01),
     S("antialiasing", "enum", "2", "quality", "sla", "החלקת קצוות (Anti-aliasing)", "Anti-aliasing",
-      options=(("1", "כבוי", "Off"), ("2", "x2", "x2"), ("4", "x4", "x4"))),
+      options=(("1", "כבוי", "Off"), ("2", "x2", "x2"), ("4", "x4", "x4"), ("8", "x8", "x8"))),
+    S("image_blur", "int", 0, "quality", "sla", "טשטוש תמונה", "Image blur", "px", 0, 8, 1,
+      tip_he="טשטוש גאוסי של מסכת השכבה, מחליק עוד יותר את הקצוות", tip_en="Gaussian blur of the layer mask for smoother edges"),
     S("resolution", "float", 0.02, "quality", "both", "רזולוציית קווי מתאר", "Contour resolution", "mm", 0.001, 0.5, 0.005,
       advanced=True, tip_he="פישוט קווי המתאר. ערך גבוה = קובץ קטן ומהיר יותר", tip_en="Contour simplification tolerance"),
 
@@ -142,11 +145,27 @@ SCHEMA: list[Setting] = [
     S("support_xy_gap", "float", 0.7, "support", "fdm", "מרווח אופקי מהמודל", "Horizontal gap to model", "mm", 0, 5, 0.1),
     S("support_z_gap_layers", "int", 1, "support", "fdm", "שכבות מרווח מעל התמיכה", "Top gap layers", "", 0, 10, 1),
     S("support_interface_layers", "int", 2, "support", "fdm", "שכבות ממשק צפופות", "Dense interface layers", "", 0, 10, 1),
+    S("sla_support_preset", "enum", "medium", "support", "sla", "סוג תמיכות", "Support preset",
+      options=(("light", "קלות", "Light"), ("medium", "בינוניות", "Medium"), ("heavy", "כבדות", "Heavy"), ("custom", "מותאם אישית", "Custom")),
+      tip_he="קובע את קוטר הראש, קוטר העמוד והמרווח. שינוי אחד מהם עובר ל'מותאם אישית'",
+      tip_en="Sets tip diameter, pillar diameter and spacing; editing one of them switches to Custom"),
     S("sla_support_spacing", "float", 3.0, "support", "sla", "מרווח בין נקודות תמיכה", "Support point spacing", "mm", 0.5, 20, 0.5),
     S("sla_tip_diameter", "float", 0.5, "support", "sla", "קוטר ראש התמיכה", "Support tip diameter", "mm", 0.1, 3, 0.05),
     S("sla_pillar_diameter", "float", 1.2, "support", "sla", "קוטר עמוד", "Pillar diameter", "mm", 0.3, 10, 0.1),
+    S("sla_contact_depth", "float", 0.2, "support", "sla", "עומק חדירת הראש", "Tip contact depth", "mm", 0, 2, 0.05,
+      tip_he="כמה עמוק ראש התמיכה נכנס לתוך המודל", tip_en="How far the support tip penetrates the model"),
+    S("sla_supports_on_model", "bool", True, "support", "sla", "תמיכות שנשענות על המודל", "Supports may rest on the model"),
     S("sla_elevation", "float", 5.0, "support", "sla", "הגבהת המודל", "Model elevation", "mm", 0, 50, 0.5),
     S("sla_raft_thickness", "float", 1.0, "support", "sla", "עובי רפסודה", "Raft thickness", "mm", 0, 10, 0.1),
+    S("sla_raft_margin", "float", 2.0, "support", "sla", "שוליים לרפסודה", "Raft margin", "mm", 0, 20, 0.5, advanced=True),
+
+    # ------------------------------------------------------------- hollowing
+    S("hollow_enable", "bool", False, "hollow", "sla", "חלול את המודל", "Hollow the model",
+      tip_he="חוסך שרף ומפחית כוחות יניקה. מומלץ להוסיף חורי ניקוז", tip_en="Saves resin and reduces suction; add drain holes"),
+    S("hollow_wall", "float", 2.0, "hollow", "sla", "עובי דופן", "Wall thickness", "mm", 0.5, 20, 0.1),
+    S("drain_holes", "int", 2, "hollow", "sla", "מספר חורי ניקוז", "Drain holes", "", 0, 8, 1,
+      tip_he="חורים בתחתית החלל, כדי שהשרף הנוזלי יתנקז החוצה", tip_en="Holes at the bottom of the cavity so liquid resin can drain"),
+    S("drain_hole_diameter", "float", 3.0, "hollow", "sla", "קוטר חור ניקוז", "Drain hole diameter", "mm", 0.5, 20, 0.5),
 
     # --------------------------------------------------------------- adhesion
     S("adhesion_type", "enum", "skirt", "adhesion", "fdm", "סוג הידבקות", "Adhesion type",
@@ -161,7 +180,22 @@ SCHEMA: list[Setting] = [
     S("bottom_layers", "int", 5, "exposure", "sla", "מספר שכבות תחתונות", "Bottom layer count", "", 0, 100, 1),
     S("lift_height", "float", 6.0, "exposure", "sla", "גובה הרמה", "Lift height", "mm", 0.5, 30, 0.5),
     S("lift_speed", "float", 60.0, "exposure", "sla", "מהירות הרמה", "Lift speed", "mm/min", 5, 600, 5),
-    S("light_off_delay", "float", 1.0, "exposure", "sla", "השהיה לפני חשיפה", "Light-off delay", "s", 0, 30, 0.5),
+    S("transition_layers", "int", 0, "exposure", "sla", "שכבות מעבר", "Transition layers", "", 0, 50, 1,
+      tip_he="זמן החשיפה יורד בהדרגה מזמן השכבות התחתונות לזמן הרגיל", tip_en="Exposure steps down gradually from bottom to normal"),
+    S("light_pwm", "int", 255, "exposure", "sla", "עוצמת אור (PWM)", "Light intensity (PWM)", "", 1, 255, 5, advanced=True),
+    S("bottom_lift_height", "float", 8.0, "exposure", "sla", "גובה הרמה בשכבות תחתונות", "Bottom lift height", "mm", 0.5, 30, 0.5),
+    S("bottom_lift_speed", "float", 40.0, "exposure", "sla", "מהירות הרמה בשכבות תחתונות", "Bottom lift speed", "mm/min", 5, 600, 5),
+    S("retract_speed", "float", 150.0, "exposure", "sla", "מהירות חזרה", "Retract speed", "mm/min", 5, 600, 5),
+    S("bottom_retract_speed", "float", 150.0, "exposure", "sla", "מהירות חזרה בשכבות תחתונות", "Bottom retract speed", "mm/min", 5, 600, 5, advanced=True),
+    S("rest_before_lift", "float", 0.0, "exposure", "sla", "המתנה לפני הרמה", "Rest before lift", "s", 0, 30, 0.5),
+    S("rest_after_lift", "float", 0.0, "exposure", "sla", "המתנה אחרי הרמה", "Rest after lift", "s", 0, 30, 0.5),
+    S("light_off_delay", "float", 1.0, "exposure", "sla", "המתנה אחרי חזרה (לפני חשיפה)", "Rest after retract", "s", 0, 30, 0.5),
+    S("tsmc_enable", "bool", False, "exposure", "sla", "תנועה דו-שלבית (TSMC)", "Two-stage motion (TSMC)",
+      tip_he="הרמה איטית בהתחלה ואז מהירה, וחזרה מהירה ואז איטית ליד המיכל", tip_en="Slow then fast lift; fast then slow retract near the vat"),
+    S("lift_height_2", "float", 4.0, "exposure", "sla", "גובה הרמה שלב 2", "Lift height, stage 2", "mm", 0, 30, 0.5, advanced=True),
+    S("lift_speed_2", "float", 180.0, "exposure", "sla", "מהירות הרמה שלב 2", "Lift speed, stage 2", "mm/min", 5, 600, 5, advanced=True),
+    S("retract_height_2", "float", 2.0, "exposure", "sla", "גובה חזרה איטית (שלב 2)", "Slow retract distance, stage 2", "mm", 0, 30, 0.5, advanced=True),
+    S("retract_speed_2", "float", 60.0, "exposure", "sla", "מהירות חזרה שלב 2", "Retract speed, stage 2", "mm/min", 5, 600, 5, advanced=True),
 
     # ------------------------------------------------------------------ gcode
     S("relative_e", "bool", False, "gcode", "fdm", "אקסטרוזיה יחסית (M83)", "Relative extrusion (M83)"),
@@ -170,6 +204,13 @@ SCHEMA: list[Setting] = [
 ]
 
 SCHEMA_BY_KEY = {s.key: s for s in SCHEMA}
+
+# resin support presets: (tip diameter, pillar diameter, point spacing) in mm
+SUPPORT_PRESETS = {
+    "light": {"sla_tip_diameter": 0.3, "sla_pillar_diameter": 0.8, "sla_support_spacing": 3.5},
+    "medium": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 3.0},
+    "heavy": {"sla_tip_diameter": 0.8, "sla_pillar_diameter": 1.8, "sla_support_spacing": 2.5},
+}
 
 
 def defaults() -> dict[str, Any]:
@@ -219,6 +260,11 @@ class Config:
         for k, v in overrides.items():
             if k in SCHEMA_BY_KEY:
                 self.values[k] = coerce(k, v)
+        preset = SUPPORT_PRESETS.get(self.values.get("sla_support_preset"))
+        if preset and "sla_support_preset" in overrides:
+            for k, v in preset.items():
+                if k not in overrides:
+                    self.values[k] = v
         return self
 
     def copy(self) -> "Config":

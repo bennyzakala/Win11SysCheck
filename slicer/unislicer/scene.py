@@ -20,6 +20,9 @@ class SceneObject:
     rotation: np.ndarray = field(default_factory=lambda: np.zeros(3))   # degrees, XYZ
     scale: np.ndarray = field(default_factory=lambda: np.ones(3))
     base_rotation: np.ndarray = field(default_factory=lambda: np.eye(3))  # from "lay flat"
+    mirror: np.ndarray = field(default_factory=lambda: np.ones(3))         # -1 flips that axis
+    # resin support contact points in the mesh's own coordinates; None = place automatically
+    support_points: np.ndarray | None = None
     uid: int = field(default_factory=lambda: next(_ids))
 
     @classmethod
@@ -31,7 +34,7 @@ class SceneObject:
     def matrix(self) -> np.ndarray:
         """Rotation and scale only (no placement)."""
         m = np.eye(4)
-        m[:3, :3] = euler_matrix(*self.rotation) @ self.base_rotation @ np.diag(self.scale)
+        m[:3, :3] = euler_matrix(*self.rotation) @ self.base_rotation @ np.diag(self.scale * self.mirror)
         return m
 
     def _linear_bounds(self) -> np.ndarray:
@@ -75,9 +78,35 @@ class SceneObject:
         rot = current.lay_flat_rotation()
         self.base_rotation = euler_matrix(*self.rotation).T @ rot @ euler_matrix(*self.rotation) @ self.base_rotation
 
+    def world_support_points(self, lift: float = 0.0) -> np.ndarray | None:
+        """Stored support points in bed coordinates (optionally raised by ``lift``)."""
+        if self.support_points is None:
+            return None
+        m = self.world_matrix()
+        return self.support_points @ m[:3, :3].T + m[:3, 3] + [0, 0, lift]
+
+    def set_world_support_points(self, points: np.ndarray | None, lift: float = 0.0) -> None:
+        if points is None:
+            self.support_points = None
+            return
+        m = self.world_matrix()
+        inv = np.linalg.inv(m[:3, :3])
+        self.support_points = (np.asarray(points, dtype=np.float64).reshape(-1, 3) - [0, 0, lift] - m[:3, 3]) @ inv.T
+
+    def state(self) -> tuple:
+        """Snapshot of everything the user can change (for undo)."""
+        sp = None if self.support_points is None else self.support_points.copy()
+        return (self.x, self.y, self.rotation.copy(), self.scale.copy(), self.base_rotation.copy(), self.mirror.copy(), sp)
+
+    def restore(self, state: tuple) -> None:
+        self.x, self.y, rot, scale, base, mirror, sp = state
+        self.rotation, self.scale, self.base_rotation, self.mirror = rot.copy(), scale.copy(), base.copy(), mirror.copy()
+        self.support_points = None if sp is None else sp.copy()
+
     def duplicate(self) -> "SceneObject":
+        sp = None if self.support_points is None else self.support_points.copy()
         return SceneObject(self.mesh, self.name, self.x, self.y, self.rotation.copy(), self.scale.copy(),
-                           self.base_rotation.copy())
+                           self.base_rotation.copy(), self.mirror.copy(), sp)
 
 
 def arrange(objects: list[SceneObject], bed_x: float, bed_y: float, spacing: float = 6.0) -> bool:

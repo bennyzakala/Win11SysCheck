@@ -7,13 +7,14 @@ import os
 import numpy as np
 from PySide6.QtCore import QSettings, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QCheckBox, QDoubleSpinBox, QFileDialog, QInputDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressBar,
                                QPushButton, QSlider, QToolButton, QVBoxLayout, QWidget)
 
-from .. import __version__, fdm, gcode, primitives, sla
-from ..mesh import SUPPORTED_EXTENSIONS, load_mesh
+from .. import __version__, fdm, gcode, primitives, project, sla, sla_supports
+from ..mesh import SUPPORTED_EXTENSIONS, Mesh, load_mesh, save_stl
 from ..scene import SceneObject, arrange, out_of_bounds
+from ..slicing import MultiPolygon
 from . import theme
 from .i18n import tr
 from .preview_data import toolpath_vertices
@@ -88,6 +89,11 @@ class MainWindow(QMainWindow):
         self.result_cfg = None
         self.task: Task | None = None
         self._syncing = False
+        self._undo: list = []
+        self._redo: list = []
+        self._dragging = False
+        self._support_cache: dict = {}
+        self._islands: dict = {}
 
         central = QWidget()
         root = QVBoxLayout(central)
@@ -173,6 +179,17 @@ class MainWindow(QMainWindow):
         tool("arrange", tr("arrange"), tr("arrange_tip"), self.arrange_objects)
         tool("copy", tr("duplicate"), tr("duplicate"), self.duplicate_selected)
         tool("trash", tr("delete"), tr("delete"), self.delete_selected)
+        self.undo_btn = tool("undo", "", tr("undo") + " (Ctrl+Z)", self.undo)
+        self.redo_btn = tool("redo", "", tr("redo") + " (Ctrl+Y)", self.redo)
+        more = tool("more", tr("more"), tr("more"), None)
+        mm = QMenu(self)
+        mm.addAction(theme.icon("open"), tr("open_project"), self.open_project)
+        mm.addAction(theme.icon("save"), tr("save_project"), self.save_project)
+        mm.addSeparator()
+        mm.addAction(theme.icon("download"), tr("export_stl"), self.export_stl)
+        mm.addAction(theme.icon("copy"), tr("multiply"), self.multiply_selected)
+        more.setMenu(mm)
+        more.setPopupMode(QToolButton.InstantPopup)
         lay.addStretch(1)
 
         seg = QFrame()
@@ -248,6 +265,19 @@ class MainWindow(QMainWindow):
         self.uniform = QCheckBox(tr("uniform"))
         self.uniform.setChecked(True)
         g.addWidget(self.uniform, 6, 0, 1, 4)
+        mirror_row = QHBoxLayout()
+        mirror_row.setSpacing(4)
+        ml = QLabel(tr("mirror"))
+        ml.setObjectName("Dim")
+        mirror_row.addWidget(ml)
+        for i, a in enumerate("XYZ"):
+            b = QPushButton(a)
+            b.setStyleSheet("padding: 4px 0; font-weight: 700;")
+            b.setToolTip(f"{tr('mirror')} {a}")
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _=False, i=i: self.mirror_selected(i))
+            mirror_row.addWidget(b)
+        g.addLayout(mirror_row, 7, 0, 1, 4)
         btns = QGridLayout()
         btns.setSpacing(6)
         for k, (icon_name, text, tip, slot) in enumerate((("flat", tr("lay_flat"), tr("lay_flat_tip"), self.lay_flat),
@@ -258,9 +288,39 @@ class MainWindow(QMainWindow):
             b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(slot)
             btns.addWidget(b, 0 if k == 0 else 1, 0 if k == 0 else k - 1, 1, 2 if k == 0 else 1)
-        g.addLayout(btns, 7, 0, 1, 4)
+        g.addLayout(btns, 8, 0, 1, 4)
         self.transform_card = tr_card
         lay.addWidget(tr_card)
+
+        sup = _card()
+        sl = QVBoxLayout(sup)
+        sl.setContentsMargins(12, 12, 12, 12)
+        sl.setSpacing(8)
+        sl.addWidget(_title(tr("supports_card")))
+        row = QGridLayout()
+        row.setSpacing(6)
+        self.sup_auto_btn = QPushButton(theme.icon("pillar", theme.TEXT, 16), tr("sup_auto"))
+        self.sup_auto_btn.setToolTip(tr("sup_auto_tip"))
+        self.sup_auto_btn.clicked.connect(self.generate_supports)
+        self.sup_add_btn = QPushButton(theme.icon("plus", theme.TEXT, 16), tr("sup_add"))
+        self.sup_add_btn.setToolTip(tr("sup_add_tip"))
+        self.sup_remove_btn = QPushButton(theme.icon("x", theme.TEXT, 16), tr("sup_remove"))
+        self.sup_remove_btn.setToolTip(tr("sup_remove_tip"))
+        for b, mode in ((self.sup_add_btn, "add"), (self.sup_remove_btn, "remove")):
+            b.setCheckable(True)
+            b.toggled.connect(lambda on, mode=mode: self._set_pick_mode(mode if on else None))
+        self.sup_clear_btn = QPushButton(theme.icon("trash", theme.TEXT, 16), tr("sup_clear"))
+        self.sup_clear_btn.clicked.connect(self.clear_supports)
+        for k, b in enumerate((self.sup_auto_btn, self.sup_add_btn, self.sup_remove_btn, self.sup_clear_btn)):
+            b.setCursor(Qt.PointingHandCursor)
+            row.addWidget(b, k // 2, k % 2)
+        sl.addLayout(row)
+        self.sup_info = QLabel(tr("sup_none"))
+        self.sup_info.setObjectName("Faint")
+        self.sup_info.setWordWrap(True)
+        sl.addWidget(self.sup_info)
+        self.supports_card = sup
+        lay.addWidget(sup)
 
         self.pos_x.valueChanged.connect(lambda v: self._edit("x", v))
         self.pos_y.valueChanged.connect(lambda v: self._edit("y", v))
@@ -277,7 +337,9 @@ class MainWindow(QMainWindow):
         self.viewer = Viewer()
         self.viewer.objectClicked.connect(self._select_uid)
         self.viewer.objectDragged.connect(self._on_drag)
-        self.viewer.objectDragFinished.connect(lambda _uid: self._objects_changed(refresh_list=False))
+        self.viewer.objectDragFinished.connect(self._on_drag_finished)
+        self.viewer.surfacePicked.connect(self._on_support_add)
+        self.viewer.rayPicked.connect(self._on_support_remove)
         self.viewer.glFailed.connect(self._on_gl_failed)
         grid.addWidget(self.viewer, 0, 0)
 
@@ -349,6 +411,13 @@ class MainWindow(QMainWindow):
         lb.addWidget(self.layer_label)
         lb.addWidget(self.layer_z)
         lb.addWidget(self.layer_slider, 1, Qt.AlignHCenter)
+        self.island_btn = QToolButton()
+        self.island_btn.setIcon(theme.icon("info", theme.DANGER, 18))
+        self.island_btn.setToolTip(tr("next_island"))
+        self.island_btn.setCursor(Qt.PointingHandCursor)
+        self.island_btn.clicked.connect(self._next_island)
+        self.island_btn.hide()
+        lb.addWidget(self.island_btn, 0, Qt.AlignHCenter)
         lwrap = QWidget()
         lwrap.setObjectName("Overlay")
         lwl = QVBoxLayout(lwrap)
@@ -481,7 +550,9 @@ class MainWindow(QMainWindow):
         for seq, fn in ((QKeySequence.Open, self.open_files), (QKeySequence.Delete, self.delete_selected),
                         (QKeySequence("A"), self.arrange_objects), (QKeySequence("Ctrl+D"), self.duplicate_selected),
                         (QKeySequence("Ctrl+R"), self.slice_or_cancel), (QKeySequence("Ctrl+E"), self.export),
-                        (QKeySequence("Up"), lambda: self._step_layer(1)), (QKeySequence("Down"), lambda: self._step_layer(-1))):
+                        (QKeySequence("Up"), lambda: self._step_layer(1)), (QKeySequence("Down"), lambda: self._step_layer(-1)),
+                        (QKeySequence.Undo, self.undo), (QKeySequence("Ctrl+Y"), self.redo), (QKeySequence.Redo, self.redo),
+                        (QKeySequence.Save, self.save_project), (QKeySequence("Escape"), lambda: self._set_pick_mode(None))):
             act = QAction(self)
             act.setShortcut(seq)
             act.setShortcutContext(Qt.WindowShortcut)
@@ -529,6 +600,7 @@ class MainWindow(QMainWindow):
             self.viewer.fit_objects()
 
     def add_mesh(self, mesh, rearrange: bool = True):
+        self._push_undo()
         obj = SceneObject.from_mesh(mesh)
         cfg = self.settings.config()
         obj.x, obj.y = cfg["bed_x"] / 2, cfg["bed_y"] / 2
@@ -541,6 +613,7 @@ class MainWindow(QMainWindow):
     def duplicate_selected(self):
         obj = self.selected()
         if obj:
+            self._push_undo()
             dup = obj.duplicate()
             self.objects.append(dup)
             cfg = self.settings.config()
@@ -550,11 +623,13 @@ class MainWindow(QMainWindow):
     def delete_selected(self):
         obj = self.selected()
         if obj:
+            self._push_undo()
             self.objects.remove(obj)
             self.viewer.remove_object(obj.uid)
             self._refresh_objects(select=self.objects[-1].uid if self.objects else None)
 
     def arrange_objects(self):
+        self._push_undo()
         cfg = self.settings.config()
         arrange(self.objects, cfg["bed_x"], cfg["bed_y"])
         self._objects_changed()
@@ -562,12 +637,15 @@ class MainWindow(QMainWindow):
     def lay_flat(self):
         obj = self.selected()
         if obj:
+            self._push_undo()
             obj.lay_flat()
+            self._drop_supports(obj)
             self._objects_changed()
 
     def center_selected(self):
         obj = self.selected()
         if obj:
+            self._push_undo()
             cfg = self.settings.config()
             obj.x, obj.y = cfg["bed_x"] / 2, cfg["bed_y"] / 2
             self._objects_changed()
@@ -575,10 +653,61 @@ class MainWindow(QMainWindow):
     def reset_transform(self):
         obj = self.selected()
         if obj:
+            self._push_undo()
             obj.rotation[:] = 0
             obj.scale[:] = 1
+            obj.mirror[:] = 1
             obj.base_rotation = np.eye(3)
+            self._drop_supports(obj)
             self._objects_changed()
+
+    def mirror_selected(self, axis: int):
+        obj = self.selected()
+        if obj:
+            self._push_undo()
+            obj.mirror[axis] *= -1
+            self._drop_supports(obj)
+            self._objects_changed()
+
+    def multiply_selected(self):
+        obj = self.selected()
+        if not obj:
+            return
+        count, ok = QInputDialog.getInt(self, tr("multiply"), tr("multiply_count"), 4, 1, 200)
+        if not ok:
+            return
+        self._push_undo()
+        self.objects += [obj.duplicate() for _ in range(count)]
+        cfg = self.settings.config()
+        if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"]):
+            self.status.setText(tr("arrange_full"))
+        self._refresh_objects(select=obj.uid)
+
+    # ---------------------------------------------------------------- undo
+    def _snapshot(self):
+        return [(o, o.state()) for o in self.objects]
+
+    def _push_undo(self):
+        self._undo.append(self._snapshot())
+        del self._undo[:-60]
+        self._redo.clear()
+
+    def _restore(self, snap):
+        sel = self.selected()
+        self.objects = [o for o, _ in snap]
+        for o, st in snap:
+            o.restore(st)
+        self._refresh_objects(select=sel.uid if sel in self.objects else (self.objects[0].uid if self.objects else None))
+
+    def undo(self):
+        if self._undo:
+            self._redo.append(self._snapshot())
+            self._restore(self._undo.pop())
+
+    def redo(self):
+        if self._redo:
+            self._undo.append(self._snapshot())
+            self._restore(self._redo.pop())
 
     def _refresh_objects(self, select=None):
         self._syncing = True
@@ -601,8 +730,10 @@ class MainWindow(QMainWindow):
             if uid not in uids:
                 self.viewer.remove_object(uid)
         for o in self.objects:
-            self.viewer.set_object(o.uid, o.mesh, o.world_matrix(), "outside" if o.uid in outside else "normal")
+            self.viewer.set_object(o.uid, o.mesh, self._display_matrix(o), "outside" if o.uid in outside else "normal")
+            self.viewer.set_object_supports(o.uid, self._support_preview(o, cfg))
         sel = self.selected()
+        self._update_support_info()
         self.viewer.set_selected(sel.uid if sel else None)
         self.empty_hint.setVisible(not self.objects or getattr(self, "_gl_failed", False))
         self.transform_card.setEnabled(sel is not None)
@@ -637,6 +768,9 @@ class MainWindow(QMainWindow):
         obj = self.selected()
         if not obj:
             return
+        self._push_undo()
+        if what in ("rot", "scale", "size"):
+            self._drop_supports(obj)
         if what == "x":
             obj.x = value
         elif what == "y":
@@ -678,13 +812,147 @@ class MainWindow(QMainWindow):
     def _on_drag(self, uid, dx, dy):
         obj = next((o for o in self.objects if o.uid == uid), None)
         if obj:
+            if not self._dragging:
+                self._push_undo()
+                self._dragging = True
             obj.x += dx
             obj.y += dy
-            self.viewer.set_object_transform(uid, obj.world_matrix())
+            self.viewer.set_object_transform(uid, self._display_matrix(obj))
             self._syncing = True
             self.pos_x.setValue(obj.x)
             self.pos_y.setValue(obj.y)
             self._syncing = False
+
+    def _on_drag_finished(self, _uid):
+        self._dragging = False
+        self._objects_changed(refresh_list=False)
+
+    # ================================================================ supports
+    def _lift(self, cfg=None) -> float:
+        cfg = cfg or self.settings.config()
+        return cfg["sla_elevation"] + cfg["sla_raft_thickness"]
+
+    def _shows_supports(self, o: SceneObject) -> bool:
+        return o.support_points is not None and self.viewer.technology == "sla"
+
+    def _display_matrix(self, o: SceneObject) -> np.ndarray:
+        """Where the model is drawn: raised onto its supports when it has edited supports."""
+        m = o.world_matrix()
+        if self._shows_supports(o):
+            m[2, 3] += self._lift()
+        return m
+
+    def _support_preview(self, o: SceneObject, cfg) -> Mesh | None:
+        """Support structure in the object's own coordinates (cached; moving the object keeps it valid)."""
+        if not self._shows_supports(o) or len(o.support_points) == 0:
+            return None
+        keys = ("sla_tip_diameter", "sla_pillar_diameter", "sla_contact_depth", "sla_supports_on_model",
+                "sla_elevation", "sla_raft_thickness", "sla_raft_margin")
+        key = (o.uid, o.support_points.tobytes(), o.matrix().tobytes(), tuple(cfg[k] for k in keys))
+        hit = self._support_cache.get(o.uid)
+        if hit is not None and hit[0] == key:
+            return hit[1]
+        lift = self._lift(cfg)
+        disp = self._display_matrix(o)
+        world = o.mesh.transform(disp)
+        mesh, _ = sla_supports.build_supports(world, cfg, o.world_support_points(lift))
+        local = mesh.transform(np.linalg.inv(disp)) if len(mesh.faces) else None
+        self._support_cache[o.uid] = (key, local)
+        return local
+
+    def _drop_supports(self, o: SceneObject):
+        if o.support_points is not None:
+            o.support_points = None
+            self.status.setText(tr("supports_cleared"))
+
+    def _support_targets(self) -> list[SceneObject]:
+        sel = self.selected()
+        return [sel] if sel else list(self.objects)
+
+    def generate_supports(self):
+        if not self.objects:
+            return
+        self._push_undo()
+        self._ensure_supports_enabled()
+        cfg = self.settings.config()
+        lift = self._lift(cfg)
+        for o in self._support_targets():
+            world = o.mesh.transform(o.world_matrix())
+            world = world.translated([0, 0, lift])
+            o.set_world_support_points(sla_supports.auto_support_points(world, cfg), lift)
+        self._objects_changed(refresh_list=False)
+
+    def clear_supports(self):
+        targets = [o for o in self._support_targets() if o.support_points is not None]
+        if targets:
+            self._push_undo()
+            for o in targets:
+                o.support_points = None
+            self._objects_changed(refresh_list=False)
+
+    def _ensure_supports_enabled(self):
+        if not self.settings.config()["support_enable"]:
+            self.settings.set_value("support_enable", True)
+
+    def _set_pick_mode(self, mode):
+        for b, m in ((self.sup_add_btn, "add"), (self.sup_remove_btn, "remove")):
+            b.blockSignals(True)
+            b.setChecked(mode == m)
+            b.blockSignals(False)
+        self.viewer.pick_mode = mode
+        self.viewer.setCursor(Qt.CrossCursor if mode else Qt.ArrowCursor)
+        if mode:
+            self.status.setText(tr("sup_add_hint") if mode == "add" else tr("sup_remove_hint"))
+
+    def _on_support_add(self, uid, point):
+        o = next((x for x in self.objects if x.uid == uid), None)
+        if o is None:
+            return
+        self._push_undo()
+        self._ensure_supports_enabled()
+        cfg = self.settings.config()
+        lift = self._lift(cfg)
+        # the click is on the drawn model, which is raised only once it has edited supports
+        p = np.asarray(point, dtype=float)
+        if not self._shows_supports(o):
+            p = p + [0, 0, lift]
+        if o.support_points is None:
+            # start from the automatic layout, then add to it
+            world = o.mesh.transform(o.world_matrix()).translated([0, 0, lift])
+            o.set_world_support_points(sla_supports.auto_support_points(world, cfg), lift)
+        pts = o.world_support_points(lift)
+        o.set_world_support_points(np.vstack([pts, p[None, :]]), lift)
+        self._objects_changed(refresh_list=False)
+
+    def _on_support_remove(self, origin, direction):
+        lift = self._lift()
+        best = None
+        for o in self.objects:
+            if not self._shows_supports(o) or len(o.support_points) == 0:
+                continue
+            pts = o.world_support_points(lift)
+            d = np.linalg.norm(np.cross(pts - origin, direction), axis=1)
+            k = int(np.argmin(d))
+            if d[k] < 3.0 and (best is None or d[k] < best[0]):
+                best = (d[k], o, k)
+        if best is None:
+            return
+        self._push_undo()
+        _, o, k = best
+        o.support_points = np.delete(o.support_points, k, axis=0)
+        self._objects_changed(refresh_list=False)
+
+    def _update_support_info(self):
+        sla_mode = self.viewer.technology == "sla"
+        self.supports_card.setVisible(sla_mode)
+        if not sla_mode:
+            self._set_pick_mode(None)
+            return
+        counts = [len(o.support_points) for o in self.objects if o.support_points is not None]
+        if counts:
+            self.sup_info.setText(tr("sup_count").format(sum(counts)))
+        else:
+            self.sup_info.setText(tr("sup_none"))
 
     # ================================================================ settings
     def _apply_printer(self):
@@ -751,11 +1019,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, tr("slice"), tr("out_of_bounds").format(", ".join(o.name for o in outside)))
             return
         meshes = [o.world_mesh() for o in self.objects]
+        manual = [o.world_support_points(0.0) for o in self.objects]
         name = self.objects[0].name or "print"
 
         def work(progress, cancelled):
             if cfg["technology"] == "sla":
-                job = sla.prepare(meshes, cfg, progress, cancelled)
+                job = sla.prepare(meshes, cfg, progress, cancelled, support_points=manual)
                 return ("sla", job, cfg)
             plan = fdm.plan(meshes, cfg, progress, cancelled)
             progress("gcode", 0.0)
@@ -782,7 +1051,7 @@ class MainWindow(QMainWindow):
         self.task.start()
 
     def _on_progress(self, stage, fraction):
-        weights = {"slice": (0.0, 0.35), "support": (0.35, 0.45), "paths": (0.45, 0.85), "gcode": (0.85, 0.95),
+        weights = {"slice": (0.0, 0.35), "support": (0.35, 0.45), "hollow": (0.35, 0.45), "paths": (0.45, 0.85), "gcode": (0.85, 0.95),
                    "preview": (0.95, 1.0), "export": (0.0, 1.0)}
         lo, hi = weights.get(stage, (0.0, 1.0))
         self.progress.setValue(int((lo + (hi - lo) * fraction) * 1000))
@@ -809,6 +1078,8 @@ class MainWindow(QMainWindow):
             _, plan, text, stats, verts, cfg = result
             self.viewer.set_toolpaths(verts, plan.line_width)
             self.viewer.set_extra_meshes([])
+            self._islands = {}
+            self.island_btn.hide()
             n = len(plan.layers)
             self._layer_z = [l.z for l in plan.layers]
             self.stat_time.set(gcode.format_duration(stats.time_s))
@@ -834,10 +1105,16 @@ class MainWindow(QMainWindow):
             self.stat_material.set(f"{job.volume_ml:.1f} ml", tr("stat_resin"))
             self.stat_weight.set(f"{job.weight_g:.1f} g")
             self.stat_cost.set(f"₪{job.cost:.2f}")
-            warnings = job.warnings
+            warnings = list(job.warnings)
+            if job.saved_ml > 0:
+                warnings.insert(0, tr("saved_resin").format(job.saved_ml))
+            self._islands = {}
+            for i, poly in job.islands:
+                self._islands.setdefault(i, []).append(poly)
+            self.island_btn.setVisible(bool(self._islands))
         self.result_cfg = cfg
         if warnings:
-            self.warn_label.setText("⚠ " + "\n⚠ ".join(warnings))
+            self.warn_label.setText("\n".join(("" if w.startswith("✓") else "⚠ ") + w for w in warnings))
             self.warn_label.show()
         self.layer_slider.blockSignals(True)
         self.layer_slider.setRange(0, max(0, n - 1))
@@ -880,10 +1157,88 @@ class MainWindow(QMainWindow):
         else:
             job = self.result[1]
             self.viewer.set_layer_range(0, value, clip_z=z)
-            img = sla.render_layer(job.layers[value], self._mask_cfg).convert("L")
-            qimg = QImage(img.tobytes(), img.width, img.height, img.width, QImage.Format_Grayscale8).copy()
+            img = sla.render_layer(job.layers[value], self._mask_cfg).convert("RGB")
+            islands = self._islands.get(value)
+            if islands:
+                from PIL import Image as _Image
+                mask = sla.render_layer(MultiPolygon(islands), self._mask_cfg)
+                red = _Image.new("RGB", img.size, (255, 70, 90))
+                img = _Image.composite(red, img, mask)
+                self.layer_z.setText(f"{z:.2f} mm · {tr('island')}")
+            qimg = QImage(img.tobytes(), img.width, img.height, img.width * 3, QImage.Format_RGB888).copy()
             pm = QPixmap.fromImage(qimg).scaled(self.mask_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.mask_label.setPixmap(pm)
+
+    def _next_island(self):
+        if not self._islands:
+            return
+        cur = self.layer_slider.value()
+        later = [i for i in sorted(self._islands) if i > cur]
+        self.layer_slider.setValue(later[0] if later else min(self._islands))
+
+    # ================================================================ files
+    def save_project(self):
+        last = self.store.value("project_dir", os.path.expanduser("~"))
+        name = (self.objects[0].name if self.objects else "project") or "project"
+        path, _ = QFileDialog.getSaveFileName(self, tr("save_project"), os.path.join(last, name + project.EXTENSION),
+                                              tr("project_filter"))
+        if not path:
+            return
+        if not path.endswith(project.EXTENSION):
+            path += project.EXTENSION
+        try:
+            project.save(path, self.objects, self.settings.state())
+        except OSError as exc:
+            QMessageBox.critical(self, tr("save_project"), str(exc))
+            return
+        self.store.setValue("project_dir", os.path.dirname(path))
+        self.status.setText(tr("export_done").format(path))
+
+    def open_project(self, path: str | None = None):
+        if not path:
+            last = self.store.value("project_dir", os.path.expanduser("~"))
+            path, _ = QFileDialog.getOpenFileName(self, tr("open_project"), last, tr("project_filter"))
+            if not path:
+                return
+        try:
+            objects, state = project.load(path)
+        except Exception as exc:
+            QMessageBox.critical(self, tr("project_error"), f"{os.path.basename(path)}\n\n{exc}")
+            return
+        self._push_undo()
+        self.store.setValue("project_dir", os.path.dirname(path))
+        if state:
+            self.settings.load_state(state)
+        self.objects = objects
+        self._apply_printer()
+        self._refresh_objects(select=objects[0].uid if objects else None)
+        self.viewer.fit_objects()
+
+    def export_stl(self):
+        if not self.objects:
+            return
+        cfg = self.settings.config()
+        last = self.store.value("export_dir", os.path.expanduser("~"))
+        name = self.objects[0].name or "model"
+        path, _ = QFileDialog.getSaveFileName(self, tr("export_stl"), os.path.join(last, name + ".stl"), "STL (*.stl)")
+        if not path:
+            return
+        meshes = [o.world_mesh() for o in self.objects]
+        if cfg["technology"] == "sla" and cfg["support_enable"]:
+            lift = self._lift(cfg)
+            parts = []
+            for o, m in zip(self.objects, meshes):
+                lifted = m.translated([0, 0, lift])
+                sup, _ = sla_supports.build_supports(lifted, cfg, o.world_support_points(lift))
+                parts += [lifted, sup]
+            meshes = parts
+        try:
+            save_stl(Mesh.merge(meshes, name), path)
+        except OSError as exc:
+            QMessageBox.critical(self, tr("export_error"), str(exc))
+            return
+        self.store.setValue("export_dir", os.path.dirname(path))
+        self.status.setText(tr("export_done").format(path))
 
     # ================================================================ export
     def export(self):
@@ -929,6 +1284,10 @@ class MainWindow(QMainWindow):
 
     def dropEvent(self, e):
         paths = [u.toLocalFile() for u in e.mimeData().urls()]
+        projects = [p for p in paths if p.lower().endswith(project.EXTENSION)]
+        if projects:
+            self.open_project(projects[0])
+            return
         paths = [p for p in paths if os.path.splitext(p)[1].lower() in SUPPORTED_EXTENSIONS]
         if paths:
             self.load_files(paths)

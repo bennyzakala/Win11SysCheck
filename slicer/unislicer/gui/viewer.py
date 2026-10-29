@@ -217,6 +217,8 @@ class Viewer(QOpenGLWidget):
     objectDragged = Signal(object, float, float)
     objectDragFinished = Signal(object)
     glFailed = Signal(str)
+    surfacePicked = Signal(object, object)     # uid, world point (support "add" mode)
+    rayPicked = Signal(object, object)         # origin, direction (support "remove" mode)
 
     MODE_PREPARE, MODE_PREVIEW = "prepare", "preview"
 
@@ -228,6 +230,7 @@ class Viewer(QOpenGLWidget):
         self.bed = (220.0, 220.0, 250.0)
         self.technology = "fdm"
         self.mode = self.MODE_PREPARE
+        self.pick_mode: str | None = None        # None | "add" | "remove"
         self.objects: dict = {}          # uid -> dict(mesh, buffer, color, dirty)
         self.selected = None
         self.extra: list = []            # [(mesh, color)] e.g. SLA supports
@@ -247,6 +250,7 @@ class Viewer(QOpenGLWidget):
         self._ready = False
         self._drag = None
         self._last = QPointF()
+        self._picked = False
         self._press_pos = QPointF()
 
     @staticmethod
@@ -294,8 +298,20 @@ class Viewer(QOpenGLWidget):
 
     def remove_object(self, uid):
         obj = self.objects.pop(uid, None)
-        if obj and obj.get("buffer"):
-            self._trash(obj["buffer"])
+        if obj:
+            for key in ("buffer", "sup_buffer"):
+                if obj.get(key):
+                    self._trash(obj[key])
+        self.update()
+
+    def set_object_supports(self, uid, mesh: Mesh | None):
+        """Support structure in the object's own coordinates (drawn with the object's matrix)."""
+        obj = self.objects.get(uid)
+        if obj is None:
+            return
+        if obj.get("sup_buffer"):
+            self._trash(obj["sup_buffer"])
+        obj["supports"], obj["sup_buffer"] = mesh, None
         self.update()
 
     def set_selected(self, uid):
@@ -416,6 +432,8 @@ class Viewer(QOpenGLWidget):
         for obj in self.objects.values():
             if obj["buffer"] is None:
                 obj["buffer"] = _Buffer(mesh_vertices(obj["mesh"]), [3, 3])
+            if obj.get("supports") is not None and obj.get("sup_buffer") is None and len(obj["supports"].faces):
+                obj["sup_buffer"] = _Buffer(mesh_vertices(obj["supports"]), [3, 3])
         if self._extra_dirty:
             for b, _ in self._extra_buffers:
                 b.delete()
@@ -499,6 +517,11 @@ class Viewer(QOpenGLWidget):
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 self._set_model(p, obj["matrix"])
                 obj["buffer"].draw(GL.GL_TRIANGLES)
+                if obj.get("sup_buffer") is not None and not preview and self.technology == "sla":
+                    GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
+                    GL.glUniform3f(self._u(p, "uColor"), *theme.SUPPORT_COLOR)
+                    obj["sup_buffer"].draw(GL.GL_TRIANGLES)
+                    GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
         GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
         self._set_model(p, np.eye(4))
         if preview or self.technology == "sla":
@@ -566,6 +589,10 @@ class Viewer(QOpenGLWidget):
         return float(dist[hit].min()) if hit.any() else None
 
     def pick(self, pos: QPointF):
+        return self.pick_hit(pos)[0]
+
+    def pick_hit(self, pos: QPointF):
+        """(uid, world hit point) of the object under the cursor, or (None, None)."""
         origin, direction = self._ray(pos)
         best, best_d = None, np.inf
         for uid, obj in self.objects.items():
@@ -576,7 +603,7 @@ class Viewer(QOpenGLWidget):
             d = self._ray_mesh(o_local, d_local, obj["mesh"])
             if d is not None and d < best_d:
                 best, best_d = uid, d
-        return best
+        return (best, origin + direction * best_d) if best is not None else (None, None)
 
     def _bed_point(self, pos: QPointF, z: float = 0.0):
         origin, direction = self._ray(pos)
@@ -590,6 +617,18 @@ class Viewer(QOpenGLWidget):
         self._last = e.position()
         self._press_pos = e.position()
         self._drag = None
+        self._picked = False
+        if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.pick_mode:
+            if self.pick_mode == "add":
+                uid, point = self.pick_hit(e.position())
+                if uid is not None:
+                    self.surfacePicked.emit(uid, point)
+                    self._picked = True
+            else:
+                origin, direction = self._ray(e.position())
+                self.rayPicked.emit(origin, direction)
+                self._picked = True
+            return
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE:
             uid = self.pick(e.position())
             if uid is not None:
@@ -627,7 +666,7 @@ class Viewer(QOpenGLWidget):
                 self.objectDragFinished.emit(self._drag[0])
             self._drag = None
             return
-        if e.button() == Qt.LeftButton and not moved and self.mode == self.MODE_PREPARE:
+        if e.button() == Qt.LeftButton and not moved and self.mode == self.MODE_PREPARE and not self.pick_mode:
             self.objectClicked.emit(None)
 
     def wheelEvent(self, e):

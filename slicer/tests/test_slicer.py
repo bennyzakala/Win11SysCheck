@@ -166,3 +166,69 @@ def test_parallel_matches_serial(monkeypatch):
     monkeypatch.setenv("UNISLICER_WORKERS", "1")
     plan_ser = fdm.plan([w], cfg)
     assert gcode.generate(plan_par, cfg)[0] == gcode.generate(plan_ser, cfg)[0]
+
+
+def test_hollowing_saves_resin_and_cuts_drain_holes():
+    from unislicer.slicing import polygons_of
+    solid_cfg = profiles.build_config("elegoo_mars3", "resin_standard", "sla_fast")
+    hollow_cfg = profiles.build_config("elegoo_mars3", "resin_standard", "sla_fast",
+                                       {"hollow_enable": True, "hollow_wall": 2.0, "drain_holes": 1})
+    mesh = placed(primitives.box(20, 20, 20), 70, 45).world_mesh()
+    solid = sla.prepare([mesh], solid_cfg)
+    hollow = sla.prepare([mesh], hollow_cfg)
+    # 20 mm cube with 2 mm walls: the 16 mm cavity holds 4.1 ml
+    assert solid.volume_ml - hollow.volume_ml == pytest.approx(4.096, rel=0.08)
+    assert hollow.saved_ml == pytest.approx(4.096, rel=0.08)
+    # the first layer has a drain hole through the bottom wall
+    assert any(len(p.interiors) for p in polygons_of(hollow.layers[0]))
+
+
+def test_islands_are_detected():
+    from unislicer.mesh import Mesh
+    floating = Mesh.merge([primitives.box(10, 10, 3), primitives.box(4, 4, 3).translated([3, 3, 8])])
+    cfg = profiles.build_config("elegoo_mars3", None, "sla_fast")
+    job = sla.prepare([placed(floating, 70, 45).world_mesh()], cfg)
+    assert job.island_layers == [80]
+    supported = sla.prepare([placed(primitives.sphere(8), 70, 45).world_mesh()],
+                            profiles.build_config("elegoo_mars3", None, "sla_fast", {"support_enable": True}))
+    assert supported.islands == []
+
+
+def test_exposure_transition_and_print_time():
+    cfg = profiles.build_config("elegoo_mars3", None, None, {"bottom_layers": 3, "transition_layers": 3,
+                                                            "bottom_exposure_time": 30, "exposure_time": 2})
+    assert [sla.layer_exposure(i, cfg) for i in range(8)] == [30, 30, 30, 23, 16, 9, 2, 2]
+    plain = sla.print_time(100, cfg)
+    cfg.update({"tsmc_enable": True})
+    assert sla.print_time(100, cfg) != plain
+
+
+def test_manual_support_points_are_used():
+    mesh = placed(primitives.sphere(10), 70, 45).world_mesh()
+    cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {"support_enable": True})
+    point = np.array([[70.0, 45.0, mesh.bounds[0, 2] + 0.05]])
+    job = sla.prepare([mesh], cfg, support_points=[point])
+    assert len(job.support_points) == 1
+    auto = sla.prepare([mesh], cfg)
+    assert len(auto.support_points) > 5
+
+
+def test_support_presets():
+    heavy = profiles.build_config("elegoo_mars3", None, None, {"sla_support_preset": "heavy"})
+    light = profiles.build_config("elegoo_mars3", None, None, {"sla_support_preset": "light"})
+    assert heavy["sla_pillar_diameter"] > light["sla_pillar_diameter"]
+
+
+def test_mirror_and_project_roundtrip(tmp_path):
+    from unislicer import project
+    o = placed(primitives.demo_bridge())
+    o.mirror[0] = -1
+    o.support_points = np.array([[1.0, 2.0, 3.0]])
+    b = o.world_bounds()
+    assert b[0, 2] == pytest.approx(0) and o.world_mesh().is_watertight() == o.mesh.is_watertight()
+    path = tmp_path / "p.unislicer"
+    project.save(str(path), [o, o.duplicate()], {"printer": "elegoo_mars3", "overrides": {"hollow_enable": True}})
+    objs, state = project.load(str(path))
+    assert len(objs) == 2 and objs[0].mesh is objs[1].mesh
+    assert np.allclose(objs[0].world_bounds(), b) and objs[0].support_points.shape == (1, 3)
+    assert state["overrides"]["hollow_enable"] is True
