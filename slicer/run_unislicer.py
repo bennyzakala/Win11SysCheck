@@ -8,7 +8,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # A windowed (no console) build has no stdout/stderr: send output to a log file instead.
 if sys.stdout is None or sys.stderr is None:
-    _log = open(os.path.join(tempfile.gettempdir(), "unislicer.log"), "w", encoding="utf-8", buffering=1)
+    # a relaunch with software OpenGL appends to the log of the first attempt
+    _mode = "a" if os.environ.get("UNISLICER_SOFTWARE_GL") else "w"
+    _log = open(os.path.join(tempfile.gettempdir(), "unislicer.log"), _mode, encoding="utf-8", buffering=1)
     sys.stdout = sys.stdout or _log
     sys.stderr = sys.stderr or _log
 

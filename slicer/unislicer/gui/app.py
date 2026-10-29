@@ -6,7 +6,6 @@ import subprocess
 import sys
 
 from PySide6.QtCore import QSettings, Qt, QTimer
-from PySide6.QtGui import QOpenGLContext, QSurfaceFormat
 from PySide6.QtWidgets import QApplication
 
 from . import i18n, theme
@@ -22,20 +21,11 @@ def _trace(msg: str) -> None:
 SMOKE = bool(os.environ.get("UNISLICER_SMOKE_TEST"))
 
 
-def _has_opengl_33() -> bool:
-    ctx = QOpenGLContext()
-    ctx.setFormat(QSurfaceFormat.defaultFormat())
-    if not ctx.create():
-        return False
-    fmt = ctx.format()
-    return (fmt.majorVersion(), fmt.minorVersion()) >= (3, 3)
-
-
 def _relaunch_with_software_opengl() -> int:
     """Restart the app using Qt's bundled software renderer (opengl32sw.dll on Windows)."""
     env = dict(os.environ, QT_OPENGL="software", UNISLICER_SOFTWARE_GL="1")
     cmd = [sys.executable] + (sys.argv[1:] if getattr(sys, "frozen", False) else sys.argv)
-    _trace(f"no OpenGL 3.3 driver, relaunching with software rendering: {cmd}")
+    _trace(f"OpenGL 3.3 unavailable, relaunching with software rendering: {cmd}")
     return subprocess.call(cmd, env=env)
 
 
@@ -52,11 +42,16 @@ def run(paths: list[str] | None = None) -> int:
     theme.apply(app)
     app.setWindowIcon(theme.icon("layers", theme.ACCENT, 64))
     _trace(f"QApplication ready, platform={app.platformName()}")
-    if sys.platform == "win32" and not os.environ.get("UNISLICER_SOFTWARE_GL") and not _has_opengl_33():
-        return _relaunch_with_software_opengl()
     store = QSettings(SETTINGS_ORG, SETTINGS_ORG)
 
-    state = {"window": None}
+    state = {"window": None, "software_gl": False}
+    can_fall_back = sys.platform == "win32" and not os.environ.get("UNISLICER_SOFTWARE_GL")
+
+    def on_gl_failed(_message):
+        # The GPU driver gave the 3D view less than OpenGL 3.3: restart on Qt's software renderer.
+        if can_fall_back and not state["software_gl"]:
+            state["software_gl"] = True
+            QTimer.singleShot(0, app.quit)
 
     def open_window(objects=None):
         i18n.set_language(store.value("language", "he"))
@@ -64,6 +59,7 @@ def run(paths: list[str] | None = None) -> int:
         _trace("creating main window")
         win = MainWindow(objects)
         win.languageSwitchRequested.connect(lambda: switch_language(win))
+        win.viewer.glFailed.connect(on_gl_failed)
         state["window"] = win
         win.show()
         _trace("main window shown")
@@ -83,4 +79,7 @@ def run(paths: list[str] | None = None) -> int:
         QTimer.singleShot(4000, app.quit)  # used by the build pipeline to check the app starts
     code = app.exec()
     _trace(f"exited with {code}")
+    if state["software_gl"]:
+        state["window"].close()
+        return _relaunch_with_software_opengl()
     return code
