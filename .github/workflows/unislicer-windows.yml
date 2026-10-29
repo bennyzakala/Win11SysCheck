@@ -33,12 +33,17 @@ jobs:
         run: python -m pytest -q
 
       - name: Build UniSlicer.exe
-        run: >
-          pyinstaller --noconfirm --clean --windowed --name UniSlicer
-          --icon packaging/unislicer.ico
-          --add-data "unislicer/profiles;unislicer/profiles"
-          --collect-submodules OpenGL
-          run_unislicer.py
+        run: |
+          # Qt's software OpenGL renderer, used on PCs without an OpenGL 3.3 driver
+          $sw = python -c "import PySide6, os; p = os.path.join(os.path.dirname(PySide6.__file__), 'opengl32sw.dll'); print(p if os.path.exists(p) else '')"
+          $extra = @()
+          if ($sw) { $extra = @('--add-binary', "$sw;PySide6") } else { Write-Warning 'opengl32sw.dll not found in PySide6' }
+          pyinstaller --noconfirm --clean --windowed --name UniSlicer `
+            --icon packaging/unislicer.ico `
+            --add-data "unislicer/profiles;unislicer/profiles" `
+            --collect-submodules OpenGL @extra run_unislicer.py
+          if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed' }
+          Get-ChildItem -Recurse dist\UniSlicer -Filter opengl32sw.dll | ForEach-Object { "bundled: $($_.FullName)" }
 
       - name: Smoke test - slice from the built exe
         run: |
@@ -66,6 +71,7 @@ jobs:
           Get-Content "$env:TEMP\unislicer.log" -ErrorAction SilentlyContinue
           if (-not $exited) { throw 'GUI did not exit' }
           if ($p.ExitCode -ne 0) { throw "GUI exit code $($p.ExitCode)" }
+          if (-not (Select-String -Path "$env:TEMP\unislicer.log" -Pattern '^OpenGL: ' -Quiet)) { throw 'the 3D view did not initialise' }
 
       - name: Build installer
         run: |

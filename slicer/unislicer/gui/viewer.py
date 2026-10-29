@@ -346,6 +346,9 @@ class Viewer(QOpenGLWidget):
     # ---------------------------------------------------------- GL lifecycle
     def initializeGL(self):
         try:
+            fmt = self.context().format()
+            if (fmt.majorVersion(), fmt.minorVersion()) < (3, 3):
+                raise RuntimeError(f"OpenGL {fmt.majorVersion()}.{fmt.minorVersion()} context; 3.3 is required")
             self._bg = _compile(BG_VS, BG_FS)
             self._mesh_prog = _compile(MESH_VS, MESH_FS)
             self._bed_prog = _compile(BED_VS, BED_FS)
@@ -401,9 +404,15 @@ class Viewer(QOpenGLWidget):
 
     def paintGL(self):
         if not self._ready:
-            GL.glClearColor(0.08, 0.09, 0.11, 1)
-            GL.glClear(GL.GL_COLOR_BUFFER_BIT)
-            return
+            return  # no usable OpenGL: the main window shows an explanation instead
+        try:
+            self._paint()
+        except Exception as exc:  # pragma: no cover - depends on the user's GPU
+            self._ready = False
+            print("OpenGL rendering failed:", exc, file=sys.stderr, flush=True)
+            self.glFailed.emit(str(exc))
+
+    def _paint(self):
         self._upload_dirty()
         w, h = max(1, self.width()), max(1, self.height())
         GL.glViewport(0, 0, int(w * self.devicePixelRatioF()), int(h * self.devicePixelRatioF()))

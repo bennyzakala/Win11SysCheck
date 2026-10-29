@@ -273,7 +273,7 @@ class MainWindow(QMainWindow):
         self.viewer.objectClicked.connect(self._select_uid)
         self.viewer.objectDragged.connect(self._on_drag)
         self.viewer.objectDragFinished.connect(lambda _uid: self._objects_changed(refresh_list=False))
-        self.viewer.glFailed.connect(lambda msg: self.status.setText(tr("gl_error").format(msg)))
+        self.viewer.glFailed.connect(self._on_gl_failed)
         grid.addWidget(self.viewer, 0, 0)
 
         # floating view tools
@@ -483,6 +483,16 @@ class MainWindow(QMainWindow):
             act.triggered.connect(fn)
             self.addAction(act)
 
+    def _on_gl_failed(self, message: str):
+        text = tr("gl_error").format(message)
+        self.status.setText(text)
+        self.empty_hint.setText(text)
+        self.empty_hint.setWordWrap(True)
+        self.empty_hint.setMaximumWidth(520)
+        self.empty_hint.setStyleSheet(f"color: {theme.WARNING}; font-size: 14px; background: transparent;")
+        self.empty_hint.show()
+        self._gl_failed = True
+
     # ================================================================ objects
     def selected(self) -> SceneObject | None:
         item = self.object_list.currentItem()
@@ -589,7 +599,7 @@ class MainWindow(QMainWindow):
             self.viewer.set_object(o.uid, o.world_mesh(), "outside" if o.uid in outside else "normal")
         sel = self.selected()
         self.viewer.set_selected(sel.uid if sel else None)
-        self.empty_hint.setVisible(not self.objects)
+        self.empty_hint.setVisible(not self.objects or getattr(self, "_gl_failed", False))
         self.transform_card.setEnabled(sel is not None)
         self._sync_transform()
         self._invalidate()

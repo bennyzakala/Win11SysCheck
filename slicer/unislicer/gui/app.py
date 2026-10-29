@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 
 from PySide6.QtCore import QSettings, Qt, QTimer
+from PySide6.QtGui import QOpenGLContext, QSurfaceFormat
 from PySide6.QtWidgets import QApplication
 
 from . import i18n, theme
@@ -20,6 +22,23 @@ def _trace(msg: str) -> None:
 SMOKE = bool(os.environ.get("UNISLICER_SMOKE_TEST"))
 
 
+def _has_opengl_33() -> bool:
+    ctx = QOpenGLContext()
+    ctx.setFormat(QSurfaceFormat.defaultFormat())
+    if not ctx.create():
+        return False
+    fmt = ctx.format()
+    return (fmt.majorVersion(), fmt.minorVersion()) >= (3, 3)
+
+
+def _relaunch_with_software_opengl() -> int:
+    """Restart the app using Qt's bundled software renderer (opengl32sw.dll on Windows)."""
+    env = dict(os.environ, QT_OPENGL="software", UNISLICER_SOFTWARE_GL="1")
+    cmd = [sys.executable] + (sys.argv[1:] if getattr(sys, "frozen", False) else sys.argv)
+    _trace(f"no OpenGL 3.3 driver, relaunching with software rendering: {cmd}")
+    return subprocess.call(cmd, env=env)
+
+
 def run(paths: list[str] | None = None) -> int:
     if SMOKE:
         import faulthandler
@@ -33,6 +52,8 @@ def run(paths: list[str] | None = None) -> int:
     theme.apply(app)
     app.setWindowIcon(theme.icon("layers", theme.ACCENT, 64))
     _trace(f"QApplication ready, platform={app.platformName()}")
+    if sys.platform == "win32" and not os.environ.get("UNISLICER_SOFTWARE_GL") and not _has_opengl_33():
+        return _relaunch_with_software_opengl()
     store = QSettings(SETTINGS_ORG, SETTINGS_ORG)
 
     state = {"window": None}
