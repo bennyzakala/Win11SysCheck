@@ -61,8 +61,10 @@ jobs:
           UNISLICER_SMOKE_TEST: "1"
         run: |
           $p = Start-Process dist\UniSlicer\UniSlicer.exe -PassThru
-          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw 'GUI did not exit' }
+          $exited = $p.WaitForExit(90000)
+          if (-not $exited) { $p.Kill(); Start-Sleep -Seconds 2 }
           Get-Content "$env:TEMP\unislicer.log" -ErrorAction SilentlyContinue
+          if (-not $exited) { throw 'GUI did not exit' }
           if ($p.ExitCode -ne 0) { throw "GUI exit code $($p.ExitCode)" }
 
       - name: Build installer

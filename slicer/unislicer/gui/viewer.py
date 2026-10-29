@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ctypes
 import math
+import sys
 
 import numpy as np
 from OpenGL import GL
@@ -355,7 +356,9 @@ class Viewer(QOpenGLWidget):
             self._box_buf = None
             self._trash_list = []
             self._ready = True
+            print("OpenGL:", GL.glGetString(GL.GL_VERSION), GL.glGetString(GL.GL_RENDERER), file=sys.stderr, flush=True)
         except Exception as exc:  # pragma: no cover - depends on the user's GPU
+            print("OpenGL initialisation failed:", exc, file=sys.stderr, flush=True)
             self._ready = False
             self.glFailed.emit(str(exc))
 

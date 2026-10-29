@@ -12,7 +12,19 @@ from .main_window import SETTINGS_ORG, MainWindow
 from .viewer import Viewer
 
 
+def _trace(msg: str) -> None:
+    if SMOKE:
+        print(f"[smoke] {msg}", file=sys.stderr, flush=True)
+
+
+SMOKE = bool(os.environ.get("UNISLICER_SMOKE_TEST"))
+
+
 def run(paths: list[str] | None = None) -> int:
+    if SMOKE:
+        import faulthandler
+        faulthandler.dump_traceback_later(45, exit=True)  # print where it is stuck, then exit
+        _trace("starting")
     Viewer.configure_default_format()
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     app = QApplication.instance() or QApplication(sys.argv)
@@ -20,6 +32,7 @@ def run(paths: list[str] | None = None) -> int:
     app.setOrganizationName(SETTINGS_ORG)
     theme.apply(app)
     app.setWindowIcon(theme.icon("layers", theme.ACCENT, 64))
+    _trace(f"QApplication ready, platform={app.platformName()}")
     store = QSettings(SETTINGS_ORG, SETTINGS_ORG)
 
     state = {"window": None}
@@ -27,10 +40,12 @@ def run(paths: list[str] | None = None) -> int:
     def open_window(objects=None):
         i18n.set_language(store.value("language", "he"))
         app.setLayoutDirection(Qt.RightToLeft if i18n.LANG == "he" else Qt.LeftToRight)
+        _trace("creating main window")
         win = MainWindow(objects)
         win.languageSwitchRequested.connect(lambda: switch_language(win))
         state["window"] = win
         win.show()
+        _trace("main window shown")
         return win
 
     def switch_language(win):
@@ -42,6 +57,9 @@ def run(paths: list[str] | None = None) -> int:
     win = open_window()
     if paths:
         win.load_files(paths)
-    if os.environ.get("UNISLICER_SMOKE_TEST"):
+    if SMOKE:
+        QTimer.singleShot(0, lambda: _trace("event loop running"))
         QTimer.singleShot(4000, app.quit)  # used by the build pipeline to check the app starts
-    return app.exec()
+    code = app.exec()
+    _trace(f"exited with {code}")
+    return code
