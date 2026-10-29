@@ -214,7 +214,7 @@ class _LayerBuilder:
 
 # ------------------------------------------------------------------ main
 def plan(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
-         cancelled: Callable[[], bool] | None = None) -> FdmPlan:
+         cancelled: Callable[[], bool] | None = None, cutters: list[Mesh] | None = None) -> FdmPlan:
     report = _Progress(progress, cancelled)
     w = cfg.line_width
     warnings = []
@@ -230,6 +230,10 @@ def plan(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None]
     report("slice", 0.0)
     regions = slice_meshes(meshes, planes, cfg["resolution"],
                            progress=lambda f: report("slice", f), cancelled=cancelled)
+    if cutters:
+        cut = slice_meshes(cutters, planes, cfg["resolution"])
+        regions = [as_multipolygon(r.difference(c)) if not c.is_empty and not r.is_empty else r
+                   for r, c in zip(regions, cut)]
     n = len(regions)
 
     support, interface = ([EMPTY] * n, [EMPTY] * n)

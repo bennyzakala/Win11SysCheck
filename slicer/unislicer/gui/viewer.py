@@ -242,6 +242,7 @@ class Viewer(QOpenGLWidget):
     rotateFinished = Signal(object)
     facePicked = Signal(object, object)        # uid, world normal of the clicked face
     holePicked = Signal(object, object, object)  # uid, world point, world normal (drain hole tool)
+    measured = Signal(object, object)            # first and second world point
     rayPicked = Signal(object, object)         # origin, direction (support "remove" mode)
 
     MODE_PREPARE, MODE_PREVIEW = "prepare", "preview"
@@ -255,7 +256,8 @@ class Viewer(QOpenGLWidget):
         self.technology = "fdm"
         self.mode = self.MODE_PREPARE
         self.pick_mode: str | None = None        # None | "add" | "remove"
-        self.tool = "move"                       # move | rotate | face
+        self.tool = "move"                       # move | rotate | face | hole | measure
+        self.measure_points: list = []
         self._rot = None                         # active ring drag: (uid, axis, start angle, last degrees)
         self._hover_axis = None
         self._gizmo_cache = None
@@ -555,6 +557,8 @@ class Viewer(QOpenGLWidget):
                 if preview and self.technology == "sla":
                     continue  # the SLA preview shows the elevated copies passed as extras
                 state = obj["state"]
+                if state == "cutter":
+                    continue  # drawn translucent after everything opaque
                 color = theme.MODEL_OUTSIDE if state == "outside" else (
                     theme.MODEL_SELECTED if uid == self.selected else theme.MODEL_COLOR)
                 GL.glUniform3f(self._u(p, "uColor"), *color)
@@ -571,6 +575,20 @@ class Viewer(QOpenGLWidget):
                     obj["sup_buffer"].draw(GL.GL_TRIANGLES)
                     GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
         GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
+        cutters = [(uid, o) for uid, o in self.objects.items() if o["state"] == "cutter"] if not preview else []
+        if cutters:
+            GL.glEnable(GL.GL_BLEND)
+            GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+            GL.glDepthMask(GL.GL_FALSE)
+            GL.glUniform1f(self._u(p, "uAlpha"), 0.45)
+            for uid, obj in cutters:
+                color = (1.0, 0.55, 0.30) if uid == self.selected else (1.0, 0.36, 0.42)
+                GL.glUniform3f(self._u(p, "uColor"), *color)
+                self._set_model(p, obj["matrix"])
+                obj["buffer"].draw(GL.GL_TRIANGLES)
+            GL.glDepthMask(GL.GL_TRUE)
+            GL.glDisable(GL.GL_BLEND)
+            GL.glUniform1f(self._u(p, "uAlpha"), 1.0)
         self._set_model(p, np.eye(4))
         if preview or self.technology == "sla":
             for buf, color in self._extra_buffers:
@@ -579,6 +597,18 @@ class Viewer(QOpenGLWidget):
 
         if not preview and self.selected in self.objects:
             self._draw_selection_box(mvp)
+        if self.measure_points:
+            pts = np.array(self.measure_points, dtype=np.float32)
+            if len(pts) == 1:
+                pts = np.vstack([pts, pts + [0, 0, 0.01]])
+            GL.glDisable(GL.GL_DEPTH_TEST)
+            buf = _Buffer(pts[:2], [3])
+            GL.glUseProgram(self._line_prog)
+            GL.glUniformMatrix4fv(self._u(self._line_prog, "uMVP"), 1, GL.GL_TRUE, mvp)
+            GL.glUniform4f(self._u(self._line_prog, "uColor"), 1.0, 0.85, 0.25, 1.0)
+            buf.draw(GL.GL_LINES)
+            buf.delete()
+            GL.glEnable(GL.GL_DEPTH_TEST)
         rings = self._gizmo_meshes()
         if rings:
             GL.glClear(GL.GL_DEPTH_BUFFER_BIT)   # rings stay visible through the model but hide their own back
@@ -776,6 +806,19 @@ class Viewer(QOpenGLWidget):
                 self.rotateStarted.emit(self.selected)
                 self.update()
                 return
+        if e.button() == Qt.LeftButton and self.tool == "measure":
+            uid, point = self.pick_hit(e.position())
+            if point is None:
+                point = self._bed_point(e.position())
+            if point is not None:
+                if len(self.measure_points) != 1:
+                    self.measure_points = [point]
+                else:
+                    self.measure_points.append(point)
+                    self.measured.emit(self.measure_points[0], self.measure_points[1])
+                self._picked = True
+                self.update()
+            return
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.tool == "hole":
             uid, point = self.pick_hit(e.position())
             if uid is not None:

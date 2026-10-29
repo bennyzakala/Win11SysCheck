@@ -246,6 +246,7 @@ _ICONS = {
     "x": '<path d="M6 6l12 12M18 6 6 18"/>',
     "info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
     "plus": '<path d="M12 5v14M5 12h14"/>',
+    "ruler": '<path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/>',
     "move": '<path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/>',
     "rotate3d": '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/><ellipse cx="12" cy="12" rx="9" ry="3.5"/>',
     "face": '<path d="M3 20h18"/><path d="M7 16 12 6l5 10z"/><path d="M12 6v-3"/>',

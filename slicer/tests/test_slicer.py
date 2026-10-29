@@ -487,3 +487,34 @@ def test_support_shapes_and_raft_types():
                  {"sla_tip_shape": "sphere", "sla_pillar_shape": "cube", "sla_base_shape": "disk", "sla_support_type": "pillar"}):
         job = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", dict(support_enable=True, **over)))
         assert job.islands == [], over
+
+
+def test_model_tools_text_cut_split_repair_and_cutters():
+    from PySide6.QtGui import QGuiApplication
+    from unislicer import mesh_tools
+    from unislicer.mesh import Mesh
+    app = QGuiApplication.instance() or QGuiApplication(["test", "-platform", "offscreen"])
+    assert app is not None
+    text = mesh_tools.text_mesh("UNI 8", 10, 2)
+    assert text.is_watertight() and text.size[1] == pytest.approx(10, rel=0.02)
+    s = primitives.sphere(10, 32, 64)
+    lo, hi = mesh_tools.cut_mesh(s, 7.0)
+    assert lo.is_watertight() and hi.is_watertight()
+    assert lo.volume() + hi.volume() == pytest.approx(s.volume(), rel=1e-6)
+    two = Mesh.merge([primitives.box(5, 5, 5), primitives.box(5, 5, 5).translated([10, 0, 0])])
+    assert len(mesh_tools.split_parts(two)) == 2
+    b = primitives.box(10, 10, 10)
+    f = b.faces.copy()
+    f[[0, 3, 5]] = f[[0, 3, 5]][:, ::-1]
+    fixed, report = mesh_tools.repair(Mesh(b.vertices, f[:-1]))
+    assert fixed.is_watertight() and fixed.volume() == pytest.approx(1000) and report["holes_filled"] == 1
+    # a cutter overlapping the top of a plate engraves it in both technologies
+    plate = placed(primitives.box(50, 20, 10), 70, 40)
+    cutter = placed(text, 70, 40)
+    cutter.z = 9.0
+    job = sla.prepare([plate.world_mesh()], profiles.build_config("elegoo_mars3", None, "sla_fast"),
+                      cutters=[cutter.world_mesh()])
+    assert [g for g in job.layers if not g.is_empty][-1].area < 990
+    plan = fdm.plan([plate.world_mesh()], profiles.build_config("generic_fdm", "pla", "standard"),
+                    cutters=[cutter.world_mesh()])
+    assert plan.layers[-1].paths

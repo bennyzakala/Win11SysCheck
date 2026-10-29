@@ -31,7 +31,7 @@ def save(path: str, objects: list[SceneObject], settings_state: dict) -> None:
                 "rotation": o.rotation.tolist(), "scale": o.scale.tolist(), "mirror": o.mirror.tolist(),
                 "base_rotation": o.base_rotation.tolist(),
                 "support_points": None if o.support_points is None else o.support_points.tolist(),
-                "drain_holes": o.drain_holes.tolist(),
+                "drain_holes": o.drain_holes.tolist(), "role": o.role, "z": o.z,
             })
         doc = {"format": FORMAT_VERSION, "generator": f"UniSlicer {__version__}",
                "settings": settings_state, "objects": entries}
@@ -56,5 +56,5 @@ def load(path: str) -> tuple[list[SceneObject], dict]:
                 np.array(e["rotation"], dtype=float), np.array(e["scale"], dtype=float),
                 np.array(e["base_rotation"], dtype=float), np.array(e.get("mirror", [1, 1, 1]), dtype=float),
                 None if sp is None else np.array(sp, dtype=float).reshape(-1, 3),
-                np.array(e.get("drain_holes", []), dtype=float).reshape(-1, 6)))
+                np.array(e.get("drain_holes", []), dtype=float).reshape(-1, 6), e.get("role", "model"), float(e.get("z", 0.0))))
     return objects, doc.get("settings", {})

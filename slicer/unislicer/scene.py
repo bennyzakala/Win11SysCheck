@@ -25,6 +25,8 @@ class SceneObject:
     support_points: np.ndarray | None = None
     # manual drain holes: (N, 6) surface point and outward normal, in the mesh's own coordinates
     drain_holes: np.ndarray = field(default_factory=lambda: np.zeros((0, 6)))
+    role: str = "model"                          # model | cutter (subtracted from the other models)
+    z: float = 0.0                               # height of the model's lowest point above the plate
     uid: int = field(default_factory=lambda: next(_ids))
 
     @classmethod
@@ -54,7 +56,7 @@ class SceneObject:
         """Full transform to bed coordinates: resting on z = 0 and centred at (x, y)."""
         m = self.matrix()
         b = self._linear_bounds()
-        m[:3, 3] = [self.x - (b[0, 0] + b[1, 0]) / 2, self.y - (b[0, 1] + b[1, 1]) / 2, -b[0, 2]]
+        m[:3, 3] = [self.x - (b[0, 0] + b[1, 0]) / 2, self.y - (b[0, 1] + b[1, 1]) / 2, -b[0, 2] + self.z]
         return m
 
     def world_bounds(self) -> np.ndarray:
@@ -117,10 +119,10 @@ class SceneObject:
         """Snapshot of everything the user can change (for undo)."""
         sp = None if self.support_points is None else self.support_points.copy()
         return (self.x, self.y, self.rotation.copy(), self.scale.copy(), self.base_rotation.copy(), self.mirror.copy(), sp,
-                self.drain_holes.copy())
+                self.drain_holes.copy(), self.role, self.z)
 
     def restore(self, state: tuple) -> None:
-        self.x, self.y, rot, scale, base, mirror, sp, holes = state
+        self.x, self.y, rot, scale, base, mirror, sp, holes, self.role, self.z = state
         self.drain_holes = holes.copy()
         self.rotation, self.scale, self.base_rotation, self.mirror = rot.copy(), scale.copy(), base.copy(), mirror.copy()
         self.support_points = None if sp is None else sp.copy()
@@ -138,7 +140,7 @@ class SceneObject:
     def duplicate(self) -> "SceneObject":
         sp = None if self.support_points is None else self.support_points.copy()
         return SceneObject(self.mesh, self.name, self.x, self.y, self.rotation.copy(), self.scale.copy(),
-                           self.base_rotation.copy(), self.mirror.copy(), sp, self.drain_holes.copy())
+                           self.base_rotation.copy(), self.mirror.copy(), sp, self.drain_holes.copy(), self.role, self.z)
 
 
 def plate_rect(cfg) -> tuple[float, float, float, float]:
@@ -155,6 +157,7 @@ def plate_rect(cfg) -> tuple[float, float, float, float]:
 def arrange(objects: list[SceneObject], bed_x: float, bed_y: float, spacing: float = 6.0,
             rect: tuple | None = None) -> bool:
     """Shelf-pack object footprints around the plate centre. Returns False if they don't fit."""
+    objects = [o for o in objects if o.role != "cutter"]   # cutters stay where the user put them
     if not objects:
         return True
     if rect is not None:
@@ -191,6 +194,8 @@ def out_of_bounds(objects: list[SceneObject], bed_x: float, bed_y: float, max_z:
     x0, y0, x1, y1 = rect if rect is not None else (0.0, 0.0, bed_x, bed_y)
     bad = []
     for o in objects:
+        if o.role == "cutter":
+            continue
         b = o.world_bounds()
         if b[0, 0] < x0 - 1e-6 or b[0, 1] < y0 - 1e-6 or b[1, 0] > x1 + 1e-6 or b[1, 1] > y1 + 1e-6 or b[1, 2] > max_z + 1e-6:
             bad.append(o)

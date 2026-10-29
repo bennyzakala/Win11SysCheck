@@ -193,6 +193,8 @@ class MainWindow(QMainWindow):
         menu.addAction(tr("shape_cylinder"), lambda: self.add_mesh(primitives.cylinder(10, 25, 64, "Cylinder")))
         menu.addAction(tr("shape_sphere"), lambda: self.add_mesh(primitives.sphere(12, 32, 64, "Sphere")))
         menu.addAction(tr("shape_bridge"), lambda: self.add_mesh(primitives.demo_bridge()))
+        menu.addSeparator()
+        menu.addAction(theme.icon("code"), tr("add_text"), self.add_text)
         shapes.setMenu(menu)
         shapes.setPopupMode(QToolButton.InstantPopup)
         tool("sparkle", tr("auto_prepare"), tr("auto_prepare_tip"), self.auto_prepare)
@@ -208,6 +210,10 @@ class MainWindow(QMainWindow):
         mm.addSeparator()
         mm.addAction(theme.icon("download"), tr("export_stl"), self.export_stl)
         mm.addAction(theme.icon("copy"), tr("multiply"), self.multiply_selected)
+        mm.addSeparator()
+        mm.addAction(theme.icon("square"), tr("cut_height"), self.cut_selected)
+        mm.addAction(theme.icon("grid"), tr("split_parts"), self.split_selected)
+        mm.addAction(theme.icon("settings"), tr("repair_mesh"), self.repair_selected)
         more.setMenu(mm)
         more.setPopupMode(QToolButton.InstantPopup)
         lay.addStretch(1)
@@ -271,6 +277,9 @@ class MainWindow(QMainWindow):
         self.pos_y = _spin(-5000, 5000, 1, 1)
         g.addWidget(self.pos_x, 2, 1)
         g.addWidget(self.pos_y, 2, 2)
+        self.pos_z = _spin(0, 2000, 0.5, 2)
+        self.pos_z.setToolTip(tr("pos_z_tip"))
+        g.addWidget(self.pos_z, 2, 3)
         g.addWidget(QLabel(tr("rotation")), 3, 0)
         self.rot = [_spin(-360, 360, 15, 1, "°") for _ in range(3)]
         for i, s in enumerate(self.rot):
@@ -324,6 +333,9 @@ class MainWindow(QMainWindow):
             b.clicked.connect(slot)
             btns.addWidget(b, k // 2, k % 2)
         g.addLayout(btns, 9, 0, 1, 4)
+        self.cutter_box = QCheckBox(tr("cutter_role"))
+        self.cutter_box.setToolTip(tr("cutter_role_tip"))
+        g.addWidget(self.cutter_box, 10, 0, 1, 4)
         self.transform_card = tr_card
         lay.addWidget(tr_card)
 
@@ -359,6 +371,8 @@ class MainWindow(QMainWindow):
 
         self.pos_x.valueChanged.connect(lambda v: self._edit("x", v))
         self.pos_y.valueChanged.connect(lambda v: self._edit("y", v))
+        self.pos_z.valueChanged.connect(lambda v: self._edit("z", v))
+        self.cutter_box.toggled.connect(self._toggle_cutter)
         for i in range(3):
             self.rot[i].valueChanged.connect(lambda v, i=i: self._edit("rot", v, i))
             self.scale[i].valueChanged.connect(lambda v, i=i: self._edit("scale", v, i))
@@ -379,6 +393,7 @@ class MainWindow(QMainWindow):
         self.viewer.rotateFinished.connect(self._on_rotate_end)
         self.viewer.facePicked.connect(self._on_face_picked)
         self.viewer.holePicked.connect(self._on_hole_picked)
+        self.viewer.measured.connect(self._on_measured)
         self.viewer.previewObjectClicked.connect(self._on_preview_click)
         self.viewer.rayPicked.connect(self._on_support_remove)
         self.viewer.glFailed.connect(self._on_gl_failed)
@@ -430,7 +445,7 @@ class MainWindow(QMainWindow):
         pl.setSpacing(2)
         self.tool_buttons = {}
         for name, icon_name, key in (("move", "move", "M"), ("rotate", "rotate3d", "R"), ("face", "face", "F"),
-                                     ("hole", "drop", "H")):
+                                     ("hole", "drop", "H"), ("measure", "ruler", "D")):
             b = QToolButton()
             b.setIcon(theme.icon(icon_name, theme.TEXT, 20))
             b.setIconSize(QSize(20, 20))
@@ -645,7 +660,8 @@ class MainWindow(QMainWindow):
                         (QKeySequence.Undo, via_key("undo", self.undo)), (QKeySequence("Ctrl+Y"), self.redo),
                         (QKeySequence.Redo, self.redo), (QKeySequence.Save, via_key("save_project", self.save_project)), (QKeySequence("Escape"), lambda: (self._set_pick_mode(None), self.set_tool("move"))),
                         (QKeySequence("M"), lambda: self.set_tool("move")), (QKeySequence("R"), lambda: self.set_tool("rotate")),
-                        (QKeySequence("F"), lambda: self.set_tool("face")), (QKeySequence("H"), lambda: self.set_tool("hole"))):
+                        (QKeySequence("F"), lambda: self.set_tool("face")), (QKeySequence("H"), lambda: self.set_tool("hole")),
+                        (QKeySequence("D"), lambda: self.set_tool("measure"))):
             act = QAction(self)
             act.setShortcut(seq)
             act.setShortcutContext(Qt.WindowShortcut)
@@ -699,7 +715,7 @@ class MainWindow(QMainWindow):
         obj.x, obj.y = self._plate_center(cfg)
         self.objects.append(obj)
         if rearrange:
-            arrange(self.objects, cfg["bed_x"], cfg["bed_y"], rect=plate_rect(cfg))
+            arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=plate_rect(cfg))
         self._refresh_objects(select=obj.uid)
         return obj
 
@@ -710,7 +726,7 @@ class MainWindow(QMainWindow):
             dup = obj.duplicate()
             self.objects.append(dup)
             cfg = self.settings.config()
-            arrange(self.objects, cfg["bed_x"], cfg["bed_y"], rect=plate_rect(cfg))
+            arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=plate_rect(cfg))
             self._refresh_objects(select=dup.uid)
 
     def delete_selected(self):
@@ -724,7 +740,7 @@ class MainWindow(QMainWindow):
     def arrange_objects(self):
         self._push_undo()
         cfg = self.settings.config()
-        arrange(self.objects, cfg["bed_x"], cfg["bed_y"], rect=plate_rect(cfg))
+        arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=plate_rect(cfg))
         self._objects_changed()
 
     def lay_flat(self):
@@ -782,7 +798,7 @@ class MainWindow(QMainWindow):
         self.object_list.setCurrentItem(None)
         self.auto_orient_selected()
         cfg = self.settings.config()
-        if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"], rect=plate_rect(cfg)):
+        if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=plate_rect(cfg)):
             self.status.setText(tr("arrange_full"))
         if cfg["technology"] == "sla":
             self.generate_supports()
@@ -795,12 +811,15 @@ class MainWindow(QMainWindow):
         for n, b in self.tool_buttons.items():
             b.setChecked(n == name)
         self.viewer.tool = name
-        self.viewer.setCursor(Qt.CrossCursor if name in ("face", "hole") else Qt.ArrowCursor)
+        self.viewer.setCursor(Qt.CrossCursor if name in ("face", "hole", "measure") else Qt.ArrowCursor)
+        if name != "measure":
+            self.viewer.measure_points = []
         if name != "move":
             self._set_pick_mode(None)
             if self.viewer.mode != "prepare":
                 self.set_mode("prepare")
-        hint = {"rotate": "tool_rotate_hint", "face": "tool_face_hint", "hole": "tool_hole_hint"}.get(name)
+        hint = {"rotate": "tool_rotate_hint", "face": "tool_face_hint", "hole": "tool_hole_hint",
+                "measure": "tool_measure_hint"}.get(name)
         if hint:
             self.status.setText(tr(hint))
         self.viewer.update()
@@ -885,6 +904,123 @@ class MainWindow(QMainWindow):
         tubes = sla.hole_meshes([o.world_drain_holes(lift)], cfg)
         return Mesh.merge(tubes).transform(np.linalg.inv(self._display_matrix(o)))
 
+    def _on_measured(self, a, b):
+        d = np.asarray(b) - np.asarray(a)
+        self.status.setText(tr("measure_result").format(float(np.linalg.norm(d)), *np.abs(d)))
+
+    def _toggle_cutter(self, on):
+        if self._syncing:
+            return
+        obj = self.selected()
+        if obj:
+            self._push_undo()
+            obj.role = "cutter" if on else "model"
+            obj.support_points = None
+            self._refresh_objects(select=obj.uid)
+
+    def add_text(self):
+        from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLineEdit
+        from .. import mesh_tools
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("add_text"))
+        form = QFormLayout(dlg)
+        text = QLineEdit("UniSlicer")
+        height, depth = _spin(1, 200, 1, 1, " mm", 110), _spin(0.2, 50, 0.1, 2, " mm", 110)
+        height.setValue(8.0)
+        depth.setValue(1.5)
+        mode = QComboBox()
+        mode.addItem(tr("text_emboss"), "model")
+        mode.addItem(tr("text_engrave"), "cutter")
+        form.addRow(tr("text_text"), text)
+        form.addRow(tr("text_height"), height)
+        form.addRow(tr("text_depth"), depth)
+        form.addRow(tr("text_mode"), mode)
+        note = QLabel(tr("text_note"))
+        note.setObjectName("Faint")
+        note.setWordWrap(True)
+        form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.Accepted or not text.text().strip():
+            return
+        try:
+            mesh = mesh_tools.text_mesh(text.text().strip(), height.value(), depth.value())
+        except ValueError as exc:
+            QMessageBox.warning(self, tr("add_text"), str(exc))
+            return
+        obj = self.add_mesh(mesh, rearrange=False)
+        obj.role = mode.currentData()
+        sel = self.selected()
+        self._refresh_objects(select=obj.uid)
+        if sel is not None:
+            obj.x, obj.y = sel.x, sel.y
+        self._objects_changed()
+
+    def cut_selected(self):
+        from .. import mesh_tools
+        obj = self.selected()
+        if not obj:
+            self.status.setText(tr("select_first"))
+            return
+        b = obj.world_bounds()
+        z, ok = QInputDialog.getDouble(self, tr("cut_height"), tr("cut_height_q"), round((b[0, 2] + b[1, 2]) / 2, 2),
+                                       b[0, 2] + 0.01, b[1, 2] - 0.01, 2)
+        if not ok:
+            return
+        try:
+            lo, hi = mesh_tools.cut_mesh(obj.world_mesh(), z)
+        except Exception as exc:
+            QMessageBox.warning(self, tr("cut_height"), str(exc))
+            return
+        self._push_undo()
+        self._replace_with_parts(obj, [lo, hi])
+
+    def split_selected(self):
+        from .. import mesh_tools
+        obj = self.selected()
+        if not obj:
+            self.status.setText(tr("select_first"))
+            return
+        parts = mesh_tools.split_parts(obj.world_mesh())
+        if len(parts) < 2:
+            self.status.setText(tr("split_single"))
+            return
+        self._push_undo()
+        self._replace_with_parts(obj, parts)
+
+    def _replace_with_parts(self, obj, meshes):
+        """Swap ``obj`` for new objects made from world-space ``meshes``, keeping them where they were."""
+        idx = self.objects.index(obj)
+        new = []
+        for m in meshes:
+            if len(m.faces) == 0:
+                continue
+            b = m.bounds
+            o = SceneObject.from_mesh(m)
+            o.x, o.y, o.z = (b[0, 0] + b[1, 0]) / 2, (b[0, 1] + b[1, 1]) / 2, max(0.0, b[0, 2])
+            new.append(o)
+        self.objects[idx:idx + 1] = new
+        self.viewer.remove_object(obj.uid)
+        self._refresh_objects(select=new[0].uid if new else None)
+        self.status.setText(tr("parts_made").format(len(new)))
+
+    def repair_selected(self):
+        from .. import mesh_tools
+        targets = self._support_targets()
+        if not targets:
+            return
+        self._push_undo()
+        totals = {"duplicates": 0, "flipped": 0, "holes_filled": 0}
+        for o in targets:
+            fixed, rep = mesh_tools.repair(o.mesh)
+            o.mesh = fixed
+            for k in totals:
+                totals[k] += rep[k]
+        self._objects_changed()
+        self.status.setText(tr("repair_done").format(totals["flipped"], totals["holes_filled"], totals["duplicates"]))
+
     def _on_preview_click(self, uid):
         self.set_mode("prepare")
         self._select_uid(uid)
@@ -907,7 +1043,7 @@ class MainWindow(QMainWindow):
         self._push_undo()
         self.objects += [obj.duplicate() for _ in range(count)]
         cfg = self.settings.config()
-        if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"], rect=plate_rect(cfg)):
+        if not arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=plate_rect(cfg)):
             self.status.setText(tr("arrange_full"))
         self._refresh_objects(select=obj.uid)
 
@@ -941,7 +1077,8 @@ class MainWindow(QMainWindow):
         self._syncing = True
         self.object_list.clear()
         for o in self.objects:
-            it = QListWidgetItem(theme.icon("cube", theme.TEXT_DIM, 16), o.name or "object")
+            label = (o.name or "object") + ("  ✂" if o.role == "cutter" else "")
+            it = QListWidgetItem(theme.icon("cube", theme.DANGER if o.role == "cutter" else theme.TEXT_DIM, 16), label)
             it.setData(Qt.UserRole, o.uid)
             self.object_list.addItem(it)
             if o.uid == select:
@@ -958,7 +1095,8 @@ class MainWindow(QMainWindow):
             if uid not in uids:
                 self.viewer.remove_object(uid)
         for o in self.objects:
-            self.viewer.set_object(o.uid, o.mesh, self._display_matrix(o), "outside" if o.uid in outside else "normal")
+            state = "cutter" if o.role == "cutter" else ("outside" if o.uid in outside else "normal")
+            self.viewer.set_object(o.uid, o.mesh, self._display_matrix(o), state)
             self.viewer.set_object_supports(o.uid, self._support_preview(o, cfg))
             self.viewer.set_object_holes(o.uid, self._hole_preview(o, cfg))
         sel = self.selected()
@@ -979,6 +1117,8 @@ class MainWindow(QMainWindow):
             size = obj.world_size()
             self.pos_x.setValue(obj.x)
             self.pos_y.setValue(obj.y)
+            self.pos_z.setValue(obj.z)
+            self.cutter_box.setChecked(obj.role == "cutter")
             for i in range(3):
                 self.rot[i].setValue(float(obj.rotation[i]))
                 self.scale[i].setValue(float(obj.scale[i] * 100))
@@ -1005,6 +1145,8 @@ class MainWindow(QMainWindow):
             obj.x = value
         elif what == "y":
             obj.y = value
+        elif what == "z":
+            obj.z = value
         elif what == "rot":
             obj.rotation[axis] = value
         elif what in ("scale", "size"):
@@ -1222,7 +1364,7 @@ class MainWindow(QMainWindow):
                 o.x += dx
                 o.y += dy
             if out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=rect):
-                arrange(self.objects, cfg["bed_x"], cfg["bed_y"], rect=rect)
+                arrange(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["arrange_spacing"], rect=rect)
             self.viewer.view_preset("iso")
         self._plate = rect
         self.stat_material.set("—", tr("stat_resin") if tech == "sla" else tr("stat_filament"))
@@ -1287,16 +1429,21 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, tr("slice"), tr("out_of_bounds").format(", ".join(o.name for o in outside)))
             return
         self._learn_from_scene(cfg)
-        meshes = [o.world_mesh() for o in self.objects]
-        manual = [o.world_support_points(0.0) for o in self.objects]
-        holes = [o.world_drain_holes(0.0) for o in self.objects]
+        models = [o for o in self.objects if o.role != "cutter"]
+        if not models:
+            self.status.setText(tr("no_models"))
+            return
+        meshes = [o.world_mesh() for o in models]
+        cutters = [o.world_mesh() for o in self.objects if o.role == "cutter"]
+        manual = [o.world_support_points(0.0) for o in models]
+        holes = [o.world_drain_holes(0.0) for o in models]
         name = self.objects[0].name or "print"
 
         def work(progress, cancelled):
             if cfg["technology"] == "sla":
-                job = sla.prepare(meshes, cfg, progress, cancelled, support_points=manual, holes=holes)
+                job = sla.prepare(meshes, cfg, progress, cancelled, support_points=manual, holes=holes, cutters=cutters)
                 return ("sla", job, cfg)
-            plan = fdm.plan(meshes, cfg, progress, cancelled)
+            plan = fdm.plan(meshes, cfg, progress, cancelled, cutters=cutters)
             progress("gcode", 0.0)
             text, stats = gcode.generate(plan, cfg, name)
             progress("preview", 0.0)
@@ -1705,11 +1852,12 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, tr("export_stl"), os.path.join(last, name + ".stl"), "STL (*.stl)")
         if not path:
             return
-        meshes = [o.world_mesh() for o in self.objects]
+        models = [o for o in self.objects if o.role != "cutter"]
+        meshes = [o.world_mesh() for o in models]
         if cfg["technology"] == "sla" and cfg["support_enable"]:
             lift = self._lift(cfg)
             parts = []
-            for o, m in zip(self.objects, meshes):
+            for o, m in zip(models, meshes):
                 lifted = m.translated([0, 0, lift])
                 sup, _ = sla_supports.build_supports(lifted, cfg, o.world_support_points(lift))
                 parts += [lifted, sup]

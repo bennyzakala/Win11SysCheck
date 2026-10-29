@@ -69,6 +69,7 @@ SCHEMA: list[Setting] = [
     S("plate_depth", "float", 0.0, "printer", "both", "עומק משטח הדפסה (0 = מלא)", "Build plate depth (0 = full)", "mm", 0, 2000, 1, advanced=True),
     S("plate_offset_x", "float", 0.0, "printer", "both", "היסט משטח X", "Plate offset X", "mm", -1000, 1000, 0.5, advanced=True),
     S("plate_offset_y", "float", 0.0, "printer", "both", "היסט משטח Y", "Plate offset Y", "mm", -1000, 1000, 0.5, advanced=True),
+    S("arrange_spacing", "float", 6.0, "printer", "both", "מרווח בסידור אוטומטי", "Auto-arrange spacing", "mm", 0, 50, 0.5, advanced=True),
     S("origin_center", "bool", False, "printer", "fdm", "ראשית במרכז המשטח", "Origin at bed center",
       tip_he="סמן עבור מדפסות דלתא ומדפסות שהראשית שלהן במרכז", tip_en="Enable for delta printers"),
     S("nozzle_diameter", "float", 0.4, "printer", "fdm", "קוטר נחיר", "Nozzle diameter", "mm", 0.1, 2.0, 0.05),

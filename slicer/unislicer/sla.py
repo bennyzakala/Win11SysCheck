@@ -354,7 +354,7 @@ def find_thin(layers: list[MultiPolygon], min_width: float = 0.3, min_area: floa
 def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
             support_points: list[np.ndarray | None] | None = None,
-            holes: list[np.ndarray | None] | None = None) -> SlaJob:
+            holes: list[np.ndarray | None] | None = None, cutters: list[Mesh] | None = None) -> SlaJob:
     """Slice resin models. ``support_points[i]`` holds manual contact points for ``meshes[i]``
     (same coordinates, before elevation), or None to place supports automatically."""
     def report(stage, f):
@@ -398,9 +398,10 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         report("hollow", 0.0)
         layers, saved, notes = hollow(layers, lh, cfg)
         warnings += notes
-    cutters = hole_meshes(holes, cfg, lift if cfg["support_enable"] else 0.0)
-    if cutters:
-        cut_layers = slice_meshes(cutters, planes, cfg["resolution"])
+    lifted = lift if cfg["support_enable"] else 0.0
+    cutter_meshes = hole_meshes(holes, cfg, lifted) + [c.translated([0, 0, lifted]) for c in (cutters or [])]
+    if cutter_meshes:
+        cut_layers = slice_meshes(cutter_meshes, planes, cfg["resolution"])
         layers = [as_multipolygon(g.difference(c)) if not c.is_empty and not g.is_empty else g
                   for g, c in zip(layers, cut_layers)]
     thin = find_thin(layers, layer_height=lh)
