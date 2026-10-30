@@ -604,6 +604,89 @@ class SettingsPanel(QWidget):
         self.rebuild()
         self.changed.emit()
 
+    # ------------------------------------------------- section in a large window
+    def _section_menu(self, cat, global_pos):
+        """Right-click on a section header: open it in a large window, or open / close all sections."""
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        menu.addAction(theme.icon("fit"), tr("section_open"), lambda: self.open_section_window(cat))
+        menu.addSeparator()
+        menu.addAction(theme.icon("chevron_down"), tr("sections_expand"), lambda: self._expand_all(True))
+        menu.addAction(theme.icon("chevron"), tr("sections_collapse"), lambda: self._expand_all(False))
+        menu.exec(global_pos)
+
+    def _expand_all(self, on: bool):
+        for sec in self._sections.values():
+            sec.header.setChecked(on)
+
+    def open_section_window(self, cat):
+        """All settings of one section (advanced ones too) in a window 80% of the screen."""
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QGridLayout, QScrollArea
+        dlg = QDialog(self.window())
+        dlg.setWindowTitle(category_label(cat))
+        screen = (self.window().screen() or self.screen()).availableGeometry()
+        dlg.resize(int(screen.width() * 0.8), int(screen.height() * 0.8))
+        dlg.move(screen.x() + int(screen.width() * 0.1), screen.y() + int(screen.height() * 0.1))
+        outer = QVBoxLayout(dlg)
+        head = QHBoxLayout()
+        title = QLabel(category_label(cat))
+        title.setStyleSheet("font-size: 18px; font-weight: 700;")
+        icon = QLabel()
+        icon.setPixmap(theme.icon(cat[3], theme.ACCENT, 22).pixmap(22, 22))
+        head.addWidget(icon)
+        head.addWidget(title, 1)
+        search = QLineEdit()
+        search.setPlaceholderText(tr("search"))
+        search.setFixedWidth(260)
+        head.addWidget(search)
+        outer.addLayout(head)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        outer.addWidget(scroll, 1)
+
+        def fill():
+            cfg = self.config()
+            items = [x for x in visible_settings(cat[0], self.technology, True) if x.key != "technology"]
+            if self.technology == "sla":
+                items = [x for x in items if applies_to_process(x, cfg["sla_process"])]
+            text = search.text().strip().lower()
+            if text:
+                items = [x for x in items if text in label(x).lower() or text in x.key or text in x.en.lower()]
+            box = QWidget()
+            grid = QGridLayout(box)
+            grid.setContentsMargins(8, 8, 8, 8)
+            grid.setHorizontalSpacing(28)
+            grid.setVerticalSpacing(8)
+            cols = 2 if dlg.width() > 1100 else 1
+            per_col = (len(items) + cols - 1) // cols
+            for k, setting in enumerate(items):
+                row = SettingRow(setting, cfg[setting.key], setting.key in self.overrides, cfg)
+                row.setToolTip(tip(setting))
+                row.changed.connect(changed)
+                row.reset.connect(reset)
+                grid.addWidget(row, k % per_col if per_col else 0, k // per_col if per_col else 0)
+            grid.setRowStretch(per_col + 1, 1)
+            scroll.setWidget(box)
+
+        def changed(key, value):
+            self._on_changed(key, value)
+            if key in ("sla_process", "sla_support_preset"):
+                QTimer.singleShot(0, fill)
+
+        def reset(key):
+            self.overrides.pop(key, None)
+            self.changed.emit()
+            fill()
+
+        search.textChanged.connect(lambda _t: fill())
+        fill()
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.button(QDialogButtonBox.Close).setText(tr("close"))
+        buttons.rejected.connect(dlg.reject)
+        outer.addWidget(buttons)
+        dlg.finished.connect(lambda _r: self.rebuild())      # the side panel shows the new values
+        dlg.exec()
+
     def reset_all(self):
         self.overrides.clear()
         self.rebuild()
@@ -645,6 +728,9 @@ class SettingsPanel(QWidget):
                 continue
             expanded = bool(self.filter_text) or self._expanded.get(cat[0], cat[0] in EXPANDED_BY_DEFAULT)
             sec = Section(category_label(cat), cat[3], expanded)
+            sec.header.setContextMenuPolicy(Qt.CustomContextMenu)
+            sec.header.customContextMenuRequested.connect(
+                lambda pos, c=cat, h=sec.header: self._section_menu(c, h.mapToGlobal(pos)))
             for s in items:
                 row = SettingRow(s, cfg[s.key], s.key in self.overrides, cfg)
                 row.changed.connect(self._on_changed)

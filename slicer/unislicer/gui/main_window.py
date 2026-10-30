@@ -1991,6 +1991,7 @@ class MainWindow(QMainWindow):
             rows[key] = row
         fill()
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.button(QDialogButtonBox.Close).setText(tr("close"))
         buttons.rejected.connect(dlg.close)
         lay.addWidget(buttons)
         self._raft_dialog = dlg
