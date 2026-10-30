@@ -1135,3 +1135,17 @@ def test_dental_shades_regions_import_export(tmp_path):
     project.save(str(pp), [o2], {})
     loaded, _ = project.load(str(pp))
     assert [r["shade"] for r in loaded[0].regions] == [r["shade"] for r in regions]
+
+
+def test_copies_of_a_part_compare_by_identity():
+    """Multiply / duplicate make parts with the same mesh and values; lists of them must still work
+    (auto layout after 'multiply' used to fail comparing their rotation arrays)."""
+    from unislicer import layout
+    a = placed(primitives.box(10, 10, 10), 50, 50)
+    copies = [a.duplicate() for _ in range(3)]
+    parts = [a] + copies
+    assert copies[1] in parts and parts.index(copies[2]) == 3 and a != copies[0]
+    cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {})
+    from unislicer.scene import plate_area
+    assert layout.auto_layout(parts, plate_area(cfg), layout.LayoutOptions(), selected=copies[:2]) == []
+    assert layout.auto_layout(parts, plate_area(cfg), layout.LayoutOptions(scope="selected"), selected=copies[:2]) == []

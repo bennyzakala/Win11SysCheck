@@ -11,7 +11,7 @@ from .mesh import Mesh, euler_matrix
 _ids = itertools.count(1)
 
 
-@dataclass
+@dataclass(eq=False)       # each part is itself: compare by identity (copies share a mesh and equal fields)
 class SceneObject:
     mesh: Mesh                                  # source mesh, centred on its own origin
     name: str = ""
