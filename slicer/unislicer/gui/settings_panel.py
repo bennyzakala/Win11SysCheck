@@ -109,6 +109,27 @@ class SettingRow(QWidget):
         if modified:
             self.label.setStyleSheet(f"color: {theme.TEXT}; font-weight: 600;")
 
+    def set_value(self, value):
+        """Show ``value`` without emitting a change."""
+        w = self.editor
+        w.blockSignals(True)
+        try:
+            if self.setting.kind == "bool":
+                w.setChecked(bool(value))
+            elif self.setting.kind == "enum":
+                w.setCurrentIndex(max(0, w.findData(value)))
+            elif self.setting.kind == "text":
+                if hasattr(w, "setPlainText"):
+                    w.setPlainText(str(value))
+                else:
+                    w.setText(str(value))
+            elif self.setting.kind == "int":
+                w.setValue(int(value))
+            else:
+                w.setValue(float(value))
+        finally:
+            w.blockSignals(False)
+
     def _make_editor(self, s, value, cfg: Config):
         if s.kind == "bool":
             w = QCheckBox()
@@ -564,13 +585,18 @@ class SettingsPanel(QWidget):
         return self.base_config().update(self.overrides)
 
     def set_value(self, key: str, value):
-        """Programmatic override (e.g. the overhang toggle in the viewport)."""
+        """Programmatic override (e.g. the overhang toggle in the viewport). Only that row is refreshed;
+        the whole panel is rebuilt only when the change alters which settings exist (process, preset)."""
         self._programmatic = True     # not a user habit: don't teach the assistant
         try:
             self._on_changed(key, value)
         finally:
             self._programmatic = False
-        self.rebuild()
+        row = self._rows.get(key)
+        if row is None or key in ("sla_process", "sla_support_preset", "technology"):
+            self.rebuild()
+            return
+        row.set_value(self.config()[key])
 
     def _on_changed(self, key, value):
         if self._building:

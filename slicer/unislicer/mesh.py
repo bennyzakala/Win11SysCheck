@@ -83,8 +83,31 @@ class Mesh:
         return n / length
 
     def face_areas(self) -> np.ndarray:
-        t = self.triangles
-        return 0.5 * np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
+        cached = self.__dict__.get("_areas")
+        if cached is None or len(cached) != len(self.faces):
+            t = self.triangles
+            cached = 0.5 * np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
+            self._areas = cached
+        return cached
+
+    def decimated(self, target_faces: int = 60000) -> "Mesh":
+        """A light look-alike for drawing while the view moves: vertices merged on a grid sized so that
+        about ``target_faces`` triangles remain (vertex clustering). Returns self if already small."""
+        if len(self.faces) <= target_faces:
+            return self
+        area = float(self.face_areas().sum()) or 1.0
+        cell = (2.0 * area / target_faces) ** 0.5
+        keys = np.floor((self.vertices - self.vertices.min(axis=0)) / cell).astype(np.int64)
+        _, cluster, counts = np.unique(keys, axis=0, return_inverse=True, return_counts=True)
+        cluster = cluster.ravel()
+        verts = np.zeros((len(counts), 3))
+        np.add.at(verts, cluster, self.vertices)
+        verts /= counts[:, None]
+        f = cluster[self.faces]
+        ok = (f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 0] != f[:, 2])
+        f = f[ok]
+        _, first = np.unique(np.sort(f, axis=1), axis=0, return_index=True)
+        return Mesh(verts, f[np.sort(first)], self.name)
 
     def volume(self) -> float:
         if self._volume is None:

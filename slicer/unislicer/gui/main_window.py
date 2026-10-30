@@ -2143,6 +2143,7 @@ class MainWindow(QMainWindow):
         if not any(o.uid == uid for o in group):
             group = [o for o in self.objects if o.uid == uid]
         if group:
+            self.viewer.begin_interaction()
             if not self._dragging:
                 self._push_undo()
                 self._dragging = True
@@ -2318,6 +2319,7 @@ class MainWindow(QMainWindow):
         self.viewer.pick_mode = mode
         self.viewer.set_marker(None)
         self.viewer.set_highlight(None)
+        self._hover_key = None
         self.viewer.setCursor(Qt.CrossCursor if mode else Qt.ArrowCursor)
         if mode:
             self.edit_bar.hide()
@@ -2428,11 +2430,25 @@ class MainWindow(QMainWindow):
         return max(1.5, cfg["sla_pillar_diameter"] * 1.5)
 
     def _on_support_hover(self, origin, direction, uid, point):
-        """Remove mode: the support under the cursor turns red. Add mode: a dot where the support would touch."""
+        """Remove mode: the support under the cursor turns red. Add mode: a dot where the support would touch.
+        Mouse moves are coalesced: only the latest is handled, at most every ~30 ms."""
+        self._hover_args = (origin, direction, uid, point)
+        if not hasattr(self, "_hover_timer"):
+            self._hover_timer = QTimer(self)
+            self._hover_timer.setSingleShot(True)
+            self._hover_timer.setInterval(30)
+            self._hover_timer.timeout.connect(lambda: self._support_hover_now(*self._hover_args))
+        if not self._hover_timer.isActive():
+            self._hover_timer.start()
+
+    def _support_hover_now(self, origin, direction, uid, point):
         mode = self.viewer.pick_mode
         if mode == "remove":
             found = self._support_under_ray(origin, direction)
-            self.viewer.set_highlight(found[2] if found else None)
+            key = (found[0].uid, found[1]) if found else None
+            if key != getattr(self, "_hover_key", None):       # only re-upload when another support is hit
+                self._hover_key = key
+                self.viewer.set_highlight(found[2] if found else None)
         elif mode == "add":
             o = next((x for x in self.objects if x.uid == uid), None)
             if o is None:
@@ -2459,6 +2475,7 @@ class MainWindow(QMainWindow):
             o, k, _ = found
         self._push_undo()
         self.viewer.set_highlight(None)
+        self._hover_key = None
         self.status.setText(tr("sup_removed_one"))
         o.support_points = np.delete(o.support_points, k, axis=0)
         session = o.__dict__.get("support_session")
@@ -2925,11 +2942,15 @@ class MainWindow(QMainWindow):
             return 0
         cache = self.__dict__.setdefault("_footprints", {})
         prints = []
+        from shapely import affinity
         for o in parts:
-            key = (o.matrix().tobytes(), o.x, o.y)
-            if cache.get(o.uid, (None,))[0] != key:
-                cache[o.uid] = (key, footprint(o))
-            prints.append(cache[o.uid][1])
+            # the outline only changes with rotation / scale; moving just shifts it
+            key = (id(o.mesh), o.matrix().tobytes())
+            hit = cache.get(o.uid)
+            if hit is None or hit[0] != key:
+                hit = (key, footprint(o), o.x, o.y)
+                cache[o.uid] = hit
+            prints.append(affinity.translate(hit[1], o.x - hit[2], o.y - hit[3]))
         bad = set()
         for i in range(len(prints)):
             for j in range(i + 1, len(prints)):
@@ -3113,12 +3134,27 @@ class MainWindow(QMainWindow):
         """Save the plate every two minutes, so a crash or power cut loses little work."""
         if not self.objects or (self.task is not None and self.task.isRunning()):
             return
-        try:
+        running = getattr(self, "_autosave_task", None)
+        if running is not None and running.isRunning():
+            return
+        # a snapshot is written on a background thread, so the window never pauses for it
+        snapshot = [o.duplicate() for o in self.objects]
+        for copy, o in zip(snapshot, self.objects):
+            copy.name = o.name
+        state = self.settings.state()
+        path = self._autosave_path()
+
+        def work(progress, cancelled):
             os.makedirs(profiles.USER_DIR, exist_ok=True)
-            project.save(self._autosave_path(), self.objects, self.settings.state())
-            self.store.setValue("autosave_clean", "false")
-        except Exception:                         # autosave must never disturb the user
-            pass
+            tmp = path + ".tmp"
+            project.save(tmp, snapshot, state)
+            os.replace(tmp, path)
+            return True
+
+        task = Task(work, self)
+        task.succeeded.connect(lambda _r: self.store.setValue("autosave_clean", "false"))
+        self._autosave_task = task
+        task.start()
 
     def offer_recovery(self):
         """After a crash: offer the plate saved by autosave."""
@@ -3239,6 +3275,10 @@ class MainWindow(QMainWindow):
         if self.task is not None and self.task.isRunning():
             self.task.cancel()
             self.task.wait(3000)
+        # background helpers must finish before the window goes away (a running thread would crash)
+        for t in (getattr(self, "_autosave_task", None), getattr(self, "_orient_task", None)):
+            if t is not None and t.isRunning():
+                t.wait(5000)
         self.store.setValue("geometry", self.saveGeometry())
         self._save_state()
         self.store.setValue("autosave_clean", "true")     # a normal exit: nothing to recover next time

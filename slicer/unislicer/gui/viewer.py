@@ -267,6 +267,14 @@ class Viewer(QOpenGLWidget):
         self.highlight = None                    # (mesh in bed coordinates, buffer) of the support under the cursor
         self.warning = None                      # (mesh, buffer): overhangs no support reaches, drawn red
         self.section_z = 1e9                     # clipping height of the section view in the prepare mode
+        # while the view or a model moves, big meshes are drawn from a light copy; full detail returns
+        # a moment after the movement stops
+        from PySide6.QtCore import QTimer
+        self.interacting = False
+        self._settle = QTimer(self)
+        self._settle.setSingleShot(True)
+        self._settle.setInterval(220)
+        self._settle.timeout.connect(self._end_interaction)
         self.tool = "move"                       # move | rotate | face | hole | measure
         self.measure_points: list = []
         self.measure_hover = None                # cursor point while measuring (line follows it)
@@ -337,8 +345,9 @@ class Viewer(QOpenGLWidget):
         if old is not None and old["mesh"] is mesh:
             old["matrix"], old["state"] = matrix, state
         else:
-            if old and old.get("buffer"):
-                self._trash(old["buffer"])
+            for key in ("buffer", "buffer_lod"):
+                if old and old.get(key):
+                    self._trash(old[key])
             self.objects[uid] = {"mesh": mesh, "buffer": None, "state": state, "matrix": matrix}
         self.update()
 
@@ -355,7 +364,7 @@ class Viewer(QOpenGLWidget):
     def remove_object(self, uid):
         obj = self.objects.pop(uid, None)
         if obj:
-            for key in ("buffer", "sup_buffer", "hole_buffer"):
+            for key in ("buffer", "sup_buffer", "hole_buffer", "buffer_lod", "sup_buffer_lod"):
                 if obj.get(key):
                     self._trash(obj[key])
         self.update()
@@ -377,7 +386,9 @@ class Viewer(QOpenGLWidget):
             return                        # unchanged: keep what is already on the GPU
         if obj.get("sup_buffer"):
             self._trash(obj["sup_buffer"])
-        obj["supports"], obj["sup_buffer"] = mesh, None
+        if obj.get("sup_buffer_lod"):
+            self._trash(obj["sup_buffer_lod"])
+        obj["supports"], obj["sup_buffer"], obj["sup_buffer_lod"] = mesh, None, None
         self.update()
 
     def set_selected(self, uid, others=None):
@@ -402,6 +413,27 @@ class Viewer(QOpenGLWidget):
         if uid in self.objects:
             self.objects[uid]["hidden"] = bool(hidden)
             self.update()
+
+    LOD_FACES = 120000
+
+    def begin_interaction(self):
+        self.interacting = True
+        self._settle.start()
+
+    def _end_interaction(self):
+        self.interacting = False
+        self.update()
+
+    def _buffer_for(self, obj, key: str, mesh_key: str):
+        """The GPU buffer to draw: the light copy while interacting with a big mesh, else the full one."""
+        mesh = obj.get(mesh_key)
+        if self.interacting and mesh is not None and len(mesh.faces) > self.LOD_FACES:
+            lod = obj.get(key + "_lod")
+            if lod is None:
+                lod = _Buffer(mesh_vertices(mesh.decimated(self.LOD_FACES // 2)), [3, 3])
+                obj[key + "_lod"] = lod
+            return lod
+        return obj.get(key)
 
     def set_marker(self, point):
         """Mark where a support would be added (None hides it)."""
@@ -500,7 +532,7 @@ class Viewer(QOpenGLWidget):
             self.glFailed.emit(str(exc))
 
     def _trash(self, buf):
-        if hasattr(self, "_trash_list"):
+        if buf is not None and hasattr(self, "_trash_list"):
             self._trash_list.append(buf)
 
     def _u(self, prog, name):
@@ -610,7 +642,7 @@ class Viewer(QOpenGLWidget):
                     theme.MODEL_SELECTED if uid in self.selection else theme.MODEL_COLOR)
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 self._set_model(p, obj["matrix"])
-                obj["buffer"].draw(GL.GL_TRIANGLES)
+                self._buffer_for(obj, "buffer", "mesh").draw(GL.GL_TRIANGLES)
                 if obj.get("hole_buffer") is not None and not preview:
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
                     GL.glUniform3f(self._u(p, "uColor"), 1.0, 0.35, 0.42)
@@ -619,7 +651,7 @@ class Viewer(QOpenGLWidget):
                 if obj.get("sup_buffer") is not None and not preview and self.technology == "sla":
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
                     GL.glUniform3f(self._u(p, "uColor"), *theme.SUPPORT_COLOR)
-                    obj["sup_buffer"].draw(GL.GL_TRIANGLES)
+                    self._buffer_for(obj, "sup_buffer", "supports").draw(GL.GL_TRIANGLES)
                     GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
         GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
         cutters = [(uid, o) for uid, o in self.objects.items() if o["state"] == "cutter"] if not preview else []
@@ -1034,6 +1066,8 @@ class Viewer(QOpenGLWidget):
 
     def mouseMoveEvent(self, e):
         pos = e.position()
+        if e.buttons():
+            self.begin_interaction()
         dx, dy = pos.x() - self._last.x(), pos.y() - self._last.y()
         self._last = pos
         if self._rot is not None and e.buttons() & Qt.LeftButton:
@@ -1141,6 +1175,7 @@ class Viewer(QOpenGLWidget):
             self.objectClicked.emit(None, 0)
 
     def wheelEvent(self, e):
+        self.begin_interaction()
         steps = e.angleDelta().y() / 120.0
         self.camera.distance = float(np.clip(self.camera.distance * (0.88 ** steps), 5.0, 5000.0))
         self.update()
