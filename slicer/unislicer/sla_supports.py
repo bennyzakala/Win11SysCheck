@@ -35,15 +35,38 @@ def _ray_hits(tris: np.ndarray, xy: np.ndarray):
 class _Caster:
     """Vertical rays against one mesh, with a per-triangle XY bounding-box prefilter."""
 
-    def __init__(self, mesh: Mesh):
+    def __init__(self, mesh: Mesh, cell: float = 2.0):
         self.tris = mesh.triangles
         self.normals = mesh.face_normals()
         self.tmin = self.tris[:, :, :2].min(axis=1)
         self.tmax = self.tris[:, :, :2].max(axis=1)
+        # XY bucket grid: each cell lists the triangles whose footprint touches it, so a vertical ray
+        # only looks at a handful of triangles instead of the whole model
+        self.cell = cell
+        self.origin = self.tmin.min(axis=0) if len(self.tris) else np.zeros(2)
+        i0 = np.floor((self.tmin - self.origin) / cell).astype(np.int64)
+        i1 = np.floor((self.tmax - self.origin) / cell).astype(np.int64)
+        self.ny = int(i1[:, 1].max()) + 1 if len(self.tris) else 1
+        w, h = i1[:, 0] - i0[:, 0] + 1, i1[:, 1] - i0[:, 1] + 1
+        count = w * h
+        tri = np.repeat(np.arange(len(self.tris)), count)
+        k = np.arange(int(count.sum())) - np.repeat(np.cumsum(count) - count, count)
+        keys = (i0[tri, 0] + k % w[tri]) * self.ny + (i0[tri, 1] + k // w[tri])
+        order = np.argsort(keys, kind="stable")
+        self.keys, self.bucket = keys[order], tri[order]
+
+    def _near(self, x: float, y: float) -> np.ndarray:
+        cx = int(np.floor((x - self.origin[0]) / self.cell))
+        cy = int(np.floor((y - self.origin[1]) / self.cell))
+        if cx < 0 or cy < 0 or cy >= self.ny:
+            return np.zeros(0, dtype=np.int64)
+        key = cx * self.ny + cy
+        a, b = np.searchsorted(self.keys, [key, key + 1])
+        return self.bucket[a:b]
 
     def hits(self, x: float, y: float, candidates: np.ndarray | None = None):
         """Sorted (z, face index) of all surfaces crossed by the vertical line through (x, y)."""
-        idx = candidates if candidates is not None else np.arange(len(self.tris))
+        idx = candidates if candidates is not None else self._near(x, y)
         sel = idx[(self.tmin[idx, 0] <= x) & (self.tmax[idx, 0] >= x) & (self.tmin[idx, 1] <= y) & (self.tmax[idx, 1] >= y)]
         if len(sel) == 0:
             return np.zeros(0), np.zeros(0, dtype=int)
@@ -336,17 +359,23 @@ def _rafts(feet: list, cfg: Config, pad: float) -> list[Mesh]:
     return [_slab(hull, 0.0, raft, slope)]
 
 
-def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, owners: dict | None = None):
+def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, owners: dict | None = None,
+                   cache: dict | None = None):
     """Support geometry for a model that already sits at its elevated height.
 
     ``points`` are contact points in the same coordinates (None = generate them automatically).
     Returns the support mesh and the points that actually got a support. With ``owners`` (a dict),
     it is filled with "faces": the owner group of every support face (-1 = raft) and "groups": for each
-    group the indices of ``points`` it belongs to, so a click on any part of a support can find it."""
+    group the indices of ``points`` it belongs to, so a click on any part of a support can find it.
+    ``cache`` (a dict kept by the caller for this exact mesh) keeps the ray and underside indexes
+    between calls, which makes re-building after adding or removing one support quick."""
+    cache = {} if cache is None else cache
     if points is None:
         points = auto_support_points(mesh, cfg)
     points = np.asarray(points, dtype=np.float64).reshape(-1, 3)
-    caster = _Caster(mesh)
+    if "caster" not in cache:
+        cache["caster"] = _Caster(mesh)
+    caster = cache["caster"]
     tip_r = cfg["sla_tip_diameter"] / 2
     pillar_r = max(cfg["sla_pillar_diameter"] / 2, tip_r)
     raft = 0.0 if cfg["sla_raft_type"] == "none" else cfg["sla_raft_thickness"]
@@ -483,8 +512,13 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
                 pillars.append((x, y, body_z, top - h_len, pillar_r))
         head(x, y, top, h_len, pillar_r, tip)
 
+    def underside():
+        if "under" not in cache:
+            cache["under"] = _Underside(mesh)
+        return cache["under"]
+
     if tree_tips:
-        under = _Underside(mesh)
+        under = underside()
         branch_r = pillar_r * 0.8
 
         def radius(weight):
@@ -508,7 +542,7 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
 
     cur[0] = -1                        # braces and rafts are shared
     if cfg["sla_bracing"] and len(pillars) > 1:
-        parts += _braces(pillars, _Underside(mesh), cfg, segs)
+        parts += _braces(pillars, underside(), cfg, segs)
 
     parts += _rafts(feet, cfg, pillar_r * 4)
     merged = Mesh.merge(list(parts), "Supports")

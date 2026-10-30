@@ -628,6 +628,26 @@ class MainWindow(QMainWindow):
         self.assistant_wrap = awrap
         awrap.hide()
 
+        # collision warning (top centre)
+        self.collision_wrap = QWidget()
+        self.collision_wrap.setObjectName("Overlay")
+        cwl0 = QHBoxLayout(self.collision_wrap)
+        cwl0.setContentsMargins(0, 72, 0, 0)
+        banner = QFrame()
+        banner.setStyleSheet(f"QFrame {{ background: {theme.DANGER}; border-radius: 10px; }} QLabel {{ color: white; font-weight: 600; }}")
+        bl = QHBoxLayout(banner)
+        bl.setContentsMargins(14, 8, 8, 8)
+        self.collision_label = QLabel("")
+        bl.addWidget(self.collision_label)
+        fix = QPushButton(tr("auto_layout"))
+        fix.setStyleSheet("QPushButton { background: white; color: black; border: none; border-radius: 7px; padding: 5px 12px; font-weight: 600; }")
+        fix.setCursor(Qt.PointingHandCursor)
+        fix.clicked.connect(lambda: self.auto_layout(scope="all", dialog=False))
+        bl.addWidget(fix)
+        cwl0.addWidget(banner)
+        grid.addWidget(self.collision_wrap, 0, 0, Qt.AlignTop | Qt.AlignHCenter)
+        self.collision_wrap.hide()
+
         # view cube (top right): click a face, edge or corner to look from there
         from .viewcube import ViewCube
         self.view_cube = ViewCube(self.viewer)
@@ -659,6 +679,10 @@ class MainWindow(QMainWindow):
             pass
         self.settings = SettingsPanel(s.value("printer", "creality_ender3v2"), s.value("material", None),
                                       s.value("quality", None), overrides, s.value("advanced", "false") == "true")
+        self._collision_timer = QTimer(self)
+        self._collision_timer.setSingleShot(True)
+        self._collision_timer.setInterval(250)
+        self._collision_timer.timeout.connect(self._check_collisions)
         # a burst of edits (typing, spin arrows held down) is handled once, after it settles
         self._settings_timer = QTimer(self)
         self._settings_timer.setSingleShot(True)
@@ -1335,8 +1359,10 @@ class MainWindow(QMainWindow):
         for uid in list(self.viewer.objects):
             if uid not in uids:
                 self.viewer.remove_object(uid)
+        colliding = getattr(self, "_colliding", set())
         for o in self.objects:
-            state = "cutter" if o.role == "cutter" else ("outside" if o.uid in outside else "normal")
+            state = "cutter" if o.role == "cutter" else ("outside" if o.uid in outside else
+                                                         "collision" if o.uid in colliding else "normal")
             self.viewer.set_object(o.uid, o.mesh, self._display_matrix(o), state)
             self.viewer.set_object_supports(o.uid, self._support_preview(o, cfg))
             self.viewer.set_object_holes(o.uid, self._hole_preview(o, cfg))
@@ -1348,6 +1374,8 @@ class MainWindow(QMainWindow):
         self._sync_transform()
         self._invalidate()
         self._schedule_suggestions()
+        if not self._dragging:
+            self._collision_timer.start()
         if outside:
             self.status.setText(tr("out_of_bounds").format(", ".join(sorted(outside.values()))))
 
@@ -1806,12 +1834,24 @@ class MainWindow(QMainWindow):
             return hit[1]
         lift = self._lift(cfg)
         disp = self._display_matrix(o)
-        world = o.mesh.transform(disp)
+        world, geo = self._support_geometry(o, lift)
         owners = {}
-        mesh, _ = sla_supports.build_supports(world, cfg, o.world_support_points(lift), owners=owners)
+        mesh, _ = sla_supports.build_supports(world, cfg, o.world_support_points(lift), owners=owners, cache=geo)
         local = mesh.transform(np.linalg.inv(disp)) if len(mesh.faces) else None
         self._support_cache[o.uid] = (key, local, owners)
         return local
+
+    def _support_geometry(self, o: SceneObject, lift: float):
+        """The raised model in bed coordinates and its ray / underside indexes, kept until the model
+        moves or turns, so adding or removing one support does not redo them."""
+        key = (id(o.mesh), o.world_matrix().tobytes(), lift)
+        cache = self.__dict__.setdefault("_geometry_cache", {})
+        hit = cache.get(o.uid)
+        if hit is None or hit[0] != key:
+            world = o.mesh.transform(o.world_matrix()).translated([0, 0, lift])
+            hit = (key, world, {})
+            cache[o.uid] = hit
+        return hit[1], hit[2]
 
     def _drop_supports(self, o: SceneObject):
         if o.support_points is not None:
@@ -1910,13 +1950,10 @@ class MainWindow(QMainWindow):
         p = np.asarray(point, dtype=float)
         if not self._shows_supports(o):
             p = p + [0, 0, lift]
-        world = o.mesh.transform(o.world_matrix()).translated([0, 0, lift])
-        cache = getattr(self, "_caster_cache", None)
-        key = (o.uid, o.matrix().tobytes(), lift, o.x, o.y, o.z)
-        if cache is None or cache[0] != key:
-            cache = (key, sla_supports._Caster(world))
-            self._caster_cache = cache
-        return sla_supports.underside_contact(cache[1], p)
+        world, geo = self._support_geometry(o, lift)
+        if "caster" not in geo:
+            geo["caster"] = sla_supports._Caster(world)
+        return sla_supports.underside_contact(geo["caster"], p)
 
     @staticmethod
     def _surface_angle(o: SceneObject, point) -> float:
@@ -2121,11 +2158,20 @@ class MainWindow(QMainWindow):
         if outside:
             QMessageBox.warning(self, tr("slice"), tr("out_of_bounds").format(", ".join(o.name for o in outside)))
             return
-        self._learn_from_scene(cfg)
         models = [o for o in self.objects if o.role != "cutter"]
         if not models:
             self.status.setText(tr("no_models"))
             return
+        if not self._confirm_supports(cfg, models):
+            return
+        self._check_collisions()
+        if getattr(self, "_collision_pairs", None):
+            ans = QMessageBox.warning(self, tr("collision_title"), self.collision_label.text() + "\n\n" + tr("collision_slice_q"),
+                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ans != QMessageBox.Yes:
+                return
+        cfg = self.settings.config()
+        self._learn_from_scene(cfg)
         meshes = [o.world_mesh() for o in models]
         cutters = [o.world_mesh() for o in self.objects if o.role == "cutter"]
         manual = [o.world_support_points(0.0) for o in models]
@@ -2147,6 +2193,38 @@ class MainWindow(QMainWindow):
             return ("fdm", plan, text, stats, verts, cfg)
 
         self._start_task(work, self._on_sliced, tr("slicing"))
+
+    def _confirm_supports(self, cfg, models) -> bool:
+        """Resin: warn before slicing parts that would print with no supports at all."""
+        if cfg["technology"] != "sla" or cfg["sla_process"] == "polyjet":
+            return True
+        bare = [o for o in models if not o.direct and (not cfg["support_enable"]
+                or (o.support_points is not None and len(o.support_points) == 0))]
+        if not bare:
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle(tr("no_supports_title"))
+        box.setText(tr("no_supports_text").format(", ".join(o.name or "model" for o in bare[:6])
+                                                  + ("…" if len(bare) > 6 else "")))
+        gen = box.addButton(tr("no_supports_generate"), QMessageBox.AcceptRole)
+        anyway = box.addButton(tr("no_supports_anyway"), QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(gen)
+        box.exec()
+        if box.clickedButton() is gen:
+            keep = self.selected_objects()
+            self._syncing = True
+            self.object_list.clearSelection()
+            for o in bare:
+                it = self._item(o.uid)
+                if it is not None:
+                    it.setSelected(True)
+            self._syncing = False
+            self.generate_supports()            # also turns supports on
+            self._refresh_objects(select=[o.uid for o in keep] or None)
+            return True
+        return box.clickedButton() is anyway
 
     def _start_task(self, fn, on_done, busy_text):
         self.task = Task(fn, self)
@@ -2389,6 +2467,46 @@ class MainWindow(QMainWindow):
                 "overrides": dict(self.settings.overrides), "plate_free_copies": free,
                 "overlapping": self._overlapping_count(),
                 "dismissed_session": self._dismissed_session}
+
+    def _column_map(self, o: SceneObject):
+        """Collision map of a part where it is drawn (cached per shape; moving only shifts it)."""
+        from .. import collision
+        disp = self._display_matrix(o)
+        key = (id(o.mesh), disp[:3, :3].tobytes())
+        cache = self.__dict__.setdefault("_column_maps", {})
+        hit = cache.get(o.uid)
+        if hit is None or hit[0] != key:
+            hit = (key, collision.ColumnMap(o.mesh.transform(disp)), disp[:3, 3].copy())
+            cache[o.uid] = hit
+        d = disp[:3, 3] - hit[2]
+        return hit[1].shifted(d[0], d[1], d[2])
+
+    def _check_collisions(self):
+        """Parts touching or closer than 0.5 mm turn red, with a warning above the view."""
+        from .. import collision
+        parts = [o for o in self.objects if o.role != "cutter"]
+        pairs = []
+        if 1 < len(parts) <= 80:
+            maps = {o.uid: self._column_map(o) for o in parts}
+            pairs = collision.colliding_pairs(maps, clearance=0.5)
+        colliding = {u for p in pairs for u in p}
+        changed = colliding != getattr(self, "_colliding", set())
+        self._colliding = colliding
+        self._collision_pairs = pairs
+        if changed:
+            cfg = self.settings.config()
+            outside = {o.uid for o in out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg))}
+            for o in self.objects:
+                if o.role != "cutter" and o.uid not in outside:
+                    self.viewer.set_object_state(o.uid, "collision" if o.uid in colliding else "normal")
+        if pairs:
+            names = {o.uid: o.name or "model" for o in self.objects}
+            text = ", ".join(f"{names[a]} ↔ {names[b]}" for a, b in pairs[:3]) + ("…" if len(pairs) > 3 else "")
+            self.collision_label.setText("⚠ " + tr("collision_warning").format(text))
+            self.collision_wrap.show()
+            self.collision_wrap.raise_()
+        else:
+            self.collision_wrap.hide()
 
     def _overlapping_count(self) -> int:
         """Parts whose footprints overlap another part (they would print fused)."""

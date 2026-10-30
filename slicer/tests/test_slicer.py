@@ -647,3 +647,18 @@ def test_single_support_editing_helpers():
         assert len(owners["faces"]) == len(mesh.faces)
         singles = {g[0] for g in owners["groups"] if len(g) == 1}
         assert singles == set(range(len(pts)))
+
+
+def test_collision_between_parts():
+    from unislicer import collision
+    a, b = placed(primitives.box(10, 10, 10), 50, 50), placed(primitives.box(10, 10, 10), 60.2, 50)
+    ma = collision.ColumnMap(a.world_mesh())
+    assert collision.touching(ma, collision.ColumnMap(b.world_mesh()), 0.5)       # 0.2 mm apart
+    b.x = 62.0
+    assert not collision.touching(ma, collision.ColumnMap(b.world_mesh()), 0.5)   # 2 mm apart
+    # a small part under the arch of a bridge does not touch it
+    bridge = placed(primitives.demo_bridge(), 100, 100)
+    small = placed(primitives.box(4, 4, 2), 100, 100)
+    assert collision.colliding_pairs({1: collision.ColumnMap(bridge.world_mesh()),
+                                      2: collision.ColumnMap(small.world_mesh())}) == []
+    assert "phrozen_sonic_ls_plus" in profiles.load("printers")

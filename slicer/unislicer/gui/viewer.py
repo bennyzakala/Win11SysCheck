@@ -54,7 +54,7 @@ BED_VS = """#version 330 core
 layout(location=0) in vec3 aPos; uniform mat4 uMVP; out vec2 vXY;
 void main(){ vXY = aPos.xy; gl_Position = uMVP * vec4(aPos, 1.0); }"""
 BED_FS = """#version 330 core
-in vec2 vXY; out vec4 frag; uniform vec2 uBed; uniform vec3 uBase; uniform vec4 uPlate; uniform vec3 uGrid; uniform vec3 uAccent;
+in vec2 vXY; out vec4 frag; uniform vec2 uBed; uniform vec3 uBase; uniform vec4 uPlate; uniform vec3 uGrid; uniform vec3 uAccent; uniform float uAlpha;
 float grid(vec2 p, float s, float w){ vec2 c = abs(fract(p / s - 0.5) - 0.5) * s / max(fwidth(p), vec2(1e-4)); return 1.0 - clamp(min(c.x, c.y) - w, 0.0, 1.0); }
 void main(){
   bool onPlate = vXY.x >= uPlate.x && vXY.y >= uPlate.y && vXY.x <= uPlate.z && vXY.y <= uPlate.w;
@@ -65,7 +65,7 @@ void main(){
   c = mix(c, uGrid, 1.0 - smoothstep(0.0, max(fwidth(edge) * 2.0, 0.4), edge));
   vec2 pe = min(vXY - uPlate.xy, uPlate.zw - vXY); float pedge = abs(min(pe.x, pe.y));
   c = mix(c, uAccent, 1.0 - smoothstep(0.0, max(fwidth(pedge) * 2.0, 0.4), pedge));
-  frag = vec4(c, 1.0);
+  frag = vec4(c, uAlpha);
 }"""
 
 LINE_VS = """#version 330 core
@@ -550,19 +550,10 @@ class Viewer(QOpenGLWidget):
         mvp = (self.camera.projection(w / h) @ self.camera.view()).astype(np.float32)
         eye = self.camera.eye().astype(np.float32)
 
-        # bed
-        GL.glUseProgram(self._bed_prog)
-        GL.glUniformMatrix4fv(self._u(self._bed_prog, "uMVP"), 1, GL.GL_TRUE, mvp)
-        GL.glUniform2f(self._u(self._bed_prog, "uBed"), self.bed[0], self.bed[1])
-        GL.glUniform4f(self._u(self._bed_prog, "uPlate"), *getattr(self, "plate", (0.0, 0.0, self.bed[0], self.bed[1])))
-        GL.glUniform3f(self._u(self._bed_prog, "uBase"), *theme.BED_COLOR)
-        GL.glUniform3f(self._u(self._bed_prog, "uGrid"), *theme.GRID_COLOR)
-        accent = QColor(theme.ACCENT)
-        GL.glUniform3f(self._u(self._bed_prog, "uAccent"), accent.redF(), accent.greenF(), accent.blueF())
-        GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)
-        GL.glPolygonOffset(1.0, 1.0)
-        self._bed_buf.draw(GL.GL_TRIANGLES)
-        GL.glDisable(GL.GL_POLYGON_OFFSET_FILL)
+        # bed: from below the plate it is drawn last and see-through, so supports and undersides show
+        below = eye[2] < 0.0
+        if not below:
+            self._draw_bed(mvp, 1.0)
 
         # build volume
         GL.glEnable(GL.GL_BLEND)
@@ -591,7 +582,7 @@ class Viewer(QOpenGLWidget):
                 state = obj["state"]
                 if state == "cutter":
                     continue  # drawn translucent after everything opaque
-                color = theme.MODEL_OUTSIDE if state == "outside" else (
+                color = (1.0, 0.16, 0.22) if state == "collision" else theme.MODEL_OUTSIDE if state == "outside" else (
                     theme.MODEL_SELECTED if uid in self.selection else theme.MODEL_COLOR)
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 self._set_model(p, obj["matrix"])
@@ -683,6 +674,8 @@ class Viewer(QOpenGLWidget):
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 buf.draw(GL.GL_TRIANGLES)
 
+        if below:
+            self._draw_bed(mvp, 0.28)
         if preview and self._paths_buffer is not None:
             q = self._path_prog
             GL.glUseProgram(q)
@@ -696,6 +689,28 @@ class Viewer(QOpenGLWidget):
             GL.glUniform3fv(self._u(q, "uColors"), len(colors), colors)
             self._paths_buffer.draw(GL.GL_LINES)
         GL.glBindVertexArray(0)
+
+    def _draw_bed(self, mvp, alpha: float):
+        GL.glUseProgram(self._bed_prog)
+        GL.glUniformMatrix4fv(self._u(self._bed_prog, "uMVP"), 1, GL.GL_TRUE, mvp)
+        GL.glUniform2f(self._u(self._bed_prog, "uBed"), self.bed[0], self.bed[1])
+        GL.glUniform4f(self._u(self._bed_prog, "uPlate"), *getattr(self, "plate", (0.0, 0.0, self.bed[0], self.bed[1])))
+        GL.glUniform3f(self._u(self._bed_prog, "uBase"), *theme.BED_COLOR)
+        GL.glUniform3f(self._u(self._bed_prog, "uGrid"), *theme.GRID_COLOR)
+        accent = QColor(theme.ACCENT)
+        GL.glUniform3f(self._u(self._bed_prog, "uAccent"), accent.redF(), accent.greenF(), accent.blueF())
+        GL.glUniform1f(self._u(self._bed_prog, "uAlpha"), alpha)
+        GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)
+        GL.glPolygonOffset(1.0, 1.0)
+        if alpha < 1.0:
+            GL.glEnable(GL.GL_BLEND)
+            GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+            GL.glDepthMask(GL.GL_FALSE)
+        self._bed_buf.draw(GL.GL_TRIANGLES)
+        if alpha < 1.0:
+            GL.glDepthMask(GL.GL_TRUE)
+            GL.glDisable(GL.GL_BLEND)
+        GL.glDisable(GL.GL_POLYGON_OFFSET_FILL)
 
     def _draw_selection_box(self, mvp, uid, primary: bool = True):
         box = self._world_box(self.objects[uid])

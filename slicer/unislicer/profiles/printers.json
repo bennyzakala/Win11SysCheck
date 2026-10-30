@@ -825,5 +825,46 @@
    "sla_layer_height": 0.027,
    "support_enable": true
   }
+ },
+ "phrozen_sonic_ls_plus": {
+  "name": "Phrozen Sonic LS+ (dental)",
+  "vendor": "Phrozen",
+  "note": "385 nm mono LCD, 34 µm XY, 10 µm Z. Print volume of the standard kit per Phrozen's page: 209 x 133 x 175 mm; distributors also list 198 x 125 and 168 x 74 mm plates. Screen pixels derived from the 34 µm pixel size; .prz assumed as for the Sonic CS+ (Phrozen Dental slicer) - switch the output format if your firmware differs.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "lcd",
+   "bed_x": 209.0,
+   "bed_y": 133.0,
+   "max_z": 175,
+   "resolution_x": 6147,
+   "resolution_y": 3912,
+   "sla_format": "prz",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 6,
+   "material_name": "Dental resin"
+  },
+  "plates": [
+   {
+    "name": "Standard kit plate",
+    "width": 209.0,
+    "depth": 133.0,
+    "offset_x": 0.0,
+    "offset_y": 0.0
+   },
+   {
+    "name": "Large plate (distributor listing)",
+    "width": 198.0,
+    "depth": 125.0,
+    "offset_x": 0.0,
+    "offset_y": 0.0
+   },
+   {
+    "name": "Small plate (distributor listing)",
+    "width": 168.0,
+    "depth": 74.0,
+    "offset_x": 0.0,
+    "offset_y": 0.0
+   }
+  ]
  }
 }

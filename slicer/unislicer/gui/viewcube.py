@@ -35,7 +35,7 @@ def direction_angles(d) -> tuple[float, float]:
 
 
 class ViewCube(QWidget):
-    SIZE = 116
+    SIZE = 150
 
     def __init__(self, viewer, parent=None):
         super().__init__(parent)
@@ -46,6 +46,8 @@ class ViewCube(QWidget):
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(tr("vc_tip"))
         self._hover = None
+        self._press = None              # (position, yaw, pitch) while dragging to orbit
+        self._dragged = False
         self._anim = None
         self._timer = QTimer(self)
         self._timer.setInterval(16)
@@ -56,10 +58,31 @@ class ViewCube(QWidget):
         return self.viewer.camera.view()[:3, :3]
 
     def _project(self, pts: np.ndarray) -> np.ndarray:
+        """Perspective projection into the widget (third column: depth, larger = nearer)."""
         r = self._rotation()
         v = pts @ r.T
-        s = self.SIZE * 0.25
-        return np.column_stack([self.SIZE / 2 + v[:, 0] * s, self.SIZE / 2 - v[:, 1] * s, v[:, 2]])
+        s = self.SIZE * 0.2
+        f = 1.0 / (1.0 - v[:, 2] * 0.16)              # a little perspective so the cube reads as 3D
+        return np.column_stack([self.SIZE / 2 + v[:, 0] * s * f, self.SIZE / 2 - v[:, 1] * s * f, v[:, 2]])
+
+    def _arrows(self):
+        """(kind, polygon) of the turn arrows around the cube and the home button."""
+        c, m = self.SIZE / 2, 9
+        e = self.SIZE - m
+        return [
+            ("left", [(m, c), (m + 9, c - 8), (m + 9, c + 8)]),
+            ("right", [(e, c), (e - 9, c - 8), (e - 9, c + 8)]),
+            ("up", [(c, m), (c - 8, m + 9), (c + 8, m + 9)]),
+            ("down", [(c, e), (c - 8, e - 9), (c + 8, e - 9)]),
+            ("home", [(m + 2, m + 2), (m + 16, m + 2), (m + 16, m + 16), (m + 2, m + 16)]),
+        ]
+
+    def _arrow_at(self, pos: QPointF):
+        for kind, pts in self._arrows():
+            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+            if min(xs) - 4 <= pos.x() <= max(xs) + 4 and min(ys) - 4 <= pos.y() <= max(ys) + 4:
+                return kind
+        return None
 
     def _targets(self):
         """Clickable spots: visible faces (polygons), then edges and corners (points), nearest first."""
@@ -101,6 +124,13 @@ class ViewCube(QWidget):
         faces, spots = self._targets()
         r = self._rotation()
         faces.sort(key=lambda f: -(r @ f[0])[2])
+        # hidden faces as a faint wireframe, so the whole cube (back and bottom too) is visible
+        proj = self._project(CORNERS)
+        p.setPen(QPen(QColor(theme.TEXT_FAINT), 1, Qt.DashLine))
+        for normal, _key, idx in FACES:
+            if (r @ np.array(normal, dtype=float))[2] <= 0.05:
+                poly = proj[list(idx)]
+                p.drawPolygon(QPolygonF([QPointF(*a[:2]) for a in poly]))
         accent = QColor(theme.ACCENT)
         base = QColor(theme.SURFACE)
         base.setAlpha(235)
@@ -112,7 +142,7 @@ class ViewCube(QWidget):
             path = QPainterPath()
             path.addPolygon(QPolygonF([QPointF(*a[:2]) for a in poly]))
             path.closeSubpath()
-            fill = QColor(accent) if self._hover is not None and np.allclose(self._hover, normal) else QColor(base)
+            fill = QColor(accent) if self._is_hover(normal) else QColor(base)
             if fill == accent:
                 fill.setAlpha(200)
             shade = 0.82 + 0.18 * max(0.0, float((r @ normal)[2]))
@@ -128,30 +158,64 @@ class ViewCube(QWidget):
                 f = QFont(font)
                 f.setPixelSize(max(7, int(11 * min(1.0, facing + 0.25))))
                 p.setFont(f)
-                p.setPen(QColor(theme.ON_ACCENT) if fill.hue() == accent.hue() and self._hover is not None
-                         and np.allclose(self._hover, normal) else QColor(theme.TEXT))
+                p.setPen(QColor(theme.ON_ACCENT) if self._is_hover(normal) else QColor(theme.TEXT))
                 p.drawText(QRectF(c[0] - 40, c[1] - 9, 80, 18), Qt.AlignCenter, tr(key))
                 p.restore()
-        if self._hover is not None and not any(np.allclose(self._hover, f[0]) for f in faces):
+        if self._hover is not None and not isinstance(self._hover, str) \
+                and not any(np.allclose(self._hover, f[0]) for f in faces):
             q = self._project(np.asarray(self._hover)[None, :])[0]
             p.setBrush(accent)
             p.setPen(Qt.NoPen)
             p.drawEllipse(QPointF(q[0], q[1]), 5, 5)
-        # axis hints at the bottom-left
-        p.setPen(QPen(QColor(theme.TEXT_FAINT), 1))
-        o = self._project(np.array([[-1.25, -1.25, -1.25]]))[0]
+        # turn arrows and home
+        for kind, pts in self._arrows():
+            hot = self._hover == kind
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(theme.ACCENT) if hot else QColor(theme.TEXT_DIM))
+            if kind == "home":
+                p.setPen(QPen(QColor(theme.ACCENT) if hot else QColor(theme.TEXT_DIM), 1.6))
+                p.setBrush(Qt.NoBrush)
+                x0, y0 = pts[0]
+                p.drawPolyline(QPolygonF([QPointF(x0, y0 + 7), QPointF(x0 + 7, y0), QPointF(x0 + 14, y0 + 7)]))
+                p.drawRect(QRectF(x0 + 2.5, y0 + 7, 9, 7))
+            else:
+                p.drawPolygon(QPolygonF([QPointF(*q) for q in pts]))
+        # axis triad in the bottom-left corner, turning with the view
+        o = QPointF(20, self.SIZE - 20)
         for axis, color, label in ((0, "#ff5d6c", "X"), (1, "#2ecc8f", "Y"), (2, "#4f8cff", "Z")):
-            e = np.array([-1.25, -1.25, -1.25])
-            e[axis] += 0.8
-            q = self._project(e[None, :])[0]
+            e = np.zeros(3)
+            e[axis] = 1.0
+            v = r @ e
+            q = QPointF(o.x() + v[0] * 13, o.y() - v[1] * 13)
             p.setPen(QPen(QColor(color), 2))
-            p.drawLine(QPointF(o[0], o[1]), QPointF(q[0], q[1]))
+            p.drawLine(o, q)
+            f = QFont(font)
+            f.setPixelSize(8)
+            p.setFont(f)
+            p.drawText(QRectF(q.x() + v[0] * 5 - 5, q.y() - v[1] * 5 - 5, 10, 10), Qt.AlignCenter, label)
         p.end()
+
+    def _is_hover(self, normal) -> bool:
+        return self._hover is not None and not isinstance(self._hover, str) and np.allclose(self._hover, normal)
 
     # ---------------------------------------------------------- interaction
     def mouseMoveEvent(self, e):
-        hit = self._hit(e.position())
-        if (hit is None) != (self._hover is None) or (hit is not None and not np.allclose(hit, self._hover)):
+        if self._press is not None and e.buttons() & Qt.LeftButton:
+            pos, yaw, pitch = self._press
+            d = e.position() - pos
+            if self._dragged or abs(d.x()) + abs(d.y()) > 3:
+                self._dragged = True            # drag the cube to orbit freely
+                self._timer.stop()
+                cam = self.viewer.camera
+                cam.yaw = yaw - d.x() * 0.7
+                cam.pitch = max(-89.9, min(89.9, pitch + d.y() * 0.7))
+                self.viewer.update()
+                self.update()
+            return
+        hit = self._arrow_at(e.position()) or self._hit(e.position())
+        same = (hit is None and self._hover is None) or (isinstance(hit, str) and hit == self._hover) or (
+            hit is not None and not isinstance(hit, str) and self._is_hover(hit))
+        if not same:
             self._hover = hit
             self.update()
 
@@ -160,7 +224,27 @@ class ViewCube(QWidget):
         self.update()
 
     def mousePressEvent(self, e):
-        if e.button() != Qt.LeftButton:
+        if e.button() == Qt.LeftButton:
+            cam = self.viewer.camera
+            self._press = (e.position(), cam.yaw, cam.pitch)
+            self._dragged = False
+
+    def mouseReleaseEvent(self, e):
+        if e.button() != Qt.LeftButton or self._press is None:
+            return
+        dragged, self._press = self._dragged, None
+        if dragged:
+            return
+        arrow = self._arrow_at(e.position())
+        cam = self.viewer.camera
+        if arrow == "home":
+            self.turn_to(-62.0, 30.0)
+            return
+        if arrow in ("left", "right"):
+            self.turn_to(cam.yaw + (90.0 if arrow == "left" else -90.0), cam.pitch)
+            return
+        if arrow in ("up", "down"):
+            self.turn_to(cam.yaw, max(-89.9, min(89.9, cam.pitch + (45.0 if arrow == "up" else -45.0))))
             return
         d = self._hit(e.position())
         if d is not None:
