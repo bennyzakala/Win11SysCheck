@@ -267,6 +267,15 @@ class Viewer(QOpenGLWidget):
         self.highlight = None                    # (mesh in bed coordinates, buffer) of the support under the cursor
         self.tool = "move"                       # move | rotate | face | hole | measure
         self.measure_points: list = []
+        self.measure_hover = None                # cursor point while measuring (line follows it)
+        from PySide6.QtWidgets import QLabel
+        self.measure_label = QLabel(self)
+        self.measure_label.setAlignment(Qt.AlignCenter)
+        self.measure_label.setStyleSheet(
+            "QLabel { background: rgba(20,22,28,0.88); color: #ffd84a; border: 1px solid #ffd84a;"
+            " border-radius: 7px; padding: 4px 9px; font-weight: 700; font-size: 13px; }")
+        self.measure_label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.measure_label.hide()
         self._rot = None                         # active ring drag: (uid, axis, start angle, last degrees)
         self._hover_axis = None
         self._gizmo_cache = None
@@ -557,7 +566,7 @@ class Viewer(QOpenGLWidget):
 
         # build volume
         GL.glEnable(GL.GL_BLEND)
-        GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+        GL.glBlendFuncSeparate(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA, GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA)
         GL.glUseProgram(self._line_prog)
         GL.glUniformMatrix4fv(self._u(self._line_prog, "uMVP"), 1, GL.GL_TRUE, mvp)
         GL.glUniform4f(self._u(self._line_prog, "uColor"), 0.45, 0.55, 0.75, 0.35)
@@ -601,7 +610,7 @@ class Viewer(QOpenGLWidget):
         cutters = [(uid, o) for uid, o in self.objects.items() if o["state"] == "cutter"] if not preview else []
         if cutters:
             GL.glEnable(GL.GL_BLEND)
-            GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+            GL.glBlendFuncSeparate(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA, GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA)
             GL.glDepthMask(GL.GL_FALSE)
             GL.glUniform1f(self._u(p, "uAlpha"), 0.45)
             for uid, obj in cutters:
@@ -622,18 +631,7 @@ class Viewer(QOpenGLWidget):
             for uid in self.selection:
                 if uid in self.objects:
                     self._draw_selection_box(mvp, uid, primary=uid == self.selected)
-        if self.measure_points:
-            pts = np.array(self.measure_points, dtype=np.float32)
-            if len(pts) == 1:
-                pts = np.vstack([pts, pts + [0, 0, 0.01]])
-            GL.glDisable(GL.GL_DEPTH_TEST)
-            buf = _Buffer(pts[:2], [3])
-            GL.glUseProgram(self._line_prog)
-            GL.glUniformMatrix4fv(self._u(self._line_prog, "uMVP"), 1, GL.GL_TRUE, mvp)
-            GL.glUniform4f(self._u(self._line_prog, "uColor"), 1.0, 0.85, 0.25, 1.0)
-            buf.draw(GL.GL_LINES)
-            buf.delete()
-            GL.glEnable(GL.GL_DEPTH_TEST)
+        self._draw_measure(mvp)
         if self.highlight is not None and not preview:
             mesh, buf = self.highlight
             if buf is None:
@@ -690,6 +688,52 @@ class Viewer(QOpenGLWidget):
             self._paths_buffer.draw(GL.GL_LINES)
         GL.glBindVertexArray(0)
 
+    def _draw_measure(self, mvp):
+        """Measuring: green start point, red end point, a line between them and the length on screen.
+        After the first click the line follows the cursor."""
+        pts = [np.asarray(q, dtype=float) for q in self.measure_points]
+        if len(pts) == 1 and self.measure_hover is not None:
+            pts.append(np.asarray(self.measure_hover, dtype=float))
+            live = True
+        else:
+            live = False
+        if not pts:
+            self.measure_label.hide()
+            return
+        from ..primitives import sphere, tube
+        r = max(0.25, self.camera.distance * 0.0055)
+        p = self._mesh_prog
+        GL.glDisable(GL.GL_DEPTH_TEST)
+        GL.glUseProgram(p)
+        GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
+        GL.glUniform1f(self._u(p, "uClipZ"), 1e9)
+        self._set_model(p, np.eye(4))
+        parts = []
+        if len(pts) == 2 and np.linalg.norm(pts[1] - pts[0]) > 1e-6:
+            parts.append((tube(pts[0], pts[1], r * 0.4, r * 0.4, 10), (1.0, 0.82, 0.2)))
+        parts.append((sphere(r, 8, 14).translated(pts[0] - [0, 0, r]), (0.18, 0.85, 0.45)))     # start: green
+        if len(pts) == 2:
+            parts.append((sphere(r, 8, 14).translated(pts[1] - [0, 0, r]),
+                          (1.0, 0.45, 0.45) if live else (0.95, 0.2, 0.25)))                    # end: red
+        for mesh, color in parts:
+            GL.glUniform3f(self._u(p, "uColor"), *color)
+            buf = _Buffer(mesh_vertices(mesh), [3, 3])
+            buf.draw(GL.GL_TRIANGLES)
+            buf.delete()
+        GL.glEnable(GL.GL_DEPTH_TEST)
+        if len(pts) == 2:
+            d = pts[1] - pts[0]
+            mid = mvp @ np.append((pts[0] + pts[1]) / 2, 1.0)
+            if mid[3] > 0:
+                x = (mid[0] / mid[3] * 0.5 + 0.5) * self.width()
+                y = (0.5 - mid[1] / mid[3] * 0.5) * self.height()
+                self.measure_label.setText(f"{np.linalg.norm(d):.2f} mm\nΔX {abs(d[0]):.2f}  ΔY {abs(d[1]):.2f}  ΔZ {abs(d[2]):.2f}")
+                self.measure_label.adjustSize()
+                self.measure_label.move(int(x - self.measure_label.width() / 2), int(y - self.measure_label.height() - 12))
+                self.measure_label.show()
+                return
+        self.measure_label.hide()
+
     def _draw_bed(self, mvp, alpha: float):
         GL.glUseProgram(self._bed_prog)
         GL.glUniformMatrix4fv(self._u(self._bed_prog, "uMVP"), 1, GL.GL_TRUE, mvp)
@@ -704,7 +748,7 @@ class Viewer(QOpenGLWidget):
         GL.glPolygonOffset(1.0, 1.0)
         if alpha < 1.0:
             GL.glEnable(GL.GL_BLEND)
-            GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+            GL.glBlendFuncSeparate(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA, GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA)
             GL.glDepthMask(GL.GL_FALSE)
         self._bed_buf.draw(GL.GL_TRIANGLES)
         if alpha < 1.0:
@@ -969,6 +1013,11 @@ class Viewer(QOpenGLWidget):
                 if delta != self._rot[3]:
                     self._rot = (uid, axis, start, delta)
                     self.rotateDragged.emit(uid, axis, float(delta))
+            return
+        if self.tool == "measure" and len(self.measure_points) == 1 and not e.buttons():
+            _, point = self.pick_hit(pos)
+            self.measure_hover = point if point is not None else self._bed_point(pos)
+            self.update()
             return
         if self.pick_mode and not e.buttons():
             uid, point = self.pick_hit(pos, supports=False) if self.pick_mode == "add" else (None, None)

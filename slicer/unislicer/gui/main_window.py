@@ -1054,6 +1054,8 @@ class MainWindow(QMainWindow):
         self.viewer.setCursor(Qt.CrossCursor if name in ("face", "hole", "measure") else Qt.ArrowCursor)
         if name != "measure":
             self.viewer.measure_points = []
+            self.viewer.measure_hover = None
+            self.viewer.measure_label.hide()
         if name != "move":
             self._set_pick_mode(None)
             if self.viewer.mode != "prepare":
