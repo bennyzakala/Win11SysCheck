@@ -31,6 +31,7 @@ class SlaJob:
     support_points: list[np.ndarray] = field(default_factory=list)
     islands: list[tuple[int, object]] = field(default_factory=list)   # (layer index, polygon)
     cups: list[tuple[int, float]] = field(default_factory=list)       # (layer index, sealed area mm2)
+    cup_vents: list[dict] = field(default_factory=list)              # where a vent breaks each cup
     thin_layers: list[int] = field(default_factory=list)
     volume_ml: float = 0.0
     saved_ml: float = 0.0              # resin saved by hollowing
@@ -373,6 +374,16 @@ def hole_meshes(holes, cfg: Config, lift: float = 0.0) -> list[Mesh]:
     return out
 
 
+def vent_hole_rows(vent: dict, cfg: Config, lift: float = 0.0) -> np.ndarray:
+    """Drain-hole rows (point, outward normal) that drill a vent from the roof's outer surface up into the
+    cavity. Holes are ``drain_hole_depth`` deep, so a thick roof gets a short stack of them."""
+    depth = max(0.5, cfg["drain_hole_depth"] or (cfg["hollow_wall"] + 1.0))
+    count = int(min(40, max(1, math.ceil((vent["depth"] + 0.6) / depth))))
+    n = np.array(vent["normal"], dtype=float)
+    p = np.array([vent["x"], vent["y"], vent["z_surface"] - lift])
+    return np.array([np.concatenate([p - n * k * depth, n]) for k in range(count)])
+
+
 def _shrink_compensate(mesh: Mesh, cfg: Config) -> Mesh:
     """Scale up around the model's footprint centre to offset resin shrinkage."""
     sx, sz = 1 + cfg["shrink_xy"] / 100.0, 1 + cfg["shrink_z"] / 100.0
@@ -388,29 +399,119 @@ def _shrink_compensate(mesh: Mesh, cfg: Config) -> Mesh:
 
 
 # ------------------------------------------------------------ validation
-def find_cups(layers: list[MultiPolygon], min_area: float = 10.0) -> list[tuple[int, float]]:
-    """Suction cups: empty space enclosed by walls and sealed on the build-plate side.
-
-    Each peel pulls a vacuum in such a cavity. Returns (layer, area mm2) for layers where one is open
-    towards the vat. A drain hole through a wall or the floor breaks the seal and clears the warning."""
+def _sealed_layers(layers: list[MultiPolygon]) -> list[MultiPolygon]:
+    """Per layer, the empty space that is enclosed by walls and sealed on the build-plate side."""
     out = []
     sealed = EMPTY
     for i, g in enumerate(layers):
         holes = [Polygon(h) for p in polygons_of(g) for h in p.interiors]
         if not holes:
             sealed = EMPTY
+            out.append(EMPTY)
             continue
         space = shapely.union_all(holes).difference(g)
         below = layers[i - 1] if i else EMPTY
         floor = shapely.union_all([below, sealed]) if not sealed.is_empty else below
         # a cavity is sealed only if all of it sits on solid or on a cavity that is itself sealed;
-        # any opening (e.g. a drain hole) vents the whole cavity
-        keep = [c for c in polygons_of(space) if not floor.is_empty and c.difference(floor).area < 0.01 * c.area + 1e-6]
+        # any opening (e.g. a drain or vent hole) vents the whole cavity. The allowance only absorbs
+        # numeric noise, so even a 1 mm vent in a large cavity counts as an opening.
+        keep = [c for c in polygons_of(space)
+                if not floor.is_empty and c.difference(floor).area < min(0.01 * c.area, 0.3) + 1e-6]
         sealed = as_multipolygon(shapely.union_all(keep)) if keep else EMPTY
-        area = sealed.area
-        if area >= min_area:
-            out.append((i, area))
+        out.append(sealed)
     return out
+
+
+def find_cups(layers: list[MultiPolygon], min_area: float = 10.0, sealed: list | None = None) -> list[tuple[int, float]]:
+    """Suction cups: empty space enclosed by walls and sealed on the build-plate side.
+
+    Each peel pulls a vacuum in such a cavity. Returns (layer, area mm2) for layers where one is open
+    towards the vat. A drain hole through a wall or the floor breaks the seal and clears the warning."""
+    sealed = sealed if sealed is not None else _sealed_layers(layers)
+    return [(i, s.area) for i, s in enumerate(sealed) if s.area >= min_area]
+
+
+def cup_vents(layers: list[MultiPolygon], layer_z: list[float], min_area: float = 10.0, radius: float = 1.5,
+              sealed: list | None = None) -> list[dict]:
+    """Where to drill a vent that breaks each suction cup: straight up from the plate side, through the
+    roof that seals the cavity, at a point well inside the cavity.
+
+    Returns dicts: x, y (mm), z_surface (outer surface of the roof, plate side), z_cavity (where the cavity
+    starts), area, layer. A cavity whose roof reaches down to the plate (no outer surface) gets no vent."""
+    from shapely.ops import polylabel
+    sealed = sealed if sealed is not None else _sealed_layers(layers)
+    vents = []
+    prev = EMPTY
+    for i, s in enumerate(sealed):
+        for c in polygons_of(s):
+            if c.area < min_area or (not prev.is_empty and c.intersects(prev)):
+                continue                       # not the start of a new cavity
+            inner = c.buffer(-radius)
+            if inner.is_empty:
+                continue
+            spots = [polylabel(p, 0.1) for p in polygons_of(as_multipolygon(inner))]
+            x0, y0, x1, y1 = inner.bounds
+            for gx in np.linspace(x0, x1, 5)[1:-1]:          # more tries, in case a support sits under the first
+                for gy in np.linspace(y0, y1, 5)[1:-1]:
+                    q = Point(gx, gy)
+                    if inner.contains(q):
+                        spots.append(q)
+            found = None
+            for q in spots:
+                j = i - 1
+                while j >= 0 and layers[j].contains(q):
+                    j -= 1
+                if j < 0 or j == i - 1:
+                    continue
+                found = {"kind": "roof", "x": float(q.x), "y": float(q.y), "z_surface": float(layer_z[j]),
+                         "z_cavity": float(layer_z[i - 1]), "normal": (0.0, 0.0, -1.0),
+                         "depth": float(layer_z[i - 1] - layer_z[j]), "area": float(c.area), "layer": i}
+                break
+            if found is None:        # roof on the plate (or blocked): drill sideways through the wall, at the roof
+                found = _side_vent(layers, layer_z, i, c, spots[0], radius)
+            if found is not None:
+                vents.append(found)
+        prev = s
+    return vents
+
+
+def _side_vent(layers, layer_z, i, cavity, q, radius):
+    """Horizontal vent from the cavity through the thinnest wall, just above the roof."""
+    from shapely.geometry import LineString
+    zc = float(layer_z[i - 1]) if i else 0.0
+    zh = zc + radius * 0.9                          # the hole's lower edge touches the roof
+    k = next((n for n in range(i, len(layers)) if layer_z[n] >= zh), i)
+    solid = layers[k]
+    reach = 2 * max(cavity.bounds[2] - cavity.bounds[0], cavity.bounds[3] - cavity.bounds[1]) + 50
+    best = None
+    for ang in np.radians(np.arange(0, 360, 15)):
+        d = np.array([math.cos(ang), math.sin(ang)])
+        ray = LineString([(q.x, q.y), (q.x + d[0] * reach, q.y + d[1] * reach)])
+        pieces = sorted((g for g in polygons_of_lines(ray.intersection(solid))),
+                        key=lambda g: Point(q.x, q.y).distance(g))
+        if not pieces:
+            continue
+        wall = pieces[0]
+        ends = [Point(c) for c in wall.coords]
+        far = max(ends, key=lambda e: e.distance(Point(q.x, q.y)))
+        if Point(q.x, q.y).distance(far) >= reach - 1e-6:
+            continue                                 # never leaves the part this way
+        if best is None or wall.length < best[0]:
+            best = (wall.length, far, d)
+    if best is None:
+        return None
+    t, far, d = best
+    return {"kind": "side", "x": float(far.x), "y": float(far.y), "z_surface": zh, "z_cavity": zc,
+            "normal": (float(d[0]), float(d[1]), 0.0), "depth": float(t), "area": float(cavity.area), "layer": i}
+
+
+def polygons_of_lines(g):
+    """Line pieces of a ray/solid intersection."""
+    if g.is_empty:
+        return []
+    if g.geom_type == "LineString":
+        return [g]
+    return [p for p in getattr(g, "geoms", []) if p.geom_type == "LineString" and p.length > 1e-6]
 
 
 def find_thin(layers: list[MultiPolygon], min_width: float = 0.3, min_area: float = 0.05,
@@ -541,7 +642,10 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         job.time_s = top / max(cfg["pj_build_speed"], 0.1) * 3600.0
         return job        # no peel, so no suction cups or unsupported islands
     job.islands = find_islands(layers)
-    job.cups = find_cups(layers)
+    sealed = _sealed_layers(layers)
+    job.cups = find_cups(layers, sealed=sealed)
+    if job.cups:
+        job.cup_vents = cup_vents(layers, job.layer_z, radius=max(0.5, cfg["drain_hole_diameter"] / 2), sealed=sealed)
     if process == "laser":
         from .vector_formats import scan_length
         job.time_s = sum(scan_length(g, cfg) / max(cfg["laser_scan_speed"], 1.0) + cfg["laser_recoat_time"]

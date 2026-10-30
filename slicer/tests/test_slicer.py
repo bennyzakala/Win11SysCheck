@@ -751,3 +751,26 @@ def test_crash_diagnosis(tmp_path):
     assert found is not None and found.kind == "graphics" and "viewer.py" in found.where
     assert not list(tmp_path.glob("last_crash_*.txt"))
     assert "איך מתקנים" in diagnose.report_text(found, "he")
+
+
+def test_suction_cup_vents_fix_the_cup():
+    from unislicer.mesh import Mesh
+    cup = Mesh.merge([primitives.box(20, 20, 2), primitives.box(20, 2, 10).translated([0, 0, 2]),
+                      primitives.box(20, 2, 10).translated([0, 18, 2]), primitives.box(2, 16, 10).translated([0, 2, 2]),
+                      primitives.box(2, 16, 10).translated([18, 2, 2])])
+    m = placed(cup, 70, 45).world_mesh()
+    cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {})
+    job = sla.prepare([m], cfg)
+    assert job.cups and job.cup_vents
+    v = job.cup_vents[0]
+    assert v["kind"] == "side"              # sits on the plate: vent through the thinnest wall at the roof
+    assert m.bounds[0][0] - 0.1 <= v["x"] <= m.bounds[1][0] + 0.1 and v["depth"] <= 2.5
+    assert sla.prepare([m], cfg, holes=[sla.vent_hole_rows(v, cfg)]).cups == []
+    # on supports the cup is vented from below, through the roof
+    up = profiles.build_config("elegoo_mars3", None, "sla_fast", {"support_enable": True})
+    job = sla.prepare([m], up)
+    lift = up["sla_elevation"] + up["sla_raft_thickness"]
+    if job.cups:
+        roof = [v for v in job.cup_vents if v["kind"] == "roof"]
+        assert roof and roof[0]["z_surface"] < roof[0]["z_cavity"]
+        assert sla.prepare([m], up, holes=[np.vstack([sla.vent_hole_rows(v, up, lift) for v in job.cup_vents])]).cups == []

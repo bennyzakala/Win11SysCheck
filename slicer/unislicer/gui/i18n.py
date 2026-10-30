@@ -456,6 +456,16 @@ STRINGS = {
     "crash_folder": ("פתח תיקיית דוחות", "Open reports folder"),
     "crash_continue": ("המשך לעבוד", "Keep working"),
     "crash_open": ("הצג אבחון", "Show diagnosis"),
+    "cup_fix": ("תקן כוס יניקה", "Fix suction cup"),
+    "cup_fix_tip": ("אפשרויות תיקון לכוס היניקה שנמצאה", "Ways to fix the suction cup that was found"),
+    "cup_fix_vents": ("הוסף חורי אוורור אוטומטיים ({}) - מומלץ", "Add automatic vent holes ({}) - recommended"),
+    "cup_fix_drain": ("הוסף 2 חורי ניקוז למודל החלול", "Add 2 drain holes to the hollow model"),
+    "cup_fix_orient": ("כיוון אוטומטי מחדש", "Auto-orient again"),
+    "cup_fix_tilt": ("הטה את המודל ב-30°", "Tilt the model 30°"),
+    "cup_fix_show": ("הצג את השכבה בתצוגה", "Show the layer in the preview"),
+    "cup_vents_added": ("נוספו {} חורי אוורור - חותך מחדש לבדיקה", "{} vent holes added - slicing again to check"),
+    "cup_reoriented": ("המודל כוון מחדש. צור תמיכות וחתוך שוב.", "Model re-oriented. Generate supports and slice again."),
+    "cup_tilted": ("המודל הוטה ב-30°. צור תמיכות וחתוך שוב.", "Model tilted 30°. Generate supports and slice again."),
     "sg_crash": ("תקלה ב{}: {}. {}", "Problem in {}: {}. {}"),
 }
 

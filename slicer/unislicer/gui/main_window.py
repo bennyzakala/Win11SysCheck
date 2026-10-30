@@ -799,6 +799,14 @@ class MainWindow(QMainWindow):
         self.warn_label.setWordWrap(True)
         self.warn_label.hide()
         al.addWidget(self.warn_label)
+        self.cup_fix_btn = QPushButton(tr("cup_fix"))
+        self.cup_fix_btn.setObjectName("Primary")
+        self.cup_fix_btn.setIcon(theme.icon("sparkle", theme.ON_ACCENT, 16))
+        self.cup_fix_btn.setToolTip(tr("cup_fix_tip"))
+        self.cup_fix_btn.setCursor(Qt.PointingHandCursor)
+        self.cup_fix_btn.clicked.connect(self.fix_suction_cups)
+        self.cup_fix_btn.hide()
+        al.addWidget(self.cup_fix_btn)
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
         self.progress.setTextVisible(False)
@@ -2563,6 +2571,7 @@ class MainWindow(QMainWindow):
         for tile in (self.stat_time, self.stat_material, self.stat_weight, self.stat_cost):
             tile.set("—")
         self.warn_label.hide()
+        self.cup_fix_btn.hide()
         if had:
             self.status.setText(tr("dirty"))
         if self.viewer.mode == "preview":
@@ -2733,6 +2742,7 @@ class MainWindow(QMainWindow):
                 self._islands.setdefault(i, []).append(poly)
             self.island_btn.setVisible(bool(self._islands))
             self.island_fix_btn.setVisible(bool(self._islands))
+        self.cup_fix_btn.setVisible(result[0] == "sla" and bool(result[1].cups))
         self.result_cfg = cfg
         if warnings:
             import html
@@ -2824,6 +2834,72 @@ class MainWindow(QMainWindow):
         else:
             out.append("✓ " + tr("check_no_thin"))
         return out
+
+    # ------------------------------------------------------------ suction cups
+    def _cup_owners(self, job, cfg) -> list[tuple]:
+        """(object, vent, lift) for every vent the slicer found, matched to the model it belongs to."""
+        out = []
+        models = [o for o in self.objects if o.role != "cutter"]
+        for v in job.cup_vents:
+            for o in models:
+                lift = self._lift(cfg) if cfg["support_enable"] and not o.direct else 0.0
+                lo, hi = o.world_mesh().bounds
+                if lo[0] - 0.5 <= v["x"] <= hi[0] + 0.5 and lo[1] - 0.5 <= v["y"] <= hi[1] + 0.5 \
+                        and lo[2] - 0.5 <= v["z_surface"] - lift <= hi[2] + 0.5:
+                    out.append((o, v, lift))
+                    break
+        return out
+
+    def fix_suction_cups(self):
+        """Fix menu for the suction-cup warning: vents, drain holes, orientation, tilt, or show the layer."""
+        if self.result is None or self.result[0] != "sla":
+            return
+        job, cfg = self.result[1], self.result[2]
+        owners = self._cup_owners(job, cfg)
+        menu = QMenu(self)
+        vent = menu.addAction(theme.icon("sparkle", theme.ACCENT, 16), tr("cup_fix_vents").format(len(owners)))
+        vent.setEnabled(bool(owners))
+        drain = None
+        if cfg["hollow_enable"] and int(cfg["drain_holes"]) == 0:
+            drain = menu.addAction(tr("cup_fix_drain"))
+        orient_a = menu.addAction(theme.icon("compass", theme.TEXT, 16), tr("cup_fix_orient"))
+        tilt = menu.addAction(tr("cup_fix_tilt"))
+        menu.addSeparator()
+        show = menu.addAction(tr("cup_fix_show"))
+        btn = self.cup_fix_btn
+        chosen = menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
+        if chosen is None:
+            return
+        targets = list({o.uid: o for o, _, _ in owners}.values()) or [o for o in self.objects if o.role != "cutter"]
+        if chosen == show:
+            self.layer_slider.setValue(job.cups[0][0])
+            return
+        self._push_undo()
+        if chosen == vent:
+            for o, v, lift in owners:
+                for row in sla.vent_hole_rows(v, cfg, lift):
+                    o.add_world_drain_hole(row[:3], row[3:], 0.0)
+            self._objects_changed(refresh_list=False)
+            self.status.setText(tr("cup_vents_added").format(len(owners)))
+            QTimer.singleShot(400, self.slice)    # check again (after the change debounce, which would cancel it)
+        elif chosen == drain:
+            self.settings.set_value("drain_holes", 2)
+            QTimer.singleShot(400, self.slice)
+        elif chosen == orient_a:
+            from .viewer import SEL_ADD
+            self._select_uid(targets[0].uid)
+            for o in targets[1:]:
+                self._select_uid(o.uid, SEL_ADD)
+            self.auto_orient_selected()
+            self.status.setText(tr("cup_reoriented"))
+        elif chosen == tilt:
+            a = np.radians(30.0)            # a tilted cavity drains as it rises out of the vat
+            rot = np.array([[1.0, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]])
+            for o in targets:
+                o.apply_world_rotation(rot)
+                self._drop_supports(o)
+            self._objects_changed()
+            self.status.setText(tr("cup_tilted"))
 
     def _next_island(self):
         if not self._islands:
