@@ -820,7 +820,7 @@
  "stratasys_j5_dentajet": {
   "name": "Stratasys J5 DentaJet",
   "vendor": "Stratasys",
-  "note": "PolyJet printers print only from Stratasys GrabCAD Print. Here you arrange, orient and estimate (model and gel support material); export 3MF and open it in GrabCAD Print. The J5 prints on a rotating round tray (printing area 1,174 cm², max part 140 x 200 x 190 mm) with a raised hub in the centre; parts can go all around it. Outer ~407 mm and hub ~85 mm are estimates from photos - correct them under Printer. If your GrabCAD Print blocks a wedge of the tray, set 'No-placement sector' (e.g. 100° from 150°). Layers from 18 µm.",
+  "note": "PolyJet printers print only from Stratasys GrabCAD Print. Here you arrange, orient and estimate (model and gel support material); export 3MF and open it in GrabCAD Print. The J5 prints on a rotating round tray (printing area 1,174 cm², max part 140 x 200 x 190 mm) with a raised hub in the centre; a wedge of the tray (shown light, as in GrabCAD Print) takes no parts. Outer ~407 mm and hub ~85 mm are estimates from photos - correct them under Printer. The wedge (~100° from 150°) can be adjusted under Printer. Layers from 18 µm.",
   "values": {
    "technology": "sla",
    "sla_process": "polyjet",
@@ -833,7 +833,7 @@
    "pj_material": "TrueDent",
    "bed_shape": "ring",
    "bed_inner_diameter": 85.0,
-   "bed_dead_sector": 0.0,
+   "bed_dead_sector": 100.0,
    "bed_dead_sector_start": 150.0
   }
  },

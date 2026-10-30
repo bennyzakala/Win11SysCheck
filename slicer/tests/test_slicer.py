@@ -1056,7 +1056,8 @@ def test_ring_tray_layout_and_bounds():
     assert plate_region(profiles.build_config("elegoo_mars3", None, "sla_fast", {})) is None
     # the no-placement wedge: a part dropped into it is outside, and layout keeps clear of it
     import math
-    cfg = profiles.build_config("stratasys_j5_dentajet", None, None, {"bed_dead_sector": 100.0, "bed_dead_sector_start": 150.0})
+    cfg = profiles.build_config("stratasys_j5_dentajet", None, None, {})
+    assert cfg["bed_dead_sector"] > 0                        # the J5's no-placement wedge is on by default
     region = plate_region(cfg)
     a = math.radians(cfg["bed_dead_sector_start"] + cfg["bed_dead_sector"] / 2)
     rmid = (cfg["bed_x"] / 2 + cfg["bed_inner_diameter"] / 2) / 2
