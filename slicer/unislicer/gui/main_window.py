@@ -7,7 +7,7 @@ import os
 import numpy as np
 from PySide6.QtCore import QItemSelectionModel, QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap
-from PySide6.QtWidgets import (QApplication, QCheckBox, QDoubleSpinBox, QFileDialog, QInputDialog, QFrame, QGridLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QApplication, QDialog, QCheckBox, QDoubleSpinBox, QFileDialog, QInputDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QListWidget, QListWidgetItem, QScrollArea, QMainWindow, QMenu, QMessageBox, QProgressBar,
                                QPushButton, QSlider, QToolButton, QVBoxLayout, QWidget)
 
@@ -236,6 +236,8 @@ class MainWindow(QMainWindow):
         mm.addAction(theme.icon("square"), tr("cut_height"), self.cut_selected)
         mm.addAction(theme.icon("grid"), tr("split_parts"), self.split_selected)
         mm.addAction(theme.icon("settings"), tr("repair_mesh"), self.repair_selected)
+        mm.addAction(theme.icon("settings"), tr("repair_advanced") + "…", self.repair_advanced_dialog)
+        mm.addAction(theme.icon("grid"), tr("pixel_edit") + "…", self.open_layer_editor)
         more.setMenu(mm)
         more.setPopupMode(QToolButton.InstantPopup)
         lay.addStretch(1)
@@ -599,6 +601,12 @@ class MainWindow(QMainWindow):
         self.island_fix_btn.clicked.connect(self.support_all_islands)
         self.island_fix_btn.hide()
         lb.addWidget(self.island_fix_btn, 0, Qt.AlignHCenter)
+        self.pixel_btn = QToolButton()
+        self.pixel_btn.setIcon(theme.icon("grid", theme.ACCENT, 18))
+        self.pixel_btn.setToolTip(tr("pixel_edit"))
+        self.pixel_btn.setCursor(Qt.PointingHandCursor)
+        self.pixel_btn.clicked.connect(self.open_layer_editor)
+        lb.addWidget(self.pixel_btn, 0, Qt.AlignHCenter)
         lwrap = QWidget()
         lwrap.setObjectName("Overlay")
         lwl = QVBoxLayout(lwrap)
@@ -1467,6 +1475,94 @@ class MainWindow(QMainWindow):
         self._objects_changed()
         self.status.setText(tr("repair_done").format(totals["flipped"], totals["holes_filled"], totals["duplicates"]))
 
+    def open_layer_editor(self):
+        """Paint / erase pixels on the sliced layers (resin), as in CHITUBOX Pro."""
+        if self.result is None or self.result[0] != "sla":
+            QMessageBox.information(self, tr("pixel_edit"), tr("pixel_need_slice"))
+            return
+        from .layer_editor import LayerEditor
+        job, cfg = self.result[1], self.result[2]
+        dlg = LayerEditor(job, cfg, self.layer_slider.value(), self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        changed = dlg.apply()
+        if not changed:
+            return
+        self._islands = {}
+        for i, poly in job.islands:
+            self._islands.setdefault(i, []).append(poly)
+        self.island_btn.setVisible(bool(self._islands))
+        self.island_fix_btn.setVisible(bool(self._islands))
+        self.stat_material.set(f"{job.volume_ml:.1f} ml", tr("stat_resin"))
+        self._on_layer(self.layer_slider.value())
+        self.status.setText(tr("pixel_done").format(changed))
+
+    def repair_advanced_dialog(self):
+        """Advanced repair: analysis first, chosen fixes, and a before / after report."""
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
+        from .. import mesh_tools
+        targets = [o for o in self._support_targets() if o.role != "cutter"]
+        if not targets:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("repair_advanced"))
+        dlg.setMinimumWidth(520)
+        form = QFormLayout(dlg)
+
+        def describe(a):
+            return tr("repair_report").format(a["faces"], a["open_edges"], a["nonmanifold_edges"], a["degenerate"],
+                                              a["duplicates"], a["shells"], "✓" if a["watertight"] else "✗")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            info = "\n\n".join(f"{o.name}:\n{describe(mesh_tools.analyze(o.mesh))}" for o in targets[:4])
+        finally:
+            QApplication.restoreOverrideCursor()
+        head = QLabel(info)
+        head.setWordWrap(True)
+        form.addRow(head)
+        weld = _spin(0.0, 1.0, 0.001, 4, " mm", 110)
+        weld.setValue(0.0001)
+        weld.setToolTip(tr("repair_weld_tip"))
+        shells = _spin(0.0, 50.0, 0.5, 1, " %", 110)
+        shells.setValue(1.0)
+        shells.setToolTip(tr("repair_shells_tip"))
+        nonman = QCheckBox(tr("repair_nonmanifold"))
+        nonman.setChecked(True)
+        holes = QCheckBox(tr("repair_holes"))
+        holes.setChecked(True)
+        form.addRow(tr("repair_weld"), weld)
+        form.addRow(tr("repair_shells"), shells)
+        form.addRow(nonman)
+        form.addRow(holes)
+        note = QLabel(tr("repair_note"))
+        note.setObjectName("Faint")
+        note.setWordWrap(True)
+        form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText(tr("repair_run"))
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        self._push_undo()
+        lines = []
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            for o in targets:
+                fixed, rep = mesh_tools.repair_advanced(o.mesh, weld.value(), shells.value() / 100.0,
+                                                        nonman.isChecked(), holes.isChecked())
+                o.mesh = fixed
+                self._drop_supports(o)
+                lines.append(f"{o.name}: " + tr("repair_result").format(
+                    rep["degenerate_removed"], rep["duplicates_removed"], rep["inner_walls_removed"],
+                    rep.get("nonmanifold_fixed", 0), rep["shells_removed"], rep["holes_filled"], rep["flipped"])
+                    + "\n" + describe(rep["after"]))
+        finally:
+            QApplication.restoreOverrideCursor()
+        self._objects_changed()
+        QMessageBox.information(self, tr("repair_advanced"), "\n\n".join(lines))
+
     def _on_preview_click(self, uid):
         self.set_mode("prepare")
         self._select_uid(uid)
@@ -1907,6 +2003,7 @@ class MainWindow(QMainWindow):
             menu.addAction(theme.icon("square"), tr("cut_height"), self.cut_selected)
             menu.addAction(theme.icon("grid"), tr("split_parts"), self.split_selected)
             menu.addAction(theme.icon("settings"), tr("repair_mesh"), self.repair_selected)
+            menu.addAction(theme.icon("settings"), tr("repair_advanced") + "…", self.repair_advanced_dialog)
             cutter = menu.addAction(tr("cutter_role"))
             cutter.setCheckable(True)
             cutter.setChecked(all(o.role == "cutter" for o in group))

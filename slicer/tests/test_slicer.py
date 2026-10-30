@@ -685,3 +685,20 @@ def test_audit_features_engine():
     assert job.layers[int(np.argmax(z > 10))].area < 300                              # above: a hollow shell
     pts = sla_supports.island_points(job.layers, job.layer_z, [(2, job.layers[2].geoms[0])])
     assert pts.shape == (1, 3)
+
+
+def test_advanced_repair():
+    from unislicer import mesh_tools
+    from unislicer.mesh import Mesh
+    b = primitives.box(10, 10, 10)
+    f = np.vstack([b.faces[2:], b.faces[5:6], b.faces[7:8][:, ::-1]])     # hole, duplicate, inner wall
+    m = Mesh(b.vertices, f)
+    before = mesh_tools.analyze(m)
+    assert not before["watertight"] and before["open_edges"] > 0
+    fixed, rep = mesh_tools.repair_advanced(m)
+    assert rep["after"]["watertight"] and rep["holes_filled"] == 1 and fixed.volume() == pytest.approx(1000, rel=1e-6)
+    # scanner noise: tiny floating shells are dropped
+    noisy = Mesh.merge([primitives.sphere(3), primitives.box(0.2, 0.2, 0.2).translated([30, 0, 0])])
+    _, rep2 = mesh_tools.repair_advanced(noisy, remove_shells_below=0.05)
+    assert rep2["shells_removed"] == 1 and rep2["after"]["shells"] == 1
+    assert rep["inner_walls_removed"] == 1

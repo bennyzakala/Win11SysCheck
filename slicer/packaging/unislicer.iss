@@ -24,6 +24,11 @@ WizardStyle=modern
 ShowLanguageDialog=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; a running UniSlicer locks its files: detect it (the app holds this mutex) and offer to close it
+AppMutex=UniSlicerAppMutex
+CloseApplications=yes
+CloseApplicationsFilter=*.exe,*.dll,*.pyd
+RestartApplications=no
 
 [Languages]
 Name: "hebrew"; MessagesFile: "compiler:Languages\Hebrew.isl"

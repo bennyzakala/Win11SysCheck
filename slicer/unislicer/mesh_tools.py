@@ -227,3 +227,191 @@ def repair(mesh: Mesh) -> tuple[Mesh, dict]:
     out = Mesh(np.array(verts), f, mesh.name)
     out.remove_degenerate()
     return out, report
+
+
+# ------------------------------------------------------- advanced repair
+def analyze(mesh: Mesh) -> dict:
+    """Health report: open edges (holes), non-manifold edges, degenerate and duplicate faces, shells."""
+    f = mesh.faces
+    if len(f) == 0:
+        return {"faces": 0, "open_edges": 0, "nonmanifold_edges": 0, "degenerate": 0, "duplicates": 0,
+                "shells": 0, "watertight": False}
+    e = np.sort(f[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2), axis=1)
+    keys = e[:, 0] * (int(e.max()) + 1) + e[:, 1]
+    _, counts = np.unique(keys, return_counts=True)
+    t = mesh.triangles
+    area = 0.5 * np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
+    degenerate = int(((f[:, 0] == f[:, 1]) | (f[:, 1] == f[:, 2]) | (f[:, 0] == f[:, 2]) | (area < 1e-10)).sum())
+    duplicates = len(f) - len(np.unique(np.sort(f, axis=1), axis=0))
+    return {"faces": len(f), "open_edges": int((counts == 1).sum()), "nonmanifold_edges": int((counts > 2).sum()),
+            "degenerate": degenerate, "duplicates": duplicates, "shells": len(split_parts(mesh)),
+            "watertight": bool(np.all(counts == 2))}
+
+
+def _triangulate_loop(points: np.ndarray) -> list[tuple[int, int, int]]:
+    """Ear-clipping of a hole loop projected on its best-fit plane (falls back to a fan)."""
+    n = len(points)
+    if n == 3:
+        return [(0, 1, 2)]
+    c = points.mean(axis=0)
+    _, _, vt = np.linalg.svd(points - c)
+    u, v = vt[0], vt[1]
+    p2 = np.column_stack([(points - c) @ u, (points - c) @ v])
+    area = 0.5 * np.sum(p2[:, 0] * np.roll(p2[:, 1], -1) - p2[:, 1] * np.roll(p2[:, 0], -1))
+    idx = list(range(n)) if area > 0 else list(range(n))[::-1]
+
+    def inside(p, a, b, cc):
+        d1 = (p[0] - b[0]) * (a[1] - b[1]) - (a[0] - b[0]) * (p[1] - b[1])
+        d2 = (p[0] - cc[0]) * (b[1] - cc[1]) - (b[0] - cc[0]) * (p[1] - cc[1])
+        d3 = (p[0] - a[0]) * (cc[1] - a[1]) - (cc[0] - a[0]) * (p[1] - a[1])
+        return not ((d1 < 0 or d2 < 0 or d3 < 0) and (d1 > 0 or d2 > 0 or d3 > 0))
+
+    tris, guard = [], 0
+    while len(idx) > 3 and guard < n * n:
+        guard += 1
+        for k in range(len(idx)):
+            i0, i1, i2 = idx[k - 1], idx[k], idx[(k + 1) % len(idx)]
+            a, b, cc = p2[i0], p2[i1], p2[i2]
+            if (b[0] - a[0]) * (cc[1] - a[1]) - (b[1] - a[1]) * (cc[0] - a[0]) <= 1e-12:
+                continue                                        # reflex corner: not an ear
+            if any(inside(p2[j], a, b, cc) for j in idx if j not in (i0, i1, i2)):
+                continue
+            tris.append((i0, i1, i2))
+            idx.pop(k)
+            break
+        else:
+            break
+    if len(idx) == 3:
+        tris.append(tuple(idx))
+    elif len(idx) > 3:                                          # not a simple polygon: fan the rest
+        tris += [(idx[0], idx[k], idx[k + 1]) for k in range(1, len(idx) - 1)]
+    if area <= 0:
+        tris = [(a, cc, b) for a, b, cc in tris]
+    return tris
+
+
+def repair_advanced(mesh: Mesh, weld: float = 1e-4, remove_shells_below: float = 0.0,
+                    fix_nonmanifold: bool = True, fill_holes: bool = True) -> tuple[Mesh, dict]:
+    """Deeper repair than :func:`repair`: weld near vertices, drop degenerate, duplicate and inner
+    double-wall faces, cut away faces that make edges non-manifold, drop tiny floating shells
+    (``remove_shells_below`` = fraction of the largest shell's faces), fix winding and normals, and
+    close holes with a proper triangulation. Returns the mesh and a report with before/after counts."""
+    before = analyze(mesh)
+    tris = mesh.triangles
+    m = Mesh.from_triangles(tris, mesh.name, tolerance=max(weld, 1e-9))
+    f = m.faces
+    v = m.vertices
+    report = {"before": before}
+    # degenerate (repeated index or zero area)
+    t = v[f]
+    area = 0.5 * np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
+    keep = (f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 0] != f[:, 2]) & (area > 1e-10)
+    report["degenerate_removed"] = int((~keep).sum())
+    f = f[keep]
+    # duplicates, and pairs facing each other on the same three vertices (an inner double wall)
+    key = np.sort(f, axis=1)
+    uniq, inv, cnt = np.unique(key, axis=0, return_inverse=True, return_counts=True)
+    inv = inv.ravel()
+    first = np.full(len(uniq), -1)
+    keep = np.zeros(len(f), dtype=bool)
+    for i in range(len(f)):
+        g = inv[i]
+        if cnt[g] == 1:
+            keep[i] = True
+        elif first[g] < 0:
+            first[g] = i
+    # a group of 2 with opposite winding is an internal wall: drop both; otherwise keep one
+    walls = 0
+    for g in np.flatnonzero(cnt > 1):
+        members = np.flatnonzero(inv == g)
+        a, b = f[members[0]], f[members[1]]
+        opposite = len(members) == 2 and ({(a[0], a[1]), (a[1], a[2]), (a[2], a[0])}
+                                         & {(b[1], b[0]), (b[2], b[1]), (b[0], b[2])})
+        if opposite:
+            walls += 1
+        else:
+            keep[members[0]] = True
+    report["duplicates_removed"] = int(len(f) - keep.sum() - 2 * walls)
+    report["inner_walls_removed"] = walls
+    f = f[keep]
+    # non-manifold edges: keep the two largest faces on each such edge
+    nm = 0
+    if fix_nonmanifold and len(f):
+        e = np.sort(f[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2), axis=1)
+        ek = e[:, 0] * (len(v) + 1) + e[:, 1]
+        order = np.argsort(ek, kind="stable")
+        ks = ek[order]
+        starts = np.flatnonzero(np.r_[True, ks[1:] != ks[:-1]])
+        sizes = np.diff(np.r_[starts, len(ks)])
+        t = v[f]
+        farea = 0.5 * np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
+        drop = set()
+        for s, n in zip(starts[sizes > 2], sizes[sizes > 2]):
+            faces_on_edge = order[s:s + n] // 3
+            ranked = sorted(set(faces_on_edge.tolist()), key=lambda i: -farea[i])
+            drop.update(ranked[2:])
+            nm += 1
+        if drop:
+            mask = np.ones(len(f), dtype=bool)
+            mask[list(drop)] = False
+            f = f[mask]
+        report["nonmanifold_fixed"] = nm
+    m = Mesh(v, f, mesh.name)
+    # tiny floating shells (scanner noise)
+    shells_removed = 0
+    if remove_shells_below > 0:
+        parts = split_parts(m)
+        if len(parts) > 1:
+            big = len(parts[0].faces)
+            keep_parts = [p for p in parts if len(p.faces) >= big * remove_shells_below]
+            shells_removed = len(parts) - len(keep_parts)
+            m = Mesh.merge(keep_parts, mesh.name)
+    report["shells_removed"] = shells_removed
+    # winding, outward normals and simple hole filling from the basic repair
+    m, basic = repair(m) if not fill_holes else _repair_with_triangulated_holes(m)
+    report["flipped"] = basic["flipped"]
+    report["holes_filled"] = basic["holes_filled"]
+    report["after"] = analyze(m)
+    m.name = mesh.name
+    return m, report
+
+
+def _repair_with_triangulated_holes(mesh: Mesh) -> tuple[Mesh, dict]:
+    """Basic repair for winding, then close each boundary loop by ear clipping instead of a fan."""
+    m, rep = repair(Mesh(mesh.vertices, mesh.faces, mesh.name))      # fan-filled holes are redone below
+    if rep["holes_filled"] == 0:
+        return m, rep
+    # redo the holes: undo the fan (faces that use the added centre vertices) and triangulate the loops
+    n_orig = len(mesh.vertices)
+    f = m.faces
+    fan = np.any(f >= n_orig, axis=1)
+    base = f[~fan]
+    out = [base]
+    count = {}
+    for a, b, c in base:
+        for u, w in ((a, b), (b, c), (c, a)):
+            count[(u, w)] = count.get((u, w), 0) + 1
+    boundary = [(u, w) for (u, w) in count if (w, u) not in count]
+    nxt = {}
+    for u, w in boundary:
+        nxt.setdefault(w, []).append(u)
+    used, filled = set(), 0
+    verts = m.vertices[:n_orig]
+    for start in list(nxt):
+        if start in used:
+            continue
+        loop, cur = [], start
+        while cur not in used and cur in nxt and nxt[cur]:
+            used.add(cur)
+            loop.append(cur)
+            cur = nxt[cur][0]
+        if len(loop) >= 3 and cur == start:
+            tri = _triangulate_loop(verts[loop])
+            out.append(np.array([[loop[a], loop[b], loop[c]] for a, b, c in tri]))
+            filled += 1
+    res = Mesh(verts, np.vstack(out), mesh.name)
+    res.remove_degenerate()
+    # keep the outward orientation found by the basic repair
+    fixed, again = repair(res)
+    rep["holes_filled"] = max(filled, again["holes_filled"])
+    return fixed, rep

@@ -35,7 +35,22 @@ def _relaunch_with_software_opengl() -> int:
     return subprocess.call(cmd, env=env)
 
 
+_MUTEX = None
+
+
+def _hold_app_mutex() -> None:
+    """Windows: a named mutex the installer checks, so it can ask to close UniSlicer before updating."""
+    global _MUTEX
+    if sys.platform == "win32" and _MUTEX is None:
+        try:
+            import ctypes
+            _MUTEX = ctypes.windll.kernel32.CreateMutexW(None, False, "UniSlicerAppMutex")
+        except Exception:
+            pass
+
+
 def run(paths: list[str] | None = None) -> int:
+    _hold_app_mutex()
     if SMOKE:
         import faulthandler
         faulthandler.dump_traceback_later(45, exit=True)  # print where it is stuck, then exit
