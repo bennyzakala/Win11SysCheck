@@ -213,7 +213,7 @@ class ProfileManager(QDialog):
                 row.reset.connect(self._on_reset)
                 v.addWidget(row)
         v.addStretch(1)
-        self.scroll.setWidget(box)
+        theme.replace_scroll_widget(self.scroll, box)
 
     def _on_value(self, key, value):
         self._values[key] = value

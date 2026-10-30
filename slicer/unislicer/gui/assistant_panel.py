@@ -151,7 +151,7 @@ class AssistantPanel(QFrame):
         for s in items:
             v.addWidget(self._row(s))
         v.addStretch(1)
-        self.scroll.setWidget(box)
+        theme.replace_scroll_widget(self.scroll, box)
         self.scroll.setVisible(bool(items))
         self.empty.setVisible(not items)
 

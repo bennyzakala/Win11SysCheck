@@ -393,3 +393,14 @@ def logo_pixmap(size: int = 30, height: int | None = None) -> QPixmap:
     p.end()
     pm.setDevicePixelRatio(2)
     return pm
+
+
+def replace_scroll_widget(scroll, widget) -> None:
+    """Put ``widget`` in a scroll area and delete the old content later, not now: a rebuild started by a
+    button inside the old content (Apply, Reset...) would otherwise delete that button while its click is
+    still being handled, which crashes the program on Windows."""
+    old = scroll.takeWidget()
+    scroll.setWidget(widget)
+    if old is not None:
+        old.hide()
+        old.deleteLater()

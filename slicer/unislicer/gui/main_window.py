@@ -666,8 +666,9 @@ class MainWindow(QMainWindow):
 
         # learning assistant
         self.assistant_panel = AssistantPanel()
-        self.assistant_panel.applyRequested.connect(self._apply_suggestion)
-        self.assistant_panel.dismissed.connect(self._dismiss_suggestion)
+        # queued: run after the click is finished, so a rebuilt panel never deletes the button mid-click
+        self.assistant_panel.applyRequested.connect(self._apply_suggestion, Qt.QueuedConnection)
+        self.assistant_panel.dismissed.connect(self._dismiss_suggestion, Qt.QueuedConnection)
         self.assistant_panel.printReported.connect(self._on_print_report)
         self.assistant_panel.learningToggled.connect(self._on_learning_toggled)
         self.assistant_panel.resetRequested.connect(self._on_learning_reset)

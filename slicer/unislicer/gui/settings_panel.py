@@ -839,5 +839,5 @@ class SettingsPanel(QWidget):
             v.addWidget(sec)
             self._sections[cat[0]] = sec
         v.addStretch(1)
-        self.scroll.setWidget(container)
+        theme.replace_scroll_widget(self.scroll, container)
         self._building = False
