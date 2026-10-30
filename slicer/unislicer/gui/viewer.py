@@ -31,6 +31,18 @@ void main(){ vec4 w = uModel * vec4(aPos, 1.0); vNormal = uNormalMat * aNormal; 
 MESH_FS = """#version 330 core
 in vec3 vNormal; in vec3 vPos; out vec4 frag;
 uniform vec3 uColor; uniform vec3 uEye; uniform float uOverhang; uniform int uShowOverhang; uniform float uClipZ; uniform float uAlpha;
+// plate bounds: the part of a model outside them is painted purple
+uniform int uBound; uniform vec4 uPlate; uniform vec2 uBedC; uniform float uRadius; uniform float uInner;
+uniform int uShape; uniform vec2 uSector; uniform float uMaxZ;
+bool outsidePlate(vec3 p){
+  if (p.z > uMaxZ + 0.01) return true;
+  if (uShape == 0) return p.x < uPlate.x - 0.01 || p.y < uPlate.y - 0.01 || p.x > uPlate.z + 0.01 || p.y > uPlate.w + 0.01;
+  vec2 d = p.xy - uBedC; float r = length(d);
+  if (r > uRadius + 0.01) return true;
+  if (uShape == 2 && r < uInner - 0.01) return true;
+  if (uSector.y > 0.0 && mod(atan(d.y, d.x) - uSector.x, 6.2831853) < uSector.y) return true;
+  return false;
+}
 void main(){
   if (vPos.z > uClipZ) discard;
   vec3 n = normalize(vNormal);
@@ -40,6 +52,7 @@ void main(){
   vec3 base = uColor;
   if (uShowOverhang == 1 && n.z < -uOverhang && vPos.z > 0.05) base = mix(base, vec3(1.0, 0.30, 0.36), 0.85);
   if (inside) base = vec3(0.95, 0.55, 0.25);
+  if (uBound == 1 && outsidePlate(vPos)) base = vec3(0.62, 0.28, 0.95);     // purple: off the plate
   vec3 l1 = normalize(vec3(0.45, -0.55, 0.75)); vec3 l2 = normalize(vec3(-0.6, 0.6, 0.35));
   float d = max(dot(n, l1), 0.0) * 0.72 + max(dot(n, l2), 0.0) * 0.28;
   float hemi = 0.5 + 0.5 * n.z;
@@ -719,6 +732,7 @@ class Viewer(QOpenGLWidget):
         GL.glUniform1f(self._u(p, "uOverhang"), self.overhang_sin)
         GL.glUniform1f(self._u(p, "uClipZ"), clip)
         GL.glUniform1f(self._u(p, "uAlpha"), 1.0)
+        self._set_plate_bounds(p)
         if show_models:
             GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
             for uid, obj in self.objects.items():
@@ -729,15 +743,17 @@ class Viewer(QOpenGLWidget):
                 state = obj["state"]
                 if state == "cutter":
                     continue  # drawn translucent after everything opaque
-                color = (1.0, 0.16, 0.22) if state == "collision" else theme.MODEL_OUTSIDE if state == "outside" else (
+                # a model partly off the plate keeps its colour; only the part outside turns purple (shader)
+                color = (1.0, 0.16, 0.22) if state == "collision" else (
                     theme.MODEL_SELECTED if uid in self.selection else theme.MODEL_COLOR)
-                if obj.get("color") is not None and state not in ("collision", "outside"):
+                GL.glUniform1i(self._u(p, "uBound"), int(state == "outside" and not preview))
+                if obj.get("color") is not None and state != "collision":
                     own = obj["color"]                 # its material / dental shade
                     color = tuple(0.75 * a + 0.25 * b for a, b in zip(own, theme.MODEL_SELECTED)) \
                         if uid in self.selection else own
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 self._set_model(p, obj["matrix"])
-                regions = self._region_buffers(obj) if state not in ("collision", "outside") else None
+                regions = self._region_buffers(obj) if state != "collision" else None
                 if regions and not (self.interacting and len(obj["mesh"].faces) > self.LOD_FACES):
                     sel = uid in self.selection
                     for buf, rgb in regions:          # e.g. a denture: gingiva and every tooth in its shade
@@ -747,6 +763,7 @@ class Viewer(QOpenGLWidget):
                         buf.draw(GL.GL_TRIANGLES)
                 else:
                     self._buffer_for(obj, "buffer", "mesh").draw(GL.GL_TRIANGLES)
+                GL.glUniform1i(self._u(p, "uBound"), 0)
                 if obj.get("hole_buffer") is not None and not preview:
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
                     GL.glUniform3f(self._u(p, "uColor"), 1.0, 0.35, 0.42)
@@ -898,6 +915,21 @@ class Viewer(QOpenGLWidget):
                 self.measure_label.show()
                 return
         self.measure_label.hide()
+
+    def _set_plate_bounds(self, prog):
+        """Plate shape for the purple 'off the plate' colouring (rectangle, round, ring + wedge, height)."""
+        bx, by, bz = self.bed
+        shape, inner = getattr(self, "bed_shape", ("rect", 0.0))
+        start, width = getattr(self, "bed_sector", (0.0, 0.0))
+        GL.glUniform1i(self._u(prog, "uBound"), 0)
+        GL.glUniform4f(self._u(prog, "uPlate"), *getattr(self, "plate", (0.0, 0.0, bx, by)))
+        GL.glUniform2f(self._u(prog, "uBedC"), bx / 2.0, by / 2.0)
+        GL.glUniform1f(self._u(prog, "uRadius"), min(bx, by) / 2.0)
+        GL.glUniform1f(self._u(prog, "uInner"), inner / 2.0)
+        GL.glUniform1i(self._u(prog, "uShape"), {"round": 1, "ring": 2}.get(shape, 0))
+        GL.glUniform2f(self._u(prog, "uSector"), float(np.radians(start)),
+                       float(np.radians(width)) if shape in ("round", "ring") else 0.0)
+        GL.glUniform1f(self._u(prog, "uMaxZ"), bz)
 
     def _draw_bed(self, mvp, alpha: float):
         GL.glUseProgram(self._bed_prog)
