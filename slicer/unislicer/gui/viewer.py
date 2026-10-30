@@ -588,8 +588,11 @@ class Viewer(QOpenGLWidget):
         try:
             fmt = self.context().format()
             if (fmt.majorVersion(), fmt.minorVersion()) < (3, 3):
-                renderer = GL.glGetString(GL.GL_RENDERER)
-                renderer = renderer.decode(errors="replace") if renderer else "unknown renderer"
+                try:
+                    renderer = GL.glGetString(GL.GL_RENDERER)
+                    renderer = renderer.decode(errors="replace") if renderer else "unknown renderer"
+                except Exception:              # no usable context at all (the driver refused it)
+                    renderer = "no OpenGL context from the graphics driver"
                 raise RuntimeError(f"OpenGL {fmt.majorVersion()}.{fmt.minorVersion()} ({renderer}); 3.3 is required")
             self._bg = _compile(BG_VS, BG_FS)
             self._mesh_prog = _compile(MESH_VS, MESH_FS)

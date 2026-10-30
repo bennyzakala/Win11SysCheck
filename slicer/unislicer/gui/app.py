@@ -35,6 +35,16 @@ def _relaunch_with_software_opengl() -> int:
     return subprocess.call(cmd, env=env)
 
 
+def _relaunch_with_gpu_again() -> int:
+    """The graphics driver gave no usable OpenGL context this time (it happens to a program started by the
+    installer, with its elevated rights, or while the driver is busy): try the graphics card once more in a
+    fresh process before settling for the slow software renderer."""
+    env = dict(os.environ, UNISLICER_GL_RETRY="1")
+    cmd = [sys.executable] + (sys.argv[1:] if getattr(sys, "frozen", False) else sys.argv)
+    _trace(f"OpenGL context failed, retrying the graphics card: {cmd}")
+    return subprocess.call(cmd, env=env)
+
+
 _MUTEX = None
 
 
@@ -73,13 +83,16 @@ def run(paths: list[str] | None = None) -> int:
     previous_crash = reporter.install()          # catches every error from here on and explains it
     reporter.reported.connect(lambda d: state["window"] is not None and state["window"].on_crash_reported(d))
 
-    state = {"window": None, "software_gl": False}
+    state = {"window": None, "software_gl": False, "retry_gpu": False}
     can_fall_back = sys.platform == "win32" and not os.environ.get("UNISLICER_SOFTWARE_GL")
 
     def on_gl_failed(_message):
-        # The GPU driver gave the 3D view less than OpenGL 3.3: restart on Qt's software renderer.
-        if can_fall_back and not state["software_gl"]:
-            state["software_gl"] = True
+        # No usable OpenGL 3.3 context: restart once on the graphics card, then on Qt's software renderer.
+        if can_fall_back and not state["software_gl"] and not state["retry_gpu"]:
+            if not os.environ.get("UNISLICER_GL_RETRY"):
+                state["retry_gpu"] = True         # first: the graphics card again, in a fresh process
+            else:
+                state["software_gl"] = True       # it failed twice: the software renderer
             QTimer.singleShot(0, app.quit)
 
     def open_window(objects=None):
@@ -127,6 +140,9 @@ def run(paths: list[str] | None = None) -> int:
     code = app.exec()
     reporter.uninstall()
     _trace(f"exited with {code}")
+    if state["retry_gpu"]:
+        state["window"].close()
+        return _relaunch_with_gpu_again()
     if state["software_gl"]:
         state["window"].close()
         return _relaunch_with_software_opengl()

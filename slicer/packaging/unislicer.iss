@@ -50,4 +50,4 @@ Name: "{autoprograms}\UniSlicer"; Filename: "{app}\UniSlicer.exe"
 Name: "{autodesktop}\UniSlicer"; Filename: "{app}\UniSlicer.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\UniSlicer.exe"; Description: "{cm:LaunchProgram,UniSlicer}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\UniSlicer.exe"; Description: "{cm:LaunchProgram,UniSlicer}"; Flags: nowait postinstall skipifsilent runasoriginaluser
