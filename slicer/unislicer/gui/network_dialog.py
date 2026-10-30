@@ -13,6 +13,7 @@ from .worker import Task
 
 KIND_LABEL = {
     "sdcp": ("ELEGOO / ChiTu Wi-Fi (SDCP) - Saturn 3/4 Ultra, Mars 5 Ultra", "ELEGOO / ChiTu Wi-Fi (SDCP) - Saturn 3/4 Ultra, Mars 5 Ultra"),
+    "creality": ("Creality - מצב LAN (SPARKX i7, K1, K2, Hi, Ender-3 V3)", "Creality - LAN mode (SPARKX i7, K1, K2, Hi, Ender-3 V3)"),
     "prusalink": ("Prusa - PrusaLink (SL1, SL1S, MK4, XL, Core One)", "Prusa - PrusaLink (SL1, SL1S, MK4, XL, Core One)"),
     "octoprint": ("OctoPrint", "OctoPrint"),
     "moonraker": ("Klipper / Moonraker (Mainsail, Fluidd, Creality K1, Neptune 4)", "Klipper / Moonraker (Mainsail, Fluidd, Creality K1, Neptune 4)"),
@@ -27,6 +28,18 @@ def kind_label(kind: str) -> str:
 
 def lang() -> str:
     return "he" if i18n.LANG == "he" else "en"
+
+
+def _guess_profile(info: dict) -> str:
+    """The printer profile whose name matches what the printer reports (e.g. 'SPARKX i7'), else ''."""
+    text = f"{info.get('model', '')} {info.get('name', '')}".lower().replace("-", " ")
+    best = ""
+    for pid, prof in profiles.load("printers").items():
+        name = prof.get("name", "").lower().replace("-", " ")
+        words = [w for w in name.split() if w not in ("creality", "elegoo", "prusa", "anycubic", "phrozen")]
+        if words and all(w in text for w in words) and len(name) > len(best):
+            best = pid
+    return best
 
 
 class NetworkDialog(QDialog):
@@ -211,7 +224,8 @@ class NetworkDialog(QDialog):
         p = network.NetPrinter(name=(info or {}).get("name") or profiles.display_name(prof) or tr("net_new"),
                                kind=kind, host=(info or {}).get("host", ""),
                                mainboard_id=(info or {}).get("mainboard_id", ""),
-                               printer_id=self.current_printer if not info else "")
+                               port=int((info or {}).get("port", 0) or 0) if (info or {}).get("kind") != "sdcp" else 0,
+                               printer_id=self.current_printer if not info else _guess_profile(info))
         self.items.append(p)
         self._refresh_list()
         self.list.setCurrentRow(len(self.items) - 1)
@@ -236,16 +250,17 @@ class NetworkDialog(QDialog):
 
     def _discover(self):
         def found(hits):
-            known = {p.host for p in self.items}
-            new = [h for h in hits if h["host"] not in known]
+            known = {(p.host, p.kind) for p in self.items}
+            new = [h for h in hits if (h["host"], h["kind"]) not in known]
             for h in new:
                 self._add(info=h)
             if hits:
                 self.result.setText(tr("net_found").format(len(hits), len(new)) + "\n" +
-                                    "\n".join(f"• {h['model'] or h['name']} - {h['host']}" for h in hits))
+                                    "\n".join(f"• {h['model'] or h['name']} - {h['host']} ({kind_label(h['kind']).split(' - ')[0]})"
+                                              for h in hits))
             else:
                 self.result.setText(tr("net_found_none"))
-        self._run(lambda: network.discover(2.5), found, tr("net_searching"))
+        self._run(lambda: network.scan(), found, tr("net_searching"))
 
     def _test(self):
         self._store_form()

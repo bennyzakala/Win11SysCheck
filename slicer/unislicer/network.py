@@ -32,8 +32,8 @@ from typing import Callable
 from . import profiles
 
 FILE_NAME = "network_printers.json"
-KINDS = ("sdcp", "prusalink", "octoprint", "moonraker", "folder")
-DEFAULT_PORT = {"sdcp": 3030, "prusalink": 80, "octoprint": 80, "moonraker": 7125, "folder": 0}
+KINDS = ("sdcp", "creality", "prusalink", "octoprint", "moonraker", "folder")
+DEFAULT_PORT = {"sdcp": 3030, "creality": 80, "prusalink": 80, "octoprint": 80, "moonraker": 7125, "folder": 0}
 SDCP_UDP_PORT = 3000
 SDCP_CHUNK = 1024 * 1024
 
@@ -306,6 +306,251 @@ def discover(timeout: float = 2.0, targets: list[str] | None = None) -> list[dic
     return list(found.values())
 
 
+# ---------------------------------------------------------------- whole-network scan
+SCAN_PORTS = (80, 7125, 4408, 4409, 5000, 9999, 3030)
+
+
+def local_networks() -> list[str]:
+    """IPv4 prefixes (a.b.c) of this computer's local networks (Wi-Fi and cable)."""
+    found = []
+    try:                                         # the address used for the default route
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("10.255.255.255", 1))
+        found.append(s.getsockname()[0])
+        s.close()
+    except OSError:
+        pass
+    try:
+        found += socket.gethostbyname_ex(socket.gethostname())[2]
+    except OSError:
+        pass
+    out = []
+    for ip in found:
+        if ip.startswith(("127.", "169.254.")) or ip.count(".") != 3:
+            continue
+        prefix = ip.rsplit(".", 1)[0]
+        if prefix not in out:
+            out.append(prefix)
+    return out
+
+
+def _open_port(host: str, port: int, timeout: float) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _http_json(host: str, port: int, path: str, timeout: float = 1.5):
+    """(status, json or None, headers) of a GET, without raising."""
+    url = f"http://{host}" + ("" if port == 80 else f":{port}") + path
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}),
+                                    timeout=timeout) as r:
+            return r.status, _json(r.read(65536)), dict(r.headers)
+    except urllib.error.HTTPError as e:
+        return e.code, None, dict(e.headers or {})
+    except (urllib.error.URLError, OSError, ValueError):
+        return 0, None, {}
+
+
+def identify(host: str, ports: set[int]) -> list[dict]:
+    """What printer service answers on ``host`` (given its open ports)."""
+    out = []
+    for port in [p for p in (7125, 4408, 4409, 80) if p in ports]:
+        code, j, _ = _http_json(host, port, "/server/info")
+        if code == 200 and isinstance(j, dict) and isinstance(j.get("result"), dict):
+            _, pi, _ = _http_json(host, port, "/printer/info")
+            info = (pi or {}).get("result") or {} if isinstance(pi, dict) else {}
+            out.append({"kind": "moonraker", "host": host, "port": port,
+                         "name": info.get("hostname") or host, "model": "Klipper / Moonraker"})
+            if 9999 in ports:                      # a Creality running Moonraker: say which one
+                c = creality_info(host)
+                if c is not None:
+                    out[-1]["model"] = c["model"] + " (Moonraker)"
+                    out[-1]["name"] = c["name"]
+            break
+    if 80 in ports or 5000 in ports:
+        for port in [p for p in (80, 5000) if p in ports]:
+            code, j, headers = _http_json(host, port, "/api/version")
+            text = json.dumps(j) if j is not None else ""
+            auth = (headers.get("WWW-Authenticate") or headers.get("www-authenticate") or "").lower()
+            if "prusalink" in text.lower() or "prusa" in text.lower() or (code == 401 and "printer api" in auth):
+                out.append({"kind": "prusalink", "host": host, "port": port, "name": (j or {}).get("hostname") or host,
+                            "model": (j or {}).get("text") or "Prusa (PrusaLink)"})
+                break
+            if "octoprint" in text.lower() or (code in (401, 403) and port == 5000):
+                out.append({"kind": "octoprint", "host": host, "port": port, "name": host,
+                            "model": (j or {}).get("text") or "OctoPrint"})
+                break
+    if 9999 in ports and not any(o["kind"] == "moonraker" for o in out):
+        info = creality_info(host)
+        if info is not None:
+            out.append(info)
+    return out
+
+
+def scan(progress=None, cancelled=None, timeout: float = 0.3, prefixes: list[str] | None = None) -> list[dict]:
+    """Find printers on the local network: SDCP broadcast, then every address of the local network(s)
+    probed on the ports printers listen on (Moonraker / Klipper incl. Creality, PrusaLink, OctoPrint,
+    Creality LAN mode, ELEGOO SDCP)."""
+    from concurrent.futures import ThreadPoolExecutor
+    found: dict[tuple, dict] = {}
+    for h in discover(1.5):
+        found[(h["host"], "sdcp")] = h
+    prefixes = prefixes if prefixes is not None else local_networks()
+    hosts = [f"{p}.{i}" for p in prefixes for i in range(1, 255)]
+    jobs = [(h, port) for h in hosts for port in SCAN_PORTS]
+    open_ports: dict[str, set] = {}
+    done = 0
+    with ThreadPoolExecutor(max_workers=128) as pool:
+        for (h, port), ok in zip(jobs, pool.map(lambda hp: _open_port(hp[0], hp[1], timeout), jobs)):
+            done += 1
+            if progress and done % 64 == 0:
+                progress(0.8 * done / len(jobs))
+            if cancelled and cancelled():
+                raise InterruptedError()
+            if ok:
+                open_ports.setdefault(h, set()).add(port)
+        candidates = [h for h, ports in open_ports.items() if ports & {80, 7125, 4408, 4409, 5000, 9999, 3030}]
+        for h, results in zip(candidates, pool.map(lambda h: identify(h, open_ports[h]), candidates)):
+            for r in results:
+                found.setdefault((r["host"], r["kind"]), r)
+            if 3030 in open_ports[h] and (h, "sdcp") not in found:
+                found[(h, "sdcp")] = {"kind": "sdcp", "host": h, "name": h, "model": "SDCP (ELEGOO / ChiTu)",
+                                      "mainboard_id": ""}
+    if progress:
+        progress(1.0)
+    return sorted(found.values(), key=lambda d: tuple(int(x) for x in d["host"].split(".")) if d["host"].count(".") == 3 else (999,))
+
+
+def _creality_ws(host: str, timeout: float = 3.0) -> "WebSocket":
+    """The Creality LAN-mode WebSocket (port 9999; path "/" on most firmware, "/websocket" on some)."""
+    last = None
+    for path in ("/", "/websocket"):
+        try:
+            return WebSocket(host, 9999, path, timeout=timeout)
+        except (NetworkError, OSError) as e:
+            last = e
+    raise NetworkError(f"unreachable: Creality LAN mode (port 9999) did not answer ({last})")
+
+
+def _creality_read(ws: "WebSocket", until, seconds: float = 3.0) -> dict:
+    """Collect the printer's JSON telemetry until ``until(telemetry)`` or the time is up; answers heartbeats."""
+    telem: dict = {}
+    ws.sock.settimeout(seconds)
+    end = time.time() + seconds
+    try:
+        while time.time() < end:
+            msg = ws.recv()
+            if msg is None:
+                break
+            if msg.strip() == "ok":
+                continue
+            j = _json(msg.encode())
+            if not isinstance(j, dict):
+                continue
+            if j.get("ModeCode") == "heart_beat":
+                ws.send("ok")
+                continue
+            telem.update(j)
+            if until(telem):
+                break
+    except (socket.timeout, OSError, NetworkError):
+        pass
+    return telem
+
+
+def creality_info(host: str) -> dict | None:
+    """Creality LAN mode (K1 / K2 / Hi / SPARKX i7 stock firmware): a WebSocket on port 9999 that sends
+    the printer's state as JSON. Returns what it says about itself, or None."""
+    try:
+        ws = _creality_ws(host, 2.0)
+    except NetworkError:
+        return None
+    try:
+        ws.send(json.dumps({"method": "get", "params": {"ReqPrinterPara": 1}}))
+        info = _creality_read(ws, lambda t: any(k in t for k in ("model", "modelVersion", "hostname")), 2.5)
+    finally:
+        ws.close()
+    model = str(info.get("model") or info.get("modelVersion") or "")
+    return {"kind": "creality", "host": host, "port": 80, "name": str(info.get("hostname") or host),
+            "model": ("Creality " + model).strip() if not model.lower().startswith("creality") else model}
+
+
+class _Creality:
+    """Creality stock firmware in LAN mode (turn on 'LAN mode' / 'LAN only' in the printer's network
+    settings): files are uploaded over HTTP (POST /upload/<name>, field "file") and printed through the
+    port-9999 WebSocket. When the printer also runs Moonraker (port 7125), the Moonraker connection is
+    used instead because it is documented."""
+    GCODE_DIRS = ("/mnt/UDISK/printer_data/gcodes", "/usr/data/printer_data/gcodes")
+
+    def __init__(self, p):
+        self.p = p
+
+    def _moonraker(self):
+        if _open_port(self.p.host, 7125, 0.8):
+            code, j, _ = _http_json(self.p.host, 7125, "/server/info")
+            if code == 200 and isinstance(j, dict) and "result" in j:
+                return _Moonraker(NetPrinter(self.p.name, "moonraker", self.p.host, 7125, self.p.api_key))
+        return None
+
+    def test(self):
+        m = self._moonraker()
+        info = creality_info(self.p.host)
+        if info is None and m is None:
+            raise NetworkError("unreachable: no answer on port 9999 - turn on LAN mode in the printer's "
+                               "network settings")
+        text = info["model"] if info else "Creality"
+        return text + (" · Moonraker" if m else " · LAN mode")
+
+    def upload(self, path, name, progress=None, cancelled=None, start=False):
+        m = self._moonraker()
+        if m is not None:
+            return m.upload(path, name, progress, cancelled, start)
+        body, ctype = _multipart({}, "file", name, (path, 0, os.path.getsize(path)), progress, cancelled)
+        port = self.p.port or 80
+        q = NetPrinter(self.p.name, "creality", self.p.host, port, self.p.api_key)
+        _open(q, "POST", f"/upload/{urllib.parse.quote(name)}", body, {"Content-Type": ctype}, timeout=180)
+        if start:
+            self.start(name)
+
+    def start(self, name):
+        ws = _creality_ws(self.p.host)
+        try:
+            ws.send(json.dumps({"method": "get", "params": {"ReqPrinterPara": 1}}))
+            telem = _creality_read(ws, lambda t: "model" in t or "hostname" in t, 2.0)
+            model = str(telem.get("model", "")).upper()
+            folder = self.GCODE_DIRS[1] if ("K1" in model or "HI" in model or "ENDER" in model) else self.GCODE_DIRS[0]
+            ws.send(json.dumps({"method": "set", "params": {"opGcodeFile": f"printprt:{folder}/{name}",
+                                                             "enableSelfTest": 0}}))
+            _creality_read(ws, lambda t: t.get("state") in (1, "1") or "printFileName" in t, 3.0)
+        finally:
+            ws.close()
+
+    def status(self):
+        m = self._moonraker()
+        if m is not None:
+            return m.status()
+        ws = _creality_ws(self.p.host)
+        try:
+            ws.send(json.dumps({"method": "get", "params": {"ReqPrinterPara": 1}}))
+            t = _creality_read(ws, lambda t: "state" in t and "printProgress" in t, 3.0)
+        finally:
+            ws.close()
+        states = {0: "idle", 1: "printing", 2: "paused", 3: "complete"}
+        st = t.get("state", t.get("deviceState"))
+        try:
+            st = states.get(int(st), str(st))
+        except (TypeError, ValueError):
+            st = str(st or "")
+        name = str(t.get("printFileName", "")).split("/")[-1]
+        prog = t.get("printProgress", t.get("dProgress"))
+        return {"state": st, "file": name, "layer": t.get("layer"), "layers": t.get("TotalLayer"),
+                "percent": float(prog) if isinstance(prog, (int, float)) else None}
+
+
 class _Sdcp:
     def __init__(self, p: NetPrinter):
         self.p = p
@@ -498,8 +743,8 @@ class _Folder:
 
 
 def client(p: NetPrinter):
-    return {"sdcp": _Sdcp, "octoprint": _OctoPrint, "moonraker": _Moonraker, "prusalink": _PrusaLink,
-            "folder": _Folder}[p.kind](p)
+    return {"sdcp": _Sdcp, "creality": _Creality, "octoprint": _OctoPrint, "moonraker": _Moonraker,
+            "prusalink": _PrusaLink, "folder": _Folder}[p.kind](p)
 
 
 def test_connection(p: NetPrinter) -> str:

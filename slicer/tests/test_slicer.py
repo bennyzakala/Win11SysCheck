@@ -1149,3 +1149,121 @@ def test_copies_of_a_part_compare_by_identity():
     from unislicer.scene import plate_area
     assert layout.auto_layout(parts, plate_area(cfg), layout.LayoutOptions(), selected=copies[:2]) == []
     assert layout.auto_layout(parts, plate_area(cfg), layout.LayoutOptions(scope="selected"), selected=copies[:2]) == []
+
+
+def test_creality_lan_mode_and_network_scan(tmp_path, monkeypatch):
+    """Creality LAN mode (SPARKX i7 / K-series): found by the network scan, file uploaded over HTTP,
+    print started over the port-9999 WebSocket - against small stand-ins for the printer."""
+    import base64, hashlib, json, socket, struct, threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from unislicer import network
+
+    uploads, commands = [], []
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            uploads.append((self.path, self.rfile.read(int(self.headers["Content-Length"]))))
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def do_GET(self):
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+    http = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=http.serve_forever, daemon=True).start()
+    ws_srv = socket.socket()
+    ws_srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    ws_srv.bind(("127.0.0.1", 0))
+    ws_srv.listen(8)
+    ws_port = ws_srv.getsockname()[1]
+
+    def frame(obj):
+        raw = json.dumps(obj).encode()
+        return bytes([0x81, 126]) + struct.pack(">H", len(raw)) + raw if len(raw) > 125 else bytes([0x81, len(raw)]) + raw
+
+    def read_frame(c):
+        head = c.recv(2)
+        if len(head) < 2:
+            return None
+        n = head[1] & 0x7F
+        if n == 126:
+            n = struct.unpack(">H", c.recv(2))[0]
+        mask = c.recv(4)
+        data = b""
+        while len(data) < n:
+            data += c.recv(n - len(data))
+        return bytes(b ^ mask[i % 4] for i, b in enumerate(data)).decode()
+
+    def ws_serve():
+        while True:
+            try:
+                c, _ = ws_srv.accept()
+            except OSError:
+                return
+            req = b""
+            while b"\r\n\r\n" not in req:
+                req += c.recv(1024)
+            key = [l.split(b": ")[1] for l in req.split(b"\r\n") if l.lower().startswith(b"sec-websocket-key")][0]
+            acc = base64.b64encode(hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest())
+            c.sendall(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                      b"Sec-WebSocket-Accept: " + acc + b"\r\n\r\n")
+            c.sendall(frame({"ModeCode": "heart_beat", "msg": 1}))
+            try:
+                while True:
+                    msg = read_frame(c)
+                    if msg is None:
+                        break
+                    if not msg.startswith("{"):          # "ok" heartbeat replies, close frames
+                        if msg == "":
+                            break
+                        continue
+                    j = json.loads(msg)
+                    commands.append(j)
+                    if j.get("method") == "get":
+                        c.sendall(frame({"model": "SPARKX i7", "hostname": "SPARKX-i7-1234", "state": 0,
+                                         "printProgress": 0}))
+                    else:
+                        c.sendall(frame({"state": 1, "printFileName": j["params"].get("opGcodeFile", "")}))
+            except OSError:
+                pass
+            c.close()
+    threading.Thread(target=ws_serve, daemon=True).start()
+
+    # route the fixed ports (9999 WebSocket, 80 upload) to the stand-ins
+    orig_ws = network.WebSocket.__init__
+    monkeypatch.setattr(network.WebSocket, "__init__",
+                        lambda self, host, port, path="/websocket", timeout=8.0:
+                        orig_ws(self, host, ws_port if port == 9999 else port, path, timeout))
+    info = network.creality_info("127.0.0.1")
+    assert info["model"] == "Creality SPARKX i7" and info["name"] == "SPARKX-i7-1234"
+
+    p = network.NetPrinter("SPARKX", "creality", "127.0.0.1", http.server_address[1])
+    monkeypatch.setattr(network, "_open_port", lambda h, port, t: False)      # no Moonraker here
+    assert "SPARKX i7" in network.test_connection(p)
+    f = tmp_path / "cube.gcode"
+    f.write_bytes(b"G28\nG1 X10\n" * 1000)
+    network.send(p, str(f), "cube.gcode", start=True)
+    assert uploads and uploads[-1][0] == "/upload/cube.gcode" and f.read_bytes() in uploads[-1][1]
+    starts = [c for c in commands if c.get("method") == "set"]
+    assert starts and starts[-1]["params"]["opGcodeFile"] == "printprt:/mnt/UDISK/printer_data/gcodes/cube.gcode"
+    assert network.printer_status(p)["state"] in ("idle", "printing")
+
+    # the scan finds the printer by its open ports and names it
+    monkeypatch.setattr(network, "discover", lambda *a, **k: [])
+    monkeypatch.setattr(network, "_open_port", lambda h, port, t: h == "10.9.8.7" and port in (80, 9999))
+    monkeypatch.setattr(network, "creality_info", lambda h: {"kind": "creality", "host": h, "port": 80,
+                                                             "name": "SPARKX-i7-1234", "model": "Creality SPARKX i7"})
+    monkeypatch.setattr(network, "_http_json", lambda *a, **k: (404, None, {}))
+    found = network.scan(prefixes=["10.9.8"])
+    assert [(x["host"], x["kind"]) for x in found] == [("10.9.8.7", "creality")]
+    from unislicer.gui.network_dialog import _guess_profile
+    assert _guess_profile(found[0]) == "creality_sparkx_i7"
+    http.shutdown()
+    ws_srv.close()
