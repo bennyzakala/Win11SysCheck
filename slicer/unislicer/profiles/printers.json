@@ -85,6 +85,28 @@
    "first_layer_speed": 50
   }
  },
+ "creality_sparkx_i7": {
+  "name": "Creality SPARKX i7",
+  "vendor": "Creality",
+  "note": "260×260×255 mm, Klipper-based (Creality OS), up to 500 mm/s; CFS Lite multi-colour: one nozzle, 1.75 mm",
+  "values": {
+   "technology": "fdm",
+   "bed_x": 260,
+   "bed_y": 260,
+   "max_z": 255,
+   "gcode_flavor": "klipper",
+   "nozzle_diameter": 0.4,
+   "filament_diameter": 1.75,
+   "retract_length": 0.8,
+   "print_speed": 250,
+   "wall_speed": 200,
+   "outer_wall_speed": 150,
+   "top_bottom_speed": 150,
+   "support_speed": 150,
+   "travel_speed": 400,
+   "first_layer_speed": 50
+  }
+ },
  "prusa_mk4": {
   "name": "Prusa MK4",
   "vendor": "Prusa Research",

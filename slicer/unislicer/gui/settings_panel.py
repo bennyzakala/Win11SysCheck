@@ -1,6 +1,8 @@
 """Profile pickers and the schema-driven settings editor."""
 from __future__ import annotations
 
+import json
+
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QScrollArea, QSizePolicy, QSpinBox,
@@ -230,6 +232,17 @@ class SettingsPanel(QWidget):
                 lib.clicked.connect(lambda _=False, k=key: self.open_library("printers" if k == "printer" else "materials"))
                 row.addWidget(lib)
             if key == "printer":
+                # favorites: star the printers you use; the filter switches between favorites and all printers
+                self.fav_btn = QToolButton()
+                self.fav_btn.setCursor(Qt.PointingHandCursor)
+                self.fav_btn.clicked.connect(self._toggle_favorite)
+                row.addWidget(self.fav_btn)
+                self.fav_only_btn = QToolButton()
+                self.fav_only_btn.setCheckable(True)
+                self.fav_only_btn.setCursor(Qt.PointingHandCursor)
+                self.fav_only_btn.setChecked(self._prefs().value("favorites_only", "false") == "true")
+                self.fav_only_btn.toggled.connect(self._on_favorites_only)
+                row.addWidget(self.fav_only_btn)
                 self.profile_menu_btn = QToolButton()
                 self.profile_menu_btn.setIcon(theme.icon("save", theme.TEXT_DIM, 16))
                 self.profile_menu_btn.setPopupMode(QToolButton.InstantPopup)
@@ -305,12 +318,62 @@ class SettingsPanel(QWidget):
     def process(self) -> str:
         return profiles.process_of(profiles.load("printers")[self.printer_id])
 
+    # ---------------------------------------------------------------- favorite printers
+    @staticmethod
+    def _prefs():
+        from PySide6.QtCore import QSettings
+        return QSettings("UniSlicer", "UniSlicer")
+
+    def favorites(self) -> list[str]:
+        try:
+            fav = json.loads(str(self._prefs().value("favorite_printers", "[]")))
+        except ValueError:
+            fav = []
+        return [f for f in fav if isinstance(f, str)]
+
+    def _set_favorites(self, fav: list[str]) -> None:
+        s = self._prefs()
+        s.setValue("favorite_printers", json.dumps(fav))
+        s.sync()
+
+    def _toggle_favorite(self):
+        fav = self.favorites()
+        if self.printer_id in fav:
+            fav.remove(self.printer_id)
+        else:
+            fav.append(self.printer_id)
+        self._set_favorites(fav)
+        self._fill_printers()
+
+    def _on_favorites_only(self, on: bool):
+        s = self._prefs()
+        s.setValue("favorites_only", "true" if on else "false")
+        s.sync()
+        self._fill_printers()
+
+    def _update_fav_buttons(self):
+        if not hasattr(self, "fav_btn"):
+            return
+        starred = self.printer_id in self.favorites()
+        self.fav_btn.setIcon(theme.icon("star_fill" if starred else "star", theme.WARNING if starred else theme.TEXT_DIM, 16))
+        self.fav_btn.setToolTip(tr("fav_remove") if starred else tr("fav_add"))
+        only = self.fav_only_btn.isChecked()
+        self.fav_only_btn.setIcon(theme.icon("star_fill" if only else "layers", theme.ACCENT if only else theme.TEXT_DIM, 16))
+        tip = tr("fav_all") if only else tr("fav_only")
+        if only and not self.favorites():
+            tip = tr("fav_none")
+        self.fav_only_btn.setToolTip(tip)
+
     def _fill_printers(self):
         self._building = True
         self.printer_combo.clear()
         items = sorted(profiles.load("printers").items(),
                        key=lambda kv: (profiles.technology_of(kv[1]) != "fdm", kv[1].get("vendor") != "Generic",
                                        kv[1].get("vendor", ""), kv[1]["name"]))
+        fav = set(self.favorites())
+        if getattr(self, "fav_only_btn", None) is not None and self.fav_only_btn.isChecked() and fav:
+            # favorites only (the printer in use stays listed so the selection is never lost)
+            items = [kv for kv in items if kv[0] in fav or kv[0] == self.printer_id]
         last = None
         for pid, p in items:
             tech = profiles.technology_of(p)
@@ -319,11 +382,13 @@ class SettingsPanel(QWidget):
                 self.printer_combo.insertSeparator(self.printer_combo.count())
             last = group
             badge = "FDM" if tech == "fdm" else PROCESS_BADGE.get(p.get("values", {}).get("sla_process", "lcd"), "RESIN")
-            self.printer_combo.addItem(f"{p['name']}   ·  {badge}", pid)
+            star = "★ " if pid in fav else ""
+            self.printer_combo.addItem(f"{star}{p['name']}   ·  {badge}", pid)
             if p.get("note"):
                 self.printer_combo.setItemData(self.printer_combo.count() - 1, p["note"], Qt.ToolTipRole)
         self.printer_combo.setCurrentIndex(max(0, self.printer_combo.findData(self.printer_id)))
         self._building = False
+        self._update_fav_buttons()
 
     def _default_plate(self):
         """A printer with manufacturer plates starts on its first one unless a plate was chosen."""
@@ -466,6 +531,7 @@ class SettingsPanel(QWidget):
             return
         old_tech = self.technology
         self.printer_id = pid
+        self._update_fav_buttons()
         self._drop_overrides_for("printers", pid)
         for k in PLATE_KEYS:              # a new printer starts on its first plate
             self.overrides.pop(k, None)
