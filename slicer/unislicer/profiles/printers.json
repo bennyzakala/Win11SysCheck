@@ -866,5 +866,57 @@
     "offset_y": 0.0
    }
   ]
+ },
+ "phrozen_sonic_xl_4k": {
+  "name": "Phrozen Sonic XL 4K (2020)",
+  "vendor": "Phrozen",
+  "note": "8.9\" mono 4K LCD, 50 µm XY, print volume about 192 x 120 x 200 mm (sources list 190 x 120). CHITUBOX-compatible: exported as CHITUBOX ZIP (switch to CTB if your firmware prefers it). Screen pixels derived from the published XY resolution and print area.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "lcd",
+   "bed_x": 192.0,
+   "bed_y": 120.0,
+   "max_z": 200,
+   "resolution_x": 3840,
+   "resolution_y": 2400,
+   "sla_format": "zip",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 6
+  }
+ },
+ "phrozen_sonic_xl_4k_2022": {
+  "name": "Phrozen Sonic XL 4K 2022",
+  "vendor": "Phrozen",
+  "note": "9.3\" mono 4K LCD, 52 µm XY (some listings say 50 µm), ParaLED 3.0 405 nm. Print volume 196.6 x 120.3 x 200 mm per Phrozen (retailers list 200 x 125 x 200). Phrozen's format chart lists .zip (CHITUBOX ZIP) for this model. Screen pixels derived from the published XY resolution and print area.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "lcd",
+   "bed_x": 196.6,
+   "bed_y": 120.3,
+   "max_z": 200,
+   "resolution_x": 3840,
+   "resolution_y": 2400,
+   "sla_format": "zip",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 6
+  }
+ },
+ "phrozen_sonic_xl_4k_plus": {
+  "name": "Phrozen Sonic XL 4K Plus (dental)",
+  "vendor": "Phrozen",
+  "note": "9.3\" mono 4K LCD, 52 µm XY, ParaLED 3.0 405 nm, dual ball-screw Z. Print volume 196.6 x 120.3 x 200 mm per Phrozen Dental. Phrozen's format chart lists .ctb and .prz for this model. Screen pixels derived from the published XY resolution and print area.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "lcd",
+   "bed_x": 196.6,
+   "bed_y": 120.3,
+   "max_z": 200,
+   "resolution_x": 3840,
+   "resolution_y": 2400,
+   "sla_format": "ctb",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 6,
+   "material_name": "Dental resin"
+  }
  }
 }

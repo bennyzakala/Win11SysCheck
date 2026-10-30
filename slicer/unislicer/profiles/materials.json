@@ -949,7 +949,8 @@
   "printers": [
    "phrozen_sonic_cs_plus",
    "phrozen_lumii_2k",
-   "phrozen_sonic_ls_plus"
+   "phrozen_sonic_ls_plus",
+   "phrozen_sonic_xl_4k_plus"
   ],
   "values": {
    "material_name": "Dental model resin",
@@ -977,7 +978,8 @@
   "printers": [
    "phrozen_sonic_cs_plus",
    "phrozen_lumii_2k",
-   "phrozen_sonic_ls_plus"
+   "phrozen_sonic_ls_plus",
+   "phrozen_sonic_xl_4k_plus"
   ],
   "values": {
    "material_name": "Crown & bridge (temporary)",
@@ -1005,7 +1007,8 @@
   "printers": [
    "phrozen_sonic_cs_plus",
    "phrozen_lumii_2k",
-   "phrozen_sonic_ls_plus"
+   "phrozen_sonic_ls_plus",
+   "phrozen_sonic_xl_4k_plus"
   ],
   "values": {
    "material_name": "Surgical guide resin",
@@ -1033,7 +1036,8 @@
   "printers": [
    "phrozen_sonic_cs_plus",
    "phrozen_lumii_2k",
-   "phrozen_sonic_ls_plus"
+   "phrozen_sonic_ls_plus",
+   "phrozen_sonic_xl_4k_plus"
   ],
   "values": {
    "material_name": "Splint / night guard (clear)",
@@ -1061,7 +1065,8 @@
   "printers": [
    "phrozen_sonic_cs_plus",
    "phrozen_lumii_2k",
-   "phrozen_sonic_ls_plus"
+   "phrozen_sonic_ls_plus",
+   "phrozen_sonic_xl_4k_plus"
   ],
   "values": {
    "material_name": "Denture base resin",
@@ -1089,7 +1094,8 @@
   "printers": [
    "phrozen_sonic_cs_plus",
    "phrozen_lumii_2k",
-   "phrozen_sonic_ls_plus"
+   "phrozen_sonic_ls_plus",
+   "phrozen_sonic_xl_4k_plus"
   ],
   "values": {
    "material_name": "Gingiva mask (flexible)",

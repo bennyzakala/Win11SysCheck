@@ -94,6 +94,7 @@ SCHEMA: list[Setting] = [
     S("sla_format", "enum", "sl1", "printer", "sla", "פורמט קובץ פלט", "Output format",
       options=(("ctb", "CTB (Chitubox v4)", "CTB (Chitubox v4)"), ("goo", "GOO (Elegoo)", "GOO (Elegoo)"),
                ("prz", "PRZ (Phrozen Sonic Mini 8K S)", "PRZ (Phrozen Sonic Mini 8K S)"), ("sl1", "SL1 (Prusa / UVtools)", "SL1 (Prusa / UVtools)"),
+               ("zip", "ZIP של CHITUBOX (Phrozen Sonic XL ומדפסות ChiTu)", "CHITUBOX ZIP (Phrozen Sonic XL, ChiTu boards)"),
                ("png_zip", "ZIP של תמונות PNG", "ZIP of PNG images"),
                ("slc", "SLC (קווי מתאר: Asiga Composer, SLA תעשייתי)", "SLC (contours: Asiga Composer, industrial SLA)"),
                ("cli", "CLI (קווי מתאר וקווי סריקה ללייזר)", "CLI (contours and hatches for laser SLA)"),

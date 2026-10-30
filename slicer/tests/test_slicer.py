@@ -702,3 +702,18 @@ def test_advanced_repair():
     _, rep2 = mesh_tools.repair_advanced(noisy, remove_shells_below=0.05)
     assert rep2["shells_removed"] == 1 and rep2["after"]["shells"] == 1
     assert rep["inner_walls_removed"] == 1
+
+
+def test_chitubox_zip_for_sonic_xl(tmp_path):
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_2022", "resin_standard", "sla_fast", {"support_enable": False})
+    assert cfg["sla_format"] == "zip"
+    job = sla.prepare([placed(primitives.box(10, 10, 2), 98, 60).world_mesh()], cfg)
+    path = sla.export(job, cfg, str(tmp_path / "part.zip"), "part")
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        gcode = zf.read("run.gcode").decode()
+    assert "1.png" in names and f"{job.layer_count}.png" in names and "preview.png" in names
+    assert f";totalLayer:{job.layer_count}" in gcode and gcode.count(";LAYER_START:") == job.layer_count
+    assert ";resolutionX:3840" in gcode and 'M6054 "1.png"' in gcode
+    for pid in ("phrozen_sonic_xl_4k", "phrozen_sonic_xl_4k_2022", "phrozen_sonic_xl_4k_plus"):
+        assert pid in profiles.load("printers")

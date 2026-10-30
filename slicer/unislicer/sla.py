@@ -672,7 +672,8 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
         def write_chunk(k, pngs):
             a = ranges[k][0]
             for j, data in enumerate(pngs):
-                name = f"{safe}{a + j:05d}.png" if fmt == "sl1" else f"layers/layer_{a + j:05d}.png"
+                name = (f"{safe}{a + j:05d}.png" if fmt == "sl1" else f"{a + j + 1}.png" if fmt == "zip"
+                        else f"layers/layer_{a + j:05d}.png")
                 zf.writestr(name, data)
 
         chunks = parallel.run_chunks(_render_chunk, args, progress, cancelled, [b - a for a, b in ranges])
@@ -681,6 +682,13 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
         if fmt == "sl1":
             zf.writestr("config.ini", _sl1_config(job, cfg, safe, bottom))
             zf.writestr("prusaslicer.ini", _sl1_printer_ini(job, cfg))
+        elif fmt == "zip":
+            from .ctb import make_preview
+            zf.writestr("run.gcode", _chitu_zip_gcode(job, cfg, safe, bottom))
+            for name, size in (("preview.png", (400, 300)), ("preview_cropping.png", (200, 125))):
+                buf = io.BytesIO()
+                make_preview(job.layers, cfg, size).save(buf, "PNG")
+                zf.writestr(name, buf.getvalue())
         else:
             keys = ("exposure_time", "bottom_exposure_time", "bottom_layers", "transition_layers", "light_pwm",
                     "lift_height", "lift_speed", "bottom_lift_height", "bottom_lift_speed", "retract_speed",
@@ -716,6 +724,45 @@ def _export_vector(job: SlaJob, cfg: Config, path: str, fmt: str, progress) -> s
     if job.supports is not None and len(job.supports.faces):
         parts.append(("Supports", job.supports, default))
     return vf.write_3mf(path, parts)
+
+
+def _chitu_zip_gcode(job: SlaJob, cfg: Config, safe: str, bottom: int) -> str:
+    """run.gcode of a CHITUBOX ZIP job (layer images 1.png, 2.png, ... next to it), as read by Phrozen
+    Sonic XL 4K and other ChiTu-board printers: a settings header, then per layer show image, lift and
+    expose."""
+    from .sla_timing import layer_light_off
+    n = job.layer_count
+    head = {
+        "fileName": safe, "machineType": "UniSlicer",
+        "estimatedPrintTime": int(job.time_s), "volume": round(job.volume_ml, 3), "resin": cfg["material_name"],
+        "weight": round(job.weight_g, 2), "price": round(job.cost, 2), "layerHeight": job.layer_height,
+        "resolutionX": int(cfg["resolution_x"]), "resolutionY": int(cfg["resolution_y"]),
+        "machineX": cfg["bed_x"], "machineY": cfg["bed_y"], "machineZ": cfg["max_z"], "projectType": "Normal",
+        "normalExposureTime": cfg["exposure_time"], "bottomLayExposureTime": cfg["bottom_exposure_time"],
+        "bottomLayerExposureTime": cfg["bottom_exposure_time"], "normalDropSpeed": cfg["retract_speed"],
+        "normalLayerLiftHeight": cfg["lift_height"], "normalLayerLiftSpeed": cfg["lift_speed"],
+        "bottomLayCount": bottom, "bottomLayerCount": bottom, "mirror": 1 if cfg["mirror_x"] else 0,
+        "totalLayer": n, "bottomLayerLiftHeight": cfg["bottom_lift_height"],
+        "bottomLayerLiftSpeed": cfg["bottom_lift_speed"], "bottomLightOffTime": cfg["bottom_light_off_delay"],
+        "lightOffTime": cfg["light_off_delay"], "bottomPWMLight": int(cfg["light_pwm_bottom"]),
+        "PWMLight": int(cfg["light_pwm"]), "antiAliasLevel": int(cfg["antialiasing"]),
+    }
+    out = [f";{k}:{v}" for k, v in head.items()]
+    out += ["", "G21;", "G90;", "M106 S0;", "G28 Z0;", ""]
+    exposures = job.exposures or [layer_exposure(i, cfg) for i in range(n)]
+    for i in range(n):
+        z = job.layer_z[i] if job.layer_z else (i + 1) * job.layer_height
+        lift = cfg["bottom_lift_height"] if i < bottom else cfg["lift_height"]
+        up = cfg["bottom_lift_speed"] if i < bottom else cfg["lift_speed"]
+        down = cfg["bottom_retract_speed"] if i < bottom else cfg["retract_speed"]
+        out += [f";LAYER_START:{i}", f";currPos:{z:.3f}", f'M6054 "{i + 1}.png";show Image',
+                f"G0 Z{z + lift:.3f} F{up:g};", f"G0 Z{z:.3f} F{down:g};",
+                f"G4 P{int(layer_light_off(i, cfg) * 1000)};", f";L:{i + 1};",
+                f"M106 S{int(cfg['light_pwm_bottom'] if i < bottom else cfg['light_pwm'])};light on",
+                f"G4 P{int(exposures[i] * 1000)};", "M106 S0;light off", ";LAYER_END", ""]
+    out += ["M106 S0;", f"G1 Z{min(cfg['max_z'], (job.layer_z[-1] if job.layer_z else 0) + 40):.1f} F{cfg['lift_speed']:g};",
+            "M18;", ""]
+    return "\n".join(out)
 
 
 def _sl1_config(job: SlaJob, cfg: Config, safe: str, bottom: int) -> str:
