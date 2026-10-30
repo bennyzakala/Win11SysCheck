@@ -226,6 +226,8 @@ class MainWindow(QMainWindow):
         more = tool("more", tr("more"), tr("more"), None)
         mm = QMenu(self)
         mm.addAction(theme.icon("open"), tr("open_project"), self.open_project)
+        self.recent_menu = mm.addMenu(theme.icon("clock"), tr("recent_files"))
+        self.recent_menu.aboutToShow.connect(self._fill_recent)
         mm.addAction(theme.icon("save"), tr("save_project"), lambda: self._act("save_project", "button", self.save_project))
         mm.addSeparator()
         mm.addAction(theme.icon("download"), tr("export_stl"), self.export_stl)
@@ -490,6 +492,32 @@ class MainWindow(QMainWindow):
         self.overhang_btn.setToolTip(tr("overhangs"))
         self.overhang_btn.toggled.connect(self._update_overhang)
         tl.addWidget(self.overhang_btn)
+        self.minima_btn = QToolButton()
+        self.minima_btn.setIcon(theme.icon("pillar", theme.DANGER, 18))
+        self.minima_btn.setIconSize(QSize(18, 18))
+        self.minima_btn.setCheckable(True)
+        self.minima_btn.setToolTip(tr("show_unsupported_tip"))
+        self.minima_btn.toggled.connect(lambda _on: self._unsupported_timer.start())
+        tl.addWidget(self.minima_btn)
+        self.section_btn = QToolButton()
+        self.section_btn.setIcon(theme.icon("layers", theme.TEXT, 18))
+        self.section_btn.setIconSize(QSize(18, 18))
+        self.section_btn.setCheckable(True)
+        self.section_btn.setToolTip(tr("section_view_tip"))
+        tl.addWidget(self.section_btn)
+        self.section_slider = QSlider(Qt.Horizontal)
+        self.section_slider.setRange(0, 1000)
+        self.section_slider.setValue(1000)
+        self.section_slider.setFixedWidth(160)
+        self.section_slider.setToolTip(tr("section_view_tip"))
+        self.section_slider.hide()
+        self.section_label = QLabel("")
+        self.section_label.setObjectName("Faint")
+        self.section_label.hide()
+        tl.addWidget(self.section_slider)
+        tl.addWidget(self.section_label)
+        self.section_btn.toggled.connect(self._toggle_section)
+        self.section_slider.valueChanged.connect(self._on_section)
         wrap = QWidget()
         wrap.setObjectName("Overlay")
         wl = QHBoxLayout(wrap)
@@ -564,6 +592,13 @@ class MainWindow(QMainWindow):
         self.island_btn.clicked.connect(self._next_island)
         self.island_btn.hide()
         lb.addWidget(self.island_btn, 0, Qt.AlignHCenter)
+        self.island_fix_btn = QToolButton()
+        self.island_fix_btn.setIcon(theme.icon("pillar", theme.DANGER, 18))
+        self.island_fix_btn.setToolTip(tr("islands_support_all"))
+        self.island_fix_btn.setCursor(Qt.PointingHandCursor)
+        self.island_fix_btn.clicked.connect(self.support_all_islands)
+        self.island_fix_btn.hide()
+        lb.addWidget(self.island_fix_btn, 0, Qt.AlignHCenter)
         lwrap = QWidget()
         lwrap.setObjectName("Overlay")
         lwl = QVBoxLayout(lwrap)
@@ -714,6 +749,14 @@ class MainWindow(QMainWindow):
                 self.settings.rebuild()
         except (TypeError, ValueError):
             pass
+        self._unsupported_timer = QTimer(self)
+        self._unsupported_timer.setSingleShot(True)
+        self._unsupported_timer.setInterval(300)
+        self._unsupported_timer.timeout.connect(self._show_unsupported)
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setInterval(120000)          # autosave every 2 minutes while there are models
+        self._autosave_timer.timeout.connect(self._autosave)
+        self._autosave_timer.start()
         self._collision_timer = QTimer(self)
         self._collision_timer.setSingleShot(True)
         self._collision_timer.setInterval(250)
@@ -805,6 +848,86 @@ class MainWindow(QMainWindow):
             act.triggered.connect(fn)
             self.addAction(act)
 
+    # ---------------------------------------------------------- section view / unsupported areas
+    def _toggle_section(self, on: bool):
+        self.section_slider.setVisible(on)
+        self.section_label.setVisible(on)
+        if not on:
+            self.viewer.section_z = 1e9
+            self.viewer.update()
+        else:
+            self._on_section(self.section_slider.value())
+
+    def _on_section(self, value):
+        """Clipping view (as Asiga Composer's clipping tool): cut every model at a height to look inside."""
+        top = max((o.world_bounds()[1, 2] + (self._lift() if self._shows_supports(o) else 0) for o in self.objects), default=1.0)
+        z = top * value / 1000.0
+        self.viewer.section_z = z if value < 1000 else 1e9
+        self.section_label.setText(f"Z {z:.2f} mm")
+        self.viewer.update()
+
+    def _show_unsupported(self):
+        """Red overlay on overhangs that no support reaches (PreForm's "show minima")."""
+        if not self.minima_btn.isChecked() or self.viewer.technology != "sla":
+            self.viewer.set_warning_mesh(None)
+            return
+        cfg = self.settings.config()
+        parts, count = [], 0
+        for o in self.objects:
+            if o.role == "cutter" or o.direct:
+                continue
+            lift = self._lift(cfg)
+            world, geo = self._support_geometry(o, lift)
+            if o.support_points is not None:
+                pts = o.world_support_points(lift)
+            elif cfg["support_enable"]:
+                if "auto_points" not in geo:
+                    geo["auto_points"] = sla_supports.auto_support_points(world, cfg)
+                pts = geo["auto_points"]
+            else:
+                pts = np.zeros((0, 3))
+            faces = sla_supports.unsupported_faces(world, cfg, pts)
+            if len(faces):
+                count += 1
+                part = Mesh(world.vertices, world.faces[faces])
+                if not self._shows_supports(o):
+                    part = part.translated([0, 0, -lift])
+                parts.append(part)
+        self.viewer.set_warning_mesh(Mesh.merge(parts) if parts else None)
+        self.status.setText(tr("unsupported_found").format(count) if parts else tr("unsupported_none"))
+
+    def support_all_islands(self):
+        """Add one support at every island found by the last slice (PreForm's "support all minima")."""
+        if self.result is None or self.result[0] != "sla" or not self.result[1].islands:
+            self.status.setText(tr("islands_none"))
+            return
+        job = self.result[1]
+        pts = sla_supports.island_points(job.layers, job.layer_z, job.islands)
+        cfg = self.settings.config()
+        lift = self._lift(cfg)
+        self._push_undo()
+        added = 0
+        for p in pts:
+            for o in self.objects:
+                if o.role == "cutter" or o.direct:
+                    continue
+                b = o.world_bounds()
+                if not (b[0, 0] - 0.5 <= p[0] <= b[1, 0] + 0.5 and b[0, 1] - 0.5 <= p[1] <= b[1, 1] + 0.5):
+                    continue
+                world, geo = self._support_geometry(o, lift)
+                if "caster" not in geo:
+                    geo["caster"] = sla_supports._Caster(world)
+                contact = sla_supports.underside_contact(geo["caster"], p + [0, 0, 0.3])
+                if contact is None:
+                    continue
+                if o.support_points is None:
+                    o.set_world_support_points(sla_supports.auto_support_points(world, cfg), lift)
+                o.set_world_support_points(np.vstack([o.world_support_points(lift), contact[None, :]]), lift)
+                added += 1
+                break
+        self._objects_changed(refresh_list=False)
+        self.status.setText(tr("islands_supported").format(added))
+
     def set_panel_visible(self, side: str, visible: bool, save: bool = True):
         panel = self.left_panel if side == "left" else self.right_panel
         panel.setVisible(visible)
@@ -864,6 +987,8 @@ class MainWindow(QMainWindow):
         if paths:
             self.store.setValue("last_dir", os.path.dirname(paths[0]))
             self.load_files(paths)
+            for p in paths:
+                self._remember_file(p)
 
     def load_files(self, paths):
         added = None
@@ -1443,6 +1568,8 @@ class MainWindow(QMainWindow):
         self._schedule_suggestions()
         if not self._dragging:
             self._collision_timer.start()
+            if self.minima_btn.isChecked():
+                self._unsupported_timer.start()
         if outside:
             self.status.setText(tr("out_of_bounds").format(", ".join(sorted(outside.values()))))
 
@@ -1753,6 +1880,12 @@ class MainWindow(QMainWindow):
             menu.addAction(theme.icon("center"), tr("center"), self.center_selected)
             menu.addAction(theme.icon("arrange"), tr("layout_selected"), lambda: self.auto_layout(scope="selected"))
             menu.addAction(theme.icon("code"), tr("rename"), self.rename_selected)
+            menu.addAction(theme.icon("x"), tr("hide_models"), self.hide_selected)
+            if len(group) > 1:
+                menu.addAction(theme.icon("copy"), tr("merge_models"), self.merge_selected)
+            dental = menu.addMenu(theme.icon("sparkle"), tr("dental_indication"))
+            for key in ("model", "splint", "crown", "guide"):
+                dental.addAction(tr(f"dental_{key}"), lambda k=key: self.apply_dental_indication(k))
             menu.addAction(theme.icon("download"), tr("export_selection_stl"), lambda: self.export_stl(selection_only=True))
             if self.viewer.technology == "sla" and self.settings.config()["sla_process"] == "polyjet":
                 menu.addSeparator()
@@ -1781,6 +1914,8 @@ class MainWindow(QMainWindow):
             menu.addSeparator()
             menu.addAction(theme.icon("trash", theme.DANGER), tr("delete") + "\tDel", self.delete_selected)
         menu.addAction(tr("select_all") + "\tCtrl+A", self.select_all)
+        if any(self.viewer.objects.get(o.uid, {}).get("hidden") for o in self.objects):
+            menu.addAction(tr("show_all_models"), self.show_all_models)
         menu.addAction(theme.icon("arrange"), tr("arrange") + "\tA", self.arrange_objects)
         menu.addAction(theme.icon("fit"), tr("view_fit"), self.viewer.fit_objects)
         menu.exec(pos)
@@ -1805,6 +1940,60 @@ class MainWindow(QMainWindow):
                 if on:
                     o.support_points = None
             self._refresh_objects(select=[o.uid for o in group])
+
+    def hide_selected(self):
+        for o in self.selected_objects():
+            self.viewer.set_object_hidden(o.uid, True)
+        self._select_uid(None)
+        self.status.setText(tr("hidden_hint"))
+
+    def show_all_models(self):
+        for o in self.objects:
+            self.viewer.set_object_hidden(o.uid, False)
+
+    def merge_selected(self):
+        """Join the selected models into one (as CHITUBOX's Boolean join; they slice as one part)."""
+        group = [o for o in self.selected_objects() if o.role != "cutter"]
+        if len(group) < 2:
+            return
+        self._push_undo()
+        merged = Mesh.merge([o.world_mesh() for o in group], " + ".join(o.name for o in group)[:60])
+        b = merged.bounds
+        new = SceneObject.from_mesh(merged)
+        new.x, new.y, new.z = (b[0, 0] + b[1, 0]) / 2, (b[0, 1] + b[1, 1]) / 2, max(0.0, b[0, 2])
+        idx = min(self.objects.index(o) for o in group)
+        for o in group:
+            self.objects.remove(o)
+            self.viewer.remove_object(o.uid)
+        self.objects.insert(idx, new)
+        self._refresh_objects(select=new.uid)
+        self.status.setText(tr("merged_done").format(len(group)))
+
+    DENTAL = {
+        # indication: (tilt about X in degrees, print straight on the plate)
+        "model": (0.0, True),
+        "splint": (45.0, False),
+        "crown": (45.0, False),
+        "guide": (45.0, False),
+    }
+
+    def apply_dental_indication(self, kind: str):
+        """Starting orientation per dental indication (as Phrozen DS Slicer does per indication)."""
+        tilt, direct = self.DENTAL[kind]
+        group = [o for o in self.selected_objects() if o.role != "cutter"]
+        if not group:
+            return
+        self._push_undo()
+        for o in group:
+            o.lay_flat()
+            if tilt:
+                o.apply_world_rotation(self._axis_rotation(0, tilt))
+            o.direct = direct
+            o.support_points = None
+        if not direct:
+            self._ensure_supports_enabled()
+        self._objects_changed()
+        self.status.setText(tr(f"dental_{kind}_hint"))
 
     def rotate_exact_dialog(self):
         from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
@@ -1905,7 +2094,8 @@ class MainWindow(QMainWindow):
         disp = self._display_matrix(o)
         world, geo = self._support_geometry(o, lift)
         owners = {}
-        mesh, _ = sla_supports.build_supports(world, cfg, o.world_support_points(lift), owners=owners, cache=geo)
+        mesh, _ = sla_supports.build_supports(world, cfg, o.world_support_points(lift), owners=owners, cache=geo,
+                                              label=o.name if cfg["sla_raft_label"] else "")
         local = mesh.transform(np.linalg.inv(disp)) if len(mesh.faces) else None
         self._support_cache[o.uid] = (key, local, owners)
         return local
@@ -2428,6 +2618,7 @@ class MainWindow(QMainWindow):
             for i, poly in job.islands:
                 self._islands.setdefault(i, []).append(poly)
             self.island_btn.setVisible(bool(self._islands))
+            self.island_fix_btn.setVisible(bool(self._islands))
         self.result_cfg = cfg
         if warnings:
             import html
@@ -2793,6 +2984,55 @@ class MainWindow(QMainWindow):
         self.store.setValue("project_dir", os.path.dirname(path))
         self.status.setText(tr("export_done").format(path))
 
+    def _remember_file(self, path: str):
+        try:
+            recent = json.loads(self.store.value("recent_files", "[]"))
+        except (TypeError, ValueError):
+            recent = []
+        path = os.path.abspath(path)
+        recent = [path] + [p for p in recent if p != path]
+        self.store.setValue("recent_files", json.dumps(recent[:10]))
+
+    def _fill_recent(self):
+        self.recent_menu.clear()
+        try:
+            recent = [p for p in json.loads(self.store.value("recent_files", "[]")) if os.path.exists(p)]
+        except (TypeError, ValueError):
+            recent = []
+        if not recent:
+            a = self.recent_menu.addAction(tr("recent_empty"))
+            a.setEnabled(False)
+            return
+        for p in recent:
+            fn = (lambda _=False, p=p: self.open_project(p)) if p.endswith(project.EXTENSION) else (lambda _=False, p=p: self.load_files([p]))
+            self.recent_menu.addAction(os.path.basename(p), fn).setToolTip(p)
+        self.recent_menu.addSeparator()
+        self.recent_menu.addAction(tr("recent_clear"), lambda: self.store.setValue("recent_files", "[]"))
+
+    def _autosave_path(self) -> str:
+        return os.path.join(profiles.USER_DIR, "autosave" + project.EXTENSION)
+
+    def _autosave(self):
+        """Save the plate every two minutes, so a crash or power cut loses little work."""
+        if not self.objects or (self.task is not None and self.task.isRunning()):
+            return
+        try:
+            os.makedirs(profiles.USER_DIR, exist_ok=True)
+            project.save(self._autosave_path(), self.objects, self.settings.state())
+            self.store.setValue("autosave_clean", "false")
+        except Exception:                         # autosave must never disturb the user
+            pass
+
+    def offer_recovery(self):
+        """After a crash: offer the plate saved by autosave."""
+        path = self._autosave_path()
+        if self.store.value("autosave_clean", "true") != "false" or not os.path.exists(path) or self.objects:
+            return
+        ans = QMessageBox.question(self, tr("recover_title"), tr("recover_text"), QMessageBox.Yes | QMessageBox.No)
+        if ans == QMessageBox.Yes:
+            self.open_project(path)
+        self.store.setValue("autosave_clean", "true")
+
     def open_project(self, path: str | None = None):
         if not path:
             last = self.store.value("project_dir", os.path.expanduser("~"))
@@ -2806,6 +3046,8 @@ class MainWindow(QMainWindow):
             return
         self._push_undo()
         self.store.setValue("project_dir", os.path.dirname(path))
+        if os.path.abspath(path) != os.path.abspath(self._autosave_path()):
+            self._remember_file(path)
         if state:
             self.settings.load_state(state)
         self.objects = objects
@@ -2902,4 +3144,5 @@ class MainWindow(QMainWindow):
             self.task.wait(3000)
         self.store.setValue("geometry", self.saveGeometry())
         self._save_state()
+        self.store.setValue("autosave_clean", "true")     # a normal exit: nothing to recover next time
         super().closeEvent(e)

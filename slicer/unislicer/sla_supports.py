@@ -112,7 +112,7 @@ def auto_support_points(mesh: Mesh, cfg: Config) -> np.ndarray:
     xs = np.arange(lo[0] + spacing / 2, hi[0], spacing)
     ys = np.arange(lo[1] + spacing / 2, hi[1], spacing)
     points = []
-    for gx in xs:
+    for gx in (xs if cfg["sla_support_overhangs"] else []):
         column = np.nonzero((caster.tmin[:, 0] <= gx) & (caster.tmax[:, 0] >= gx))[0]
         if len(column) == 0:
             continue
@@ -130,7 +130,7 @@ def auto_support_points(mesh: Mesh, cfg: Config) -> np.ndarray:
     f = mesh.faces
     for a, b in ((0, 1), (1, 2), (2, 0), (1, 0), (2, 1), (0, 2)):
         np.minimum.at(neighbour_min, f[:, a], v[f[:, b], 2])
-    tips = np.nonzero(v[:, 2] < neighbour_min - 1e-6)[0]
+    tips = np.nonzero(v[:, 2] < neighbour_min - 1e-6)[0] if cfg["sla_support_minima"] else []
     existing = np.array(points) if points else np.zeros((0, 3))
     for t in tips:
         p = v[t]
@@ -138,6 +138,34 @@ def auto_support_points(mesh: Mesh, cfg: Config) -> np.ndarray:
             continue
         points.append(p.copy())
     return np.array(points, dtype=np.float64).reshape(-1, 3)
+
+
+def unsupported_faces(mesh: Mesh, cfg: Config, points: np.ndarray | None, reach: float | None = None) -> np.ndarray:
+    """Indices of overhanging faces with no support contact within ``reach`` (default: 1.2 x spacing),
+    like PreForm's "show minima": the red areas that may fail."""
+    normals = mesh.face_normals()
+    over = np.flatnonzero(normals[:, 2] < -math.sin(math.radians(cfg["support_angle"])))
+    if len(over) == 0:
+        return over
+    if points is None or len(points) == 0:
+        return over
+    reach = reach or effective_spacing(cfg) * 1.2
+    centres = mesh.triangles[over].mean(axis=1)
+    pts = np.asarray(points, dtype=float)
+    far = np.ones(len(over), dtype=bool)
+    for a in range(0, len(pts), 256):                 # blocks keep memory small on big models
+        d = np.linalg.norm(centres[:, None, :] - pts[None, a:a + 256, :], axis=2).min(axis=1)
+        far &= d > reach
+    return over[far]
+
+
+def island_points(layers, layer_z, islands) -> np.ndarray:
+    """One contact point at the centre of each detected island (layer, polygon), for "support all islands"."""
+    out = []
+    for i, poly in islands:
+        c = poly.representative_point()
+        out.append([c.x, c.y, layer_z[i] - 0.001 if i < len(layer_z) else 0.0])
+    return np.array(out, dtype=float).reshape(-1, 3)
 
 
 class _Underside:
@@ -299,6 +327,40 @@ def _slab(poly, z0: float, z1: float, slope_deg: float) -> Mesh:
     return Mesh(v, np.vstack([sides, caps]), "Raft")
 
 
+def _raft_label(text: str, feet: np.ndarray, cfg: Config, pad: float, raft: float) -> list[Mesh]:
+    """The model's name embossed on the front edge of its raft (as PreForm's raft label)."""
+    try:
+        from PySide6.QtGui import QGuiApplication
+        if QGuiApplication.instance() is None:     # fonts need the GUI; the command line skips the label
+            return []
+        from .mesh_tools import extrude, text_polygons
+    except Exception:          # pragma: no cover - Qt not available
+        return []
+    margin = pad + cfg["sla_raft_margin"]
+    hull = MultiPoint([tuple(q) for q in feet]).buffer(margin, quad_segs=6).convex_hull
+    minx, miny, maxx, maxy = hull.bounds
+    height = min(3.0, max(1.2, (maxy - miny) * 0.18))
+    try:
+        polys = text_polygons(text[:24], height)
+    except Exception:          # pragma: no cover - no QGuiApplication (e.g. a worker process)
+        return []
+    if polys.is_empty:
+        return []
+    tx0, ty0, tx1, ty1 = polys.bounds
+    width = maxx - minx - 2.0
+    k = min(1.0, width / max(tx1 - tx0, 1e-6))
+    from shapely import affinity
+    polys = affinity.scale(polys, k, k, origin=(tx0, ty0))
+    tx0, ty0, tx1, ty1 = polys.bounds
+    # a tab in front of the raft (outside the part's footprint, so the name stays readable), text on it
+    cx = (minx + maxx) / 2
+    w2 = (tx1 - tx0) / 2 + 1.2
+    tab = ShapelyPolygon([(cx - w2, miny - (ty1 - ty0) - 2.0), (cx + w2, miny - (ty1 - ty0) - 2.0),
+                          (cx + w2, miny + 1.0), (cx - w2, miny + 1.0)])
+    polys = affinity.translate(polys, cx - (tx0 + tx1) / 2, miny - (ty1 - ty0) - 1.0 - ty0)
+    return [_slab(tab, 0.0, raft, 90), extrude(polys, raft - 0.01, raft + 0.4, "Raft label")]
+
+
 def _rafts(feet: list, cfg: Config, pad: float) -> list[Mesh]:
     """Raft geometry under the support feet for the chosen raft type."""
     kind = cfg["sla_raft_type"]
@@ -361,7 +423,7 @@ def _rafts(feet: list, cfg: Config, pad: float) -> list[Mesh]:
 
 
 def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, owners: dict | None = None,
-                   cache: dict | None = None):
+                   cache: dict | None = None, label: str = ""):
     """Support geometry for a model that already sits at its elevated height.
 
     ``points`` are contact points in the same coordinates (None = generate them automatically).
@@ -546,6 +608,8 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
         parts += _braces(pillars, underside(), cfg, segs)
 
     parts += _rafts(feet, cfg, pillar_r * 4)
+    if label and feet and cfg["sla_raft_label"] and cfg["sla_raft_type"] in ("solid", "grid") and raft >= 0.4:
+        parts += _raft_label(label, np.array(feet), cfg, pillar_r * 4, raft)
     merged = Mesh.merge(list(parts), "Supports")
     if owners is not None:
         owners["faces"] = np.concatenate([np.full(len(m.faces), o, dtype=np.int64) for m, o in zip(parts, part_owner)]) \

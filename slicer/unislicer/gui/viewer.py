@@ -265,6 +265,8 @@ class Viewer(QOpenGLWidget):
         self.pick_mode: str | None = None        # None | "add" (one support per click) | "remove" (one per click)
         self.marker = None                       # where a support would be added (add mode hover)
         self.highlight = None                    # (mesh in bed coordinates, buffer) of the support under the cursor
+        self.warning = None                      # (mesh, buffer): overhangs no support reaches, drawn red
+        self.section_z = 1e9                     # clipping height of the section view in the prepare mode
         self.tool = "move"                       # move | rotate | face | hole | measure
         self.measure_points: list = []
         self.measure_hover = None                # cursor point while measuring (line follows it)
@@ -389,6 +391,17 @@ class Viewer(QOpenGLWidget):
             self._trash(self.highlight[1])
         self.highlight = None if mesh is None or len(mesh.faces) == 0 else (mesh, None)
         self.update()
+
+    def set_warning_mesh(self, mesh):
+        if self.warning is not None and self.warning[1] is not None:
+            self._trash(self.warning[1])
+        self.warning = None if mesh is None or len(mesh.faces) == 0 else (mesh, None)
+        self.update()
+
+    def set_object_hidden(self, uid, hidden: bool):
+        if uid in self.objects:
+            self.objects[uid]["hidden"] = bool(hidden)
+            self.update()
 
     def set_marker(self, point):
         """Mark where a support would be added (None hides it)."""
@@ -575,7 +588,7 @@ class Viewer(QOpenGLWidget):
 
         preview = self.mode == self.MODE_PREVIEW
         show_models = not preview or self.technology == "sla" or self._paths_buffer is None or self.show_models_in_preview
-        clip = self.clip_z if preview else 1e9
+        clip = self.clip_z if preview else self.section_z
         p = self._mesh_prog
         GL.glUseProgram(p)
         GL.glUniformMatrix4fv(self._u(p, "uMVP"), 1, GL.GL_TRUE, mvp)
@@ -586,6 +599,8 @@ class Viewer(QOpenGLWidget):
         if show_models:
             GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
             for uid, obj in self.objects.items():
+                if obj.get("hidden"):
+                    continue
                 if preview and self.technology == "sla":
                     continue  # the SLA preview shows the elevated copies passed as extras
                 state = obj["state"]
@@ -632,6 +647,20 @@ class Viewer(QOpenGLWidget):
                 if uid in self.objects:
                     self._draw_selection_box(mvp, uid, primary=uid == self.selected)
         self._draw_measure(mvp)
+        if self.warning is not None and not preview:
+            mesh, buf = self.warning
+            if buf is None:
+                buf = _Buffer(mesh_vertices(mesh), [3, 3])
+                self.warning = (mesh, buf)
+            GL.glUseProgram(p)
+            GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
+            GL.glUniform1f(self._u(p, "uClipZ"), self.section_z)
+            GL.glUniform3f(self._u(p, "uColor"), 0.95, 0.15, 0.2)
+            self._set_model(p, np.eye(4))
+            GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)
+            GL.glPolygonOffset(-1.0, -4.0)
+            buf.draw(GL.GL_TRIANGLES)
+            GL.glDisable(GL.GL_POLYGON_OFFSET_FILL)
         if self.highlight is not None and not preview:
             mesh, buf = self.highlight
             if buf is None:
@@ -827,6 +856,8 @@ class Viewer(QOpenGLWidget):
         origin, direction = self._ray(pos)
         best, best_t = None, np.inf
         for k, obj in self.objects.items():
+            if obj.get("hidden"):
+                continue
             lo, hi = self._world_box(obj)
             lo, hi = lo - 0.5, hi + 0.5
             with np.errstate(divide="ignore", invalid="ignore"):
@@ -844,6 +875,8 @@ class Viewer(QOpenGLWidget):
         origin, direction = self._ray(pos)
         best, best_d = None, np.inf
         for uid, obj in self.objects.items():
+            if obj.get("hidden"):
+                continue
             # intersect in the object's own coordinates; the ray parameter stays comparable
             inv = np.linalg.inv(obj["matrix"])
             o_local = inv[:3, :3] @ origin + inv[:3, 3]

@@ -662,3 +662,26 @@ def test_collision_between_parts():
     assert collision.colliding_pairs({1: collision.ColumnMap(bridge.world_mesh()),
                                       2: collision.ColumnMap(small.world_mesh())}) == []
     assert "phrozen_sonic_ls_plus" in profiles.load("printers")
+
+
+def test_audit_features_engine():
+    from unislicer import sla_supports
+    m = placed(primitives.demo_bridge(), 70, 45).world_mesh().translated([0, 0, 6])
+    cfg = profiles.build_config("elegoo_mars3", "resin_standard", "sla_fast", {"support_enable": True})
+    full = sla_supports.auto_support_points(m, cfg)
+    only_minima = sla_supports.auto_support_points(m, cfg.copy().update({"sla_support_overhangs": False}))
+    none = sla_supports.auto_support_points(m, cfg.copy().update({"sla_support_overhangs": False, "sla_support_minima": False}))
+    assert len(full) > len(only_minima) and len(none) == 0
+    # all overhangs reachable with the automatic points, none without supports
+    assert len(sla_supports.unsupported_faces(m, cfg, full)) < len(sla_supports.unsupported_faces(m, cfg, None))
+    # solid base: bottom layers stay solid, hollow above
+    box = placed(primitives.box(20, 20, 20), 70, 45).world_mesh()
+    c = profiles.build_config("elegoo_mars3", "resin_standard", "sla_fast",
+                              {"support_enable": False, "hollow_enable": True, "hollow_mode": "solid_base",
+                               "hollow_base_height": 5.0, "drain_holes": 0})
+    job = sla.prepare([box], c)
+    z = np.array(job.layer_z)
+    assert job.layers[int(np.argmax(z > 3))].area == pytest.approx(400, rel=0.01)    # inside the base: solid
+    assert job.layers[int(np.argmax(z > 10))].area < 300                              # above: a hollow shell
+    pts = sla_supports.island_points(job.layers, job.layer_z, [(2, job.layers[2].geoms[0])])
+    assert pts.shape == (1, 3)

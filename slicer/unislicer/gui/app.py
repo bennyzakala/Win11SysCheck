@@ -98,6 +98,8 @@ def run(paths: list[str] | None = None) -> int:
     win = open_window()
     if paths:
         win.load_files(paths)
+    elif not SMOKE:
+        QTimer.singleShot(400, win.offer_recovery)      # plate from autosave after a crash
     if SMOKE:
         QTimer.singleShot(0, lambda: _trace("event loop running"))
         QTimer.singleShot(4000, app.quit)  # used by the build pipeline to check the app starts

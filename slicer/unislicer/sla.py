@@ -194,6 +194,13 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config) -> tuple[list[Mul
     if saved <= 0:
         return layers, 0.0, ["The model is too thin to hollow with this wall thickness."]
     notes = []
+    if cfg["hollow_mode"] == "solid_base":
+        # keep the bottom solid up to the base height, hollow above it
+        first = next((i for i, g in enumerate(layers) if not g.is_empty), 0)
+        solid = first + int(math.ceil(cfg["hollow_base_height"] / lh))
+        for i in range(min(solid, len(cavity))):
+            cavity[i] = EMPTY
+        saved = sum(c.area for c in cavity) * lh / 1000.0
     if cfg["hollow_mode"] == "bottom":
         # open base: the cavity continues down through the floor (walls stay)
         first = next(i for i, c in enumerate(cavity) if not c.is_empty)
@@ -460,7 +467,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             manual = support_points[i] if support_points and i < len(support_points) else None
             if manual is not None:
                 manual = np.asarray(manual, dtype=np.float64).reshape(-1, 3) + [0, 0, lift]
-            s, p = build_supports(m, cfg, manual)
+            s, p = build_supports(m, cfg, manual, label=meshes[i].name if cfg["sla_raft_label"] else "")
             parts.append(s)
             points += list(p)
         supports = Mesh.merge(parts, "Supports")
