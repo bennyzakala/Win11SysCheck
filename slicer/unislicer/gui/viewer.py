@@ -744,16 +744,18 @@ class Viewer(QOpenGLWidget):
                 if state == "cutter":
                     continue  # drawn translucent after everything opaque
                 # a model partly off the plate keeps its colour; only the part outside turns purple (shader)
-                color = (1.0, 0.16, 0.22) if state == "collision" else (
+                # wholly off the plate: the theme's outside colour; partly off: its own colour with only the
+                # part outside painted purple (shader)
+                color = (1.0, 0.16, 0.22) if state == "collision" else theme.MODEL_OUTSIDE if state == "outside" else (
                     theme.MODEL_SELECTED if uid in self.selection else theme.MODEL_COLOR)
-                GL.glUniform1i(self._u(p, "uBound"), int(state == "outside" and not preview))
-                if obj.get("color") is not None and state != "collision":
+                GL.glUniform1i(self._u(p, "uBound"), int(state == "partial" and not preview))
+                if obj.get("color") is not None and state not in ("collision", "outside"):
                     own = obj["color"]                 # its material / dental shade
                     color = tuple(0.75 * a + 0.25 * b for a, b in zip(own, theme.MODEL_SELECTED)) \
                         if uid in self.selection else own
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 self._set_model(p, obj["matrix"])
-                regions = self._region_buffers(obj) if state != "collision" else None
+                regions = self._region_buffers(obj) if state not in ("collision", "outside") else None
                 if regions and not (self.interacting and len(obj["mesh"].faces) > self.LOD_FACES):
                     sel = uid in self.selection
                     for buf, rgb in regions:          # e.g. a denture: gingiva and every tooth in its shade

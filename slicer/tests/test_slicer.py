@@ -1,4 +1,5 @@
 import io
+import os
 import re
 import zipfile
 
@@ -1271,40 +1272,42 @@ def test_creality_lan_mode_and_network_scan(tmp_path, monkeypatch):
 
 def test_view_cube_hover_between_faces_and_arrows():
     """Moving the mouse from a cube face onto an arrow (and back) compared a face direction with an
-    arrow name and failed; every hover change must work."""
-    import os
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PySide6.QtCore import QEvent, QPointF, Qt
-    from PySide6.QtGui import QMouseEvent
-    from PySide6.QtWidgets import QApplication
-    from unislicer.gui.viewcube import ViewCube
-    app = QApplication.instance() or QApplication([])
+    arrow name and failed; every hover change must work. Runs in its own process: it needs a widget
+    application, and other tests create a plain GUI application."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import math, os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        import numpy as np
+        from PySide6.QtCore import QEvent, QPointF, Qt
+        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtWidgets import QApplication
+        from unislicer.gui.viewcube import ViewCube
+        app = QApplication([])
 
-    class Cam:
-        yaw, pitch = -62.0, 30.0
+        class Cam:
+            yaw, pitch = -62.0, 30.0
+            def view(self):
+                y, p = math.radians(self.yaw), math.radians(self.pitch)
+                z = np.array([math.cos(p) * math.cos(y), math.cos(p) * math.sin(y), math.sin(p)])
+                x = np.cross([0, 0, 1], z); x /= np.linalg.norm(x)
+                m = np.eye(4); m[:3, :3] = np.array([x, np.cross(z, x), z])
+                return m
 
-        def view(self):
-            import math
-            y, p = math.radians(self.yaw), math.radians(self.pitch)
-            fwd = np.array([math.cos(p) * math.cos(y), math.cos(p) * math.sin(y), math.sin(p)])
-            z = fwd / np.linalg.norm(fwd)
-            x = np.cross([0, 0, 1], z)
-            x /= np.linalg.norm(x)
-            m = np.eye(4)
-            m[:3, :3] = np.array([x, np.cross(z, x), z])
-            return m
-
-    class V:
-        camera = Cam()
-
-        def update(self):
-            pass
-    cube = ViewCube(V())
-    c = ViewCube.SIZE / 2
-    face = QPointF(c, c)                                 # the cube's front face (a direction)
-    arrow = QPointF(12, c)                               # the left arrow (a name)
-    for pos in (face, arrow, face, arrow, QPointF(1, 1), face):
-        cube.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, pos, pos, Qt.NoButton, Qt.NoButton, Qt.NoModifier))
-        cube.repaint()
-    assert ViewCube._same_target("left", "left") and not ViewCube._same_target("left", np.array([1.0, 0, 0]))
-    assert not ViewCube._same_target(np.array([1.0, 0, 0]), "left") and ViewCube._same_target(None, None)
+        class V:
+            camera = Cam()
+            def update(self):
+                pass
+        cube = ViewCube(V())
+        c = ViewCube.SIZE / 2
+        face, arrow = QPointF(c, c), QPointF(12, c)
+        for pos in (face, arrow, face, arrow, QPointF(1, 1), face):
+            cube.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, pos, pos, Qt.NoButton, Qt.NoButton, Qt.NoModifier))
+            cube.repaint()
+        assert ViewCube._same_target("left", "left") and not ViewCube._same_target("left", np.array([1.0, 0, 0]))
+        assert not ViewCube._same_target(np.array([1.0, 0, 0]), "left") and ViewCube._same_target(None, None)
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout + r.stderr

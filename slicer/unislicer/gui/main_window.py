@@ -1701,7 +1701,7 @@ class MainWindow(QMainWindow):
                 self.viewer.remove_object(uid)
         colliding = getattr(self, "_colliding", set())
         for o in self.objects:
-            state = "cutter" if o.role == "cutter" else ("outside" if o.uid in outside else
+            state = "cutter" if o.role == "cutter" else (self._outside_state(o, cfg) if o.uid in outside else
                                                          "collision" if o.uid in colliding else "normal")
             self.viewer.set_object(o.uid, o.mesh, self._display_matrix(o), state)
             self.viewer.set_object_color(o.uid, dental_shades.display_rgb(o.material))
@@ -1725,6 +1725,18 @@ class MainWindow(QMainWindow):
             self.status.setText(tr("out_of_bounds").format(", ".join(sorted(outside.values()))))
         elif self.status.text().startswith(tr("out_of_bounds").split("{")[0]):
             self.status.setText(tr("ready"))            # everything is back on the plate
+
+    def _outside_state(self, o: SceneObject, cfg) -> str:
+        """'outside' when the whole model is off the plate (drawn in the theme's outside colour), 'partial'
+        when only part of it is (that part is painted purple in the 3D view)."""
+        from shapely.geometry import MultiPoint, box
+        lo, hi = o.world_bounds()
+        if lo[2] > cfg["max_z"]:
+            return "outside"
+        region = plate_region(cfg)
+        plate = region if region is not None else box(*plate_rect(cfg))
+        hull = MultiPoint(o.world_mesh().vertices[:, :2]).convex_hull
+        return "partial" if hull.intersection(plate).area > 1e-6 else "outside"
 
     def _sync_transform(self):
         obj = self.selected()
