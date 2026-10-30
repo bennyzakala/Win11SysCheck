@@ -44,7 +44,8 @@ class SlaJob:
     exposures: list[float] = field(default_factory=list)
     support_layers: list = field(default_factory=list)          # PolyJet gel support per layer
     support_ml: float = 0.0
-    part_materials: list = field(default_factory=list)          # PolyJet material name per model ("" = default)
+    part_materials: list = field(default_factory=list)          # PolyJet material name per model ("" = default),
+    #                                                             or a list with one name per face (shaded regions)
 
     @property
     def layer_count(self) -> int:
@@ -823,11 +824,19 @@ def _export_vector(job: SlaJob, cfg: Config, path: str, fmt: str, progress) -> s
     if fmt == "cli":
         return vf.write_cli(path, job.layers, job.layer_z, cfg, extents, progress=progress)
     default = cfg["pj_material"] if cfg["sla_process"] == "polyjet" else cfg["material_name"]
-    parts = [(m.name or f"part {k + 1}", m, (job.part_materials[k] if k < len(job.part_materials) and job.part_materials[k]
-                                              else default)) for k, m in enumerate(job.models)]
+    def mat_of(k):
+        v = job.part_materials[k] if k < len(job.part_materials) else ""
+        if isinstance(v, (list, tuple)):
+            return [x or default for x in v] if len(v) == len(job.models[k].faces) else default
+        return v or default
+    parts = [(m.name or f"part {k + 1}", m, mat_of(k)) for k, m in enumerate(job.models)]
     if job.supports is not None and len(job.supports.faces):
         parts.append(("Supports", job.supports, default))
-    return vf.write_3mf(path, parts)
+    from . import dental_shades
+    names = {x for _, _, mat in parts for x in (mat if isinstance(mat, list) else [mat])}
+    colors = {mat: dental_shades.hex_color(mat) for mat in names if dental_shades.find(mat)}
+    meta = {"DentalIncisalTranslucency": cfg["pj_incisal"]} if cfg["sla_process"] == "polyjet" and colors else {}
+    return vf.write_3mf(path, parts, colors, meta)
 
 
 def _chitu_zip_gcode(job: SlaJob, cfg: Config, safe: str, bottom: int) -> str:

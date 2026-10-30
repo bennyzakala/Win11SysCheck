@@ -1062,3 +1062,75 @@ def test_ring_tray_layout_and_bounds():
     rmid = (cfg["bed_x"] / 2 + cfg["bed_inner_diameter"] / 2) / 2
     wedge = placed(primitives.box(20, 20, 10), cfg["bed_x"] / 2 + rmid * math.cos(a), cfg["bed_y"] / 2 + rmid * math.sin(a))
     assert out_of_bounds([wedge], cfg["bed_x"], cfg["bed_y"], cfg["max_z"], plate_rect(cfg), region) == [wedge]
+
+
+def test_dental_shades_regions_import_export(tmp_path):
+    import math, zipfile
+    from unislicer import dental_shades as ds
+    from unislicer.mesh import Mesh, load_mesh
+    from unislicer.scene import SceneObject
+    from unislicer import vector_formats as vf
+
+    assert ds.find("A2").code == "TA2" and ds.find("VITA A3.5").code == "TA3.5" and ds.find("ta1").code == "TA1"
+    assert ds.find(ds.DEFAULT_GINGIVA).kind == "gingiva" and ds.hex_color("TA2").startswith("#")
+    assert len(ds.TOOTH_SHADES) >= 16 and len(ds.GINGIVA_BASE) >= 10
+
+    # a denture as one file: base plus 10 separate teeth along the arch -> one model with 11 regions
+    base = primitives.box(60, 50, 4).translated([-30, -25, 0])
+    teeth = []
+    for k in range(10):
+        a = math.radians(200 + k * 14)
+        teeth.append(primitives.box(6, 6, 9).translated([22 * math.cos(a) - 3, 22 * math.sin(a) - 3, 4.5]))
+    one = Mesh.merge([base] + teeth, "denture")
+    regions = ds.denture_regions(one)
+    assert len(regions) == 11 and regions[0]["name"] == "Gingiva" and regions[1]["name"] == "Tooth 1"
+    assert sum(len(r["faces"]) for r in regions) == len(one.faces)
+    ang = []
+    for r in regions[1:]:
+        c = one.triangles[r["faces"]].reshape(-1, 3).mean(axis=0)
+        ang.append(math.atan2(c[1], c[0]) % (2 * math.pi))
+    assert ang == sorted(ang) or ang == sorted(ang, reverse=True)      # numbered along the arch
+    assert ds.denture_regions(primitives.box(10, 10, 10)) == []
+    regions[3]["shade"] = "TA1"
+    shades = ds.face_shades(len(one.faces), "", regions)
+    assert shades.count("TA1") == len(regions[3]["faces"]) and shades[int(regions[0]["faces"][0])] == ds.DEFAULT_GINGIVA
+
+    # a 3MF with a material per triangle (as 3Shape writes shades): one model, regions keep their shade
+    core = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+    m = Mesh.merge([primitives.box(10, 10, 4), primitives.box(4, 4, 6).translated([3, 3, 4])])
+    nb = len(primitives.box(10, 10, 4).faces)
+    vx = "".join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x, y, z in m.vertices)
+    tri = "".join(f'<triangle v1="{a}" v2="{b_}" v3="{c}" pid="1" p1="{0 if i < nb else 1}"/>'
+                  for i, (a, b_, c) in enumerate(m.faces))
+    model = (f'<model xmlns="{core}"><resources><basematerials id="1"><base name="Gingiva Pink" displaycolor="#E88D97"/>'
+             f'<base name="A2" displaycolor="#EBDCC0"/></basematerials><object id="2" type="model" pid="1" pindex="0">'
+             f'<mesh><vertices>{vx}</vertices><triangles>{tri}</triangles></mesh></object></resources>'
+             f'<build><item objectid="2"/></build></model>')
+    p = tmp_path / "denture.3mf"
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("3D/3dmodel.model", model)
+    parts = load_mesh(str(p))
+    assert len(parts) == 1
+    obj = SceneObject.from_mesh(parts[0])
+    assert sorted(r["shade"] for r in obj.regions) == ["Gingiva Pink", "TA2"]           # A2 -> TA2
+    assert obj.duplicate().regions == obj.regions and obj.state()[-1] == obj.regions
+
+    # export: a material per triangle with the shade colours, plus the incisal setting; reads back the same
+    out = tmp_path / "out.3mf"
+    names = ds.face_shades(len(one.faces), "", regions)
+    vf.write_3mf(str(out), [("Denture", one, names)], {c: ds.hex_color(c) for c in set(names)},
+                 {"DentalIncisalTranslucency": "high"})
+    xml = zipfile.ZipFile(out).read("3D/3dmodel.model").decode()
+    assert f'name="TA1" displaycolor="{ds.hex_color("TA1")}"' in xml and ds.DEFAULT_GINGIVA in xml
+    assert '<metadata name="DentalIncisalTranslucency">high</metadata>' in xml
+    back = SceneObject.from_mesh(load_mesh(str(out))[0])
+    assert sorted({r["shade"] for r in back.regions}) == sorted({ds.DEFAULT_GINGIVA, ds.DEFAULT_TOOTH, "TA1"})
+
+    # project round trip keeps the regions
+    from unislicer import project
+    pp = tmp_path / "d.unislicer"
+    o2 = SceneObject.from_mesh(one)
+    o2.regions = regions
+    project.save(str(pp), [o2], {})
+    loaded, _ = project.load(str(pp))
+    assert [r["shade"] for r in loaded[0].regions] == [r["shade"] for r in regions]

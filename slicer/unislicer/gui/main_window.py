@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QCheckBox, QDoubleSpinBox,
                                QLabel, QListWidget, QListWidgetItem, QScrollArea, QMainWindow, QMenu, QMessageBox, QProgressBar,
                                QPushButton, QSlider, QToolButton, QVBoxLayout, QWidget)
 
-from .. import __version__, fdm, gcode, orient, primitives, profiles, project, sla, sla_supports
+from .. import __version__, dental_shades, fdm, gcode, orient, primitives, profiles, project, sla, sla_supports
 from ..assistant import Assistant, hollow_saving_ml
 from ..mesh import SUPPORTED_EXTENSIONS, Mesh, load_mesh, save_stl
 from ..scene import SceneObject, out_of_bounds, plate_area, plate_rect, plate_region
@@ -1519,6 +1519,7 @@ class MainWindow(QMainWindow):
         for o in targets:
             fixed, rep = mesh_tools.repair(o.mesh)
             o.mesh = fixed
+            o.regions = []                        # faces changed: shaded regions no longer apply
             for k in totals:
                 totals[k] += rep[k]
         self._objects_changed()
@@ -1602,6 +1603,7 @@ class MainWindow(QMainWindow):
                 fixed, rep = mesh_tools.repair_advanced(o.mesh, weld.value(), shells.value() / 100.0,
                                                         nonman.isChecked(), holes.isChecked())
                 o.mesh = fixed
+                o.regions = []                    # faces changed: shaded regions no longer apply
                 self._drop_supports(o)
                 lines.append(f"{o.name}: " + tr("repair_result").format(
                     rep["degenerate_removed"], rep["duplicates_removed"], rep["inner_walls_removed"],
@@ -1701,6 +1703,9 @@ class MainWindow(QMainWindow):
             state = "cutter" if o.role == "cutter" else ("outside" if o.uid in outside else
                                                          "collision" if o.uid in colliding else "normal")
             self.viewer.set_object(o.uid, o.mesh, self._display_matrix(o), state)
+            self.viewer.set_object_color(o.uid, dental_shades.display_rgb(o.material))
+            self.viewer.set_object_regions(o.uid, [(r["faces"], dental_shades.display_rgb(r["shade"]))
+                                                   for r in o.regions] or None)
             self.viewer.set_object_supports(o.uid, self._support_preview(o, cfg))
             self.viewer.set_object_holes(o.uid, self._hole_preview(o, cfg))
         sel = self.selected()
@@ -1872,6 +1877,7 @@ class MainWindow(QMainWindow):
         sup_menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
         sup_menu.addAction(theme.icon("grid"), tr("raft_menu") + "…", self.raft_menu)
         self.edit_sup_btn = button("pillar", tr("supports_card"), menu=sup_menu)
+        button("drop", tr("shade_menu"), self.dental_shades_dialog)
         button("trash", tr("delete"), self.delete_selected)
         button("more", tr("more"), lambda: self._show_context_menu(
             self.selected().uid if self.selected() else None, self.edit_bar.mapToGlobal(self.edit_bar.rect().bottomRight())))
@@ -2030,6 +2036,7 @@ class MainWindow(QMainWindow):
             menu.addAction(theme.icon("x"), tr("hide_models"), self.hide_selected)
             if len(group) > 1:
                 menu.addAction(theme.icon("copy"), tr("merge_models"), self.merge_selected)
+            menu.addAction(theme.icon("drop"), tr("shade_menu") + "…", self.dental_shades_dialog)
             dental = menu.addMenu(theme.icon("sparkle"), tr("dental_indication"))
             for key in ("model", "splint", "crown", "guide"):
                 dental.addAction(tr(f"dental_{key}"), lambda k=key: self.apply_dental_indication(k))
@@ -2067,6 +2074,53 @@ class MainWindow(QMainWindow):
         menu.addAction(theme.icon("arrange"), tr("arrange") + "\tA", self.arrange_objects)
         menu.addAction(theme.icon("fit"), tr("view_fit"), self.viewer.fit_objects)
         menu.exec(pos)
+
+    # ------------------------------------------------------------ dental shades
+    def dental_shades_dialog(self):
+        from .shade_dialog import ShadeDialog
+        group = self.selected_objects() or list(self.objects)
+        if not group:
+            self.status.setText(tr("select_first"))
+            return
+        dlg = ShadeDialog(group, self)
+        dlg.applyRequested.connect(lambda code, objs: self._apply_shade(code, objs))
+        dlg.splitRequested.connect(lambda: self.split_denture(dlg))
+        dlg.exec()
+
+    def split_denture(self, dialog=None):
+        """One-file denture: mark the base as gingiva and each tooth as its own shaded region (numbered along
+        the arch). The denture stays one model, so it moves, is laid out and prints as one piece."""
+        targets = [o for o in (dialog.objects if dialog is not None else self.selected_objects())]
+        done = 0
+        for obj in targets:
+            regions = dental_shades.denture_regions(obj.mesh)
+            if regions:
+                if not done:
+                    self._push_undo()
+                obj.regions = regions
+                done += 1
+        if not done:
+            QMessageBox.information(self, tr("shade_menu"), tr("denture_single"))
+            return
+        self._refresh_objects(select=[o.uid for o in targets])
+        n = sum(len(o.regions) - 1 for o in targets)
+        self.status.setText(tr("denture_split").format(n))
+        if dialog is not None:
+            dialog.set_objects(targets)
+
+    def _apply_shade(self, code: str, targets: list):
+        """``targets``: (object, region index or None) pairs."""
+        self._push_undo()
+        objs = []
+        for o, r in targets:
+            if r is None:
+                o.material = code
+            else:
+                o.regions[r]["shade"] = code
+            if o not in objs:
+                objs.append(o)
+        self._refresh_objects(select=[o.uid for o in objs])
+        self.status.setText(tr("shade_applied").format(code, len(targets)))
 
     def set_part_material(self):
         group = self.selected_objects()
@@ -2658,7 +2712,8 @@ class MainWindow(QMainWindow):
         cutters = [o.world_mesh() for o in self.objects if o.role == "cutter"]
         manual = [o.world_support_points(0.0) for o in models]
         direct = [o.direct for o in models]
-        materials = [o.material for o in models]
+        materials = [dental_shades.face_shades(len(o.mesh.faces), o.material, o.regions) if o.regions else o.material
+                     for o in models]
         holes = [o.world_drain_holes(0.0) for o in models]
         name = self.objects[0].name or "print"
 

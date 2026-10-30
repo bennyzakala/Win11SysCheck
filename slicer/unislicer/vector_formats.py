@@ -158,18 +158,22 @@ def scan_length(geom, cfg, layer_index: int = 0) -> float:
 
 
 # ----------------------------------------------------------------------- 3MF
-def write_3mf(path: str, parts: list[tuple[str, Mesh, str]], colors: dict[str, str] | None = None) -> str:
+def write_3mf(path: str, parts: list[tuple[str, Mesh, str]], colors: dict[str, str] | None = None,
+              metadata: dict[str, str] | None = None) -> str:
     """3MF package with one object per part. ``parts`` = [(name, mesh in plate mm, material name)];
     parts with the same material share a base material so vendor software can map it."""
     materials = []
-    for _, _, mat in parts:
-        if mat and mat not in materials:
-            materials.append(mat)
+    for _, _, mat in parts:                       # a name, or one name per face (shaded regions)
+        for m in (mat if isinstance(mat, list) else [mat]):
+            if m and m not in materials:
+                materials.append(m)
     colors = colors or {}
     esc = lambda t: (t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))  # noqa: E731
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">',
-           f'<metadata name="Application">UniSlicer {__version__}</metadata>', "<resources>"]
+           f'<metadata name="Application">UniSlicer {__version__}</metadata>']
+    out += [f'<metadata name="{esc(k)}">{esc(str(v))}</metadata>' for k, v in (metadata or {}).items()]
+    out.append("<resources>")
     if materials:
         out.append('<basematerials id="1">')
         for m in materials:
@@ -179,11 +183,18 @@ def write_3mf(path: str, parts: list[tuple[str, Mesh, str]], colors: dict[str, s
     for k, (name, mesh, mat) in enumerate(parts):
         oid = k + 2
         ids.append(oid)
-        attrs = f' pid="1" pindex="{materials.index(mat)}"' if mat else ""
+        per_face = isinstance(mat, list)
+        main = max(set(mat), key=mat.count) if per_face and mat else mat
+        attrs = f' pid="1" pindex="{materials.index(main)}"' if main else ""
         out.append(f'<object id="{oid}" name="{esc(name)}" type="model"{attrs}><mesh><vertices>')
         out.extend(f'<vertex x="{x:.5f}" y="{y:.5f}" z="{z:.5f}"/>' for x, y, z in mesh.vertices)
         out.append("</vertices><triangles>")
-        out.extend(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in mesh.faces)
+        if per_face:                               # material per triangle, as 3Shape writes denture shades
+            idx = {m: materials.index(m) for m in set(mat) if m}
+            out.extend(f'<triangle v1="{a}" v2="{b}" v3="{c}" pid="1" p1="{idx[m]}"/>' if m and m != main
+                       else f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for (a, b, c), m in zip(mesh.faces, mat))
+        else:
+            out.extend(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in mesh.faces)
         out.append("</triangles></mesh></object>")
     out.append("</resources><build>")
     out.extend(f'<item objectid="{oid}"/>' for oid in ids)

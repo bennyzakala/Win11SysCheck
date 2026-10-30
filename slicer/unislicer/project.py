@@ -33,6 +33,8 @@ def save(path: str, objects: list[SceneObject], settings_state: dict) -> None:
                 "support_points": None if o.support_points is None else o.support_points.tolist(),
                 "drain_holes": o.drain_holes.tolist(), "role": o.role, "z": o.z,
                 "direct": o.direct, "material": o.material,
+                "regions": [{"name": r["name"], "shade": r["shade"], "faces": np.asarray(r["faces"]).tolist()}
+                            for r in o.regions],
             })
         doc = {"format": FORMAT_VERSION, "generator": f"UniSlicer {__version__}",
                "settings": settings_state, "objects": entries}
@@ -58,5 +60,7 @@ def load(path: str) -> tuple[list[SceneObject], dict]:
                 np.array(e["base_rotation"], dtype=float), np.array(e.get("mirror", [1, 1, 1]), dtype=float),
                 None if sp is None else np.array(sp, dtype=float).reshape(-1, 3),
                 np.array(e.get("drain_holes", []), dtype=float).reshape(-1, 6), e.get("role", "model"), float(e.get("z", 0.0)),
-                bool(e.get("direct", False)), str(e.get("material", ""))))
+                bool(e.get("direct", False)), str(e.get("material", "")),
+                [{"name": r.get("name", ""), "shade": r.get("shade", ""), "faces": np.array(r.get("faces", []), dtype=np.int64)}
+                 for r in e.get("regions", [])]))
     return objects, doc.get("settings", {})

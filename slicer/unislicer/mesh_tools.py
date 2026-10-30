@@ -122,6 +122,25 @@ def cut_mesh(mesh: Mesh, z: float) -> tuple[Mesh, Mesh]:
 
 
 # ------------------------------------------------------------------ split
+def shell_labels(mesh: Mesh) -> np.ndarray:
+    """Per face, the number of the shell (vertex-connected piece) it belongs to: 0, 1, 2..."""
+    f = mesh.faces
+    parent = np.arange(len(mesh.vertices))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for a, b in np.vstack([f[:, [0, 1]], f[:, [1, 2]]]):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+    roots = np.array([find(i) for i in range(len(parent))])
+    _, labels = np.unique(roots[f[:, 0]], return_inverse=True)
+    return labels.ravel()
+
+
 def split_parts(mesh: Mesh) -> list[Mesh]:
     """Separate shells that share no vertices."""
     f = mesh.faces

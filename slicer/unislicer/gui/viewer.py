@@ -379,8 +379,51 @@ class Viewer(QOpenGLWidget):
             for key in ("buffer", "buffer_lod"):
                 if old and old.get(key):
                     self._trash(old[key])
-            self.objects[uid] = {"mesh": mesh, "buffer": None, "state": state, "matrix": matrix}
+            for b in (old or {}).get("region_buffers") or []:
+                self._trash(b[0])
+            self.objects[uid] = {"mesh": mesh, "buffer": None, "state": state, "matrix": matrix,
+                                 "color": (old or {}).get("color")}
         self.update()
+
+    def set_object_color(self, uid, rgb):
+        """Draw the model in its own colour (e.g. a dental shade); None = the theme's model colour."""
+        if uid in self.objects and self.objects[uid].get("color") != rgb:
+            self.objects[uid]["color"] = None if rgb is None else tuple(float(c) for c in rgb)
+            self.update()
+
+    def set_object_regions(self, uid, regions):
+        """Parts of a model drawn in their own colours: [(face indices, rgb or None), ...] (None = none).
+        Faces not in any region keep the model's colour."""
+        obj = self.objects.get(uid)
+        if obj is None:
+            return
+        key = None if not regions else tuple((len(f), int(np.asarray(f)[:1].sum()) if len(f) else -1,
+                                              None if c is None else tuple(round(x, 4) for x in c)) for f, c in regions)
+        if obj.get("regions_key") == key and obj.get("regions_mesh") is obj["mesh"]:
+            return
+        for b in obj.get("region_buffers") or []:
+            self._trash(b[0])
+        obj["region_buffers"] = None
+        obj["regions_key"], obj["regions_mesh"] = key, obj["mesh"]
+        obj["regions"] = None if not regions else [(np.asarray(f, dtype=np.int64), c) for f, c in regions]
+        self.update()
+
+    def _region_buffers(self, obj):
+        bufs = obj.get("region_buffers")
+        if bufs is None and obj.get("regions"):
+            mesh = obj["mesh"]
+            covered = np.zeros(len(mesh.faces), dtype=bool)
+            bufs = []
+            for faces, color in obj["regions"]:
+                faces = faces[(faces >= 0) & (faces < len(mesh.faces))]
+                covered[faces] = True
+                if len(faces):
+                    bufs.append((_Buffer(mesh_vertices(Mesh(mesh.vertices, mesh.faces[faces])), [3, 3]), color))
+            rest = np.flatnonzero(~covered)
+            if len(rest):
+                bufs.append((_Buffer(mesh_vertices(Mesh(mesh.vertices, mesh.faces[rest])), [3, 3]), None))
+            obj["region_buffers"] = bufs
+        return bufs
 
     def set_object_transform(self, uid, matrix: np.ndarray):
         if uid in self.objects:
@@ -398,6 +441,8 @@ class Viewer(QOpenGLWidget):
             for key in ("buffer", "sup_buffer", "hole_buffer", "buffer_lod", "sup_buffer_lod"):
                 if obj.get(key):
                     self._trash(obj[key])
+            for b in obj.get("region_buffers") or []:
+                self._trash(b[0])
         self.update()
 
     def set_object_holes(self, uid, mesh: Mesh | None):
@@ -683,9 +728,22 @@ class Viewer(QOpenGLWidget):
                     continue  # drawn translucent after everything opaque
                 color = (1.0, 0.16, 0.22) if state == "collision" else theme.MODEL_OUTSIDE if state == "outside" else (
                     theme.MODEL_SELECTED if uid in self.selection else theme.MODEL_COLOR)
+                if obj.get("color") is not None and state not in ("collision", "outside"):
+                    own = obj["color"]                 # its material / dental shade
+                    color = tuple(0.75 * a + 0.25 * b for a, b in zip(own, theme.MODEL_SELECTED)) \
+                        if uid in self.selection else own
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 self._set_model(p, obj["matrix"])
-                self._buffer_for(obj, "buffer", "mesh").draw(GL.GL_TRIANGLES)
+                regions = self._region_buffers(obj) if state not in ("collision", "outside") else None
+                if regions and not (self.interacting and len(obj["mesh"].faces) > self.LOD_FACES):
+                    sel = uid in self.selection
+                    for buf, rgb in regions:          # e.g. a denture: gingiva and every tooth in its shade
+                        c = color if rgb is None else (tuple(0.75 * a + 0.25 * b for a, b in zip(rgb, theme.MODEL_SELECTED))
+                                                       if sel else rgb)
+                        GL.glUniform3f(self._u(p, "uColor"), *c)
+                        buf.draw(GL.GL_TRIANGLES)
+                else:
+                    self._buffer_for(obj, "buffer", "mesh").draw(GL.GL_TRIANGLES)
                 if obj.get("hole_buffer") is not None and not preview:
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
                     GL.glUniform3f(self._u(p, "uColor"), 1.0, 0.35, 0.42)

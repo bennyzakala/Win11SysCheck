@@ -29,13 +29,22 @@ class SceneObject:
     z: float = 0.0                               # height of the model's lowest point above the plate
     direct: bool = False                         # resin: printed straight on the plate, no supports or elevation
     material: str = ""                           # PolyJet: material assigned to this part ("" = the default)
+    # regions of the part with their own shade (e.g. a denture: gingiva + each tooth):
+    # [{"name": str, "faces": int array into mesh.faces, "shade": str}]
+    regions: list = field(default_factory=list)
     uid: int = field(default_factory=lambda: next(_ids))
 
     @classmethod
     def from_mesh(cls, mesh: Mesh, name: str = "") -> "SceneObject":
         b = mesh.bounds
         centred = mesh.translated(-(b[0] + b[1]) / 2)
-        return cls(centred, name or mesh.name)
+        obj = cls(centred, name or mesh.name)
+        from .dental_shades import find
+        mat = getattr(mesh, "material", "") or ""                # e.g. a shade read from a 3MF
+        obj.material = find(mat).code if find(mat) else mat
+        obj.regions = [dict(r, shade=find(r["shade"]).code if find(r["shade"]) else r["shade"])
+                       for r in getattr(mesh, "regions", [])]
+        return obj
 
     def matrix(self) -> np.ndarray:
         """Rotation and scale only (no placement)."""
@@ -121,10 +130,13 @@ class SceneObject:
         """Snapshot of everything the user can change (for undo)."""
         sp = None if self.support_points is None else self.support_points.copy()
         return (self.x, self.y, self.rotation.copy(), self.scale.copy(), self.base_rotation.copy(), self.mirror.copy(), sp,
-                self.drain_holes.copy(), self.role, self.z, self.direct, self.material)
+                self.drain_holes.copy(), self.role, self.z, self.direct, self.material,
+                [dict(r) for r in self.regions])
 
     def restore(self, state: tuple) -> None:
-        self.x, self.y, rot, scale, base, mirror, sp, holes, self.role, self.z, self.direct, self.material = state
+        (self.x, self.y, rot, scale, base, mirror, sp, holes, self.role, self.z, self.direct, self.material,
+         regions) = state
+        self.regions = [dict(r) for r in regions]
         self.drain_holes = holes.copy()
         self.rotation, self.scale, self.base_rotation, self.mirror = rot.copy(), scale.copy(), base.copy(), mirror.copy()
         self.support_points = None if sp is None else sp.copy()
@@ -143,7 +155,7 @@ class SceneObject:
         sp = None if self.support_points is None else self.support_points.copy()
         return SceneObject(self.mesh, self.name, self.x, self.y, self.rotation.copy(), self.scale.copy(),
                            self.base_rotation.copy(), self.mirror.copy(), sp, self.drain_holes.copy(), self.role, self.z,
-                           self.direct, self.material)
+                           self.direct, self.material, [dict(r) for r in self.regions])
 
 
 def plate_rect(cfg) -> tuple[float, float, float, float]:

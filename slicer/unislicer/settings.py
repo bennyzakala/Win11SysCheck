@@ -325,6 +325,10 @@ SCHEMA: list[Setting] = [
     S("laser_recoat_time", "float", 6.0, "laser", "sla", "זמן קילוף/ציפוי לשכבה", "Peel / recoat time per layer", "s", 0, 120, 0.5),
 
     # PolyJet
+    S("pj_incisal", "enum", "high", "jetting", "sla", "שקיפות בקצה החותך (TrueVoxel)", "Incisal translucency (TrueVoxel)", "",
+      options=[("off", "כבוי", "Off"), ("low", "נמוכה", "Low"), ("medium", "בינונית", "Medium"), ("high", "גבוהה", "High")],
+      tip_he="רמת השקיפות בקצה החותך של שיני TrueDent; נכתבת לקובץ ה-3MF ונקבעת סופית ב-GrabCAD Print",
+      tip_en="Incisal translucency of TrueDent teeth; written to the 3MF and finally set in GrabCAD Print"),
     S("pj_mode", "enum", "high_quality", "jetting", "sla", "מצב הדפסה", "Print mode",
       options=(("high_quality", "איכות גבוהה", "High quality"), ("high_speed", "מהירות גבוהה", "High speed"),
                ("high_mix", "ריבוי חומרים", "High mix"))),

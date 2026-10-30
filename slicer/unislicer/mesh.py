@@ -279,8 +279,20 @@ def _read_3mf(path: str, name: str) -> list[Mesh]:
     objects: dict[str, ET.Element] = {}
     for obj in root.iter(q("object")):
         objects[obj.get("id")] = obj
+    # materials (3Shape / exocad write tooth and gingiva shades as base materials)
+    materials: dict[str, list[str]] = {}
+    for group in root.iter(q("basematerials")):
+        materials[group.get("id")] = [b.get("name") or "" for b in group.iter(q("base"))]
 
-    def object_triangles(oid: str, matrix: np.ndarray, depth: int = 0) -> list[np.ndarray]:
+    def material_name(pid, pindex) -> str:
+        names = materials.get(pid or "")
+        try:
+            return names[int(pindex)] if names is not None else ""
+        except (TypeError, ValueError, IndexError):
+            return ""
+
+    def object_triangles(oid: str, matrix: np.ndarray, depth: int = 0) -> list[tuple[str, np.ndarray]]:
+        """(material name, triangles) pieces of an object; triangles with their own material are split off."""
         obj = objects.get(oid)
         if obj is None or depth > 16:
             return []
@@ -289,11 +301,19 @@ def _read_3mf(path: str, name: str) -> list[Mesh]:
         if mesh_el is not None:
             vs = np.array([[float(v.get("x")), float(v.get("y")), float(v.get("z"))]
                            for v in mesh_el.find(q("vertices")).iter(q("vertex"))])
-            fs = np.array([[int(t.get("v1")), int(t.get("v2")), int(t.get("v3"))]
-                           for t in mesh_el.find(q("triangles")).iter(q("triangle"))], dtype=np.int64)
+            tri_els = list(mesh_el.find(q("triangles")).iter(q("triangle")))
+            fs = np.array([[int(t.get("v1")), int(t.get("v2")), int(t.get("v3"))] for t in tri_els], dtype=np.int64)
             if len(vs) and len(fs):
                 vs = vs @ matrix[:3, :3].T + matrix[:3, 3]
-                out.append(vs[fs])
+                default = material_name(obj.get("pid"), obj.get("pindex"))
+                if materials:
+                    names = [material_name(t.get("pid") or obj.get("pid"), t.get("p1")) if t.get("p1") is not None
+                             else default for t in tri_els]
+                else:
+                    names = [default] * len(tri_els)
+                for name in dict.fromkeys(names):
+                    sel = np.array([n == name for n in names])
+                    out.append((name, vs[fs[sel]]))
         comps = obj.find(q("components"))
         if comps is not None:
             for c in comps.iter(q("component")):
@@ -306,10 +326,30 @@ def _read_3mf(path: str, name: str) -> list[Mesh]:
     if not items:
         items = [ET.Element("item", objectid=k) for k in objects]
     for i, item in enumerate(items):
-        tris = object_triangles(item.get("objectid"), _parse_3mf_transform(item.get("transform")))
-        if tris:
-            label = objects[item.get("objectid")].get("name") or f"{name}_{i + 1}"
-            meshes.append(Mesh.from_triangles(np.vstack(tris), label))
+        pieces = object_triangles(item.get("objectid"), _parse_3mf_transform(item.get("transform")))
+        if not pieces:
+            continue
+        label = objects[item.get("objectid")].get("name") or f"{name}_{i + 1}"
+        by_material: dict[str, list] = {}
+        for mat, tris in pieces:
+            by_material.setdefault(mat, []).append(tris)
+        if len(by_material) == 1:
+            mat, tris = next(iter(by_material.items()))
+            m = Mesh.from_triangles(np.vstack(tris), label)
+            m.material = mat
+            meshes.append(m)
+            continue
+        # several materials in one part (e.g. a denture's gingiva and teeth from 3Shape): one model whose
+        # regions keep their material, so it still moves and prints as one piece
+        pieces_m = [(mat, Mesh.from_triangles(np.vstack(tris), mat)) for mat, tris in by_material.items()]
+        m = Mesh.merge([pm for _, pm in pieces_m], label)
+        regions, start = [], 0
+        for mat, pm in pieces_m:
+            regions.append({"name": mat or "part", "faces": np.arange(start, start + len(pm.faces)), "shade": mat})
+            start += len(pm.faces)
+        m.material = max(by_material, key=lambda k: sum(len(t) for t in by_material[k]))
+        m.regions = regions
+        meshes.append(m)
     return meshes
 
 
