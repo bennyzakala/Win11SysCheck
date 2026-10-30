@@ -230,6 +230,8 @@ STRINGS = {
     "rotate_90_tip": ("סובב 90° סביב {} (Shift: לכיוון השני)", "Turn 90° around {} (Shift: the other way)"),
     "select_first": ("בחר קודם מודל", "Select a model first"),
     "plate": ("משטח", "Plate"),
+    "plate_ring": ("מגש מסתובב · טבעת Ø{:g} / פנימי Ø{:g} מ\"מ", "Rotating tray · ring Ø{:g} / inner Ø{:g} mm"),
+    "plate_round": ("משטח עגול · Ø{:g} מ\"מ", "Round plate · Ø{:g} mm"),
     "plate_full": ("משטח מלא · {:g} × {:g} מ\"מ", "Full plate · {:g} × {:g} mm"),
     "plate_item": ("{} · {:g} × {:g} מ\"מ", "{} · {:g} × {:g} mm"),
     "plate_add": ("➕ הוסף גודל משטח…", "➕ Add a plate size…"),

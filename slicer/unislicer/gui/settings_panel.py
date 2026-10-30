@@ -402,7 +402,14 @@ class SettingsPanel(QWidget):
         self.plate_combo.clear()
         base = self.base_config()
         cfg = self.config()
-        self.plate_combo.addItem(tr("plate_full").format(base["bed_x"], base["bed_y"]), None)
+        shape = base.get("bed_shape", "rect")
+        if shape == "ring":
+            label = tr("plate_ring").format(base["bed_x"], base.get("bed_inner_diameter", 0))
+        elif shape == "round":
+            label = tr("plate_round").format(base["bed_x"])
+        else:
+            label = tr("plate_full").format(base["bed_x"], base["bed_y"])
+        self.plate_combo.addItem(label, None)
         current = (cfg["plate_width"], cfg["plate_depth"], cfg["plate_offset_x"], cfg["plate_offset_y"])
         select = 0
         for p in profiles.plates(self.printer_id):

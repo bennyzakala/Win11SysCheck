@@ -820,17 +820,19 @@
  "stratasys_j5_dentajet": {
   "name": "Stratasys J5 DentaJet",
   "vendor": "Stratasys",
-  "note": "PolyJet printers print only from Stratasys GrabCAD Print. Here you arrange, orient and estimate (model and gel support material); export 3MF (one object per part with its material name) and open it in GrabCAD Print. Build rate is an estimate. Build envelope 140 x 200 x 190 mm on a rotating round tray (1,174 cm²); layers from 18 µm.",
+  "note": "PolyJet printers print only from Stratasys GrabCAD Print. Here you arrange, orient and estimate (model and gel support material); export 3MF and open it in GrabCAD Print. The J5 prints on a rotating round tray: printing area 1,174 cm², max part 140 x 200 x 190 mm. The ring here (outer ~407 mm, inner ~127 mm) is derived from those figures - correct the diameters under Printer if your tray differs. Layers from 18 µm.",
   "values": {
    "technology": "sla",
    "sla_process": "polyjet",
-   "bed_x": 140.0,
-   "bed_y": 200.0,
+   "bed_x": 407.0,
+   "bed_y": 407.0,
    "max_z": 190,
    "sla_format": "3mf",
    "sla_layer_height": 0.018,
    "support_enable": true,
-   "pj_material": "TrueDent"
+   "pj_material": "TrueDent",
+   "bed_shape": "ring",
+   "bed_inner_diameter": 127.0
   }
  },
  "stratasys_j850_da": {

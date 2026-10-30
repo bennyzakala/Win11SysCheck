@@ -1040,3 +1040,17 @@ def test_model_rescue_recovers_broken_files_without_quality_loss(tmp_path):
     a.learn_rescue(sig, "sniff")
     a.learn_rescue(sig, "sniff")
     assert a.rescue_order(sig)[0] == "sniff" and a.summary()["models_rescued"] == 2
+
+
+def test_ring_tray_layout_and_bounds():
+    """Stratasys J5: parts go on the rotating ring tray, never in its centre or past its rim."""
+    from unislicer import layout
+    from unislicer.scene import out_of_bounds, plate_area, plate_rect, plate_region
+    cfg = profiles.build_config("stratasys_j5_dentajet", None, None, {})
+    assert cfg["bed_shape"] == "ring" and cfg["bed_inner_diameter"] > 0
+    region = plate_region(cfg)
+    parts = [placed(primitives.box(50, 20, 10), cfg["bed_x"] / 2, cfg["bed_y"] / 2) for _ in range(14)]
+    assert len(out_of_bounds(parts, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], plate_rect(cfg), region)) == 14
+    failed = layout.auto_layout(parts, plate_area(cfg), layout.LayoutOptions(spacing=4))
+    assert failed == [] and out_of_bounds(parts, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], plate_rect(cfg), region) == []
+    assert plate_region(profiles.build_config("elegoo_mars3", None, "sla_fast", {})) is None

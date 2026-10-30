@@ -157,6 +157,27 @@ def plate_rect(cfg) -> tuple[float, float, float, float]:
     return cx - w / 2, cy - d / 2, cx + w / 2, cy + d / 2
 
 
+def plate_region(cfg):
+    """The printable area as a shapely shape for round plates and ring trays (None for a rectangle)."""
+    shape = cfg.get("bed_shape", "rect") if hasattr(cfg, "get") else "rect"
+    if shape not in ("round", "ring"):
+        return None
+    from shapely.geometry import Point
+    bx, by = float(cfg["bed_x"]), float(cfg["bed_y"])
+    r = min(bx, by) / 2
+    disk = Point(bx / 2, by / 2).buffer(r, quad_segs=64)
+    inner = float(cfg.get("bed_inner_diameter", 0) or 0) / 2
+    if shape == "ring" and 0 < inner < r:
+        disk = disk.difference(Point(bx / 2, by / 2).buffer(inner, quad_segs=64))
+    return disk
+
+
+def plate_area(cfg):
+    """What layout works in: the plate rectangle, or the round/ring shape."""
+    region = plate_region(cfg)
+    return region if region is not None else plate_rect(cfg)
+
+
 def arrange(objects: list[SceneObject], bed_x: float, bed_y: float, spacing: float = 6.0,
             rect: tuple | None = None) -> bool:
     """Shelf-pack object footprints around the plate centre. Returns False if they don't fit."""
@@ -193,7 +214,8 @@ def arrange(objects: list[SceneObject], bed_x: float, bed_y: float, spacing: flo
 
 
 def out_of_bounds(objects: list[SceneObject], bed_x: float, bed_y: float, max_z: float,
-                  rect: tuple | None = None) -> list[SceneObject]:
+                  rect: tuple | None = None, region=None) -> list[SceneObject]:
+    """Parts that leave the plate (rectangle, or the round / ring ``region``) or are too tall."""
     x0, y0, x1, y1 = rect if rect is not None else (0.0, 0.0, bed_x, bed_y)
     bad = []
     for o in objects:
@@ -202,4 +224,9 @@ def out_of_bounds(objects: list[SceneObject], bed_x: float, bed_y: float, max_z:
         b = o.world_bounds()
         if b[0, 0] < x0 - 1e-6 or b[0, 1] < y0 - 1e-6 or b[1, 0] > x1 + 1e-6 or b[1, 1] > y1 + 1e-6 or b[1, 2] > max_z + 1e-6:
             bad.append(o)
+        elif region is not None:
+            from shapely.geometry import MultiPoint
+            hull = MultiPoint(o.world_mesh().vertices[:, :2]).convex_hull
+            if not region.buffer(1e-3).contains(hull):
+                bad.append(o)
     return bad

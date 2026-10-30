@@ -64,9 +64,12 @@ def _order(objs: list[SceneObject], sort: str, prints: dict) -> list[SceneObject
     return list(objs)
 
 
-def _place_contour(objs, fixed, rect, opt: LayoutOptions) -> list[SceneObject]:
-    """Greedy placement of true footprints; returns the parts that did not fit (left where they were)."""
+def _place_contour(objs, fixed, rect, opt: LayoutOptions, region=None) -> list[SceneObject]:
+    """Greedy placement of true footprints; returns the parts that did not fit (left where they were).
+    ``region`` limits placement to a round plate or a ring tray."""
     half = opt.spacing / 2
+    if region is not None:
+        shapely.prepare(region)
     prints = {o.uid: footprint(o) for o in objs}
     occupied = shapely.union_all([footprint(o).buffer(half, quad_segs=4) for o in fixed]) if fixed else Polygon()
     failed = []
@@ -82,6 +85,8 @@ def _place_contour(objs, fixed, rect, opt: LayoutOptions) -> list[SceneObject]:
                 shapely.prepare(occupied)
             for px, py in _scan_order(rect, opt.anchor, opt.step, maxx - minx, maxy - miny):
                 cand = affinity.translate(local, px, py)
+                if region is not None and not region.contains(cand.buffer(-half + 1e-3) if half > 0 else cand):
+                    continue
                 if occupied.is_empty or not occupied.intersects(cand):
                     score = (np.hypot(px - (rect[0] + rect[2]) / 2, py - (rect[1] + rect[3]) / 2)
                              if opt.anchor == "center" else 0.0)
@@ -133,9 +138,19 @@ def _place_grid(objs, rect, opt: LayoutOptions) -> list[SceneObject]:
     return failed
 
 
-def auto_layout(objects: list[SceneObject], plate: tuple, opt: LayoutOptions,
+def _split_plate(plate, margin: float):
+    """(rect, region): a rectangle (x0, y0, x1, y1), or a round / ring shape with its bounding box."""
+    if hasattr(plate, "bounds") and hasattr(plate, "contains"):
+        region = plate.buffer(-margin) if margin > 0 and not plate.buffer(-margin).is_empty else plate
+        return tuple(plate.bounds), region
+    return tuple(plate), None
+
+
+def auto_layout(objects: list[SceneObject], plate, opt: LayoutOptions,
                 selected: list[SceneObject] | None = None) -> list[SceneObject]:
-    """Lay out parts on ``plate`` (x0, y0, x1, y1). Returns the parts that could not be placed."""
+    """Lay out parts on ``plate``: a rectangle (x0, y0, x1, y1) or a round / ring shape (shapely).
+    Returns the parts that could not be placed."""
+    plate, region = _split_plate(plate, opt.margin)
     x0, y0, x1, y1 = plate
     m = opt.margin if (x1 - x0) > 2 * opt.margin and (y1 - y0) > 2 * opt.margin else 0.0
     rect = (x0 + m, y0 + m, x1 - m, y1 - m)
@@ -145,13 +160,15 @@ def auto_layout(objects: list[SceneObject], plate: tuple, opt: LayoutOptions,
     if opt.scope == "selected":
         movable = [o for o in (selected or []) if o.role != "cutter"]
     elif opt.scope == "outside":
-        p = box(*plate)
+        p = region if region is not None else box(*plate)
         movable = [o for o in parts if not p.contains(footprint(o))]
     else:
         movable = parts
     fixed = [o for o in parts if o not in movable]
     if not movable:
         return []
+    if region is not None:                  # round plate / ring tray: true footprints inside the shape
+        return _place_contour(movable, fixed, rect, opt, region)
     if opt.strategy == "grid" and not fixed:
         return _place_grid(_order(movable, opt.sort, {o.uid: footprint(o) for o in movable}), rect, opt)
     if opt.strategy == "box" and not fixed:
@@ -165,9 +182,10 @@ def auto_layout(objects: list[SceneObject], plate: tuple, opt: LayoutOptions,
     return _place_contour(movable, fixed, rect, opt)
 
 
-def fill_plate(objects: list[SceneObject], source: SceneObject, plate: tuple, opt: LayoutOptions,
+def fill_plate(objects: list[SceneObject], source: SceneObject, plate, opt: LayoutOptions,
                limit: int = 200) -> list[SceneObject]:
     """Add copies of ``source`` until the plate is full; returns the copies that fit."""
+    plate, region = _split_plate(plate, opt.margin)
     x0, y0, x1, y1 = plate
     if opt.step <= 0:
         opt = LayoutOptions(**{**opt.__dict__, "step": max(0.5, min(x1 - x0, y1 - y0) / 120)})
@@ -175,7 +193,7 @@ def fill_plate(objects: list[SceneObject], source: SceneObject, plate: tuple, op
     for _ in range(limit):
         dup = source.duplicate()
         rest = _place_contour([dup], [o for o in objects + added if o.role != "cutter"],
-                              _inner(plate, opt.margin), opt)
+                              _inner(plate, opt.margin), opt, region)
         if rest:
             break
         added.append(dup)

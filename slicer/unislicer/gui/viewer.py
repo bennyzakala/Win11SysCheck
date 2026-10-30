@@ -55,8 +55,22 @@ layout(location=0) in vec3 aPos; uniform mat4 uMVP; out vec2 vXY;
 void main(){ vXY = aPos.xy; gl_Position = uMVP * vec4(aPos, 1.0); }"""
 BED_FS = """#version 330 core
 in vec2 vXY; out vec4 frag; uniform vec2 uBed; uniform vec3 uBase; uniform vec4 uPlate; uniform vec3 uGrid; uniform vec3 uAccent; uniform float uAlpha;
+uniform int uShape; uniform float uInner;   // 0 rectangle, 1 round, 2 ring (rotating tray)
 float grid(vec2 p, float s, float w){ vec2 c = abs(fract(p / s - 0.5) - 0.5) * s / max(fwidth(p), vec2(1e-4)); return 1.0 - clamp(min(c.x, c.y) - w, 0.0, 1.0); }
+float ring(float d){ return 1.0 - smoothstep(0.0, max(fwidth(d) * 2.0, 0.4), abs(d)); }
 void main(){
+  if (uShape > 0) {
+    float R = min(uBed.x, uBed.y) * 0.5; float r = length(vXY - uBed * 0.5);
+    if (r > R + 0.5) discard;
+    bool on = r <= R && (uShape == 1 || r >= uInner);
+    vec3 c = on ? uBase : mix(uBase, uGrid, 0.45);
+    c = mix(c, uGrid, grid(vXY, 10.0, 0.0) * (on ? 0.35 : 0.12));
+    c = mix(c, uGrid, grid(vXY, 50.0, 0.4) * 0.6);
+    c = mix(c, uAccent, ring(r - R));
+    if (uShape == 2 && uInner > 0.0) c = mix(c, uAccent, ring(r - uInner));
+    frag = vec4(c, uAlpha);
+    return;
+  }
   bool onPlate = vXY.x >= uPlate.x && vXY.y >= uPlate.y && vXY.x <= uPlate.z && vXY.y <= uPlate.w;
   vec3 c = onPlate ? uBase : mix(uBase, uGrid, 0.45);   // outside the chosen plate: shaded
   c = mix(c, uGrid, grid(vXY, 10.0, 0.0) * (onPlate ? 0.35 : 0.12));
@@ -328,8 +342,10 @@ class Viewer(QOpenGLWidget):
         QSurfaceFormat.setDefaultFormat(fmt)
 
     # ---------------------------------------------------------- public API
-    def set_bed(self, x: float, y: float, z: float, technology: str, plate: tuple | None = None):
+    def set_bed(self, x: float, y: float, z: float, technology: str, plate: tuple | None = None,
+                shape: str = "rect", inner: float = 0.0):
         self.bed = (float(x), float(y), float(z))
+        self.bed_shape = (shape, float(inner))
         self.plate = tuple(float(v) for v in plate) if plate else (0.0, 0.0, float(x), float(y))
         self.technology = technology
         self._bed_dirty = True
@@ -550,9 +566,21 @@ class Viewer(QOpenGLWidget):
             z = -0.02
             quad = np.array([[0, 0, z], [bx, 0, z], [bx, by, z], [0, 0, z], [bx, by, z], [0, by, z]], dtype=np.float32)
             self._bed_buf = _Buffer(quad, [3])
-            c = np.array([[x, y, zz] for x in (0, bx) for y in (0, by) for zz in (0, bz)], dtype=np.float32)
-            edges = [(0, 1), (2, 3), (4, 5), (6, 7), (1, 3), (3, 7), (7, 5), (5, 1)]
-            self._box_buf = _Buffer(np.array([c[i] for e in edges for i in e]), [3])
+            if getattr(self, "bed_shape", ("rect", 0.0))[0] in ("round", "ring"):
+                # build volume of a round tray: a cylinder outline (top circle and four uprights)
+                R, cx, cy = min(bx, by) / 2, bx / 2, by / 2
+                a = np.linspace(0, 2 * np.pi, 97)
+                top = np.column_stack([cx + R * np.cos(a), cy + R * np.sin(a), np.full_like(a, bz)])
+                segs = [p for i in range(96) for p in (top[i], top[i + 1])]
+                for k in range(4):
+                    t = k * np.pi / 2
+                    p = [cx + R * np.cos(t), cy + R * np.sin(t)]
+                    segs += [[*p, 0.0], [*p, bz]]
+                self._box_buf = _Buffer(np.array(segs, dtype=np.float32), [3])
+            else:
+                c = np.array([[x, y, zz] for x in (0, bx) for y in (0, by) for zz in (0, bz)], dtype=np.float32)
+                edges = [(0, 1), (2, 3), (4, 5), (6, 7), (1, 3), (3, 7), (7, 5), (5, 1)]
+                self._box_buf = _Buffer(np.array([c[i] for e in edges for i in e]), [3])
             self._bed_dirty = False
         for obj in self.objects.values():
             if obj["buffer"] is None:
@@ -805,6 +833,9 @@ class Viewer(QOpenGLWidget):
         accent = QColor(theme.ACCENT)
         GL.glUniform3f(self._u(self._bed_prog, "uAccent"), accent.redF(), accent.greenF(), accent.blueF())
         GL.glUniform1f(self._u(self._bed_prog, "uAlpha"), alpha)
+        shape, inner = getattr(self, "bed_shape", ("rect", 0.0))
+        GL.glUniform1i(self._u(self._bed_prog, "uShape"), {"round": 1, "ring": 2}.get(shape, 0))
+        GL.glUniform1f(self._u(self._bed_prog, "uInner"), inner / 2.0)
         GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)
         GL.glPolygonOffset(1.0, 1.0)
         if alpha < 1.0:

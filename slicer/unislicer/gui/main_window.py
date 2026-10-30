@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QCheckBox, QDoubleSpinBox,
 from .. import __version__, fdm, gcode, orient, primitives, profiles, project, sla, sla_supports
 from ..assistant import Assistant, hollow_saving_ml
 from ..mesh import SUPPORTED_EXTENSIONS, Mesh, load_mesh, save_stl
-from ..scene import SceneObject, out_of_bounds, plate_rect
+from ..scene import SceneObject, out_of_bounds, plate_area, plate_rect, plate_region
 from ..settings import SCHEMA_BY_KEY
 from ..slicing import MultiPolygon
 from . import i18n, theme
@@ -1097,7 +1097,7 @@ class MainWindow(QMainWindow):
         from .. import layout
         opts = self._layout_defaults()
         options = layout.LayoutOptions(**{k: opts[k] for k in ("strategy", "spacing", "margin", "rotation", "anchor", "sort")})
-        return not layout.auto_layout(self.objects, plate_rect(cfg), options)
+        return not layout.auto_layout(self.objects, plate_area(cfg), options)
 
     def arrange_objects(self):
         """Quick auto layout (A) with the options learned from earlier layouts."""
@@ -1113,7 +1113,7 @@ class MainWindow(QMainWindow):
         options = layout.LayoutOptions(**{k: opts[k] for k in ("strategy", "spacing", "margin", "rotation", "anchor", "sort")})
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            added = layout.fill_plate(self.objects, self.selected(), plate_rect(self.settings.config()), options)
+            added = layout.fill_plate(self.objects, self.selected(), plate_area(self.settings.config()), options)
         finally:
             QApplication.restoreOverrideCursor()
         self.objects += added
@@ -1152,7 +1152,7 @@ class MainWindow(QMainWindow):
         learned = opts.pop("learned", False)
         self._push_undo()
         cfg = self.settings.config()
-        plate = plate_rect(cfg)
+        plate = plate_area(cfg)
         options = layout.LayoutOptions(**{k: opts[k] for k in ("strategy", "spacing", "margin", "rotation", "scope",
                                                                "anchor", "sort")})
         QApplication.setOverrideCursor(Qt.WaitCursor)
@@ -1691,7 +1691,7 @@ class MainWindow(QMainWindow):
 
     def _objects_changed(self, refresh_list: bool = True):
         cfg = self.settings.config()
-        outside = {o.uid: o.name for o in out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg))}
+        outside = {o.uid: o.name for o in out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg), region=plate_region(cfg))}
         uids = {o.uid for o in self.objects}
         for uid in list(self.viewer.objects):
             if uid not in uids:
@@ -1717,6 +1717,8 @@ class MainWindow(QMainWindow):
                 self._unsupported_timer.start()
         if outside:
             self.status.setText(tr("out_of_bounds").format(", ".join(sorted(outside.values()))))
+        elif self.status.text().startswith(tr("out_of_bounds").split("{")[0]):
+            self.status.setText(tr("ready"))            # everything is back on the plate
 
     def _sync_transform(self):
         obj = self.selected()
@@ -2555,7 +2557,8 @@ class MainWindow(QMainWindow):
         tech = cfg["technology"]
         rect = plate_rect(cfg)
         old = getattr(self, "_plate", None)
-        self.viewer.set_bed(cfg["bed_x"], cfg["bed_y"], cfg["max_z"], tech, rect)
+        self.viewer.set_bed(cfg["bed_x"], cfg["bed_y"], cfg["max_z"], tech, rect,
+                            cfg["bed_shape"], cfg["bed_inner_diameter"])
         if old is not None and old != rect:
             # new printer or plate: bring the models along to the new plate and frame it
             dx = (rect[0] + rect[2] - old[0] - old[2]) / 2
@@ -2563,7 +2566,7 @@ class MainWindow(QMainWindow):
             for o in self.objects:
                 o.x += dx
                 o.y += dy
-            if out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=rect):
+            if out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=rect, region=plate_region(cfg)):
                 self._arrange(cfg)
             self.viewer.view_preset("iso")
         self._plate = rect
@@ -2580,6 +2583,7 @@ class MainWindow(QMainWindow):
         cfg = self.settings.config()
         b = self.viewer.bed
         if ((cfg["bed_x"], cfg["bed_y"], cfg["max_z"]) != b or cfg["technology"] != self.viewer.technology
+                or (cfg["bed_shape"], cfg["bed_inner_diameter"]) != getattr(self.viewer, "bed_shape", ("rect", 0.0))
                 or plate_rect(cfg) != getattr(self, "_plate", None)):
             self._apply_printer()
         else:
@@ -2630,7 +2634,7 @@ class MainWindow(QMainWindow):
             self.status.setText(tr("no_models"))
             return
         cfg = self.settings.config()
-        outside = out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg))
+        outside = out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg), region=plate_region(cfg))
         if outside:
             QMessageBox.warning(self, tr("slice"), tr("out_of_bounds").format(", ".join(o.name for o in outside)))
             return
@@ -3069,7 +3073,7 @@ class MainWindow(QMainWindow):
         self._collision_pairs = pairs
         if changed:
             cfg = self.settings.config()
-            outside = {o.uid for o in out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg))}
+            outside = {o.uid for o in out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg), region=plate_region(cfg))}
             for o in self.objects:
                 if o.role != "cutter" and o.uid not in outside:
                     self.viewer.set_object_state(o.uid, "collision" if o.uid in colliding else "normal")
