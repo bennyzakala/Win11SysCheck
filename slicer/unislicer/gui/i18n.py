@@ -277,6 +277,8 @@ STRINGS = {
                          "Ctrl+click adds/removes a model, Shift+click adds, Ctrl+A selects all. In the view: Shift/Ctrl + drag on empty space selects with a box"),
     "group_selected": ("{} מודלים נבחרו · {:.2f} סמ\"ק", "{} models selected · {:.2f} cm³"),
     "select_all": ("בחר הכול", "Select all"),
+    "panel_hide": ("מזער את הלוח (Ctrl+[ / Ctrl+])", "Collapse the panel (Ctrl+[ / Ctrl+])"),
+    "panel_show": ("הצג את הלוח", "Show the panel"),
     "collision_title": ("חשש להתנגשות", "Possible collision"),
     "collision_warning": ("חשש להתנגשות בין מודלים: {}", "Models touch or are too close: {}"),
     "collision_slice_q": ("מודלים שנוגעים זה בזה יודפסו מחוברים. לפרוס בכל זאת?", "Touching models will print fused together. Slice anyway?"),

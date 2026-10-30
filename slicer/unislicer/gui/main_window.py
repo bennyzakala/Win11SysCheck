@@ -124,9 +124,11 @@ class MainWindow(QMainWindow):
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
-        body.addWidget(self._build_left_panel())
+        self.left_panel = self._build_left_panel()
+        self.right_panel = self._build_right_panel()
+        body.addWidget(self.left_panel)
         body.addWidget(self._build_viewport(), 1)
-        body.addWidget(self._build_right_panel())
+        body.addWidget(self.right_panel)
         root.addLayout(body, 1)
         self.setCentralWidget(central)
         self.status = QLabel(tr("ready"))
@@ -141,6 +143,8 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(ver)
         self._install_shortcuts()
 
+        for side in ("left", "right"):
+            self.set_panel_visible(side, self.store.value(f"{side}_panel", "true") != "false", save=False)
         geo = self.store.value("geometry")
         if geo is not None:
             self.restoreGeometry(geo)
@@ -628,6 +632,25 @@ class MainWindow(QMainWindow):
         self.assistant_wrap = awrap
         awrap.hide()
 
+        # collapse / expand the side panels (state remembered)
+        self.left_toggle = QToolButton()
+        self.right_toggle = QToolButton()
+        for b, side in ((self.left_toggle, "left"), (self.right_toggle, "right")):
+            b.setObjectName("PanelToggle")
+            b.setFixedSize(16, 64)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setStyleSheet(f"QToolButton#PanelToggle {{ background: {theme.SURFACE_2}; border: 1px solid {theme.BORDER};"
+                            f" border-radius: 6px; padding: 0; }} QToolButton#PanelToggle:hover {{ background: {theme.ACCENT_SOFT};"
+                            f" border-color: {theme.ACCENT}; }}")
+            b.clicked.connect(lambda _=False, side=side: self.toggle_panel(side))
+        for b, align in ((self.left_toggle, Qt.AlignLeft), (self.right_toggle, Qt.AlignRight)):
+            holder_t = QWidget()
+            holder_t.setObjectName("Overlay")
+            hl = QVBoxLayout(holder_t)
+            hl.setContentsMargins(0, 0, 0, 120)          # low on the edge, clear of the tool palette
+            hl.addWidget(b)
+            grid.addWidget(holder_t, 0, 0, align | Qt.AlignBottom)
+
         # collision warning (top centre)
         self.collision_wrap = QWidget()
         self.collision_wrap.setObjectName("Overlay")
@@ -679,6 +702,13 @@ class MainWindow(QMainWindow):
             pass
         self.settings = SettingsPanel(s.value("printer", "creality_ender3v2"), s.value("material", None),
                                       s.value("quality", None), overrides, s.value("advanced", "false") == "true")
+        try:                                       # settings sections open / closed as last time
+            expanded = json.loads(s.value("expanded_sections", "{}"))
+            if isinstance(expanded, dict) and expanded:
+                self.settings._expanded.update({str(k): bool(v) for k, v in expanded.items()})
+                self.settings.rebuild()
+        except (TypeError, ValueError):
+            pass
         self._collision_timer = QTimer(self)
         self._collision_timer.setSingleShot(True)
         self._collision_timer.setInterval(250)
@@ -749,6 +779,8 @@ class MainWindow(QMainWindow):
                         (QKeySequence("A"), via_key("arrange", self.arrange_objects)),
                         (QKeySequence("Ctrl+D"), via_key("duplicate", self.duplicate_selected)),
                         (QKeySequence.SelectAll, self.select_all),
+                        (QKeySequence("Ctrl+["), lambda: self.toggle_panel("left")),
+                        (QKeySequence("Ctrl+]"), lambda: self.toggle_panel("right")),
                         (QKeySequence("Shift+A"), lambda: self.auto_layout()),
                         (QKeySequence("S"), lambda: self._set_pick_mode(None if self.viewer.pick_mode == "add" else "add")
                          if self.supports_card.isVisible() else None),
@@ -767,6 +799,22 @@ class MainWindow(QMainWindow):
             act.setShortcutContext(Qt.WindowShortcut)
             act.triggered.connect(fn)
             self.addAction(act)
+
+    def set_panel_visible(self, side: str, visible: bool, save: bool = True):
+        panel = self.left_panel if side == "left" else self.right_panel
+        panel.setVisible(visible)
+        button = self.left_toggle if side == "left" else self.right_toggle
+        # the leading panel is on the right in Hebrew (right-to-left) layout
+        physical_left = (side == "left") != (self.layoutDirection() == Qt.RightToLeft)
+        points_left = physical_left == visible            # arrow shows where the panel will go
+        button.setIcon(theme.icon("chevron_left" if points_left else "chevron", theme.TEXT_DIM, 14))
+        button.setToolTip(tr("panel_hide") if visible else tr("panel_show"))
+        if save:
+            self.store.setValue(f"{side}_panel", "true" if visible else "false")
+
+    def toggle_panel(self, side: str):
+        panel = self.left_panel if side == "left" else self.right_panel
+        self.set_panel_visible(side, not panel.isVisible())
 
     def _on_gl_failed(self, message: str):
         text = tr("gl_error").format(message)
@@ -886,10 +934,20 @@ class MainWindow(QMainWindow):
         self.status.setText(tr("fill_done").format(len(added)))
 
     def _layout_defaults(self) -> dict:
+        """Options for Auto layout and Quick layout: what was used last time (remembered between sessions),
+        on top of what the assistant learned."""
         cfg = self.settings.config()
         base = {"strategy": "contour", "spacing": cfg["arrange_spacing"], "margin": cfg["arrange_margin"],
                 "rotation": "none", "anchor": "center", "sort": "area"}
-        return self.assistant.learned_layout(base)
+        out = self.assistant.learned_layout(base)
+        try:
+            last = json.loads(self.store.value("layout_options", "{}"))
+        except (TypeError, ValueError):
+            last = {}
+        for k in base:
+            if k in last:
+                out[k] = last[k]
+        return out
 
     def auto_layout(self, scope: str | None = None, dialog: bool = True):
         """Auto layout with PreForm / CHITUBOX / Composer style options; the assistant learns the choices."""
@@ -923,6 +981,8 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
         if dialog:
             self.assistant.record_layout_choice(opts)
+            self.store.setValue("layout_options", json.dumps({k: opts[k] for k in ("strategy", "spacing", "margin",
+                                                                                   "rotation", "anchor", "sort")}))
         self._layout_pending = True            # the final arrangement at slicing time is a lesson
         self._refresh_objects(select=[o.uid for o in self.selected_objects()] or None)
         if failed:
@@ -2127,6 +2187,10 @@ class MainWindow(QMainWindow):
         s.setValue("quality", self.settings.quality_id or "")
         s.setValue("overrides", json.dumps(self.settings.overrides))
         s.setValue("advanced", "true" if self.settings.show_advanced else "false")
+        sections = {cat: sec.header.isChecked() for cat, sec in getattr(self.settings, "_sections", {}).items()}
+        if sections and not self.settings.filter_text:
+            s.setValue("expanded_sections", json.dumps({**self.settings._expanded, **sections}))
+        s.sync()
 
     # ================================================================ slicing
     def _invalidate(self):
