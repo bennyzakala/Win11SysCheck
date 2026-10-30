@@ -323,7 +323,7 @@ def _rafts(feet: list, cfg: Config, pad: float) -> list[Mesh]:
                 parent[a] = parent[parent[a]]
                 a = parent[a]
             return a
-        reach = max(6.0, 2 * margin + 2)
+        reach = max(cfg["sla_raft_group_reach"], 2 * margin + 2)
         for a in range(len(pts)):
             d = np.hypot(*(pts - pts[a]).T)
             for b in np.flatnonzero(d < reach):
@@ -340,19 +340,20 @@ def _rafts(feet: list, cfg: Config, pad: float) -> list[Mesh]:
         for k in range(len(ring)):
             a, b = ring[k], ring[(k + 1) % len(ring)]
             d = b - a
-            n = np.array([-d[1], d[0]]) / (np.hypot(*d) or 1) * 0.8
+            n = np.array([-d[1], d[0]]) / (np.hypot(*d) or 1) * max(cfg["sla_raft_bar_width"] * 0.66, 0.3)
             quad = ShapelyPolygon([tuple(a - n), tuple(b - n), tuple(b + n), tuple(a + n)]).convex_hull
             out.append(_slab(quad, 0.0, raft, 90))
         for q in pts:   # every foot stands on a pad, never over a gap of the grid
             out.append(_slab(ShapelyPolygon(MultiPoint([tuple(q)]).buffer(pad * 0.6 + 0.5, quad_segs=4).exterior.coords),
                              0.0, raft, 90))
         minx, miny, maxx, maxy = hull.bounds
-        for y in np.arange(miny + 2.5, maxy, 5.0):
-            bar = hull.intersection(ShapelyPolygon([(minx, y - 0.6), (maxx, y - 0.6), (maxx, y + 0.6), (minx, y + 0.6)]))
+        step, half = cfg["sla_raft_bar_spacing"], cfg["sla_raft_bar_width"] / 2
+        for y in np.arange(miny + step / 2, maxy, step):
+            bar = hull.intersection(ShapelyPolygon([(minx, y - half), (maxx, y - half), (maxx, y + half), (minx, y + half)]))
             if not bar.is_empty and bar.area > 0.5:
                 out.append(_slab(bar.convex_hull, 0.0, raft, 90))
-        for x in np.arange(minx + 2.5, maxx, 5.0):
-            bar = hull.intersection(ShapelyPolygon([(x - 0.6, miny), (x + 0.6, miny), (x + 0.6, maxy), (x - 0.6, maxy)]))
+        for x in np.arange(minx + step / 2, maxx, step):
+            bar = hull.intersection(ShapelyPolygon([(x - half, miny), (x + half, miny), (x + half, maxy), (x - half, maxy)]))
             if not bar.is_empty and bar.area > 0.5:
                 out.append(_slab(bar.convex_hull, 0.0, raft, 90))
         return out

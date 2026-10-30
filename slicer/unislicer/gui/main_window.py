@@ -406,7 +406,12 @@ class MainWindow(QMainWindow):
             b.setCursor(Qt.PointingHandCursor)
             row.addWidget(b, k // 2, k % 2)
         self.sup_manual_btn.setCursor(Qt.PointingHandCursor)
-        row.addWidget(self.sup_manual_btn, 2, 0, 1, 2)
+        row.addWidget(self.sup_manual_btn, 2, 0)
+        raft_btn = QPushButton(theme.icon("grid", theme.ACCENT, 16), tr("raft_menu"))
+        raft_btn.setToolTip(tr("raft_menu_tip"))
+        raft_btn.setCursor(Qt.PointingHandCursor)
+        raft_btn.clicked.connect(self.raft_menu)
+        row.addWidget(raft_btn, 2, 1)
         sl.addLayout(row)
         self.sup_info = QLabel(tr("sup_none"))
         self.sup_info.setObjectName("Faint")
@@ -1591,6 +1596,7 @@ class MainWindow(QMainWindow):
         sup_menu.addAction(theme.icon("plus"), tr("sup_add") + "\tS", lambda: self._set_pick_mode("add"))
         sup_menu.addAction(theme.icon("x"), tr("sup_remove") + "\tShift+S", lambda: self._set_pick_mode("remove"))
         sup_menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
+        sup_menu.addAction(theme.icon("grid"), tr("raft_menu") + "…", self.raft_menu)
         self.edit_sup_btn = button("pillar", tr("supports_card"), menu=sup_menu)
         button("trash", tr("delete"), self.delete_selected)
         button("more", tr("more"), lambda: self._show_context_menu(
@@ -1758,6 +1764,7 @@ class MainWindow(QMainWindow):
                 menu.addAction(theme.icon("plus"), tr("sup_add") + "\tS", lambda: self._set_pick_mode("add"))
                 menu.addAction(theme.icon("x"), tr("sup_remove") + "\tShift+S", lambda: self._set_pick_mode("remove"))
                 menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
+                menu.addAction(theme.icon("grid"), tr("raft_menu") + "…", self.raft_menu)
                 flat = menu.addAction(theme.icon("flat"), tr("direct_on_plate"))
                 flat.setToolTip(tr("direct_on_plate_tip"))
                 flat.setCheckable(True)
@@ -1941,6 +1948,53 @@ class MainWindow(QMainWindow):
                                              "threshold": learned["support_angle"]}
         self._objects_changed(refresh_list=False)
         self.status.setText(tr("sup_generated_hint"))
+
+    RAFT_KEYS = ("sla_raft_type", "sla_raft_thickness", "sla_raft_margin", "sla_raft_area_ratio", "sla_raft_slope",
+                 "sla_raft_bar_spacing", "sla_raft_bar_width", "sla_raft_group_reach", "sla_elevation")
+
+    def raft_menu(self):
+        """Raft controls in one small window; every change shows on the supports right away."""
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox
+        from .settings_panel import SettingRow
+        dlg = getattr(self, "_raft_dialog", None)
+        if dlg is not None:
+            dlg.close()
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("raft_menu"))
+        dlg.setMinimumWidth(420)
+        lay = QVBoxLayout(dlg)
+        note = QLabel(tr("raft_menu_note"))
+        note.setObjectName("Faint")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        rows = {}
+
+        def fill():
+            cfg = self.settings.config()
+            kind = cfg["sla_raft_type"]
+            for key, row in rows.items():
+                row.setVisible(not ((key in ("sla_raft_bar_spacing", "sla_raft_bar_width") and kind != "grid")
+                                    or (key == "sla_raft_group_reach" and kind != "mini")
+                                    or (key not in ("sla_raft_type", "sla_elevation") and kind == "none")))
+
+        def changed(key, value):
+            self._ensure_supports_enabled()
+            self.settings.set_value(key, value)
+            fill()
+            self._objects_changed(refresh_list=False)
+        cfg = self.settings.config()
+        for key in self.RAFT_KEYS:
+            row = SettingRow(SCHEMA_BY_KEY[key], cfg[key], key in self.settings.overrides, cfg)
+            row.changed.connect(changed)
+            row.reset.connect(lambda k: (self.settings.set_value(k, self.settings.base_config()[k]), dlg.close(), self.raft_menu()))
+            lay.addWidget(row)
+            rows[key] = row
+        fill()
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dlg.close)
+        lay.addWidget(buttons)
+        self._raft_dialog = dlg
+        dlg.show()
 
     def manual_supports(self):
         """Start the selected models (or all) with no supports, then place each one by clicking."""
