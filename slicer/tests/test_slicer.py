@@ -1267,3 +1267,44 @@ def test_creality_lan_mode_and_network_scan(tmp_path, monkeypatch):
     assert _guess_profile(found[0]) == "creality_sparkx_i7"
     http.shutdown()
     ws_srv.close()
+
+
+def test_view_cube_hover_between_faces_and_arrows():
+    """Moving the mouse from a cube face onto an arrow (and back) compared a face direction with an
+    arrow name and failed; every hover change must work."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QApplication
+    from unislicer.gui.viewcube import ViewCube
+    app = QApplication.instance() or QApplication([])
+
+    class Cam:
+        yaw, pitch = -62.0, 30.0
+
+        def view(self):
+            import math
+            y, p = math.radians(self.yaw), math.radians(self.pitch)
+            fwd = np.array([math.cos(p) * math.cos(y), math.cos(p) * math.sin(y), math.sin(p)])
+            z = fwd / np.linalg.norm(fwd)
+            x = np.cross([0, 0, 1], z)
+            x /= np.linalg.norm(x)
+            m = np.eye(4)
+            m[:3, :3] = np.array([x, np.cross(z, x), z])
+            return m
+
+    class V:
+        camera = Cam()
+
+        def update(self):
+            pass
+    cube = ViewCube(V())
+    c = ViewCube.SIZE / 2
+    face = QPointF(c, c)                                 # the cube's front face (a direction)
+    arrow = QPointF(12, c)                               # the left arrow (a name)
+    for pos in (face, arrow, face, arrow, QPointF(1, 1), face):
+        cube.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, pos, pos, Qt.NoButton, Qt.NoButton, Qt.NoModifier))
+        cube.repaint()
+    assert ViewCube._same_target("left", "left") and not ViewCube._same_target("left", np.array([1.0, 0, 0]))
+    assert not ViewCube._same_target(np.array([1.0, 0, 0]), "left") and ViewCube._same_target(None, None)

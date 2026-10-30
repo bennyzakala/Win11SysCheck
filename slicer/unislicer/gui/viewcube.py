@@ -200,6 +200,15 @@ class ViewCube(QWidget):
             p.setFont(f)
             p.drawText(QRectF(q.x() + v[0] * 5 - 5, q.y() - v[1] * 5 - 5, 10, 10), Qt.AlignCenter, label)
 
+    @staticmethod
+    def _same_target(a, b) -> bool:
+        """Hover targets are None, an arrow name (str) or a direction (vector): compare like with like."""
+        if a is None or b is None:
+            return a is None and b is None
+        if isinstance(a, str) or isinstance(b, str):
+            return isinstance(a, str) and isinstance(b, str) and a == b
+        return bool(np.allclose(a, b))
+
     def _is_hover(self, normal) -> bool:
         return self._hover is not None and not isinstance(self._hover, str) and np.allclose(self._hover, normal)
 
@@ -218,9 +227,7 @@ class ViewCube(QWidget):
                 self.update()
             return
         hit = self._arrow_at(e.position()) or self._hit(e.position())
-        same = (hit is None and self._hover is None) or (isinstance(hit, str) and hit == self._hover) or (
-            hit is not None and not isinstance(hit, str) and self._is_hover(hit))
-        if not same:
+        if not self._same_target(hit, self._hover):
             self._hover = hit
             self.update()
 

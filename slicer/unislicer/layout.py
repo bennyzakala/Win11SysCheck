@@ -164,7 +164,8 @@ def auto_layout(objects: list[SceneObject], plate, opt: LayoutOptions,
         movable = [o for o in parts if not p.contains(footprint(o))]
     else:
         movable = parts
-    fixed = [o for o in parts if o not in movable]
+    moving = {id(o) for o in movable}          # by identity: copies of one part have equal values
+    fixed = [o for o in parts if id(o) not in moving]
     if not movable:
         return []
     if region is not None:                  # round plate / ring tray: true footprints inside the shape
