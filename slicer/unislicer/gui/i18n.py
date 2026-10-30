@@ -18,8 +18,8 @@ STRINGS = {
     "delete": ("מחק", "Delete"),
     "prepare": ("הכנה", "Prepare"),
     "preview": ("תצוגה מקדימה", "Preview"),
-    "language": ("English", "עברית"),
-    "language_tip": ("Switch to English", "החלף לעברית"),
+    "language": ("שפה", "Language"),
+    "language_tip": ("שפת התצוגה: עברית, English, Русский, العربية", "Display language: עברית, English, Русский, العربية"),
     "objects": ("מודלים", "Objects"),
     "no_objects": ("גרור לכאן קובצי STL, OBJ או 3MF\nאו לחץ על \"פתח מודל\"", "Drop STL, OBJ or 3MF files here\nor click \"Open model\""),
     "transform": ("מיקום וטרנספורמציה", "Transform"),
@@ -578,27 +578,75 @@ STRINGS = {
 }
 
 
+# Russian and Arabic: tables keyed by the English text (unislicer/gui/lang/<code>.json); anything not in a
+# table falls back to English, so a new string never shows up empty.
+LANGS = ("he", "en", "ru", "ar")
+NATIVE = {"he": "עברית", "en": "English", "ru": "Русский", "ar": "العربية"}
+RTL = ("he", "ar")
+_TABLES: dict = {}
+
+
+def _table(lang: str) -> dict:
+    if lang not in _TABLES:
+        import json
+        import os
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lang", f"{lang}.json")
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                _TABLES[lang] = json.load(fh)
+        except (OSError, ValueError):
+            _TABLES[lang] = {}
+    return _TABLES[lang]
+
+
 def set_language(lang: str) -> None:
     global LANG
-    LANG = "en" if lang == "en" else "he"
+    LANG = lang if lang in LANGS else "he"
+
+
+def is_rtl() -> bool:
+    return LANG in RTL
+
+
+def translate(en: str) -> str:
+    """An English text in the current language (Russian / Arabic tables; English otherwise)."""
+    if LANG in ("he", "en") or not en:
+        return en
+    return _table(LANG).get(en, en)
+
+
+def pick(he: str, en: str) -> str:
+    """The text for the current language from a (Hebrew, English) pair."""
+    if LANG == "he":
+        return he
+    return translate(en)
 
 
 def tr(key: str) -> str:
     he, en = STRINGS.get(key, (key, key))
-    return he if LANG == "he" else en
+    return pick(he, en)
 
 
 def label(setting) -> str:
-    return setting.he if LANG == "he" else setting.en
+    return pick(setting.he, setting.en)
 
 
 def tip(setting) -> str:
-    return (setting.tip_he if LANG == "he" else setting.tip_en) or ""
+    return pick(setting.tip_he or "", setting.tip_en or "") or ""
 
 
 def option_label(option) -> str:
-    return option[1] if LANG == "he" else option[2]
+    return pick(option[1], option[2])
 
 
 def category_label(cat) -> str:
-    return cat[1] if LANG == "he" else cat[2]
+    return pick(cat[1], cat[2])
+
+
+def diagnosis_text(d) -> dict:
+    """A crash diagnosis in the current language."""
+    t = d.text("he" if LANG == "he" else "en")
+    if LANG in ("ru", "ar"):
+        t = {"title": translate(t["title"]), "cause": translate(t["cause"]), "area": translate(t["area"]),
+             "fixes": [translate(f) for f in t["fixes"]]}
+    return t

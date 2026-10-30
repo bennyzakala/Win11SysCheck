@@ -23,7 +23,7 @@ KIND_LABEL = {
 
 def kind_label(kind: str) -> str:
     he, en = KIND_LABEL.get(kind, (kind, kind))
-    return he if i18n.LANG == "he" else en
+    return i18n.pick(he, en)
 
 
 def lang() -> str:

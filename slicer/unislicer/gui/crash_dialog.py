@@ -20,7 +20,7 @@ class CrashDialog(QDialog):
     def __init__(self, d: diagnose.Diagnosis, parent=None):
         super().__init__(parent)
         self.d = d
-        t = d.text(i18n.LANG)
+        t = i18n.diagnosis_text(d)
         self.setWindowTitle(tr("crash_title"))
         self.setMinimumWidth(560)
         lay = QVBoxLayout(self)
@@ -54,7 +54,7 @@ class CrashDialog(QDialog):
         more.setText(tr("crash_details"))
         more.setCheckable(True)
         lay.addWidget(more)
-        self.details = QPlainTextEdit(diagnose.report_text(d, i18n.LANG))
+        self.details = QPlainTextEdit(diagnose.report_text(d, 'he' if i18n.LANG == 'he' else 'en'))
         self.details.setReadOnly(True)
         self.details.setMinimumHeight(180)
         self.details.setVisible(False)
@@ -76,7 +76,7 @@ class CrashDialog(QDialog):
         lay.addLayout(row)
 
     def _copy(self):
-        QGuiApplication.clipboard().setText(diagnose.report_text(self.d, i18n.LANG))
+        QGuiApplication.clipboard().setText(diagnose.report_text(self.d, 'he' if i18n.LANG == 'he' else 'en'))
         self.sender().setText(tr("crash_copied"))
 
 

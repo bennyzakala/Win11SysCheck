@@ -88,7 +88,7 @@ class StatTile(QFrame):
 
 
 class MainWindow(QMainWindow):
-    languageSwitchRequested = Signal()
+    languageSwitchRequested = Signal(str)
     themeChangeRequested = Signal(str, str)     # theme name, logo file
 
     def __init__(self, objects: list[SceneObject] | None = None):
@@ -272,7 +272,14 @@ class MainWindow(QMainWindow):
             tm.addAction(theme.icon("x"), tr("theme_logo_clear"), lambda: self.themeChangeRequested.emit(theme.CURRENT, ""))
         look.setMenu(tm)
         look.setPopupMode(QToolButton.InstantPopup)
-        tool("globe", tr("language"), tr("language_tip"), self.languageSwitchRequested.emit)
+        lang_btn = tool("globe", i18n.NATIVE[i18n.LANG], tr("language_tip"), None)
+        lm = QMenu(self)
+        for code in i18n.LANGS:
+            act = lm.addAction(i18n.NATIVE[code], lambda c=code: self.languageSwitchRequested.emit(c))
+            act.setCheckable(True)
+            act.setChecked(code == i18n.LANG)
+        lang_btn.setMenu(lm)
+        lang_btn.setPopupMode(QToolButton.InstantPopup)
         return bar
 
     def _choose_logo(self):
@@ -3094,7 +3101,7 @@ class MainWindow(QMainWindow):
         out = []
         for e in recent_crashes()[:3]:
             try:
-                t = entry_diagnosis(e).text(i18n.LANG)
+                t = i18n.diagnosis_text(entry_diagnosis(e))
             except (TypeError, ValueError, IndexError):
                 continue
             out.append({"signature": e["signature"], "area": t["area"] or "-", "title": t["title"],

@@ -64,7 +64,7 @@ class ShadeDialog(QDialog):
                 b.setIconSize(QSize(28, 28))
                 b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
                 b.setMinimumWidth(62)
-                b.setToolTip(s.he if i18n.LANG == "he" else s.en)
+                b.setToolTip(i18n.pick(s.he, s.en))
                 b.clicked.connect(lambda _=False, code=s.code: self._apply(code))
                 grid.addWidget(b, r, c + 1)
         note = QLabel(tr("shade_teeth_note"))
@@ -171,7 +171,7 @@ class ShadeDialog(QDialog):
         level = self.trans.currentData() or 2
         for k, (name, he, _rgb) in enumerate(ds.GINGIVA_BASE):
             code = ds.gingiva_code(name, level)
-            b = QPushButton(swatch(ds.display_rgb(code), 22), he if i18n.LANG == "he" else name)
+            b = QPushButton(swatch(ds.display_rgb(code), 22), i18n.pick(he, name))
             b.setIconSize(QSize(22, 22))
             b.setToolTip(code)
             b.clicked.connect(lambda _=False, c=code: self._apply(c))

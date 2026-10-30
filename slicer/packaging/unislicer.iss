@@ -33,11 +33,20 @@ RestartApplications=no
 [Languages]
 Name: "hebrew"; MessagesFile: "compiler:Languages\Hebrew.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
+#if FileExists(AddBackslash(CompilerPath) + "Languages\Arabic.isl")
+Name: "arabic"; MessagesFile: "compiler:Languages\Arabic.isl"
+#define HaveArabic
+#endif
 
 [Registry]
 ; the language picked in the installer becomes the app's language (QSettings "UniSlicer/UniSlicer")
 Root: HKCU; Subkey: "Software\UniSlicer\UniSlicer"; ValueType: string; ValueName: "language"; ValueData: "he"; Languages: hebrew
 Root: HKCU; Subkey: "Software\UniSlicer\UniSlicer"; ValueType: string; ValueName: "language"; ValueData: "en"; Languages: english
+Root: HKCU; Subkey: "Software\UniSlicer\UniSlicer"; ValueType: string; ValueName: "language"; ValueData: "ru"; Languages: russian
+#ifdef HaveArabic
+Root: HKCU; Subkey: "Software\UniSlicer\UniSlicer"; ValueType: string; ValueName: "language"; ValueData: "ar"; Languages: arabic
+#endif
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"

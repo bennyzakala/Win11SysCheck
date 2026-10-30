@@ -46,7 +46,8 @@ def for_technology(kind: str, technology: str, process: str | None = None) -> di
 
 
 def display_name(profile: dict, lang: str = "en") -> str:
-    return profile.get(f"name_{lang}") or profile.get("name") or "?"
+    return (profile.get(f"name_{lang}") or profile.get("name") or profile.get("name_en")
+            or profile.get("name_he") or "?")
 
 
 def _user_path(kind: str) -> str:

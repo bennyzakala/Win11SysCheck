@@ -22,9 +22,10 @@ SMOKE = bool(os.environ.get("UNISLICER_SMOKE_TEST"))
 
 
 def default_language() -> str:
-    """Hebrew when the system is set to Hebrew, otherwise English (the installer stores an explicit choice)."""
+    """The system language when UniSlicer has it (Hebrew, Russian, Arabic), otherwise English; the installer
+    stores an explicit choice."""
     from PySide6.QtCore import QLocale
-    return "he" if QLocale.system().language() == QLocale.Hebrew else "en"
+    return {QLocale.Hebrew: "he", QLocale.Russian: "ru", QLocale.Arabic: "ar"}.get(QLocale.system().language(), "en")
 
 
 def _relaunch_with_software_opengl() -> int:
@@ -97,10 +98,10 @@ def run(paths: list[str] | None = None) -> int:
 
     def open_window(objects=None):
         i18n.set_language(store.value("language", default_language()))
-        app.setLayoutDirection(Qt.RightToLeft if i18n.LANG == "he" else Qt.LeftToRight)
+        app.setLayoutDirection(Qt.RightToLeft if i18n.is_rtl() else Qt.LeftToRight)
         _trace("creating main window")
         win = MainWindow(objects)
-        win.languageSwitchRequested.connect(lambda: switch_language(win))
+        win.languageSwitchRequested.connect(lambda code: switch_language(win, code))
         win.themeChangeRequested.connect(lambda name, logo: switch_theme(win, name, logo))
         win.viewer.glFailed.connect(on_gl_failed)
         state["window"] = win
@@ -121,8 +122,10 @@ def run(paths: list[str] | None = None) -> int:
         win.close()
         open_window(objects)
 
-    def switch_language(win):
-        store.setValue("language", "en" if i18n.LANG == "he" else "he")
+    def switch_language(win, code):
+        if code == i18n.LANG:
+            return
+        store.setValue("language", code)
         objects = win.objects
         win.close()
         open_window(objects)

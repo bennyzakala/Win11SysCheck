@@ -1311,3 +1311,28 @@ def test_view_cube_hover_between_faces_and_arrows():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout + r.stderr
+
+def test_russian_and_arabic_cover_the_interface():
+    """Every interface string, setting, option and category has a Russian and an Arabic text with the same
+    {} placeholders (a missing one would silently show English)."""
+    import re
+    from unislicer.gui import i18n
+    from unislicer import settings as st
+    texts = [en for _he, en in i18n.STRINGS.values()]
+    for s in st.SCHEMA:
+        texts += [s.en] + ([s.tip_en] if s.tip_en else []) + [o[2] for o in s.options]
+    texts += [c[2] for c in st.CATEGORIES]
+    ph = re.compile(r"\{[^}]*\}")
+    for lang in ("ru", "ar"):
+        table = i18n._table(lang)
+        missing = [t for t in texts if t and re.search("[A-Za-z]", t) and t not in table]
+        assert not missing, (lang, missing[:5])
+        assert all(ph.findall(k) == ph.findall(v) for k, v in table.items())
+    try:
+        i18n.set_language("ru")
+        assert i18n.tr("slice") == "Нарезать" and not i18n.is_rtl()
+        i18n.set_language("ar")
+        assert i18n.tr("slice") == "تقطيع" and i18n.is_rtl()
+        assert i18n.translate("no such text") == "no such text"
+    finally:
+        i18n.set_language("he")
