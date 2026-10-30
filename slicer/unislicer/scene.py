@@ -169,6 +169,16 @@ def plate_region(cfg):
     inner = float(cfg.get("bed_inner_diameter", 0) or 0) / 2
     if shape == "ring" and 0 < inner < r:
         disk = disk.difference(Point(bx / 2, by / 2).buffer(inner, quad_segs=64))
+    width = float(cfg.get("bed_dead_sector", 0) or 0)
+    if 0 < width < 360:                     # a wedge where parts may not go (e.g. the J5 tray)
+        import math
+        from shapely.geometry import Polygon
+        start = math.radians(float(cfg.get("bed_dead_sector_start", 0) or 0))
+        steps = max(2, int(width / 3))
+        pts = [(bx / 2, by / 2)] + [(bx / 2 + (r + 2) * 1.05 * math.cos(start + math.radians(width) * k / steps),
+                                     by / 2 + (r + 2) * 1.05 * math.sin(start + math.radians(width) * k / steps))
+                                    for k in range(steps + 1)]
+        disk = disk.difference(Polygon(pts))
     return disk
 
 

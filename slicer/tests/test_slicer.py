@@ -1054,3 +1054,9 @@ def test_ring_tray_layout_and_bounds():
     failed = layout.auto_layout(parts, plate_area(cfg), layout.LayoutOptions(spacing=4))
     assert failed == [] and out_of_bounds(parts, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], plate_rect(cfg), region) == []
     assert plate_region(profiles.build_config("elegoo_mars3", None, "sla_fast", {})) is None
+    # the no-placement wedge: a part dropped into it is outside, and layout keeps clear of it
+    import math
+    a = math.radians(cfg["bed_dead_sector_start"] + cfg["bed_dead_sector"] / 2)
+    rmid = (cfg["bed_x"] / 2 + cfg["bed_inner_diameter"] / 2) / 2
+    wedge = placed(primitives.box(20, 20, 10), cfg["bed_x"] / 2 + rmid * math.cos(a), cfg["bed_y"] / 2 + rmid * math.sin(a))
+    assert out_of_bounds([wedge], cfg["bed_x"], cfg["bed_y"], cfg["max_z"], plate_rect(cfg), region) == [wedge]

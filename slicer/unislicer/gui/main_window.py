@@ -2558,7 +2558,8 @@ class MainWindow(QMainWindow):
         rect = plate_rect(cfg)
         old = getattr(self, "_plate", None)
         self.viewer.set_bed(cfg["bed_x"], cfg["bed_y"], cfg["max_z"], tech, rect,
-                            cfg["bed_shape"], cfg["bed_inner_diameter"])
+                            cfg["bed_shape"], cfg["bed_inner_diameter"],
+                            (cfg["bed_dead_sector_start"], cfg["bed_dead_sector"]))
         if old is not None and old != rect:
             # new printer or plate: bring the models along to the new plate and frame it
             dx = (rect[0] + rect[2] - old[0] - old[2]) / 2
@@ -2584,6 +2585,7 @@ class MainWindow(QMainWindow):
         b = self.viewer.bed
         if ((cfg["bed_x"], cfg["bed_y"], cfg["max_z"]) != b or cfg["technology"] != self.viewer.technology
                 or (cfg["bed_shape"], cfg["bed_inner_diameter"]) != getattr(self.viewer, "bed_shape", ("rect", 0.0))
+                or (cfg["bed_dead_sector_start"], cfg["bed_dead_sector"]) != getattr(self.viewer, "bed_sector", (0.0, 0.0))
                 or plate_rect(cfg) != getattr(self, "_plate", None)):
             self._apply_printer()
         else:

@@ -56,6 +56,7 @@ void main(){ vXY = aPos.xy; gl_Position = uMVP * vec4(aPos, 1.0); }"""
 BED_FS = """#version 330 core
 in vec2 vXY; out vec4 frag; uniform vec2 uBed; uniform vec3 uBase; uniform vec4 uPlate; uniform vec3 uGrid; uniform vec3 uAccent; uniform float uAlpha;
 uniform int uShape; uniform float uInner;   // 0 rectangle, 1 round, 2 ring (rotating tray)
+uniform vec2 uSector;                       // no-placement wedge: start, width (radians)
 float grid(vec2 p, float s, float w){ vec2 c = abs(fract(p / s - 0.5) - 0.5) * s / max(fwidth(p), vec2(1e-4)); return 1.0 - clamp(min(c.x, c.y) - w, 0.0, 1.0); }
 float ring(float d){ return 1.0 - smoothstep(0.0, max(fwidth(d) * 2.0, 0.4), abs(d)); }
 void main(){
@@ -63,11 +64,24 @@ void main(){
     float R = min(uBed.x, uBed.y) * 0.5; float r = length(vXY - uBed * 0.5);
     if (r > R + 0.5) discard;
     bool on = r <= R && (uShape == 1 || r >= uInner);
+    vec2 d = vXY - uBed * 0.5;
+    float a = mod(atan(d.y, d.x) - uSector.x, 6.2831853);
+    bool dead = uSector.y > 0.0 && a < uSector.y;
+    if (dead) on = false;
     vec3 c = on ? uBase : mix(uBase, uGrid, 0.45);
     c = mix(c, uGrid, grid(vXY, 10.0, 0.0) * (on ? 0.35 : 0.12));
     c = mix(c, uGrid, grid(vXY, 50.0, 0.4) * 0.6);
     c = mix(c, uAccent, ring(r - R));
     if (uShape == 2 && uInner > 0.0) c = mix(c, uAccent, ring(r - uInner));
+    if (dead && r <= R) c = mix(c, vec3(1.0), 0.55);          // the wedge: light, like GrabCAD Print
+    if (uSector.y > 0.0 && r <= R && r >= (uShape == 2 ? uInner : 0.0)) {
+      for (int k = 0; k < 2; k++) {                           // the wedge's two edges
+        float ang = uSector.x + (k == 0 ? 0.0 : uSector.y);
+        vec2 dir = vec2(cos(ang), sin(ang));
+        float side = d.x * dir.y - d.y * dir.x;
+        if (dot(d, dir) > 0.0) c = mix(c, uAccent, ring(side) * 0.9);
+      }
+    }
     frag = vec4(c, uAlpha);
     return;
   }
@@ -343,9 +357,10 @@ class Viewer(QOpenGLWidget):
 
     # ---------------------------------------------------------- public API
     def set_bed(self, x: float, y: float, z: float, technology: str, plate: tuple | None = None,
-                shape: str = "rect", inner: float = 0.0):
+                shape: str = "rect", inner: float = 0.0, sector: tuple = (0.0, 0.0)):
         self.bed = (float(x), float(y), float(z))
         self.bed_shape = (shape, float(inner))
+        self.bed_sector = (float(sector[0]), float(sector[1]))      # (start, width) in degrees
         self.plate = tuple(float(v) for v in plate) if plate else (0.0, 0.0, float(x), float(y))
         self.technology = technology
         self._bed_dirty = True
@@ -836,6 +851,8 @@ class Viewer(QOpenGLWidget):
         shape, inner = getattr(self, "bed_shape", ("rect", 0.0))
         GL.glUniform1i(self._u(self._bed_prog, "uShape"), {"round": 1, "ring": 2}.get(shape, 0))
         GL.glUniform1f(self._u(self._bed_prog, "uInner"), inner / 2.0)
+        start, width = getattr(self, "bed_sector", (0.0, 0.0))
+        GL.glUniform2f(self._u(self._bed_prog, "uSector"), np.radians(start), np.radians(width) if shape != "rect" else 0.0)
         GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)
         GL.glPolygonOffset(1.0, 1.0)
         if alpha < 1.0:
