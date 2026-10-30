@@ -314,6 +314,7 @@ _ICONS = {
     "chevron": '<path d="m9 6 6 6-6 6"/>',
     "chevron_left": '<path d="m15 6-6 6 6 6"/>',
     "chevron_down": '<path d="m6 9 6 6 6-6"/>',
+    "wifi": '<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.6 15.8a5 5 0 0 1 6.8 0"/><circle cx="12" cy="19" r="1.2"/>',
     "printer": '<path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/>',
     "square": '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="8" y="8" width="8" height="8" rx="1"/>',
     "grid": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',

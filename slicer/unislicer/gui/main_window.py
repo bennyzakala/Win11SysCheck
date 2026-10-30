@@ -231,6 +231,7 @@ class MainWindow(QMainWindow):
         mm.addAction(theme.icon("save"), tr("save_project"), lambda: self._act("save_project", "button", self.save_project))
         mm.addSeparator()
         mm.addAction(theme.icon("download"), tr("export_stl"), self.export_stl)
+        mm.addAction(theme.icon("wifi"), tr("net_title") + "…", self.network_printers)
         mm.addAction(theme.icon("copy"), tr("multiply"), self.multiply_selected)
         mm.addSeparator()
         mm.addAction(theme.icon("square"), tr("cut_height"), self.cut_selected)
@@ -829,8 +830,15 @@ class MainWindow(QMainWindow):
         self.export_btn.setCursor(Qt.PointingHandCursor)
         self.export_btn.setEnabled(False)
         self.export_btn.clicked.connect(lambda: self._act("export", "button", self.export))
+        self.send_btn = QPushButton(theme.icon("wifi", theme.TEXT, 18), "")
+        self.send_btn.setToolTip(tr("net_send_tip"))
+        self.send_btn.setIconSize(QSize(18, 18))
+        self.send_btn.setCursor(Qt.PointingHandCursor)
+        self.send_btn.setEnabled(False)
+        self.send_btn.clicked.connect(lambda: self._act("send", "button", self.send_to_printer))
         btns.addWidget(self.slice_btn, 1)
         btns.addWidget(self.export_btn, 1)
+        btns.addWidget(self.send_btn)
         al.addLayout(btns)
         lay.addWidget(action)
         return panel
@@ -2566,6 +2574,7 @@ class MainWindow(QMainWindow):
         had = self.result is not None
         self.result = None
         self.export_btn.setEnabled(False)
+        self.send_btn.setEnabled(False)
         self.viewer.set_toolpaths(None, 0.4)
         self.viewer.set_extra_meshes([])
         for tile in (self.stat_time, self.stat_material, self.stat_weight, self.stat_cost):
@@ -2673,11 +2682,12 @@ class MainWindow(QMainWindow):
         self.slice_btn.setText("  " + tr("cancel"))
         self.slice_btn.setIcon(theme.icon("x", "#ffffff", 18))
         self.export_btn.setEnabled(False)
+        self.send_btn.setEnabled(False)
         self.task.start()
 
     def _on_progress(self, stage, fraction):
         weights = {"slice": (0.0, 0.35), "support": (0.35, 0.45), "hollow": (0.35, 0.45), "paths": (0.45, 0.85), "gcode": (0.85, 0.95),
-                   "preview": (0.95, 1.0), "export": (0.0, 1.0)}
+                   "preview": (0.95, 1.0), "export": (0.0, 0.5), "upload": (0.5, 1.0)}
         lo, hi = weights.get(stage, (0.0, 1.0))
         self.progress.setValue(int((lo + (hi - lo) * fraction) * 1000))
         self.progress_label.setText(f"{tr('stage_' + stage)} · {int(fraction * 100)}%")
@@ -2688,6 +2698,7 @@ class MainWindow(QMainWindow):
         self.slice_btn.setText("  " + tr("slice"))
         self.slice_btn.setIcon(theme.icon("layers", "#ffffff", 18))
         self.export_btn.setEnabled(self.result is not None)
+        self.send_btn.setEnabled(self.result is not None)
 
     def _on_failed(self, message):
         if message:
@@ -2759,6 +2770,7 @@ class MainWindow(QMainWindow):
         self.layer_slider.setValue(n - 1)
         self.layer_slider.blockSignals(False)
         self.export_btn.setEnabled(True)
+        self.send_btn.setEnabled(True)
         self.status.setText(f"{tr('stat_layers')}: {n} · {tr('estimate_note')}")
         self.set_mode("preview", slice_if_needed=False)
         self._on_layer(n - 1)
@@ -3361,6 +3373,80 @@ class MainWindow(QMainWindow):
 
             self._start_task(work, done, tr("exporting"))
             self.result = result
+
+    # ================================================================ network printers
+    def network_printers(self):
+        from .network_dialog import NetworkDialog
+        NetworkDialog(self.settings.printer_id, self).exec()
+
+    def send_to_printer(self):
+        """Export the sliced plate to a temporary file and send it to a printer on the network (Wi-Fi/LAN)."""
+        import tempfile
+
+        from .. import network
+        from .network_dialog import NetworkDialog, SendDialog, lang
+        if self.result is None or (self.task is not None and self.task.isRunning()):
+            return
+        while True:
+            items = network.load_printers()
+            if not items:
+                if NetworkDialog(self.settings.printer_id, self).exec() != QDialog.Accepted:
+                    return
+                items = network.load_printers()
+                if not items:
+                    return
+            base = (self.objects[0].name if self.objects else "print") or "print"
+            if self.result[0] == "fdm":
+                ext = ".gcode"
+            else:
+                ext = {"sl1": ".sl1", "ctb": ".ctb", "goo": ".goo", "prz": ".prz", "slc": ".slc", "cli": ".cli",
+                       "3mf": ".3mf"}.get(self.result[2]["sla_format"], ".zip")
+            dlg = SendDialog(items, self.settings.printer_id, base + ext, True, self)
+            r = dlg.exec()
+            if r == 2:                                   # "Manage printers…"
+                NetworkDialog(self.settings.printer_id, self).exec()
+                continue
+            if r != QDialog.Accepted:
+                return
+            break
+        target, start = dlg.selected(), dlg.start.isChecked()
+        name = dlg.name.text().strip() or base + ext
+        if not name.lower().endswith(ext):
+            name += ext
+        result = self.result
+        folder = tempfile.mkdtemp(prefix="unislicer_send_")
+        path = os.path.join(folder, name)
+
+        def work(progress, cancelled):
+            try:
+                if result[0] == "fdm":
+                    with open(path, "w", encoding="utf-8") as fh:
+                        fh.write(result[2])
+                else:
+                    job, cfg = result[1], result[2]
+                    sla.export(job, cfg, path, os.path.splitext(name)[0], lambda f: progress("export", f), cancelled)
+                progress("upload", 0.0)
+                network.send(target, path, name, start, lambda f: progress("upload", f), cancelled)
+                return ("ok", name)
+            except network.NetworkError as e:
+                return ("err", network.explain(e, lang()))
+            finally:
+                import shutil
+                shutil.rmtree(folder, ignore_errors=True)
+
+        def done(r):
+            kind, text = r
+            if kind == "ok":
+                msg = tr("net_sent_started" if start else "net_sent").format(text, target.name)
+                self.status.setText(msg)
+                QMessageBox.information(self, tr("net_send"), msg)
+                self._ask_print_feedback()
+            else:
+                self.status.setText(tr("net_send_failed"))
+                QMessageBox.warning(self, tr("net_send_failed"), text)
+
+        self._start_task(work, done, tr("net_sending").format(target.name))
+        self.result = result
 
     # ================================================================ events
     def dragEnterEvent(self, e):

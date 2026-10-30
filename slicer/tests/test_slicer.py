@@ -774,3 +774,153 @@ def test_suction_cup_vents_fix_the_cup():
         roof = [v for v in job.cup_vents if v["kind"] == "roof"]
         assert roof and roof[0]["z_surface"] < roof[0]["z_cavity"]
         assert sla.prepare([m], up, holes=[np.vstack([sla.vent_hole_rows(v, up, lift) for v in job.cup_vents])]).cups == []
+
+
+def test_network_printers(tmp_path, monkeypatch):
+    """Send to printer over each protocol, against small local stand-ins for the printers."""
+    import base64, hashlib, json, socket, struct, threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from unislicer import network
+
+    got = {}
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _reply(self, code, obj):
+            raw = json.dumps(obj).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def do_GET(self):
+            if self.headers.get("X-Api-Key") == "bad":
+                return self._reply(401, {})
+            if self.path == "/api/version":
+                return self._reply(200, {"text": "OctoPrint 1.10", "server": "1.10"})
+            if self.path.startswith("/server/info"):
+                return self._reply(200, {"result": {"klippy_state": "ready", "moonraker_version": "v0.9"}})
+            if self.path.startswith("/printer/objects/query"):
+                return self._reply(200, {"result": {"status": {"print_stats": {"state": "printing", "filename": "a.gcode"},
+                                                               "display_status": {"progress": 0.5}}}})
+            self._reply(404, {})
+
+        def _body(self):
+            return self.rfile.read(int(self.headers["Content-Length"]))
+
+        def do_POST(self):
+            body = self._body()
+            got.setdefault(self.path, []).append((dict(self.headers), body))
+            if self.path == "/uploadFile/upload":
+                return self._reply(200, {"code": "000000", "messages": None, "data": {}, "success": True})
+            self._reply(201, {"done": True})
+
+        def do_PUT(self):
+            got.setdefault(self.path, []).append((dict(self.headers), self._body()))
+            self._reply(201, {})
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    data = bytes(range(256)) * 9000            # 2.3 MB: SDCP sends it in 1 MB packets
+    f = tmp_path / "part.goo"
+    f.write_bytes(data)
+
+    def body_file(raw):
+        if b"filename=" not in raw:
+            return raw
+        return raw.split(b"filename=", 1)[1].split(b"\r\n\r\n", 1)[1].rsplit(b"\r\n--", 1)[0]
+
+    seen = []
+    for kind in ("octoprint", "moonraker"):
+        p = network.NetPrinter("p", kind, "127.0.0.1", port)
+        assert network.test_connection(p)
+        network.send(p, str(f), start=True, progress=seen.append)
+        path = "/api/files/local" if kind == "octoprint" else "/server/files/upload"
+        raw = got[path][-1][1]
+        assert data in raw and b'name="print"\r\n\r\ntrue' in raw
+    assert seen and abs(seen[-1] - 1.0) < 1e-9
+    assert network.printer_status(network.NetPrinter("p", "moonraker", "127.0.0.1", port))["percent"] == 50.0
+    p = network.NetPrinter("p", "prusalink", "127.0.0.1", port, api_key="k", storage="local")
+    network.send(p, str(f), "my print.sl1", start=True)
+    headers, raw = got["/api/v1/files/local/my%20print.sl1"][-1]
+    assert raw == data and headers["Print-After-Upload"] == "?1" and headers["X-Api-Key"] == "k"
+    with pytest.raises(network.NetworkError) as e:
+        network.test_connection(network.NetPrinter("p", "octoprint", "127.0.0.1", port, api_key="bad"))
+    assert "API" in network.explain(e.value)
+    with pytest.raises(network.NetworkError):
+        network.test_connection(network.NetPrinter("p", "octoprint", "127.0.0.1", 1))
+
+    # SDCP: UDP discovery, chunked HTTP upload, start over WebSocket
+    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp.bind(("127.0.0.1", 0))
+    monkeypatch.setattr(network, "SDCP_UDP_PORT", udp.getsockname()[1])
+
+    def udp_serve():
+        msg, addr = udp.recvfrom(100)
+        if msg == b"M99999":
+            udp.sendto(json.dumps({"Id": "x", "Data": {"Attributes": {"Name": "Saturn", "MachineName": "ELEGOO Saturn 4 Ultra",
+                       "MainboardIP": "127.0.0.1", "MainboardID": "ABCD", "FirmwareVersion": "V1.2"}}}).encode(), addr)
+    threading.Thread(target=udp_serve, daemon=True).start()
+    hits = network.discover(1.0, ["127.0.0.1"])
+    assert hits and hits[0]["mainboard_id"] == "ABCD" and hits[0]["model"] == "ELEGOO Saturn 4 Ultra"
+
+    ws_srv = socket.socket()
+    ws_srv.bind(("127.0.0.1", 0))
+    ws_srv.listen(1)
+    commands = []
+
+    def ws_serve():
+        c, _ = ws_srv.accept()
+        req = b""
+        while b"\r\n\r\n" not in req:
+            req += c.recv(1024)
+        key = [l.split(b": ")[1] for l in req.split(b"\r\n") if l.lower().startswith(b"sec-websocket-key")][0]
+        acc = base64.b64encode(hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest())
+        c.sendall(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                  b"Sec-WebSocket-Accept: " + acc + b"\r\n\r\n")
+        b0, b1 = c.recv(2)
+        n = b1 & 0x7F
+        if n == 126:
+            n = struct.unpack(">H", c.recv(2))[0]
+        mask = c.recv(4)
+        payload = b""
+        while len(payload) < n:
+            payload += c.recv(n - len(payload))
+        msg = json.loads(bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
+        commands.append(msg)
+        out = json.dumps({"Id": "x", "Data": {"Cmd": msg["Data"]["Cmd"], "Data": {"Ack": 0},
+                          "RequestID": msg["Data"]["RequestID"], "MainboardID": "ABCD"},
+                          "Topic": "sdcp/response/ABCD"}).encode()
+        c.sendall(bytes([0x81, 126]) + struct.pack(">H", len(out)) + out)
+        c.close()
+    threading.Thread(target=ws_serve, daemon=True).start()
+
+    p = network.NetPrinter("s", "sdcp", "127.0.0.1", port, mainboard_id="ABCD")
+    # uploads go to the HTTP stand-in, the WebSocket to its own port
+    orig = network.WebSocket.__init__
+    monkeypatch.setattr(network.WebSocket, "__init__",
+                        lambda self, host, _port, path="/websocket", timeout=8.0: orig(self, host, ws_srv.getsockname()[1], path, timeout))
+    network.send(p, str(f), "part.goo", start=True)
+    parts = got["/uploadFile/upload"]
+    assert len(parts) == 3
+    joined = b"".join(body_file(raw) for _, raw in parts)
+    assert joined == data
+    assert b'name="Offset"\r\n\r\n1048576' in parts[1][1]
+    assert hashlib.md5(data).hexdigest().encode() in parts[0][1]
+    assert commands[0]["Data"]["Cmd"] == 128 and commands[0]["Data"]["Data"]["Filename"] == "part.goo"
+    assert commands[0]["Topic"] == "sdcp/request/ABCD"
+
+    # shared folder + saved list
+    dest = tmp_path / "share"
+    dest.mkdir()
+    fp = network.NetPrinter("share", "folder", str(dest))
+    network.send(fp, str(f), "copy.goo")
+    assert (dest / "copy.goo").read_bytes() == data
+    network.save_printers([p, fp], str(tmp_path))
+    assert [x.kind for x in network.load_printers(str(tmp_path))] == ["sdcp", "folder"]
+    srv.shutdown()
