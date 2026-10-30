@@ -1020,14 +1020,47 @@ class MainWindow(QMainWindow):
             try:
                 meshes = load_mesh(path)
             except Exception as exc:
-                QMessageBox.warning(self, tr("load_error"), f"{os.path.basename(path)}\n\n{exc}")
-                continue
+                meshes = self._rescue_model(path, exc)     # the assistant tries to recover the file
+                if not meshes:
+                    continue
             for m in meshes:
                 added = self.add_mesh(m, rearrange=False)
                 self.status.setText(tr("loaded").format(m.name, len(m.faces)))
         if added is not None:
             self.arrange_objects()
             self.viewer.fit_objects()
+
+    def _rescue_model(self, path: str, error: Exception) -> list:
+        """A model that did not load: recover it without losing quality, and learn what worked."""
+        from .. import model_rescue
+        name = os.path.basename(path)
+        data_sig = None
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            try:
+                with open(path, "rb") as fh:
+                    data_sig = model_rescue.signature(path, fh.read(), error)
+            except OSError:
+                pass
+            hint = self.assistant.rescue_order(data_sig) if data_sig else []
+            result = model_rescue.rescue(path, error, hint)
+        except model_rescue.RescueFailed as fail:
+            QApplication.restoreOverrideCursor()
+            self.assistant.learn_rescue(getattr(fail, "signature", data_sig or ""), None)
+            QMessageBox.warning(self, tr("load_error"), tr("rs_failed").format(name) + "\n\n" +
+                                tr("rs_why_" + (fail.reason if fail.reason in model_rescue.REASONS else "unknown")) +
+                                (f"\n\n({fail.detail})" if fail.detail else "") + f"\n\n{type(error).__name__}: {error}")
+            return []
+        finally:
+            if QApplication.overrideCursor() is not None:
+                QApplication.restoreOverrideCursor()
+        self.assistant.learn_rescue(result.signature, result.strategy)
+        lines = [f"• {tr(k).format(*a)}" for k, a in result.notes] or [f"• {tr('rs_generic')}"]
+        quality = tr("rs_quality").format(result.kept, result.dropped)
+        text = tr("rs_done").format(name) + "\n\n" + "\n".join(lines) + "\n\n" + quality
+        self.status.setText(tr("rs_status").format(name))
+        QMessageBox.information(self, tr("rs_title"), text)
+        return result.meshes
 
     def add_mesh(self, mesh, rearrange: bool = True):
         self._push_undo()

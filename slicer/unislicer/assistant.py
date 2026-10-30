@@ -53,6 +53,7 @@ def _default_data() -> dict:
         "prints": {"success": 0, "fail_supports": 0, "fail_suction": 0, "fail_adhesion": 0, "fail_other": 0},
         "dismissed": [],
         "layout": {"choices": {}, "gap": None, "edge": None, "offcentre": None, "samples": 0, "runs": 0},
+        "rescue": {"by_sig": {}, "rescued": 0, "failed": 0},
     }
 
 
@@ -336,6 +337,34 @@ class Assistant:
         order = {"problem": 0, "improve": 1, "habit": 2, "tip": 3, "learned": 4}
         return sorted((s for s in out if s.id not in dismissed), key=lambda s: order.get(s.kind, 9))
 
+    # ----------------------------------------------------------- model rescue
+    def rescue_order(self, sig: str) -> list[str]:
+        """Recovery strategies that worked before for this kind of file, best first.
+
+        The signature is "extension|real content|error|exporting program": an exact match counts most,
+        then files of the same extension and content, then the same extension."""
+        table = self.data["rescue"].get("by_sig", {})
+        parts = sig.split("|")
+        score: dict[str, float] = {}
+        for other, wins in table.items():
+            op = other.split("|")
+            w = 4.0 if other == sig else 2.0 if op[:2] == parts[:2] else 1.0 if op[:1] == parts[:1] else 0.0
+            if parts[3:] and op[3:] == parts[3:] and parts[3] != "-":
+                w += 1.0                          # same exporting program
+            for strat, n in wins.items():
+                score[strat] = score.get(strat, 0.0) + w * n
+        return [k for k, v in sorted(score.items(), key=lambda kv: -kv[1]) if v > 0]
+
+    def learn_rescue(self, sig: str, strategy: str | None) -> None:
+        r = self.data["rescue"]
+        if strategy:
+            entry = r.setdefault("by_sig", {}).setdefault(sig, {})
+            entry[strategy] = entry.get(strategy, 0) + 1
+            r["rescued"] = r.get("rescued", 0) + 1
+        else:
+            r["failed"] = r.get("failed", 0) + 1
+        self.save()
+
     # --------------------------------------------------------------- stats
     def summary(self) -> dict:
         o = self.data["orient"]
@@ -349,6 +378,7 @@ class Assistant:
             "prints": dict(self.data["prints"]),
             "layout_samples": int(self.data["layout"].get("samples", 0)),
             "layout_runs": int(self.data["layout"].get("runs", 0)),
+            "models_rescued": int(self.data.get("rescue", {}).get("rescued", 0)),
         }
 
 

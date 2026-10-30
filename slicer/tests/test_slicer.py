@@ -1,3 +1,4 @@
+import io
 import re
 import zipfile
 
@@ -924,3 +925,118 @@ def test_network_printers(tmp_path, monkeypatch):
     network.save_printers([p, fp], str(tmp_path))
     assert [x.kind for x in network.load_printers(str(tmp_path))] == ["sdcp", "folder"]
     srv.shutdown()
+
+
+def test_model_rescue_recovers_broken_files_without_quality_loss(tmp_path):
+    import gzip, struct, zipfile
+    from unislicer import model_rescue
+    from unislicer.assistant import Assistant
+    from unislicer.mesh import load_mesh
+
+    ref = primitives.sphere(10, 24, 48)               # closed, curved: easy to see any loss
+    tris = ref.triangles
+
+    def same_surface(m):
+        # every original triangle is present at full precision (order-independent)
+        a = np.sort(np.round(tris.reshape(-1, 3), 9), axis=0)
+        b = np.sort(np.round(m.triangles.reshape(-1, 3), 9), axis=0)
+        return a.shape == b.shape and np.allclose(a, b, atol=1e-6)
+
+    def binary_stl(t, count=None):
+        rec = np.zeros(len(t), dtype=[("n", "<f4", 3), ("v", "<f4", (3, 3)), ("attr", "<u2")])
+        rec["v"] = t
+        return b"x" * 80 + struct.pack("<I", len(t) if count is None else count) + rec.tobytes()
+
+    def check(name, data, expect_note=None, exact=True):
+        p = tmp_path / name
+        p.write_bytes(data)
+        try:
+            load_mesh(str(p))
+            ok_before = True
+        except Exception:
+            ok_before = False
+        r = model_rescue.rescue(str(p))
+        assert r.meshes and r.kept > 0
+        if expect_note:
+            assert expect_note in [k for k, _ in r.notes], (name, r.notes)
+        if exact:
+            assert same_surface(r.meshes[0]), name
+        return r, ok_before
+
+    t32 = tris.astype(np.float32).astype(np.float64)
+    tris_saved = tris
+    tris = t32                                     # binary STL stores float32
+    r, before = check("count.stl", binary_stl(tris, count=7), "rs_stl_count")
+    assert not before
+    r, _ = check("cut.stl", binary_stl(tris)[:-20], "rs_stl_cut", exact=False)
+    assert r.kept >= len(tris) - 1
+    tris = tris_saved
+
+    lines = ["solid x"]
+    for t in tris:
+        lines += ["facet normal 0 0 0", "outer loop"] + \
+                 [("vertex " + " ".join(f"{c:.9f}" for c in v)).replace(".", ",") for v in t] + ["endloop", "endfacet"]
+    lines += ["facet normal 0 0 0", "outer loop", "vertex 1,0 2,0 3,0"]          # unfinished
+    r, before = check("comma.stl", "\n".join(lines).encode(), "rs_decimal_comma")
+    assert not before and "rs_stl_unfinished" in [k for k, _ in r.notes]
+
+    v_lines = [f"v {x:.9f} {y:.9f} {z:.9f}" for x, y, z in ref.vertices]
+    f_lines = [f"f {a + 1} {b + 1} \\\n {c + 1}" for a, b, c in ref.faces] + ["f 1 2 99999"]
+    r, before = check("broken.obj", "\n".join(v_lines + f_lines).encode(), "rs_obj_bad_faces")
+    assert not before
+
+    # OBJ content saved with an .stl name
+    plain_obj = "\n".join(v_lines + [f"f {a + 1} {b + 1} {c + 1}" for a, b, c in ref.faces]).encode()
+    check("really_obj.stl", plain_obj, "rs_wrong_type")
+
+    # Bambu / Orca style 3MF: the mesh lives in another .model file (production extension)
+    core = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+    prod = "http://schemas.microsoft.com/3dmanufacturing/production/2015/06"
+    vx = "".join(f'<vertex x="{x:.9f}" y="{y:.9f}" z="{z:.9f}"/>' for x, y, z in ref.vertices)
+    tr_ = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in ref.faces)
+    obj_model = f'<model xmlns="{core}"><resources><object id="1" type="model"><mesh><vertices>{vx}</vertices><triangles>{tr_}</triangles></mesh></object></resources><build/></model>'
+    root_model = (f'<model xmlns="{core}" xmlns:p="{prod}"><resources><object id="2" type="model"><components>'
+                  f'<component p:path="/3D/Objects/object_1.model" objectid="1"/></components></object></resources>'
+                  f'<build><item objectid="2"/></build></model>')
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("3D/3dmodel.model", root_model)
+        z.writestr("3D/Objects/object_1.model", obj_model)
+    r, before = check("bambu.3mf", buf.getvalue(), "rs_3mf_parts")
+    assert not before
+
+    # archives, PLY, metres, NaN, empty
+    zbuf = io.BytesIO()
+    with zipfile.ZipFile(zbuf, "w") as z:
+        z.writestr("inner/part.obj", plain_obj)
+    check("models.zip", zbuf.getvalue())
+    check("part.stl", gzip.compress(plain_obj), "rs_archive")
+    ply = ("ply\nformat binary_little_endian 1.0\nelement vertex %d\nproperty double x\nproperty double y\n"
+           "property double z\nelement face %d\nproperty list uchar int vertex_indices\nend_header\n"
+           % (len(ref.vertices), len(ref.faces))).encode()
+    ply += ref.vertices.astype("<f8").tobytes()
+    ply += b"".join(struct.pack("<B3i", 3, *f) for f in ref.faces)
+    p = tmp_path / "scan.ply"
+    p.write_bytes(ply)
+    assert same_surface(load_mesh(str(p))[0])
+    metres = "\n".join([f"v {x / 1000:.12f} {y / 1000:.12f} {z / 1000:.12f}" for x, y, z in ref.vertices]
+                       + [f"f {a + 1} {b + 1} {c + 1} 999999" for a, b, c in ref.faces[:1]]
+                       + [f"f {a + 1} {b + 1} {c + 1}" for a, b, c in ref.faces[1:]]).encode()
+    r, _ = check("metres.obj", metres, "rs_units_m", exact=False)
+    assert abs(float(np.ptp(r.meshes[0].vertices[:, 0])) - float(np.ptp(ref.vertices[:, 0]))) < 1e-3
+    bad = tris.astype(np.float32).copy()
+    bad[0, 0, 0] = np.nan
+    r, _ = check("nan.stl", binary_stl(bad, count=3), "rs_nan", exact=False)
+    assert r.dropped == 1 and "rs_holes" in [k for k, _ in r.notes]      # the gap it leaves is closed
+    assert r.meshes[0].is_watertight()
+    (tmp_path / "empty.stl").write_bytes(b"")
+    with pytest.raises(model_rescue.RescueFailed) as e:
+        model_rescue.rescue(str(tmp_path / "empty.stl"))
+    assert e.value.reason == "empty"
+
+    # learning: the strategy that worked for a kind of file is tried first next time
+    a = Assistant(str(tmp_path / "learn"))
+    sig = model_rescue.signature("x.stl", plain_obj, ValueError("x"))
+    a.learn_rescue(sig, "sniff")
+    a.learn_rescue(sig, "sniff")
+    assert a.rescue_order(sig)[0] == "sniff" and a.summary()["models_rescued"] == 2

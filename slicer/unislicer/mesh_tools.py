@@ -146,7 +146,7 @@ def split_parts(mesh: Mesh) -> list[Mesh]:
 
 
 # ----------------------------------------------------------------- repair
-def repair(mesh: Mesh) -> tuple[Mesh, dict]:
+def repair(mesh: Mesh, fill_holes: bool = True) -> tuple[Mesh, dict]:
     """Remove duplicate/degenerate faces, make the winding consistent and outward, fill holes."""
     report = {"duplicates": 0, "flipped": 0, "holes_filled": 0}
     f = mesh.faces.copy()
@@ -198,6 +198,10 @@ def repair(mesh: Mesh) -> tuple[Mesh, dict]:
     report["flipped"] = int(flip.sum())
 
     # fill holes: boundary edges (used once) form loops; close each with a fan
+    if not fill_holes:
+        out = Mesh(v, f, mesh.name)
+        out.remove_degenerate()
+        return out, report
     count = {}
     for a, b, c in f:
         for u, w in ((a, b), (b, c), (c, a)):
@@ -368,7 +372,7 @@ def repair_advanced(mesh: Mesh, weld: float = 1e-4, remove_shells_below: float =
             m = Mesh.merge(keep_parts, mesh.name)
     report["shells_removed"] = shells_removed
     # winding, outward normals and simple hole filling from the basic repair
-    m, basic = repair(m) if not fill_holes else _repair_with_triangulated_holes(m)
+    m, basic = repair(m, fill_holes=False) if not fill_holes else _repair_with_triangulated_holes(m)
     report["flipped"] = basic["flipped"]
     report["holes_filled"] = basic["holes_filled"]
     report["after"] = analyze(m)

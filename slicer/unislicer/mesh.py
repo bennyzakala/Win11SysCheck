@@ -193,7 +193,7 @@ def euler_matrix(rx: float, ry: float, rz: float) -> np.ndarray:
 
 
 # ------------------------------------------------------------------ loading
-SUPPORTED_EXTENSIONS = (".stl", ".obj", ".3mf")
+SUPPORTED_EXTENSIONS = (".stl", ".obj", ".3mf", ".ply", ".amf", ".zip")
 
 
 def load_mesh(path: str) -> list[Mesh]:
@@ -206,6 +206,11 @@ def load_mesh(path: str) -> list[Mesh]:
         meshes = [_read_obj(path, name)]
     elif ext == ".3mf":
         meshes = _read_3mf(path, name)
+    elif ext in (".ply", ".amf", ".zip"):
+        from . import model_rescue
+        with open(path, "rb") as fh:
+            data = fh.read()
+        meshes = model_rescue._read_any(data, name, [])
     else:
         raise ValueError(f"Unsupported file type: {ext}")
     meshes = [m for m in meshes if len(m.faces)]
