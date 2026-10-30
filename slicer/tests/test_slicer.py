@@ -1336,3 +1336,29 @@ def test_russian_and_arabic_cover_the_interface():
         assert i18n.translate("no such text") == "no such text"
     finally:
         i18n.set_language("he")
+
+
+def test_auto_orient_twice_and_auto_prepare_twice():
+    """The auto-orient choice was stored under the method's own name, so a second auto-orient (e.g. a
+    second Auto prepare) called a tuple. Both must work any number of times."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow()
+        w.add_mesh(primitives.box(20, 10, 5))
+        w.add_mesh(primitives.demo_bridge())
+        for _ in range(3):
+            w.auto_orient_selected()
+            w.auto_prepare()
+        assert callable(w.objects[0].auto_orient)
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-2000:]

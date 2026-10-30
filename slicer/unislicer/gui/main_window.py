@@ -1278,7 +1278,7 @@ class MainWindow(QMainWindow):
                 self._drop_supports(o)
                 # remember the choice; if the user turns the model afterwards, that is a lesson
                 mesh = o.mesh.transform(o.matrix())
-                o.__dict__["auto_orient"] = (tech, o.matrix().tobytes(),
+                o.__dict__["_auto_orient_choice"] = (tech, o.matrix().tobytes(),
                                              orient.current_features(mesh, tech, cfg["support_angle"]))
         finally:
             QApplication.restoreOverrideCursor()
@@ -3052,7 +3052,7 @@ class MainWindow(QMainWindow):
         """Commit point (slicing): turn what the user changed after the automatic tools into lessons."""
         learned = False
         for o in self.objects:
-            state = o.__dict__.pop("auto_orient", None)
+            state = o.__dict__.pop("_auto_orient_choice", None)
             if state is not None:
                 tech, key, auto_features = state
                 if o.matrix().tobytes() != key and tech == cfg["technology"]:
