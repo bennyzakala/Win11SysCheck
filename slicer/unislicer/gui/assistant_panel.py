@@ -171,7 +171,7 @@ class AssistantPanel(QFrame):
         col = QVBoxLayout()
         col.setSpacing(4)
         if s.action:
-            apply = QPushButton(tr("apply"))
+            apply = QPushButton(tr("crash_open") if s.action == "show_crash" else tr("apply"))
             apply.setObjectName("Primary")
             apply.setStyleSheet("padding: 4px 10px; font-size: 12px;")
             apply.setCursor(Qt.PointingHandCursor)

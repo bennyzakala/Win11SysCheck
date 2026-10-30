@@ -68,6 +68,10 @@ def run(paths: list[str] | None = None) -> int:
         from PySide6.QtGui import QIcon
         app.setWindowIcon(QIcon(theme.brand_pixmap("mark", 64)))
     _trace(f"QApplication ready, platform={app.platformName()}")
+    from .crash_dialog import CrashReporter
+    reporter = CrashReporter(lambda: state["window"], app)
+    previous_crash = reporter.install()          # catches every error from here on and explains it
+    reporter.reported.connect(lambda d: state["window"] is not None and state["window"].on_crash_reported(d))
 
     state = {"window": None, "software_gl": False}
     can_fall_back = sys.platform == "win32" and not os.environ.get("UNISLICER_SOFTWARE_GL")
@@ -115,10 +119,13 @@ def run(paths: list[str] | None = None) -> int:
         win.load_files(paths)
     elif not SMOKE:
         QTimer.singleShot(400, win.offer_recovery)      # plate from autosave after a crash
+    if previous_crash is not None and not SMOKE:
+        reporter.show_previous(previous_crash)          # the last run closed suddenly: say why
     if SMOKE:
         QTimer.singleShot(0, lambda: _trace("event loop running"))
         QTimer.singleShot(4000, app.quit)  # used by the build pipeline to check the app starts
     code = app.exec()
+    reporter.uninstall()
     _trace(f"exited with {code}")
     if state["software_gl"]:
         state["window"].close()

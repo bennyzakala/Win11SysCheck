@@ -62,8 +62,14 @@ class _Canvas(QWidget):
         return path
 
     def paintEvent(self, _e):
-        ed = self.editor
         p = QPainter(self)
+        try:
+            self._paint(p)
+        finally:
+            p.end()             # an open painter after an error takes the whole app down
+
+    def _paint(self, p: QPainter):
+        ed = self.editor
         p.fillRect(self.rect(), QColor(0, 0, 0))
         p.setRenderHint(QPainter.Antialiasing, self.zoom < 6)
         p.fillPath(self._path(ed.current_geometry()), QBrush(QColor(235, 235, 235)))
@@ -92,7 +98,6 @@ class _Canvas(QWidget):
             p.setPen(QPen(QColor(theme.ACCENT), 1.5))
             p.setBrush(Qt.NoBrush)
             p.drawPath(self._path(shape))
-        p.end()
 
     def wheelEvent(self, e):
         before = self.to_mm(e.position())

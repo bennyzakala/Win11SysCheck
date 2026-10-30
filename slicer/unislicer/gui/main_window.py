@@ -17,7 +17,7 @@ from ..mesh import SUPPORTED_EXTENSIONS, Mesh, load_mesh, save_stl
 from ..scene import SceneObject, out_of_bounds, plate_rect
 from ..settings import SCHEMA_BY_KEY
 from ..slicing import MultiPolygon
-from . import theme
+from . import i18n, theme
 from .assistant_panel import AssistantPanel
 from .i18n import tr
 from .preview_data import toolpath_vertices
@@ -2891,8 +2891,35 @@ class MainWindow(QMainWindow):
             free = int(((x1 - x0) // sx) * ((y1 - y0) // sy)) - 1
         return {"technology": cfg["technology"], "cfg": cfg, "objects": objects, "job": job,
                 "overrides": dict(self.settings.overrides), "plate_free_copies": free,
-                "overlapping": self._overlapping_count(),
+                "overlapping": self._overlapping_count(), "crashes": self._crash_context(),
                 "dismissed_session": self._dismissed_session}
+
+    def _crash_context(self) -> list[dict]:
+        from .crash_dialog import entry_diagnosis, recent_crashes
+        out = []
+        for e in recent_crashes()[:3]:
+            try:
+                t = entry_diagnosis(e).text(i18n.LANG)
+            except (TypeError, ValueError, IndexError):
+                continue
+            out.append({"signature": e["signature"], "area": t["area"] or "-", "title": t["title"],
+                        "fix": t["fixes"][0] if t["fixes"] else ""})
+        return out
+
+    def on_crash_reported(self, _d):
+        """The crash agent diagnosed an error: save the plate and show the problem in the assistant."""
+        try:
+            self._autosave()
+        except Exception:
+            pass
+        QTimer.singleShot(0, self._schedule_suggestions)
+
+    def _show_crash(self, sig: str):
+        from .crash_dialog import CrashDialog, entry_diagnosis, recent_crashes
+        for e in recent_crashes():
+            if e["signature"] == sig:
+                CrashDialog(entry_diagnosis(e), self).exec()
+                return
 
     def _column_map(self, o: SceneObject):
         """Collision map of a part where it is drawn (cached per shape; moving only shifts it)."""
@@ -3031,6 +3058,9 @@ class MainWindow(QMainWindow):
                 self.multiply_selected()
         elif a == "save_default":
             self._save_as_default(args["key"], args["value"])
+        elif a == "show_crash":
+            self._show_crash(args["signature"])
+            return                              # keep it listed until dismissed
         self._dismissed_session.add(s.id)
         self._schedule_suggestions()
 

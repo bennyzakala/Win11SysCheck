@@ -717,3 +717,37 @@ def test_chitubox_zip_for_sonic_xl(tmp_path):
     assert ";resolutionX:3840" in gcode and 'M6054 "1.png"' in gcode
     for pid in ("phrozen_sonic_xl_4k", "phrozen_sonic_xl_4k_2022", "phrozen_sonic_xl_4k_plus"):
         assert pid in profiles.load("printers")
+
+
+def test_crash_diagnosis(tmp_path):
+    from unislicer import diagnose
+
+    def boom(exc):
+        try:
+            raise exc
+        except Exception as e:
+            return diagnose.diagnose(e)
+
+    d = boom(ValueError("The truth value of an array with more than one element is ambiguous."))
+    assert d.kind == "bug" and d.fixes and "test_slicer.py" in d.where
+    assert boom(MemoryError()).kind == "memory"
+    assert boom(PermissionError(13, "Access is denied")).kind == "file"
+    assert boom(OSError(28, "No space left on device")).kind == "disk"
+    assert boom(ZeroDivisionError("division by zero")).kind == "profile"
+    # same error at the same place -> same signature, counted in the log
+    log = diagnose.CrashLog(str(tmp_path))
+    a, b = log.record(boom(KeyError("x"))), None
+    b = log.record(boom(KeyError("x")))
+    assert a.signature == b.signature and b.repeat == 2
+    # hard crash left by a previous run, in the 3D view -> graphics driver advice
+    (tmp_path / diagnose.FAULT_NAME.format(1)).write_text(
+        'Windows fatal exception: access violation\n\nCurrent thread:\n'
+        '  File "C:\\\\UniSlicer\\\\unislicer\\\\gui\\\\viewer.py", line 580 in paintGL\n')
+    import os, time
+    old = time.time() - 60
+    os.utime(tmp_path / diagnose.FAULT_NAME.format(1), (old, old))
+    found = log.arm()
+    log.disarm()
+    assert found is not None and found.kind == "graphics" and "viewer.py" in found.where
+    assert not list(tmp_path.glob("last_crash_*.txt"))
+    assert "איך מתקנים" in diagnose.report_text(found, "he")

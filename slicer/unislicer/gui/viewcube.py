@@ -120,6 +120,12 @@ class ViewCube(QWidget):
     # ---------------------------------------------------------- painting
     def paintEvent(self, _e):
         p = QPainter(self)
+        try:
+            self._paint(p)
+        finally:
+            p.end()             # an open painter after an error takes the whole app down on Windows
+
+    def _paint(self, p: QPainter):
         p.setRenderHint(QPainter.Antialiasing)
         faces, spots = self._targets()
         r = self._rotation()
@@ -169,7 +175,7 @@ class ViewCube(QWidget):
             p.drawEllipse(QPointF(q[0], q[1]), 5, 5)
         # turn arrows and home
         for kind, pts in self._arrows():
-            hot = self._hover == kind
+            hot = isinstance(self._hover, str) and self._hover == kind   # _hover may be a face normal
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(theme.ACCENT) if hot else QColor(theme.TEXT_DIM))
             if kind == "home":
@@ -193,7 +199,6 @@ class ViewCube(QWidget):
             f.setPixelSize(8)
             p.setFont(f)
             p.drawText(QRectF(q.x() + v[0] * 5 - 5, q.y() - v[1] * 5 - 5, 10, 10), Qt.AlignCenter, label)
-        p.end()
 
     def _is_hover(self, normal) -> bool:
         return self._hover is not None and not isinstance(self._hover, str) and np.allclose(self._hover, normal)

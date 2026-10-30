@@ -286,6 +286,11 @@ class Assistant:
             if not o.get("watertight", True):
                 out.append(Suggestion(f"watertight_{o['uid']}", "problem", "sg_not_watertight", (o["name"],), None, {}, False))
 
+        # errors the crash agent diagnosed recently (already in the user's language)
+        for c in ctx.get("crashes", []):
+            out.append(Suggestion(f"crash_{c['signature']}", "problem", "sg_crash", (c["area"], c["title"], c["fix"]),
+                                  "show_crash", {"signature": c["signature"]}))
+
         # improvements
         if tech == "sla" and cfg is not None:
             for o in ctx.get("objects", []):

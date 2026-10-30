@@ -444,6 +444,19 @@ STRINGS = {
     "ctx_rotate_tool": ("סיבוב חופשי (טבעות, R)", "Free rotate (rings, R)"),
     "ctx_face_tool": ("הנח פאה על המשטח (F)", "Place face on plate (F)"),
     "rotate_exact_note": ("הסיבוב נעשה סביב צירי המדפסת, לפי הסדר X ואז Y ואז Z, על כל המודלים שנבחרו", "Rotation is about the printer axes, X then Y then Z, for every selected model"),
+    "crash_title": ("אבחון תקלה", "Problem diagnosis"),
+    "crash_agent": ("סוכן ה-AI זיהה תקלה ואבחן אותה", "The AI assistant caught and diagnosed a problem"),
+    "crash_where": ("איפה זה קרה", "Where it happened"),
+    "crash_cause": ("מה הסיבה", "What caused it"),
+    "crash_fix": ("איך מתקנים", "How to fix it"),
+    "crash_repeat": ("התקלה הזו כבר קרתה {} פעמים - כדאי לבצע את שלבי התיקון ולשלוח את הדוח.", "This has happened {} times - follow the steps and send the report."),
+    "crash_details": ("פרטים טכניים", "Technical details"),
+    "crash_copy": ("העתק דוח", "Copy report"),
+    "crash_copied": ("הדוח הועתק", "Report copied"),
+    "crash_folder": ("פתח תיקיית דוחות", "Open reports folder"),
+    "crash_continue": ("המשך לעבוד", "Keep working"),
+    "crash_open": ("הצג אבחון", "Show diagnosis"),
+    "sg_crash": ("תקלה ב{}: {}. {}", "Problem in {}: {}. {}"),
 }
 
 
