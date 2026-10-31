@@ -1440,3 +1440,34 @@ def test_dental_cad_link_indications_folder_and_handoff(tmp_path, monkeypatch):
     r = subprocess.run([sys.executable, "-c", code, str(tmp_path)], cwd=root, capture_output=True, text=True,
                        timeout=300, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_broken_mesh_layers_do_not_grow_extra_shapes():
+    """A thin-walled part whose inner and outer walls both have holes at the same place: stitching the
+    open contours joined the outer wall to the inner one and filled the whole hollow inside (the 'extra
+    shapes' after slicing). The winding / even-odd fill keeps only the real wall."""
+    import math
+    from shapely.geometry import Point
+    from unislicer.mesh import Mesh
+    from unislicer.slicing import slice_mesh
+    n, r_out, wall, h = 120, 15.0, 0.4, 20.0
+    a = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    V = np.array([[r * math.cos(t), r * math.sin(t), z] for r in (r_out, r_out - wall) for z in (0.0, h) for t in a])
+    F = []
+    o0, o1, i0, i1 = 0, n, 2 * n, 3 * n
+    for k in range(n):
+        j = (k + 1) % n
+        F += [[o0 + k, o0 + j, o1 + j], [o0 + k, o1 + j, o1 + k], [i0 + k, i1 + j, i0 + j], [i0 + k, i1 + k, i1 + j],
+              [o1 + k, o1 + j, i1 + j], [o1 + k, i1 + j, i1 + k], [o0 + k, i0 + j, o0 + j], [o0 + k, i0 + k, i0 + j]]
+    F = np.array(F)
+    holes = {8 * k + q for k in (10, 11, 50, 51, 90) for q in range(4)}      # same angles, both walls
+    m = Mesh(V, F[[i not in holes for i in range(len(F))]])
+    assert not m.is_watertight()
+    layers = slice_mesh(m, [float(z) for z in np.arange(0.5, 19.5, 1.0)])
+    ring = Point(0, 0).buffer(r_out, 256).difference(Point(0, 0).buffer(r_out - wall, 256))
+    assert sum(l.difference(ring.buffer(0.2)).area for l in layers) < 1.0          # nothing inside the hollow
+    # the wall is all there except where the mesh itself has no wall (the punched strips: ~1.2 mm² a layer)
+    assert all(ring.buffer(-0.05).difference(l).area < 2.0 for l in layers)
+    # a closed model is sliced exactly as before (the robust fill only runs on broken layers)
+    box = slice_mesh(primitives.box(20, 10, 5), [2.5])[0]
+    assert abs(box.area - 200.0) < 1e-6

@@ -72,8 +72,9 @@ def _segments_at(tris: np.ndarray, normals: np.ndarray, z: float):
     return seg
 
 
-def _chain(segments: np.ndarray):
-    """Link segments into loops. Yields (points (n,2), orientation_vote)."""
+def _chain(segments: np.ndarray, report: dict | None = None, raw: list | None = None):
+    """Link segments into loops. Yields (points (n,2), orientation_vote).
+    ``report["messy"]`` is set when the layer has open contours or non-manifold junctions."""
     n = len(segments)
     if n == 0:
         return []
@@ -86,6 +87,8 @@ def _chain(segments: np.ndarray):
             continue
         adjacency.setdefault(kp[i], []).append(i)
         adjacency.setdefault(kq[i], []).append(i)
+    if report is not None and any(len(v) != 2 for v in adjacency.values()):
+        report["messy"] = True                    # a vertex with 1 or 3+ segments: holes / non-manifold
     used = bytearray(n)
     loops, open_chains = [], []
     for s0 in range(n):
@@ -117,12 +120,88 @@ def _chain(segments: np.ndarray):
                 pts.append(segments[nxt, 0])
                 vote -= 1
         arr = np.array(pts)
+        if raw is not None:                       # majority direction: a few flipped triangles do not matter
+            raw.append((arr if vote >= 0 else arr[::-1], closed))
         if closed:
             loops.append((arr[:-1], vote))
         else:
             open_chains.append([arr, vote])
+    if open_chains and report is not None:
+        report["messy"] = True
     loops += _join_open_chains(open_chains)
     return loops
+
+
+def _oriented_segments(raw) -> np.ndarray:
+    """Segments of the linked chains, each chain in its majority direction (closed ones closed again)."""
+    parts = []
+    for pts, closed in raw:
+        if len(pts) < 2:
+            continue
+        a, b = pts[:-1], pts[1:]
+        parts.append(np.stack([a, b], axis=1))
+    return np.vstack(parts) if parts else np.zeros((0, 2, 2))
+
+
+def even_odd_geometry(segments: np.ndarray, gap: float = 4 * GAP_TOLERANCE) -> MultiPolygon:
+    """A layer of a mesh with holes, broken edges or overlapping shells, filled by winding number.
+
+    All section segments (oriented with the solid on their left) are noded where they cross and every
+    enclosed face is found; a face is solid when its winding number is not zero, so overlapping bodies stay
+    solid where they overlap. Open ends closer than ``gap`` are bridged first (an end to the next start, which
+    keeps the direction). Pieces that enclose nothing are ignored instead of being forced shut with a straight
+    line, which made wedges and spikes outside the part."""
+    # snap to the same grid the loop builder uses: neighbouring triangles compute a shared point with tiny
+    # float differences, and lines that miss each other by 1e-12 mm would never close a face
+    seg = np.round(np.asarray(segments, dtype=np.float64).reshape(-1, 2, 2) * KEY_SCALE) / KEY_SCALE
+    seg = seg[np.hypot(*(seg[:, 1] - seg[:, 0]).T) > 1e-9]
+    if len(seg) < 3:
+        return EMPTY
+    # bridge small gaps: dangling chain ends to dangling chain starts
+    kstart = np.round(seg[:, 0] * KEY_SCALE).astype(np.int64)
+    kend = np.round(seg[:, 1] * KEY_SCALE).astype(np.int64)
+    starts_set = set(map(tuple, kstart.tolist()))
+    ends_set = set(map(tuple, kend.tolist()))
+    tails = seg[[tuple(k) not in starts_set for k in kend.tolist()], 1]     # chain ends nothing continues from
+    heads = seg[[tuple(k) not in ends_set for k in kstart.tolist()], 0]     # chain starts nothing leads into
+    extra = []
+    if len(tails) and len(heads) and len(tails) * len(heads) <= 4_000_000:
+        d = np.hypot(tails[:, None, 0] - heads[None, :, 0], tails[:, None, 1] - heads[None, :, 1])
+        used_t = np.zeros(len(tails), dtype=bool)
+        used_h = np.zeros(len(heads), dtype=bool)
+        for flat in np.argsort(d, axis=None):
+            ti, hi = divmod(int(flat), len(heads))
+            if d[ti, hi] > gap:
+                break
+            if used_t[ti] or used_h[hi]:
+                continue
+            used_t[ti] = used_h[hi] = True
+            extra.append([tails[ti], heads[hi]])
+    if extra:
+        seg = np.vstack([seg, np.array(extra)])
+    lines = shapely.union_all(shapely.linestrings(seg))          # nodes every crossing
+    faces = [f for f in polygons_of(shapely.polygonize([lines])) if f.area > 1e-6]
+    if not faces:
+        return EMPTY
+    a, b = seg[:, 0], seg[:, 1]
+    ya, yb = a[:, 1], b[:, 1]
+    winding = []
+    for f in faces:
+        px, py = f.representative_point().coords[0]
+        up = (ya <= py) & (yb > py)
+        down = (yb <= py) & (ya > py)
+        m = up | down
+        if not m.any():
+            winding.append(0)
+            continue
+        t = (py - ya[m]) / (yb[m] - ya[m])
+        xs = a[m, 0] + t * (b[m, 0] - a[m, 0])
+        right = xs > px
+        winding.append((int(up[m][right].sum()) - int(down[m][right].sum()), int(right.sum()) % 2))
+    # solid: a non-zero winding (overlapping bodies stay solid) or an odd crossing count (still right where
+    # some triangles of a broken mesh are flipped inside out)
+    solid = [f for f, (w, odd) in zip(faces, winding) if w != 0 or odd]
+    return as_multipolygon(shapely.union_all(solid)) if solid else EMPTY
 
 
 def _join_open_chains(chains):
@@ -207,7 +286,10 @@ def _slice_sorted(tris: np.ndarray, normals: np.ndarray, z_planes: list[float], 
         while len(local) and np.any(np.abs(local[:, :, 2] - zc) < 1e-7):
             zc += 1e-5
         seg = _segments_at(local, normals[idx], zc)
-        geom = loops_to_geometry(_chain(seg))
+        report, raw = {}, []
+        loops = _chain(seg, report, raw)
+        # a broken layer (holes, non-manifold edges): fill by winding / crossing parity instead of stitching
+        geom = even_odd_geometry(_oriented_segments(raw)) if report.get("messy") else loops_to_geometry(loops)
         if resolution > 0 and not geom.is_empty:
             geom = as_multipolygon(geom.simplify(resolution, preserve_topology=True))
         out.append(geom)
