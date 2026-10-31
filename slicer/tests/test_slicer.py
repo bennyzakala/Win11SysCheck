@@ -1410,7 +1410,7 @@ def test_dental_cad_link_indications_folder_and_handoff(tmp_path, monkeypatch):
                         ("Splint.stl", primitives.box(50, 40, 3))):
             save_stl(mesh, os.path.join(d, n))
         w = MainWindow()
-        w.settings.printer_combo.setCurrentIndex(w.settings.printer_combo.findData("elegoo_mars3"))
+        assert w.settings.select_printer("elegoo_mars3") and w.settings.config()["technology"] == "sla"
         app.processEvents()
         w.import_from_cad([os.path.join(d, n) for n in ("UpperJaw.stl", "Crown_16.stl", "Splint.stl")])
         by = {o.name: o for o in w.objects}
@@ -2008,6 +2008,122 @@ def test_filament_menu_and_colours_in_the_window():
         cfg = w.settings.config()
         assert cfg["filament_colors"].startswith("#112233;#AABBCC") and cfg["filament_types"].startswith("PETG;PLA")
         w.undo()
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_cfs_slots_mapping_and_reading_from_the_printer(monkeypatch):
+    """Filaments mapped to CFS slots by hand load from those slots (T number = slot), the end-of-file lists follow
+    the slots, and the CFS contents are read from the printer (boxsInfo on port 9999)."""
+    import json, re
+    from unislicer import fdm, filaments as fil, gcode, network, primitives, profiles
+    from unislicer.scene import SceneObject, arrange
+    assert fil.slot_index("1A") == 0 and fil.slot_index("1d") == 3 and fil.slot_index("2A") == 4 and fil.slot_index("X") == -1
+    cfg = profiles.build_config("creality_sparkx_i7", None, None,
+                                {"filament_count": 2, "filament_colors": "#000000;#7F975F", "filament_slots": "1C;1A"})
+    flist = fil.filament_list(cfg)
+    assert [(f.slot, f.t) for f in flist] == [("1C", 2), ("1A", 0)]
+    objs = [SceneObject.from_mesh(primitives.box(20, 20, 4)), SceneObject.from_mesh(primitives.box(20, 20, 2))]
+    objs[1].filament = 2
+    arrange(objs, cfg["bed_x"], cfg["bed_y"])
+    meshes = [o.world_mesh() for o in objs]
+    text, st = gcode.generate(fdm.plan(meshes, cfg, tools=[0, 1]), cfg, "slots")
+    assert "M8200 P S2" in text and re.search(r"^T2$", text, re.M)          # filament 1 starts from slot 1C
+    assert "M8200 L I0" in text and re.search(r"^T0$", text, re.M)          # filament 2 loads from slot 1A
+    assert "T1" not in re.findall(r"^T\d+$", text, re.M)
+    colours = re.search(r"; filament_colour = (.*)", text).group(1).split(";")
+    assert colours[0] == "#7F975F" and colours[2] == "#000000" and len(colours) == 3
+    used = [float(v) for v in re.search(r"; filament used \[mm\] = (.*)", text).group(1).split(",")]
+    assert used[1] == 0.0 and used[0] > 0 and used[2] > 0
+
+    # the printer's CFS, as K2 / SPARKX firmware reports it
+    payload = {"boxsInfo": {"same_material": [], "materialBoxs": [
+        {"id": 0, "type": 1, "materials": [{"id": 0, "state": 1, "vendor": "Generic", "type": "TPU", "color": "#0112233"}]},
+        {"id": 1, "type": 0, "state": 1, "materials": [
+            {"id": 0, "state": 1, "vendor": "Creality", "type": "PETG", "name": "Hyper PETG", "color": "#07F975F", "percent": 90},
+            {"id": 1, "state": 1, "vendor": "Creality", "type": "pla", "name": "Hyper PLA", "color": "#0000000"},
+            {"id": 2, "state": 0, "color": "#0FFFFFF"},
+            {"id": 3, "state": 1, "vendor": "Generic", "type": "PETG", "color": "0ff69b4"}]}]}}
+    sent = []
+
+    class FakeWS:
+        def __init__(self):
+            self.queue = [json.dumps({"ModeCode": "heart_beat"}), json.dumps({"state": 0}), json.dumps(payload)]
+            self.sock = type("S", (), {"settimeout": lambda *a: None})()
+
+        def send(self, text):
+            sent.append(text)
+
+        def recv(self):
+            return self.queue.pop(0) if self.queue else None
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(network, "_creality_ws", lambda host, timeout=3.0: FakeWS())
+    slots = network.creality_cfs_slots("10.0.0.7")
+    assert {"method": "get", "params": {"boxsInfo": 1}} in [json.loads(s) for s in sent if s.startswith("{")]
+    assert "ok" in sent                                                     # heartbeats answered
+    by = {s["slot"]: s for s in slots}
+    assert by["EXT"]["type"] == "TPU" and by["EXT"]["colour"] == "#112233"
+    assert by["1A"] == {"slot": "1A", "colour": "#7F975F", "type": "PETG", "name": "Hyper PETG", "vendor": "Creality",
+                        "loaded": True, "percent": 90}
+    assert by["1B"]["type"] == "PLA" and by["1B"]["colour"] == "#000000"
+    assert not by["1C"]["loaded"] and by["1D"]["colour"] == "#FF69B4"
+    monkeypatch.setattr(network, "_creality_ws", lambda host, timeout=3.0: type("W", (FakeWS,), {"__init__": lambda self: (
+        FakeWS.__init__(self), setattr(self, "queue", [json.dumps({"state": 0})]))[0]})())
+    with pytest.raises(network.NetworkError):
+        network.creality_cfs_slots("10.0.0.7")
+
+
+def test_printer_families_and_filament_panel():
+    """The printer list is split into FILAMENT / RESIN / UV (PolyJet); switching family goes back to the last printer
+    used in it. The filament panel edits colours, types, slots and the number of filaments."""
+    import subprocess, sys, textwrap
+    from unislicer import profiles
+    from unislicer.gui.settings_panel import printer_kind
+    printers = profiles.load("printers")
+    kinds = {pid: printer_kind(p) for pid, p in printers.items()}
+    assert kinds["creality_sparkx_i7"] == "filament" and kinds["stratasys_j5_dentajet"] == "uv"
+    assert kinds["elegoo_mars3"] == "resin" and set(kinds.values()) == {"filament", "resin", "uv"}
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import profiles
+        from unislicer.gui.settings_panel import SettingsPanel, printer_kind
+        printers = profiles.load("printers")
+        p = SettingsPanel("creality_sparkx_i7", None, None, {}, False)
+        listed = [p.printer_combo.itemData(i) for i in range(p.printer_combo.count()) if p.printer_combo.itemData(i)]
+        assert listed and all(printer_kind(printers[x]) == "filament" for x in listed)
+        assert p.filament_panel.isVisibleTo(p)
+        p.kind_buttons["resin"].click()
+        assert p.technology == "sla" and p.config()["sla_process"] != "polyjet" and not p.filament_panel.isVisibleTo(p)
+        listed = [p.printer_combo.itemData(i) for i in range(p.printer_combo.count()) if p.printer_combo.itemData(i)]
+        assert all(printer_kind(printers[x]) == "resin" for x in listed)
+        p.kind_buttons["uv"].click()
+        assert p.config()["sla_process"] == "polyjet"
+        p.kind_buttons["filament"].click()
+        assert p.printer_id == "creality_sparkx_i7"
+        fp = p.filament_panel
+        fp.add(); fp.add()
+        assert p.config()["filament_count"] == 3
+        fp.set_colour(1, "#00ff00")
+        fp.set_type(2, "petg")
+        assert p.config()["filament_colors"].split(";")[1] == "#00FF00" and p.config()["filament_types"].split(";")[2] == "PETG"
+        fp.set_cfs_slots([{"slot": "1D", "colour": "#FF69B4", "type": "TPU", "name": "", "vendor": "", "loaded": True}])
+        fp.set_slot(0, "1D")
+        cfg = p.config()
+        assert cfg["filament_slots"].split(";")[0] == "1D" and cfg["filament_colors"].startswith("#FF69B4") \\
+            and cfg["filament_types"].startswith("TPU")
+        fp.remove(1)
+        assert p.config()["filament_count"] == 2
+        assert fp.use_printer_slots() and p.config()["filament_count"] == 1 and p.config()["filament_slots"] == "1D"
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

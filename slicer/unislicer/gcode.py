@@ -82,18 +82,18 @@ def creality_cfs_change(prev: fil.Filament, new: fil.Filament, z: float, count: 
     L = list(purges) + [0.0] * (5 - len(purges))
     wipe = ["; WIPE", "SET_VELOCITY_LIMIT ACCEL=10000 ACCEL_TO_DECEL=10000",
             "G0 X267 F24000", "G0 X278 F2400", "G0 X267 F24000", "G0 X278 F2400"]
-    out = [f"; CP TOOLCHANGE T{prev.index} -> T{new.index}"]
+    out = [f"; CP TOOLCHANGE T{prev.index} -> T{new.index}" + (f" (slot {fil.slot_name(new.t)})" if new.t != new.index else "")]
     if count > 1:
         out += ["G17", f"G2 Z{z + 0.4:.3f} I0.86 J0.86 P1 F10000"]
-    out += ["G1 X0 F18000", "M106 S120", f"M8200 P S{new.index}", "M220 S100"]
+    out += ["G1 X0 F18000", "M106 S120", f"M8200 P S{new.t}", "M220 S100"]
     if cut:
         out.append(f"M8200 R E-{CFS_CUT_RETRACT:g}")
     out += ["", "M400", "G1 X5 F10000", "SET_VELOCITY_LIMIT ACCEL=5000 ACCEL_TO_DECEL=500", "G0 F500", "",
             "M8200 C S0", "SET_VELOCITY_LIMIT ACCEL=5000 ACCEL_TO_DECEL=5000", "G0 Y255 F18000", "G0 X267 F18000",
-            "G0 Y130 F18000", "G0 X278 F2400", "M8200 R", "M106 S30", f"M104 S{hi_prev}", f"M8200 L I{new.index}"]
+            "G0 Y130 F18000", "G0 X278 F2400", "M8200 R", "M106 S30", f"M104 S{hi_prev}", f"M8200 L I{new.t}"]
     if cut:
         out.append(f"G1 E{CFS_CUT_RETRACT:g} F{old_feed}")
-    out += [f"T{new.index}", ""]
+    out += [f"T{new.t}", ""]
     if L[0] > 1:
         f1 = L[0]
         out += [f";flush_length_1={f1:.3f}", "; FLUSH_START", "M106 S70",
@@ -310,7 +310,7 @@ class GcodeWriter:
             self.need_z = True
         else:
             temp = new.first_temp if first_layer else new.temp
-            self._emit(f"T{new.index}")
+            self._emit(f"T{new.t}")
             if temp != (prev.first_temp if first_layer else prev.temp):
                 self._emit(f"M109 S{temp}")
             extra = cfg["toolchange_gcode"].strip()
@@ -335,18 +335,18 @@ class GcodeWriter:
         first_tool = next((p.tool for layer in plan.layers for p in layer.paths), plan.tools[0] if plan.tools else 0)
         self.tool = first_tool
         ff = self.filaments[first_tool] if first_tool < len(self.filaments) else self.filaments[0]
-        values["initial_tool"] = first_tool
+        values["initial_tool"] = ff.t
         if plan.multi_material or first_tool:
             values["first_layer_nozzle_temp"], values["nozzle_temp"] = ff.first_temp, ff.temp
 
         self._emit("G90 ; absolute positioning")
         self._emit("M83 ; relative extrusion" if self.relative else "M82 ; absolute extrusion")
         if self.cfs and not cfg["start_gcode"].strip():
-            start = creality_cfs_start(cfg, first_tool, ff.first_temp)
+            start = creality_cfs_start(cfg, ff.t, ff.first_temp)
         else:
             start = cfg["start_gcode"].strip() or default_start_gcode(cfg)
             if plan.multi_material and not self.cfs and not re.search(r"^\s*T\d", start, re.M):
-                start += f"\nT{first_tool}"
+                start += f"\nT{ff.t}"
         self._emit(render_template(start, values))
         self._emit("M83" if self.relative else "M82")
         self._emit("G92 E0")
@@ -454,9 +454,19 @@ class GcodeWriter:
         per-filament totals and a config block with each filament's colour and type for the printer's CFS mapping."""
         import time as _time
         cfg, st = self.cfg, self.stats
-        n_fil = len(self.filaments)
         area = self.filament_area
-        mm = [st.tool_mm.get(i, 0.0) for i in range(n_fil)]
+        # lists per T number: with slots assigned by hand, filament k sits at its slot's position
+        size = max(f.t for f in self.filaments) + 1
+        slots: list = [None] * size
+        for f in self.filaments:
+            if slots[f.t] is None:
+                slots[f.t] = f
+        spare = self.filaments[0]
+        flist = [f or fil.Filament(i, "#FFFFFF", spare.type, spare.temp, spare.first_temp, t=i) for i, f in enumerate(slots)]
+        n_fil = len(flist)
+        mm = [0.0] * n_fil
+        for f in self.filaments:
+            mm[f.t] += st.tool_mm.get(f.index, 0.0)
         cm3 = [v * area / 1000.0 for v in mm]
         grams = [v * cfg["filament_density"] for v in cm3]
         cost = [g / 1000.0 * cfg["filament_cost"] for g in grams]
@@ -490,8 +500,8 @@ class GcodeWriter:
         if thumbnails:
             head += [thumbnails]
         head += ["; EXECUTABLE_BLOCK_START", f";TIME:{int(st.time_s)}", f";Job: {job_name}"]
-        temps = ",".join(str(f.temp) for f in self.filaments)
-        first_temps = ",".join(str(f.first_temp) for f in self.filaments)
+        temps = ",".join(str(f.temp) for f in flist)
+        first_temps = ",".join(str(f.first_temp) for f in flist)
         tail = [
             "; EXECUTABLE_BLOCK_END",
             "",
@@ -507,9 +517,9 @@ class GcodeWriter:
             "",
             "; CONFIG_BLOCK_START",
             f"; printer_model = {cfg['printer_model'] or cfg.get('printer_name', '')}",
-            f"; filament_colour = {';'.join(f.colour for f in self.filaments)}",
-            f"; filament_type = {';'.join(f.type for f in self.filaments)}",
-            "; filament_settings_id = " + ";".join(f'"Generic {f.type}"' for f in self.filaments),
+            f"; filament_colour = {';'.join(f.colour for f in flist)}",
+            f"; filament_type = {';'.join(f.type for f in flist)}",
+            "; filament_settings_id = " + ";".join(f'"Generic {f.type}"' for f in flist),
             f"; filament_diameter = {diam}",
             f"; filament_density = {dens}",
             f"; nozzle_temperature = {temps}",

@@ -462,6 +462,53 @@ def _creality_read(ws: "WebSocket", until, seconds: float = 3.0) -> dict:
     return telem
 
 
+def _norm_colour(c) -> str:
+    """CFS colours come as "#0RRGGBB" / "0RRGGBB" / "#RRGGBB"."""
+    h = "".join(ch for ch in str(c or "") if ch in "0123456789abcdefABCDEF")
+    return "#" + h[-6:].upper() if len(h) >= 6 else ""
+
+
+def parse_cfs_boxes(boxs_info) -> list[dict]:
+    """The filaments in a Creality CFS (boxsInfo.materialBoxs, as K2 / SPARKX firmware reports it):
+    one entry per slot with its label (1A..4D, or EXT for the external spool), colour, type and name."""
+    if isinstance(boxs_info, dict) and "boxsInfo" in boxs_info and "materialBoxs" not in boxs_info:
+        boxs_info = boxs_info["boxsInfo"]
+    boxes = (boxs_info or {}).get("materialBoxs") or [] if isinstance(boxs_info, dict) else []
+    out = []
+    for box in boxes:
+        if not isinstance(box, dict):
+            continue
+        is_cfs = box.get("type") in (0, 2) and int(box.get("id", 0) or 0) >= 1
+        for k, m in enumerate(box.get("materials") or []):
+            if not isinstance(m, dict):
+                continue
+            loaded = bool(m.get("state")) and bool(m.get("vendor") or m.get("type") or m.get("name"))
+            idx = int(m.get("id", k) if str(m.get("id", k)).isdigit() else k)
+            out.append({
+                "slot": f"{int(box.get('id', 1))}{chr(65 + idx)}" if is_cfs else "EXT",
+                "colour": _norm_colour(m.get("color")),
+                "type": str(m.get("type") or "").upper(),
+                "name": str(m.get("name") or ""),
+                "vendor": str(m.get("vendor") or ""),
+                "loaded": loaded,
+                "percent": m.get("percent") if isinstance(m.get("percent"), (int, float)) else None,
+            })
+    return out
+
+
+def creality_cfs_slots(host: str, timeout: float = 4.0) -> list[dict]:
+    """Ask a Creality printer (LAN mode, port 9999) which filaments are in its CFS slots right now."""
+    ws = _creality_ws(host, timeout)
+    try:
+        ws.send(json.dumps({"method": "get", "params": {"boxsInfo": 1}}))
+        telem = _creality_read(ws, lambda t: "boxsInfo" in t, timeout)
+    finally:
+        ws.close()
+    if "boxsInfo" not in telem:
+        raise NetworkError("no answer from the printer: no CFS information (is the CFS connected?)")
+    return parse_cfs_boxes(telem["boxsInfo"])
+
+
 def creality_info(host: str) -> dict | None:
     """Creality LAN mode (K1 / K2 / Hi / SPARKX i7 stock firmware): a WebSocket on port 9999 that sends
     the printer's state as JSON. Returns what it says about itself, or None."""

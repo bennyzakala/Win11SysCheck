@@ -800,6 +800,8 @@ class MainWindow(QMainWindow):
         self.settings.changed.connect(self._settings_timer.start)
         self.settings.valueEdited.connect(lambda k, v: self.assistant.record_override(k, v))
         self.settings.technologyChanged.connect(lambda _t: self._apply_printer())
+        self.settings.filamentEditRequested.connect(self.filaments_dialog)
+        self.settings.cfsSyncRequested.connect(self.sync_cfs)
         lay.addWidget(self.settings, 1)
 
         action = _card()
@@ -1075,6 +1077,42 @@ class MainWindow(QMainWindow):
         if cfg["technology"] == "fdm":
             self.status.setText(tr("fil_imported").format(count))
         self._objects_changed()
+
+    def sync_cfs(self):
+        """Read the filaments loaded in the printer's CFS (Creality, LAN mode) and offer them as the print's filaments."""
+        from .. import network
+        printers = [p for p in network.load_printers() if p.kind == "creality"]
+        mine = [p for p in printers if p.printer_id == self.settings.printer_id] or printers
+        if not mine:
+            QMessageBox.information(self, tr("fil_sync_title"), tr("fil_sync_none"))
+            return
+        target = mine[0]
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            slots = network.creality_cfs_slots(target.host)
+        except Exception as exc:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, tr("fil_sync_title"),
+                                tr("fil_sync_failed").format(target.name) + "\n\n" +
+                                (network.explain(exc, "he" if i18n.LANG == "he" else "en") if isinstance(exc, network.NetworkError)
+                                 else f"{type(exc).__name__}: {exc}"))
+            return
+        finally:
+            if QApplication.overrideCursor() is not None:
+                QApplication.restoreOverrideCursor()
+        panel = self.settings.filament_panel
+        panel.set_cfs_slots(slots)
+        loaded = [s for s in slots if s.get("loaded") and s.get("slot") != "EXT"]
+        if not loaded:
+            QMessageBox.information(self, tr("fil_sync_title"), tr("fil_sync_empty").format(target.name))
+            return
+        listing = "\n".join(f"• {s['slot']}: {s.get('type', '')} {s.get('name', '')}  {s.get('colour', '')}".rstrip()
+                            for s in loaded)
+        ans = QMessageBox.question(self, tr("fil_sync_title"), tr("fil_sync_use").format(target.name, listing))
+        if ans == QMessageBox.Yes:
+            panel.use_printer_slots()
+            self._objects_changed()
+        self.status.setText(tr("fil_synced").format(len(loaded), target.name))
 
     def filament_colour_rgb(self, number: int, cfg=None):
         from .. import filaments as fil

@@ -24,6 +24,25 @@ class Filament:
     type: str                # PLA, PETG...
     temp: int                # nozzle temperature
     first_temp: int          # first layer
+    slot: str = ""           # CFS / AMS slot (1A..4D); "" = in order
+    t: int = -1              # T number the printer loads it with (its slot), -1 = index
+
+    def __post_init__(self):
+        if self.t < 0:
+            self.t = slot_index(self.slot) if self.slot else self.index
+
+
+SLOTS = tuple(f"{u}{c}" for u in range(1, 5) for c in "ABCD")      # 4 CFS / AMS units × 4 slots
+
+
+def slot_index(slot: str) -> int:
+    """'1A' -> 0, '1D' -> 3, '2A' -> 4 ... '4D' -> 15 (the T number of that slot)."""
+    slot = (slot or "").strip().upper()
+    return SLOTS.index(slot) if slot in SLOTS else -1
+
+
+def slot_name(t: int) -> str:
+    return SLOTS[t] if 0 <= t < len(SLOTS) else f"T{t}"
 
 
 def _split(text: str) -> list[str]:
@@ -46,6 +65,7 @@ def filament_list(cfg) -> list[Filament]:
     """The print's filaments with colour, type and temperatures (missing entries fall back sensibly)."""
     n = max(1, int(cfg["filament_count"]))
     colours, types, temps = _split(cfg["filament_colors"]), _split(cfg["filament_types"]), _split(cfg["filament_temps"])
+    slots = _split(cfg["filament_slots"])
     out = []
     for i in range(n):
         colour = normalise_colour(colours[i] if i < len(colours) else "", DEFAULT_COLOURS[i % len(DEFAULT_COLOURS)])
@@ -55,7 +75,8 @@ def filament_list(cfg) -> list[Filament]:
         except ValueError:
             temp = int(cfg["nozzle_temp"])
         first = temp + int(cfg["first_layer_nozzle_temp"]) - int(cfg["nozzle_temp"])
-        out.append(Filament(i, colour, ftype, temp, first))
+        slot = slots[i].upper() if i < len(slots) and slot_index(slots[i]) >= 0 else ""
+        out.append(Filament(i, colour, ftype, temp, first, slot))
     return out
 
 

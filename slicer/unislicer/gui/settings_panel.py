@@ -13,6 +13,14 @@ from ..gcode import default_end_gcode, default_start_gcode
 from ..settings import CATEGORIES, SCHEMA_BY_KEY, SUPPORT_PRESETS, Config, applies_to_process, visible_settings
 
 PROCESS_BADGE = {"lcd": "LCD", "dlp": "DLP", "laser": "SLA", "polyjet": "POLYJET"}
+KINDS = ("filament", "resin", "uv")
+
+
+def printer_kind(printer: dict) -> str:
+    """filament (FDM), resin (LCD / DLP / laser SLA) or uv (PolyJet / material jetting, UV-cured)."""
+    if profiles.technology_of(printer) == "fdm":
+        return "filament"
+    return "uv" if profiles.process_of(printer) == "polyjet" else "resin"
 from . import theme
 from . import i18n
 from .i18n import category_label, label, option_label, tip, tr
@@ -190,6 +198,8 @@ class SettingsPanel(QWidget):
     changed = Signal()
     valueEdited = Signal(str, object)      # a value the user typed or picked
     technologyChanged = Signal(str)
+    filamentEditRequested = Signal()
+    cfsSyncRequested = Signal()
 
     def __init__(self, printer: str, material: str | None, quality: str | None, overrides: dict, show_advanced: bool):
         super().__init__()
@@ -214,6 +224,26 @@ class SettingsPanel(QWidget):
         self.printer_combo = self._profile_combo()
         self.material_combo = self._profile_combo()
         self.quality_combo = self._profile_combo()
+        # printer families: FILAMENT (FDM) / RESIN (LCD, DLP, SLA) / UV (PolyJet: UV-cured jetting)
+        self.kind = printer_kind(profiles.load("printers").get(self.printer_id, {}))
+        self._prefs().setValue(f"last_printer_{self.kind}", self.printer_id)
+        kinds = QHBoxLayout()
+        kinds.setSpacing(4)
+        self.kind_buttons = {}
+        for kind in KINDS:
+            b = QToolButton()
+            b.setText(tr("kind_" + kind))
+            b.setToolTip(tr("kind_" + kind + "_tip"))
+            b.setCheckable(True)
+            b.setAutoExclusive(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setObjectName("KindTab")
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            b.setChecked(kind == self.kind)
+            b.clicked.connect(lambda _=False, k=kind: self._on_kind(k))
+            kinds.addWidget(b)
+            self.kind_buttons[kind] = b
+        cl.addLayout(kinds)
         for key, icon_name, combo in (("printer", "printer", self.printer_combo), ("material", "spool", self.material_combo),
                                       ("quality", "layers", self.quality_combo)):
             row = QHBoxLayout()
@@ -263,6 +293,13 @@ class SettingsPanel(QWidget):
                 prow.addWidget(self.plate_combo, 1)
                 cl.addLayout(prow)
         lay.addWidget(card)
+
+        from .filament_panel import FilamentPanel
+        self.filament_panel = FilamentPanel()
+        self.filament_panel.valuesChanged.connect(self._apply_filament_values)
+        self.filament_panel.syncRequested.connect(self.cfsSyncRequested.emit)
+        self.filament_panel.edit_btn.clicked.connect(self.filamentEditRequested.emit)
+        lay.addWidget(self.filament_panel)
 
         tools = QHBoxLayout()
         self.search = QLineEdit()
@@ -364,6 +401,61 @@ class SettingsPanel(QWidget):
             tip = tr("fav_none")
         self.fav_only_btn.setToolTip(tip)
 
+    def _on_kind(self, kind: str):
+        """Show one printer family; switching family moves to the last printer used in it."""
+        if kind == self.kind:
+            return
+        self.kind = kind
+        printers = profiles.load("printers")
+        last = str(self._prefs().value(f"last_printer_{kind}", ""))
+        target = last if last in printers and printer_kind(printers[last]) == kind else None
+        if target is None:
+            fav = [p for p in self.favorites() if p in printers and printer_kind(printers[p]) == kind]
+            members = sorted((pid for pid, p in printers.items() if printer_kind(p) == kind),
+                             key=lambda pid: (printers[pid].get("vendor") != "Generic", printers[pid].get("vendor", ""),
+                                              printers[pid]["name"]))
+            target = (fav or members or [self.printer_id])[0]
+        self._fill_printers()
+        idx = self.printer_combo.findData(target)
+        if idx >= 0:
+            self.printer_combo.blockSignals(True)
+            self.printer_combo.setCurrentIndex(idx)
+            self.printer_combo.blockSignals(False)
+            self._on_printer(idx)
+
+    def select_printer(self, pid: str) -> bool:
+        """Choose a printer from code (switches the printer family tab when needed)."""
+        printers = profiles.load("printers")
+        if pid not in printers:
+            return False
+        kind = printer_kind(printers[pid])
+        if kind != self.kind:
+            self.kind = kind
+            self.kind_buttons[kind].setChecked(True)
+            self._fill_printers()
+        idx = self.printer_combo.findData(pid)
+        if idx < 0:
+            return False
+        if idx == self.printer_combo.currentIndex() and pid != self.printer_id:
+            self._on_printer(idx)
+        else:
+            self.printer_combo.setCurrentIndex(idx)
+        return True
+
+    def _refresh_filament_panel(self):
+        panel = getattr(self, "filament_panel", None)
+        if panel is not None:
+            fdm = self.technology == "fdm"
+            panel.setVisible(fdm)
+            if fdm:
+                panel.refresh(self.config())
+
+    def _apply_filament_values(self, values: dict):
+        for k, v in values.items():
+            self.set_value(k, v)
+        self._refresh_filament_panel()
+        self.changed.emit()
+
     def _fill_printers(self):
         self._building = True
         self.printer_combo.clear()
@@ -371,6 +463,9 @@ class SettingsPanel(QWidget):
                        key=lambda kv: (profiles.technology_of(kv[1]) != "fdm", kv[1].get("vendor") != "Generic",
                                        kv[1].get("vendor", ""), kv[1]["name"]))
         fav = set(self.favorites())
+        kind = getattr(self, "kind", None)
+        if kind:
+            items = [kv for kv in items if printer_kind(kv[1]) == kind]
         if getattr(self, "fav_only_btn", None) is not None and self.fav_only_btn.isChecked() and fav:
             # favorites only (the printer in use stays listed so the selection is never lost)
             items = [kv for kv in items if kv[0] in fav or kv[0] == self.printer_id]
@@ -538,6 +633,13 @@ class SettingsPanel(QWidget):
             return
         old_tech = self.technology
         self.printer_id = pid
+        printer_now = profiles.load("printers").get(pid, {})
+        self._prefs().setValue(f"last_printer_{printer_kind(printer_now)}", pid)
+        if printer_kind(printer_now) != getattr(self, "kind", None):
+            self.kind = printer_kind(printer_now)
+            if getattr(self, "kind_buttons", None):
+                self.kind_buttons[self.kind].setChecked(True)
+            self._fill_printers()
         self._update_fav_buttons()
         self._drop_overrides_for("printers", pid)
         for k in PLATE_KEYS:              # a new printer starts on its first plate
@@ -588,6 +690,8 @@ class SettingsPanel(QWidget):
                 self._drop_overrides_for("materials", self.material_id)
         if self.printer_id not in profiles.load("printers"):
             self.printer_id = "generic_fdm"
+        self.kind = printer_kind(profiles.load("printers")[self.printer_id])     # the library may pick another family
+        self.kind_buttons[self.kind].setChecked(True)
         self._fill_printers()
         self._fill_dependent()
         self.rebuild()
@@ -665,6 +769,8 @@ class SettingsPanel(QWidget):
             self._on_changed(key, value)
         finally:
             self._programmatic = False
+        if key.startswith("filament_"):
+            self._refresh_filament_panel()
         row = self._rows.get(key)
         if row is None or key in ("sla_process", "sla_support_preset", "technology"):
             self.rebuild()
@@ -801,6 +907,7 @@ class SettingsPanel(QWidget):
 
     def rebuild(self):
         """(Re)create the settings sections for the current technology."""
+        self._refresh_filament_panel()
         old = self.scroll.widget()
         if old is not None:
             for cat, sec in getattr(self, "_sections", {}).items():

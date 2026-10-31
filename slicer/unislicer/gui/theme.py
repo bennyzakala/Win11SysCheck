@@ -188,6 +188,10 @@ QComboBox::drop-down {{ border: none; width: 22px; }}
 QComboBox::down-arrow {{ image: url(@ASSETS@/chevron.svg); width: 12px; height: 12px; }}
 QComboBox QAbstractItemView {{ background: {SURFACE_2}; border: 1px solid {BORDER}; selection-background-color: {ACCENT}; padding: 4px; }}
 QComboBox#ProfileCombo {{ padding: 8px 10px; font-weight: 600; }}
+QToolButton#KindTab {{ background: {SURFACE_2}; border: 1px solid {BORDER}; border-radius: 7px; padding: 5px 6px;
+                      font-weight: 700; font-size: 11px; color: {TEXT_DIM}; }}
+QToolButton#KindTab:hover {{ border-color: {BORDER_HOVER}; color: {TEXT}; }}
+QToolButton#KindTab:checked {{ background: {ACCENT}; border-color: {ACCENT}; color: {ON_ACCENT}; }}
 
 QCheckBox {{ spacing: 8px; background: transparent; }}
 QCheckBox::indicator {{ width: 36px; height: 20px; image: url(@ASSETS@/toggle_off.svg); }}
