@@ -1420,10 +1420,18 @@ def test_dental_cad_link_indications_folder_and_handoff(tmp_path, monkeypatch):
         state = {"w": w}
         server = appmod._listen_for_files(app, lambda: state["w"])
         save_stl(primitives.box(10, 10, 10), os.path.join(d, "Die_11.stl"))
-        assert appmod._hand_to_running([os.path.join(d, "Die_11.stl")])
-        end = time.time() + 10
-        while time.time() < end and not any(o.name == "Die_11" for o in w.objects):
+        # a second launch ("Open with UniSlicer") is another process: it hands the file over and exits
+        import subprocess
+        second = subprocess.Popen([sys.executable, "-c",
+                                   "import os, sys; os.environ['QT_QPA_PLATFORM']='offscreen';"
+                                   "from PySide6.QtCore import QCoreApplication; a = QCoreApplication([]);"
+                                   "from unislicer.gui.app import _hand_to_running;"
+                                   "sys.exit(0 if _hand_to_running([sys.argv[1]]) else 3)", os.path.join(d, "Die_11.stl")],
+                                  cwd=os.getcwd())
+        end = time.time() + 20
+        while time.time() < end and (second.poll() is None or not any(o.name == "Die_11" for o in w.objects)):
             app.processEvents(); time.sleep(0.05)
+        assert second.poll() == 0, second.poll()
         assert any(o.name == "Die_11" and o.direct for o in w.objects)
         print("ok")
     ''')

@@ -71,11 +71,14 @@ def _hand_to_running(paths: list[str]) -> bool:
     sock.connectToServer(SERVER_NAME)
     if not sock.waitForConnected(400):
         return False
-    sock.write(json.dumps([os.path.abspath(p) for p in paths]).encode("utf-8"))
+    # one line of JSON; the running UniSlicer answers "ok" once it has the files (Windows pipes can drop data
+    # that is still in flight when the sender hangs up, so wait for the answer before disconnecting)
+    sock.write(json.dumps([os.path.abspath(p) for p in paths]).encode("utf-8") + b"\n")
     sock.flush()
-    sock.waitForBytesWritten(1500)
+    sock.waitForBytesWritten(2000)
+    ok = sock.waitForReadyRead(5000) and bytes(sock.readAll()).strip().startswith(b"ok")
     sock.disconnectFromServer()
-    return True
+    return ok
 
 
 def _listen_for_files(app, window_getter):
@@ -95,19 +98,21 @@ def _listen_for_files(app, window_getter):
 
         def read():
             buf.extend(bytes(sock.readAll()))
-
-        def done():
-            read()
+            if b"\n" not in buf:
+                return                                # the rest of the line is still coming
+            line = bytes(buf).split(b"\n", 1)[0]
+            buf.clear()
             try:
-                paths = [p for p in json.loads(buf.decode("utf-8")) if isinstance(p, str)]
+                paths = [p for p in json.loads(line.decode("utf-8")) if isinstance(p, str)]
             except ValueError:
                 paths = []
+            sock.write(b"ok\n")
+            sock.flush()
             win = window_getter()
             if paths and win is not None:
                 QTimer.singleShot(0, lambda: win.import_from_cad(paths))
-            sock.deleteLater()
         sock.readyRead.connect(read)
-        sock.disconnected.connect(done)
+        sock.disconnected.connect(sock.deleteLater)
     server.newConnection.connect(on_connection)
     return server
 
