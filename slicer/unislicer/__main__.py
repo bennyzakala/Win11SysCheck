@@ -108,6 +108,9 @@ def main(argv=None) -> int:
     g = sub.add_parser("gui", help="open the graphical interface (default)")
     g.add_argument("models", nargs="*")
 
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] not in ("slice", "list-profiles", "list-settings", "gui") and not argv[0].startswith("-"):
+        argv = ["gui"] + argv                     # "Open with UniSlicer" passes the file path first
     args = parser.parse_args(argv)
     if args.command in (None, "gui"):
         from .gui.app import run

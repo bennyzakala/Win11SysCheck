@@ -48,6 +48,15 @@ Root: HKCU; Subkey: "Software\UniSlicer\UniSlicer"; ValueType: string; ValueName
 Root: HKCU; Subkey: "Software\UniSlicer\UniSlicer"; ValueType: string; ValueName: "language"; ValueData: "ar"; Languages: arabic
 #endif
 
+; "Open with UniSlicer" for model files (does not take over the default program)
+Root: HKCU; Subkey: "Software\Classes\UniSlicer.Model"; ValueType: string; ValueName: ""; ValueData: "3D model (UniSlicer)"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\UniSlicer.Model\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\UniSlicer.exe,0"
+Root: HKCU; Subkey: "Software\Classes\UniSlicer.Model\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\UniSlicer.exe"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\.stl\OpenWithProgids"; ValueType: string; ValueName: "UniSlicer.Model"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\.3mf\OpenWithProgids"; ValueType: string; ValueName: "UniSlicer.Model"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\.obj\OpenWithProgids"; ValueType: string; ValueName: "UniSlicer.Model"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\.ply\OpenWithProgids"; ValueType: string; ValueName: "UniSlicer.Model"; ValueData: ""; Flags: uninsdeletevalue
+
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 

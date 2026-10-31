@@ -232,6 +232,7 @@ class MainWindow(QMainWindow):
         mm.addSeparator()
         mm.addAction(theme.icon("download"), tr("export_stl"), self.export_stl)
         mm.addAction(theme.icon("wifi"), tr("net_title") + "…", self.network_printers)
+        mm.addAction(theme.icon("sparkle"), tr("cad_title") + "…", self.dental_cad_dialog)
         mm.addAction(theme.icon("copy"), tr("multiply"), self.multiply_selected)
         mm.addSeparator()
         mm.addAction(theme.icon("square"), tr("cut_height"), self.cut_selected)
@@ -770,6 +771,13 @@ class MainWindow(QMainWindow):
         self._unsupported_timer.setSingleShot(True)
         self._unsupported_timer.setInterval(300)
         self._unsupported_timer.timeout.connect(self._show_unsupported)
+        # dental CAD hot folder (3Shape / exocad / Medit export here)
+        from .. import dental_cad
+        self._cad_tracker = dental_cad.FolderTracker()
+        self._cad_timer = QTimer(self)
+        self._cad_timer.setInterval(1500)
+        self._cad_timer.timeout.connect(self._poll_cad_folder)
+        QTimer.singleShot(0, self._start_cad_watch)
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setInterval(120000)          # autosave every 2 minutes while there are models
         self._autosave_timer.timeout.connect(self._autosave)
@@ -2197,10 +2205,116 @@ class MainWindow(QMainWindow):
         "splint": (45.0, False),
         "crown": (45.0, False),
         "guide": (45.0, False),
+        "die": (0.0, True),
+        "denture": (45.0, False),
     }
+
+    # ------------------------------------------------------------ dental CAD (3Shape / exocad / Medit)
+    def _start_cad_watch(self):
+        folder = str(self.store.value("cad_folder", ""))
+        on = self.store.value("cad_watch", "false") == "true" and os.path.isdir(folder)
+        self._cad_timer.stop()
+        if on:
+            self._cad_tracker.mark_existing(folder)
+            self._cad_timer.start()
+
+    def _poll_cad_folder(self):
+        folder = str(self.store.value("cad_folder", ""))
+        if not os.path.isdir(folder) or (self.task is not None and self.task.isRunning()):
+            return
+        new = self._cad_tracker.poll(folder)
+        if new:
+            self.import_from_cad(new)
+
+    def import_from_cad(self, paths: list[str]):
+        """Designs handed over by the dental CAD: import, orient by indication, support and lay out."""
+        from .. import dental_cad
+        auto = self.store.value("cad_auto", "true") == "true"
+        before = {o.uid for o in self.objects}
+        kinds = {}
+        for p in paths:
+            n0 = len(self.objects)
+            self.load_files([p])
+            kind = dental_cad.detect_indication(p, dental_cad.order_text_for(p))
+            for o in self.objects[n0:]:
+                kinds[o.uid] = kind
+        new = [o for o in self.objects if o.uid not in before]
+        if not new:
+            return
+        if auto:
+            for kind in ("model", "die", "crown", "splint", "guide", "denture"):
+                group = [o for o in new if kinds.get(o.uid) == kind]
+                if group:
+                    self._select_uid(group[0].uid)
+                    from .viewer import SEL_ADD
+                    for o in group[1:]:
+                        self._select_uid(o.uid, SEL_ADD)
+                    self.apply_dental_indication(kind)
+            needs = [o for o in new if not o.direct]
+            if needs and self.settings.config()["technology"] == "sla":
+                self._select_uid(needs[0].uid)
+                from .viewer import SEL_ADD
+                for o in needs[1:]:
+                    self._select_uid(o.uid, SEL_ADD)
+                self.generate_supports()
+            self.auto_layout(scope="all", dialog=False)
+        names = ", ".join(f"{o.name} ({i18n.pick(*dental_cad.LABEL[kinds.get(o.uid, 'unknown')])})" for o in new[:6])
+        self.status.setText(tr("cad_imported").format(len(new), names))
+        self._select_uid(None)
+        self.raise_()
+        self.activateWindow()
+
+    def dental_cad_dialog(self):
+        from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLineEdit
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("cad_title"))
+        dlg.setMinimumWidth(560)
+        form = QFormLayout(dlg)
+        intro = QLabel(tr("cad_intro"))
+        intro.setWordWrap(True)
+        form.addRow(intro)
+        watch = QCheckBox(tr("cad_watch"))
+        watch.setChecked(self.store.value("cad_watch", "false") == "true")
+        form.addRow(watch)
+        folder = QLineEdit(str(self.store.value("cad_folder", "")))
+        browse = QPushButton("…")
+        browse.setFixedWidth(32)
+        browse.clicked.connect(lambda: folder.setText(QFileDialog.getExistingDirectory(dlg, tr("cad_folder"), folder.text())
+                                                      or folder.text()))
+        row = QHBoxLayout()
+        row.addWidget(folder, 1)
+        row.addWidget(browse)
+        form.addRow(tr("cad_folder"), row)
+        auto = QCheckBox(tr("cad_auto"))
+        auto.setChecked(self.store.value("cad_auto", "true") == "true")
+        form.addRow(auto)
+        how = QLabel(tr("cad_how"))
+        how.setWordWrap(True)
+        how.setObjectName("Faint")
+        form.addRow(how)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        path = folder.text().strip()
+        if watch.isChecked() and not os.path.isdir(path):
+            try:
+                os.makedirs(path, exist_ok=True)
+            except OSError:
+                QMessageBox.warning(self, tr("cad_title"), tr("cad_bad_folder"))
+                return
+        self.store.setValue("cad_watch", "true" if watch.isChecked() else "false")
+        self.store.setValue("cad_folder", path)
+        self.store.setValue("cad_auto", "true" if auto.isChecked() else "false")
+        self._start_cad_watch()
+        self.status.setText(tr("cad_watching").format(path) if watch.isChecked() else tr("cad_off"))
 
     def apply_dental_indication(self, kind: str):
         """Starting orientation per dental indication (as Phrozen DS Slicer does per indication)."""
+        if kind not in self.DENTAL:
+            return
         tilt, direct = self.DENTAL[kind]
         group = [o for o in self.selected_objects() if o.role != "cutter"]
         if not group:
@@ -2215,7 +2329,8 @@ class MainWindow(QMainWindow):
         if not direct:
             self._ensure_supports_enabled()
         self._objects_changed()
-        self.status.setText(tr(f"dental_{kind}_hint"))
+        if f"dental_{kind}_hint" in i18n.STRINGS:
+            self.status.setText(tr(f"dental_{kind}_hint"))
 
     def rotate_exact_dialog(self):
         from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout

@@ -60,6 +60,58 @@ def _hold_app_mutex() -> None:
             pass
 
 
+SERVER_NAME = "UniSlicer-open-" + (os.environ.get("USERNAME") or os.environ.get("USER") or "user")
+
+
+def _hand_to_running(paths: list[str]) -> bool:
+    """'Open with UniSlicer' / 'Send to' while UniSlicer is open: give the files to that window."""
+    import json
+    from PySide6.QtNetwork import QLocalSocket
+    sock = QLocalSocket()
+    sock.connectToServer(SERVER_NAME)
+    if not sock.waitForConnected(400):
+        return False
+    sock.write(json.dumps([os.path.abspath(p) for p in paths]).encode("utf-8"))
+    sock.flush()
+    sock.waitForBytesWritten(1500)
+    sock.disconnectFromServer()
+    return True
+
+
+def _listen_for_files(app, window_getter):
+    """Receive files from later 'Open with' launches and add them to the open plate."""
+    import json
+    from PySide6.QtNetwork import QLocalServer
+    QLocalServer.removeServer(SERVER_NAME)
+    server = QLocalServer(app)
+    if not server.listen(SERVER_NAME):
+        return None
+
+    def on_connection():
+        sock = server.nextPendingConnection()
+        if sock is None:
+            return
+        buf = bytearray()
+
+        def read():
+            buf.extend(bytes(sock.readAll()))
+
+        def done():
+            read()
+            try:
+                paths = [p for p in json.loads(buf.decode("utf-8")) if isinstance(p, str)]
+            except ValueError:
+                paths = []
+            win = window_getter()
+            if paths and win is not None:
+                QTimer.singleShot(0, lambda: win.import_from_cad(paths))
+            sock.deleteLater()
+        sock.readyRead.connect(read)
+        sock.disconnected.connect(done)
+    server.newConnection.connect(on_connection)
+    return server
+
+
 def run(paths: list[str] | None = None) -> int:
     _hold_app_mutex()
     if SMOKE:
@@ -69,6 +121,8 @@ def run(paths: list[str] | None = None) -> int:
     Viewer.configure_default_format()
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     app = QApplication.instance() or QApplication(sys.argv)
+    if paths and not SMOKE and _hand_to_running(paths):
+        return 0                                   # the running UniSlicer took the files
     app.setApplicationName("UniSlicer")
     app.setOrganizationName(SETTINGS_ORG)
     store = QSettings(SETTINGS_ORG, SETTINGS_ORG)
@@ -131,6 +185,7 @@ def run(paths: list[str] | None = None) -> int:
         open_window(objects)
 
     win = open_window()
+    state["file_server"] = _listen_for_files(app, lambda: state["window"])     # kept alive with the app
     if paths:
         win.load_files(paths)
     elif not SMOKE:

@@ -1362,3 +1362,73 @@ def test_auto_orient_twice_and_auto_prepare_twice():
     env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-2000:]
+
+
+def test_dental_cad_link_indications_folder_and_handoff(tmp_path, monkeypatch):
+    import subprocess, sys, textwrap
+    from unislicer import dental_cad as dc
+    cases = {"2024-05-01_UpperJaw.stl": "model", "LowerJaw_antagonist.stl": "model", "Crown_16.stl": "crown",
+             "bridge 34-36.3mf": "crown", "NightGuard_upper.stl": "splint", "SurgicalGuide.stl": "guide",
+             "Die_21.stl": "die", "FullDenture_base.stl": "denture", "x123.stl": "unknown"}
+    for name, kind in cases.items():
+        assert dc.detect_indication(name) == kind, name
+    # 3Shape-style order file: the type of work is read, patient details are not
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "order.xml").write_text('<Order><PatientName>John Smith</PatientName><RestorationType>Crown</RestorationType>'
+                                    '<Material>Zirconia</Material></Order>')
+    (case / "part_1.stl").write_bytes(b"x")
+    text = dc.order_text_for(str(case / "part_1.stl"))
+    assert "Crown" in text and "Smith" not in text
+    assert dc.detect_indication(str(case / "part_1.stl"), text) == "crown"
+    # watched folder: only new files, and only once they stopped growing
+    t = dc.FolderTracker()
+    (case / "old.stl").write_bytes(b"1")
+    t.mark_existing(str(case))
+    (case / "new.stl").write_bytes(b"12345")
+    assert t.poll(str(case)) == [] and t.poll(str(case)) == [str(case / "new.stl")] and t.poll(str(case)) == []
+    # "Open with UniSlicer" passes the file first: it must open the GUI with it
+    import unislicer.__main__ as m, unislicer.gui.app as appmod
+    got = []
+    monkeypatch.setattr(appmod, "run", lambda paths: got.append(paths) or 0)
+    m.main(["C:/cases/UpperJaw.stl"])
+    assert got == [["C:/cases/UpperJaw.stl"]]
+
+    # in the window: designs from the CAD are oriented by indication, supported and laid out; a second
+    # launch hands its file to the running window
+    code = textwrap.dedent('''
+        import os, sys, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.mesh import save_stl
+        from unislicer.gui import app as appmod
+        from unislicer.gui.main_window import MainWindow
+        d = sys.argv[1]
+        for n, mesh in (("UpperJaw.stl", primitives.box(60, 50, 15)), ("Crown_16.stl", primitives.sphere(5, 12, 24)),
+                        ("Splint.stl", primitives.box(50, 40, 3))):
+            save_stl(mesh, os.path.join(d, n))
+        w = MainWindow()
+        w.settings.printer_combo.setCurrentIndex(w.settings.printer_combo.findData("elegoo_mars3"))
+        app.processEvents()
+        w.import_from_cad([os.path.join(d, n) for n in ("UpperJaw.stl", "Crown_16.stl", "Splint.stl")])
+        by = {o.name: o for o in w.objects}
+        assert by["UpperJaw"].direct and by["UpperJaw"].support_points is None
+        assert not by["Crown_16"].direct and by["Crown_16"].support_points is not None
+        assert not by["Splint"].direct
+        state = {"w": w}
+        server = appmod._listen_for_files(app, lambda: state["w"])
+        save_stl(primitives.box(10, 10, 10), os.path.join(d, "Die_11.stl"))
+        assert appmod._hand_to_running([os.path.join(d, "Die_11.stl")])
+        end = time.time() + 10
+        while time.time() < end and not any(o.name == "Die_11" for o in w.objects):
+            app.processEvents(); time.sleep(0.05)
+        assert any(o.name == "Die_11" and o.direct for o in w.objects)
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path / "home"))
+    r = subprocess.run([sys.executable, "-c", code, str(tmp_path)], cwd=root, capture_output=True, text=True,
+                       timeout=300, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
