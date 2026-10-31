@@ -34,6 +34,8 @@ uniform vec3 uColor; uniform vec3 uEye; uniform float uOverhang; uniform int uSh
 // plate bounds: the part of a model outside them is painted purple
 uniform int uBound; uniform vec4 uPlate; uniform vec2 uBedC; uniform float uRadius; uniform float uInner;
 uniform int uShape; uniform vec2 uSector; uniform float uMaxZ;
+// raft see-through from below: 1 = draw only what is above the raft, 2 = only the raft
+uniform int uRaftCut; uniform float uRaftTop;
 bool outsidePlate(vec3 p){
   if (p.z > uMaxZ + 0.01) return true;
   if (uShape == 0) return p.x < uPlate.x - 0.01 || p.y < uPlate.y - 0.01 || p.x > uPlate.z + 0.01 || p.y > uPlate.w + 0.01;
@@ -45,6 +47,8 @@ bool outsidePlate(vec3 p){
 }
 void main(){
   if (vPos.z > uClipZ) discard;
+  if (uRaftCut == 1 && vPos.z < uRaftTop) discard;
+  if (uRaftCut == 2 && vPos.z >= uRaftTop) discard;
   vec3 n = normalize(vNormal);
   bool inside = !gl_FrontFacing;
   if (inside) n = -n;
@@ -337,6 +341,7 @@ class Viewer(QOpenGLWidget):
         self._band = None                # (origin, QRubberBand) while box-selecting
         self._click_select = None        # uid to select alone on release (click inside a group)
         self.extra: list = []            # [(mesh, color)] e.g. SLA supports
+        self.raft_top = 0.0              # height of the raft top (resin); see-through from below
         self._extra_buffers: list = []
         self._extra_dirty = False
         self.paths: np.ndarray | None = None
@@ -530,6 +535,12 @@ class Viewer(QOpenGLWidget):
             point is not None and self.marker is not None and np.allclose(point, self.marker))
         if not same:
             self.marker = None if point is None else np.asarray(point, dtype=float)
+            self.update()
+
+    def set_raft_top(self, z: float):
+        """Top of the resin raft (0 = no raft): seen from below the plate the raft turns see-through."""
+        if abs(float(z) - self.raft_top) > 1e-6:
+            self.raft_top = float(z)
             self.update()
 
     def set_extra_meshes(self, items):
@@ -733,6 +744,10 @@ class Viewer(QOpenGLWidget):
         GL.glUniform1f(self._u(p, "uClipZ"), clip)
         GL.glUniform1f(self._u(p, "uAlpha"), 1.0)
         self._set_plate_bounds(p)
+        see_raft = below and self.raft_top > 0.0 and self.technology == "sla"
+        rafts = []                                    # (matrix, buffer) of supports whose raft is drawn see-through
+        GL.glUniform1i(self._u(p, "uRaftCut"), 0)
+        GL.glUniform1f(self._u(p, "uRaftTop"), self.raft_top + 0.02)
         if show_models:
             GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
             for uid, obj in self.objects.items():
@@ -774,7 +789,12 @@ class Viewer(QOpenGLWidget):
                 if obj.get("sup_buffer") is not None and not preview and self.technology == "sla":
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
                     GL.glUniform3f(self._u(p, "uColor"), *theme.SUPPORT_COLOR)
-                    self._buffer_for(obj, "sup_buffer", "supports").draw(GL.GL_TRIANGLES)
+                    buf = self._buffer_for(obj, "sup_buffer", "supports")
+                    if see_raft:                       # the raft is drawn see-through afterwards
+                        GL.glUniform1i(self._u(p, "uRaftCut"), 1)
+                        rafts.append((obj["matrix"], buf))
+                    buf.draw(GL.GL_TRIANGLES)
+                    GL.glUniform1i(self._u(p, "uRaftCut"), 0)
                     GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
         GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
         cutters = [(uid, o) for uid, o in self.objects.items() if o["state"] == "cutter"] if not preview else []
@@ -795,7 +815,27 @@ class Viewer(QOpenGLWidget):
         if preview or self.technology == "sla":
             for buf, color in self._extra_buffers:
                 GL.glUniform3f(self._u(p, "uColor"), *color)
+                is_support = see_raft and tuple(color) == tuple(theme.SUPPORT_COLOR)
+                if is_support:
+                    GL.glUniform1i(self._u(p, "uRaftCut"), 1)
+                    rafts.append((np.eye(4), buf))
                 buf.draw(GL.GL_TRIANGLES)
+                GL.glUniform1i(self._u(p, "uRaftCut"), 0)
+        if rafts:                                     # seen from below: the raft see-through over the supports
+            GL.glEnable(GL.GL_BLEND)
+            GL.glBlendFuncSeparate(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA, GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA)
+            GL.glDepthMask(GL.GL_FALSE)
+            GL.glUniform1i(self._u(p, "uRaftCut"), 2)
+            GL.glUniform1f(self._u(p, "uAlpha"), 0.28)
+            GL.glUniform3f(self._u(p, "uColor"), *theme.SUPPORT_COLOR)
+            for matrix, buf in rafts:
+                self._set_model(p, matrix)
+                buf.draw(GL.GL_TRIANGLES)
+            GL.glUniform1i(self._u(p, "uRaftCut"), 0)
+            GL.glUniform1f(self._u(p, "uAlpha"), 1.0)
+            GL.glDepthMask(GL.GL_TRUE)
+            GL.glDisable(GL.GL_BLEND)
+            self._set_model(p, np.eye(4))
 
         if not preview:
             for uid in self.selection:

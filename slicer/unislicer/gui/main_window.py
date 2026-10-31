@@ -2741,8 +2741,13 @@ class MainWindow(QMainWindow):
         x0, y0, x1, y1 = plate_rect(cfg)
         return (x0 + x1) / 2, (y0 + y1) / 2
 
+    def _update_raft_view(self, cfg):
+        raft = cfg["technology"] == "sla" and cfg["support_enable"] and cfg["sla_raft_type"] != "none"
+        self.viewer.set_raft_top(cfg["sla_raft_thickness"] if raft else 0.0)
+
     def _apply_printer(self):
         cfg = self.settings.config()
+        self._update_raft_view(cfg)
         tech = cfg["technology"]
         rect = plate_rect(cfg)
         old = getattr(self, "_plate", None)
@@ -2771,6 +2776,7 @@ class MainWindow(QMainWindow):
 
     def _on_settings_changed(self):
         cfg = self.settings.config()
+        self._update_raft_view(cfg)
         b = self.viewer.bed
         if ((cfg["bed_x"], cfg["bed_y"], cfg["max_z"]) != b or cfg["technology"] != self.viewer.technology
                 or (cfg["bed_shape"], cfg["bed_inner_diameter"]) != getattr(self.viewer, "bed_shape", ("rect", 0.0))
