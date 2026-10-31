@@ -36,4 +36,8 @@
 /build
 
 # Debug symbols
-*.pdbslicer/dist_web/
+*.pdb
+
+# Packed control page for manual Netlify upload
+slicer/dist_web/
+
