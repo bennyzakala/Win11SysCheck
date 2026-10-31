@@ -1115,7 +1115,7 @@ def test_dental_shades_regions_import_export(tmp_path):
     assert len(parts) == 1
     obj = SceneObject.from_mesh(parts[0])
     assert sorted(r["shade"] for r in obj.regions) == ["Gingiva Pink", "TA2"]           # A2 -> TA2
-    assert obj.duplicate().regions == obj.regions and obj.state()[-1] == obj.regions
+    assert obj.duplicate().regions == obj.regions and obj.state()[12] == obj.regions
 
     # export: a material per triangle with the shade colours, plus the incisal setting; reads back the same
     out = tmp_path / "out.3mf"
@@ -1840,3 +1840,177 @@ def test_remote_control_window_opens():
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120,
                        cwd=os.path.join(os.path.dirname(__file__), ".."))
     assert r.returncode == 0 and "ok" in r.stdout, r.stderr[-2000:]
+
+
+def test_multi_filament_creality_cfs_sparkx_i7(tmp_path):
+    """Two models in two filaments on the SPARKX i7: Creality's CFS change sequence between them, previews for the
+    screen, per-filament totals and the filament colours/types the printer maps to CFS slots."""
+    import math, re
+    from unislicer import fdm, filaments as fil, gcode, primitives, profiles, thumbnail
+    from unislicer.scene import SceneObject, arrange
+    cfg = profiles.build_config("creality_sparkx_i7", None, None,
+                                {"filament_count": 2, "filament_colors": "#FFFFFF;#202020", "filament_types": "PLA;PETG"})
+    objs = [SceneObject.from_mesh(primitives.box(20, 20, 6)), SceneObject.from_mesh(primitives.box(20, 20, 3))]
+    objs[1].filament = 2
+    arrange(objs, cfg["bed_x"], cfg["bed_y"])
+    parts = [mt for o in objs for mt in o.print_meshes()]
+    meshes, tools = [m for m, _ in parts], [t for _, t in parts]
+    assert tools == [0, 1]
+    plan = fdm.plan(meshes, cfg, tools=tools)
+    assert plan.tools == [0, 1] and plan.multi_material
+    assert {p.tool for p in plan.layers[0].paths} == {0, 1}
+    assert {p.tool for p in plan.layers[-1].paths} == {0}                # the short box is done
+    text, st = gcode.generate(plan, cfg, "two", meshes=meshes, tools=tools)
+
+    # start: Creality's START_PRINT and CFS load of the first filament
+    assert "START_PRINT EXTRUDER_TEMP=" in text and "M8200 P S0" in text
+    body = text.split("; EXECUTABLE_BLOCK_START")[1].split("; EXECUTABLE_BLOCK_END")[0]
+    assert re.search(r"^T0$", body, re.M) and re.search(r"^T1$", body, re.M)
+    # one change into the second filament per layer that has both (each layer starts with the current filament)
+    layers_with_both = sum(1 for l in plan.layers if {p.tool for p in l.paths} == {0, 1})
+    assert st.toolchanges == layers_with_both + 1 or st.toolchanges == layers_with_both
+    change = body.split("; CP TOOLCHANGE T0 -> T1")[1].split(";LAYER_CHANGE")[0]
+    for cmd in ("M8200 P S1", "M8200 C S0", "M8200 L I1", "M8200 R", "M8200 O", "; FLUSH_START", "; WIPE", "G0 X278"):
+        assert cmd in change, cmd
+    assert "M8200 R E-28" in change                                    # PLA: long cut retraction
+    back = body.split("; CP TOOLCHANGE T1 -> T0")[1].split(";LAYER_CHANGE")[0]
+    assert "PETG" not in back and "M8200 R E-28" not in back            # leaving PETG: no cut retraction
+    # purge: white after dark-grey needs more than dark-grey after white; Creality's cycle split
+    assert fil.purge_volume("#202020", "#FFFFFF") > fil.purge_volume("#FFFFFF", "#202020") >= fil.MIN_PURGE
+    cyc = fil.purge_cycles(400.0, 1.75)
+    assert len(cyc) == 3 and abs(sum(cyc) - 400.0 / (math.pi / 4 * 1.75 ** 2)) < 1e-6
+    assert len(fil.purge_cycles(5000.0, 1.75)) == fil.MAX_PURGE_CYCLES
+
+    # previews for the screen: 140 and 260 px PNG, the models drawn in their filament colours
+    thumbs = thumbnail.read_gcode_thumbnails(text)
+    assert [(w, h) for w, h, _ in thumbs] == [(140, 140), (260, 260)]
+    from PIL import Image
+    img = Image.open(io.BytesIO(thumbs[1][2])).convert("RGBA")
+    px = np.asarray(img)
+    assert px[:, :, 3].max() == 255 and px[:, :, 3].min() == 0         # models on a transparent background
+    opaque = px[px[:, :, 3] > 200][:, :3].mean(axis=1)
+    assert opaque.max() > 200 and opaque.min() < 90                    # a light and a dark model
+    assert text.index("; THUMBNAIL_BLOCK_START") < text.index("; EXECUTABLE_BLOCK_START")
+
+    # header and per-filament totals, colours and types for the CFS mapping
+    assert text.startswith("; HEADER_BLOCK_START")
+    assert f"; total layer number: {len(plan.layers)}" in text
+    mm = [float(v) for v in re.search(r"; filament used \[mm\] = (.*)", text).group(1).split(",")]
+    assert len(mm) == 2 and all(v > 0 for v in mm)
+    assert "; filament_colour = #FFFFFF;#202020" in text and "; filament_type = PLA;PETG" in text
+    assert "; printer_model = Creality SPARKX i7" in text
+    # after a change the nozzle comes back down to the layer before printing
+    assert re.search(r"M8200 O\n(?:G1 E-[\d.]+ F\d+\n)?(?:G1 Z[\d.]+ F\d+\n)?G0 X[\d.]+ Y[\d.]+ F\d+\nG1 Z", body)
+
+    # a single filament keeps the old behaviour (no changes, no CFS swaps after the start)
+    plan1 = fdm.plan(meshes, cfg, tools=[0, 0])
+    text1, st1 = gcode.generate(plan1, cfg, "one", meshes=meshes, tools=[0, 0])
+    assert st1.toolchanges == 0 and "CP TOOLCHANGE" not in text1 and plan1.tools == [0]
+
+    # plain T printers: a T command and the user's change G-code
+    cfg2 = profiles.build_config("generic_klipper", None, None,
+                                 {"filament_count": 2, "toolchange_gcode": "; swap {previous_tool}->{next_tool}"})
+    text2, st2 = gcode.generate(fdm.plan(meshes, cfg2, tools=tools), cfg2, "t")
+    assert re.search(r"^T1$", text2, re.M) and "; swap 0->1" in text2 and "M8200" not in text2
+
+
+def test_multi_colour_3mf_parts_keep_their_filaments(tmp_path):
+    """A Bambu Studio / OrcaSlicer / Creality Print project: one object made of parts, each part with its own
+    filament (model_settings.config) and the project's filament colours (project_settings.config); an embedded
+    logo part keeps its volume inside the body."""
+    import json, zipfile
+    from unislicer import fdm, primitives, profiles, project
+    from unislicer.mesh import load_mesh
+    from unislicer.scene import SceneObject
+
+    def obj_xml(oid, mesh):
+        v = "".join(f'<vertex x="{a:.4f}" y="{b:.4f}" z="{c:.4f}"/>' for a, b, c in mesh.vertices)
+        t = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in mesh.faces)
+        return f'<object id="{oid}" type="model"><mesh><vertices>{v}</vertices><triangles>{t}</triangles></mesh></object>'
+
+    body = primitives.box(30, 30, 10)
+    logo = primitives.box(10, 10, 4).translated(np.array([0.0, 0.0, 4.0]))   # inside the body's top
+    ns = 'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06"'
+    objects_model = f'<?xml version="1.0"?><model unit="millimeter" {ns}><resources>{obj_xml(1, body)}{obj_xml(2, logo)}</resources><build/></model>'
+    main = (f'<?xml version="1.0"?><model unit="millimeter" {ns}><resources><object id="4" type="model"><components>'
+            '<component p:path="/3D/Objects/object_1.model" objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
+            '<component p:path="/3D/Objects/object_1.model" objectid="2" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
+            '</components></object></resources><build><item objectid="4" transform="1 0 0 0 1 0 0 0 1 100 100 0"/></build></model>')
+    settings = ('<?xml version="1.0"?><config><object id="4"><metadata key="name" value="Badge"/><metadata key="extruder" value="1"/>'
+                '<part id="1" subtype="normal_part"><metadata key="name" value="Body"/><metadata key="extruder" value="1"/></part>'
+                '<part id="2" subtype="normal_part"><metadata key="name" value="Logo"/><metadata key="extruder" value="2"/></part>'
+                '</object></config>')
+    path = tmp_path / "badge.3mf"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("3D/3dmodel.model", main)
+        z.writestr("3D/Objects/object_1.model", objects_model)
+        z.writestr("Metadata/model_settings.config", settings)
+        z.writestr("Metadata/project_settings.config", json.dumps({"filament_colour": ["#000000", "#7F975F"],
+                                                                     "filament_type": ["PETG", "PETG"]}))
+    meshes = load_mesh(str(path))
+    assert len(meshes) == 1 and meshes[0].name == "Badge"
+    assert meshes[0].project_filaments == {"colours": ["#000000", "#7F975F"], "types": ["PETG", "PETG"]}
+    obj = SceneObject.from_mesh(meshes[0])
+    assert obj.filaments_used() == [1, 2] and [p["name"] for p in obj.filament_parts] == ["Body", "Logo"]
+    obj.x, obj.y = 100, 100
+    parts = obj.print_meshes()
+    assert [t for _, t in parts] == [0, 1]
+    cfg = profiles.build_config("creality_sparkx_i7", None, None, {"filament_count": 2})
+    plan = fdm.plan([m for m, _ in parts], cfg, tools=[t for _, t in parts])
+    # the logo (listed later) prints in filament 2 inside the body, and the body leaves room for it
+    top_logo_layer = next(l for l in plan.layers if 4.5 < l.z < 7.5)
+    assert {p.tool for p in top_logo_layer.paths} == {0, 1}
+    logo_pts = np.vstack([p.points for p in top_logo_layer.paths if p.tool == 1])
+    # boxes start at their corner: the body spans 85..115 on the plate, the logo 85..95
+    assert np.abs(logo_pts - [90, 90]).max() < 5.5
+    body_pts = np.vstack([p.points for p in top_logo_layer.paths if p.tool == 0])
+    assert body_pts.max(axis=0).min() > 110                         # the body still fills around the logo
+    # undo state and projects keep the filaments
+    st = obj.state()
+    obj.filament, obj.filament_parts = 3, []
+    obj.restore(st)
+    assert obj.filaments_used() == [1, 2]
+    project.save(str(tmp_path / "p.unislicer"), [obj], {})
+    loaded, _ = project.load(str(tmp_path / "p.unislicer"))
+    assert loaded[0].filaments_used() == [1, 2] and loaded[0].duplicate().filaments_used() == [1, 2]
+
+
+def test_filament_menu_and_colours_in_the_window():
+    """Right-click › Filament gives the selected model a filament (adding slots as needed), the viewer draws
+    models in their filament colours, and a project's filament colours are taken on import."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication, QMenu
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow()
+        w.settings.select_printer("creality_sparkx_i7") if hasattr(w.settings, "select_printer") else None
+        w.settings.set_value("technology", "fdm") if w.settings.config()["technology"] != "fdm" else None
+        a = w.add_mesh(primitives.box(20, 10, 5))
+        b = w.add_mesh(primitives.box(10, 10, 5))
+        w._select_uid(b.uid)
+        menu = QMenu()
+        w._fill_filament_menu(menu)
+        labels = [x.text() for x in menu.actions()]
+        assert any("2" in t for t in labels), labels
+        w.set_filament_selected(3)
+        assert b.filament == 3 and a.filament == 1
+        assert w.settings.config()["filament_count"] >= 3
+        w._objects_changed()
+        ca, cb = w.viewer.objects[a.uid]["color"], w.viewer.objects[b.uid]["color"]
+        assert ca != cb, (ca, cb)
+        m = primitives.box(5, 5, 5)
+        m.project_filaments = {"colours": ["#112233", "#AABBCC"], "types": ["petg", "pla"]}
+        w._import_project_filaments([m])
+        cfg = w.settings.config()
+        assert cfg["filament_colors"].startswith("#112233;#AABBCC") and cfg["filament_types"].startswith("PETG;PLA")
+        w.undo()
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

@@ -35,6 +35,9 @@ def save(path: str, objects: list[SceneObject], settings_state: dict) -> None:
                 "direct": o.direct, "material": o.material,
                 "regions": [{"name": r["name"], "shade": r["shade"], "faces": np.asarray(r["faces"]).tolist()}
                             for r in o.regions],
+                "filament": int(o.filament),
+                "filament_parts": [{"name": p.get("name", ""), "filament": int(p["filament"]),
+                                    "faces": np.asarray(p["faces"]).tolist()} for p in o.filament_parts],
             })
         doc = {"format": FORMAT_VERSION, "generator": f"UniSlicer {__version__}",
                "settings": settings_state, "objects": entries}
@@ -62,5 +65,8 @@ def load(path: str) -> tuple[list[SceneObject], dict]:
                 np.array(e.get("drain_holes", []), dtype=float).reshape(-1, 6), e.get("role", "model"), float(e.get("z", 0.0)),
                 bool(e.get("direct", False)), str(e.get("material", "")),
                 [{"name": r.get("name", ""), "shade": r.get("shade", ""), "faces": np.array(r.get("faces", []), dtype=np.int64)}
-                 for r in e.get("regions", [])]))
+                 for r in e.get("regions", [])],
+                int(e.get("filament", 1) or 1),
+                [{"name": p.get("name", ""), "filament": int(p.get("filament", 1)),
+                  "faces": np.array(p.get("faces", []), dtype=np.int64)} for p in e.get("filament_parts", [])]))
     return objects, doc.get("settings", {})

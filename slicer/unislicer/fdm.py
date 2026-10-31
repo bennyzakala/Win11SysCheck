@@ -27,6 +27,7 @@ class Path:
     points: np.ndarray          # (n, 2)
     closed: bool
     retract: bool = True        # retract before travelling to this path
+    tool: int = 0               # filament (T number) that prints this path
 
 
 @dataclass
@@ -42,6 +43,11 @@ class FdmPlan:
     layers: list[Layer]
     line_width: float
     warnings: list[str] = field(default_factory=list)
+    tools: list[int] = field(default_factory=lambda: [0])     # filaments used, in T numbers
+
+    @property
+    def multi_material(self) -> bool:
+        return len(self.tools) > 1
 
 
 class _Progress:
@@ -214,7 +220,26 @@ class _LayerBuilder:
 
 # ------------------------------------------------------------------ main
 def plan(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
-         cancelled: Callable[[], bool] | None = None, cutters: list[Mesh] | None = None) -> FdmPlan:
+         cancelled: Callable[[], bool] | None = None, cutters: list[Mesh] | None = None,
+         tools: list[int] | None = None) -> FdmPlan:
+    """Toolpaths for ``meshes``. ``tools[i]`` is the filament (0-based T number) of ``meshes[i]``;
+    with more than one filament each layer gets a part per filament (where two overlap, the
+    model listed later keeps the volume, so a logo part inside a body shows) and every path records its filament."""
+    tools = [int(t) for t in (tools or [0] * len(meshes))]
+    if len(tools) != len(meshes):
+        raise ValueError("one filament per model")
+    used = sorted(set(tools))
+    if len(used) > 1:
+        return _plan_multi(meshes, cfg, tools, used, progress, cancelled, cutters)
+    result = _plan_single(meshes, cfg, progress, cancelled, cutters)
+    for layer in result.layers:
+        for p in layer.paths:
+            p.tool = used[0]
+    result.tools = used
+    return result
+
+
+def _plan_single(meshes, cfg, progress=None, cancelled=None, cutters=None) -> FdmPlan:
     report = _Progress(progress, cancelled)
     w = cfg.line_width
     warnings = []
@@ -248,7 +273,7 @@ def plan(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None]
     args = []
     for a, b in ranges:
         lo, hi = max(0, a - n_bottom), min(n, b + n_top)   # neighbours needed for top/bottom skins
-        args.append((a, b, lo, regions[lo:hi], n, heights, support[a:b], interface[a:b], cfg.values, w))
+        args.append((a, b, lo, regions[lo:hi], n, heights, support[a:b], interface[a:b], cfg.values, w, True, None))
     report("paths", 0.0)
     chunks = parallel.run_chunks(_plan_layers, args, lambda f: report("paths", f), cancelled,
                                  [b - a for a, b in ranges])
@@ -256,9 +281,97 @@ def plan(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None]
     return FdmPlan([layer for chunk in chunks for layer in chunk], w, warnings)
 
 
+def _plan_multi(meshes, cfg, tools, used, progress=None, cancelled=None, cutters=None) -> FdmPlan:
+    """Several filaments: slice each filament's models, keep overlaps for the first one, plan each part."""
+    report = _Progress(progress, cancelled)
+    w = cfg.line_width
+    warnings = [f"'{m.name}' is not watertight; the slicer will try to repair open contours."
+                for m in meshes if not m.is_watertight()]
+    max_z = max(float(m.bounds[1, 2]) for m in meshes)
+    heights = layer_heights(max_z, cfg["layer_height"], cfg["first_layer_height"])
+    planes = [top - th / 2 for top, th in heights]
+    n = len(planes)
+
+    report("slice", 0.0)
+    per_tool = {}
+    for k, t in enumerate(used):
+        group = [m for m, tt in zip(meshes, tools) if tt == t]
+        per_tool[t] = slice_meshes(group, planes, cfg["resolution"],
+                                   progress=lambda f, k=k: report("slice", (k + f) / len(used)), cancelled=cancelled)
+    if cutters:
+        cut = slice_meshes(cutters, planes, cfg["resolution"])
+        for t in used:
+            per_tool[t] = [as_multipolygon(r.difference(c)) if not c.is_empty and not r.is_empty else r
+                           for r, c in zip(per_tool[t], cut)]
+    # where models overlap, the one listed later keeps the volume (embedded logos / text parts)
+    order = []
+    for t in reversed(tools):
+        if t not in order:
+            order.append(t)
+    taken = [EMPTY] * n
+    for t in order:
+        own = []
+        for i in range(n):
+            r = per_tool[t][i]
+            if not taken[i].is_empty and not r.is_empty:
+                r = as_multipolygon(r.difference(taken[i]))
+            own.append(r)
+            taken[i] = as_multipolygon(taken[i].union(r)) if not r.is_empty else taken[i]
+        per_tool[t] = own
+    union = taken
+
+    support, interface = ([EMPTY] * n, [EMPTY] * n)
+    if cfg["support_enable"]:
+        report("support", 0.0)
+        support, interface = compute_supports(union, heights, cfg, w)
+    sup_choice = int(cfg["support_filament"]) - 1
+    support_tool = sup_choice if sup_choice in used else used[0]
+    adhesion_tool = tools[0]
+
+    from . import parallel
+    n_top, n_bottom = int(cfg["top_layers"]), int(cfg["bottom_layers"])
+    ranges = parallel.chunk_ranges(n, 6, parallel.workers() * 3) if n >= 30 else [(0, n)]
+    args, owners = [], []
+    for t in used:
+        regions = per_tool[t]
+        sup = support if t == support_tool else [EMPTY] * n
+        itf = interface if t == support_tool else [EMPTY] * n
+        for a, b in ranges:
+            lo, hi = max(0, a - n_bottom), min(n, b + n_top)
+            args.append((a, b, lo, regions[lo:hi], n, heights, sup[a:b], itf[a:b], cfg.values, w,
+                         t == adhesion_tool, union[0] if t == adhesion_tool else None))
+            owners.append(t)
+    report("paths", 0.0)
+    chunks = parallel.run_chunks(_plan_layers, args, lambda f: report("paths", f), cancelled,
+                                 [a[1] - a[0] for a in args])
+    report("paths", 1.0)
+    layers = [Layer(i, heights[i][0], heights[i][1], []) for i in range(n)]
+    for t, chunk in zip(owners, chunks):
+        for layer in chunk:
+            for p in layer.paths:
+                p.tool = t
+            layers[layer.index].paths.extend(layer.paths)
+    # within a layer, print the filament that just printed first (fewer changes), then the others
+    current = adhesion_tool
+    for layer in layers:
+        present = []
+        for p in layer.paths:
+            if p.tool not in present:
+                present.append(p.tool)
+        if current in present:
+            present.remove(current)
+            present.insert(0, current)
+        rank = {t: k for k, t in enumerate(present)}
+        layer.paths.sort(key=lambda p: rank[p.tool])        # stable: keeps each filament's own order
+        if present:
+            current = present[-1]
+    return FdmPlan(layers, w, warnings, list(used))
+
+
 def _plan_layers(start: int, end: int, offset: int, regions_window: list, n: int, heights, support, interface,
-                 values: dict, w: float) -> list[Layer]:
-    """Toolpaths for layers start..end-1. ``regions_window[k]`` is layer ``offset + k`` (process-pool entry point)."""
+                 values: dict, w: float, adhesion: bool = True, adhesion_area=None) -> list[Layer]:
+    """Toolpaths for layers start..end-1. ``regions_window[k]`` is layer ``offset + k`` (process-pool entry point).
+    ``adhesion``: print the skirt/brim (around ``adhesion_area`` when given, e.g. every filament's first layer)."""
     cfg = Config(dict(values))
     walls = int(cfg["wall_count"])
     n_top, n_bottom = int(cfg["top_layers"]), int(cfg["bottom_layers"])
@@ -290,8 +403,9 @@ def _plan_layers(start: int, end: int, offset: int, regions_window: list, n: int
         else:
             sparse_ok = _intersect_all(below + above + [region])
 
-        if i == 0:
-            _adhesion(b, region.union(sup_i) if not sup_i.is_empty else region, cfg, w)
+        if i == 0 and adhesion:
+            first = region if adhesion_area is None else adhesion_area
+            _adhesion(b, first.union(sup_i) if not sup_i.is_empty else first, cfg, w)
 
         islands = polygons_of(region)
         islands = _order_by_proximity(islands, [np.asarray(p.representative_point().coords[0]) for p in islands], b.pos)

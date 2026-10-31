@@ -301,6 +301,7 @@ def read_3mf_tolerant(data: bytes, notes: list, name: str) -> list[Mesh]:
                 out += tris_of(target, c.get("objectid"), matrix @ _transform(c.get("transform")), depth + 1)
         return out
 
+    settings = _project_settings(zf)          # Bambu Studio / OrcaSlicer / Creality Print project data
     meshes = []
     for path, root in models.items():
         ns = ns_of(root)
@@ -310,21 +311,98 @@ def read_3mf_tolerant(data: bytes, notes: list, name: str) -> list[Mesh]:
             continue
         for i, item in enumerate(build.iter(q("item"))):
             target = item.get(f"{{{PRODUCTION_NS}}}path") or path
-            tris = tris_of(target, item.get("objectid"), _transform(item.get("transform")))
+            oid = item.get("objectid")
+            m_item = _transform(item.get("transform"))
+            obj = objects.get((target, oid), (None,))[0]
+            label = (obj.get("name") if obj is not None else None) or f"{name}_{len(meshes) + 1}"
+            label = settings["names"].get(oid, label)
+            parts = []
+            comps = obj.find(objects[(target, oid)][1]("components")) if obj is not None else None
+            if comps is not None and settings["parts"].get(oid):
+                q2 = objects[(target, oid)][1]
+                for c in comps.iter(q2("component")):
+                    cpath = c.get(f"{{{PRODUCTION_NS}}}path") or target
+                    ctris = tris_of(cpath, c.get("objectid"), m_item @ _transform(c.get("transform")), 1)
+                    if ctris:
+                        info = settings["parts"][oid].get(c.get("objectid"), {})
+                        parts.append((info.get("name", ""), np.vstack(ctris),
+                                      info.get("extruder", settings["extruder"].get(oid, 1))))
+            if parts:
+                meshes.append((label, np.vstack([t for _n, t, _e in parts]),
+                               [(n, len(t), e) for n, t, e in parts], settings))
+                continue
+            tris = tris_of(target, oid, m_item)
             if tris:
-                obj = objects.get((target, item.get("objectid")), (None,))[0]
-                label = (obj.get("name") if obj is not None else None) or f"{name}_{len(meshes) + 1}"
-                meshes.append((label, np.vstack(tris)))
+                ext = settings["extruder"].get(oid)
+                meshes.append((label, np.vstack(tris), [("", sum(len(t) for t in tris), ext)] if ext else None, settings))
     if not meshes:          # no build section: every object that has a mesh
         for (path, oid), (obj, q) in objects.items():
             tris = tris_of(path, oid, np.eye(4))
             if tris:
-                meshes.append((obj.get("name") or f"{name}_{len(meshes) + 1}", np.vstack(tris)))
+                meshes.append((obj.get("name") or f"{name}_{len(meshes) + 1}", np.vstack(tris), None, settings))
     if dropped_idx[0]:
         notes.append(("rs_3mf_bad_triangles", (dropped_idx[0],)))
     if not meshes:
         raise RescueFailed("empty")
-    return [Mesh.from_triangles(t, label) for label, t in meshes]
+    out = []
+    for label, t, parts, st in meshes:
+        m = Mesh.from_triangles(t, label)
+        if parts and st["colours"]:
+            # triangles stay in order through from_triangles: part k is a run of faces
+            fparts, start = [], 0
+            for pname, count, ext in parts:
+                fparts.append({"name": pname, "faces": np.arange(start, start + count), "filament": int(ext or 1)})
+                start += count
+            if len(m.faces) == start:
+                m.filament_parts = fparts
+            m.project_filaments = {"colours": st["colours"], "types": st["types"]}
+        out.append(m)
+    return out
+
+
+def _project_settings(zf) -> dict:
+    """Filament colours/types (project_settings.config) and each object's / part's filament
+    (model_settings.config) from a Bambu Studio, OrcaSlicer or Creality Print 3MF."""
+    import json as _json
+    out = {"colours": [], "types": [], "extruder": {}, "parts": {}, "names": {}}
+    names = {n.lower(): n for n in zf.namelist()}
+    raw = names.get("metadata/project_settings.config")
+    if raw:
+        try:
+            cfg = _json.loads(zf.read(raw).decode("utf-8", "replace"))
+            out["colours"] = [str(c) for c in cfg.get("filament_colour", []) or []]
+            out["types"] = [str(c) for c in cfg.get("filament_type", []) or []]
+        except (ValueError, KeyError, zipfile.BadZipFile, RuntimeError):
+            pass
+    raw = names.get("metadata/model_settings.config")
+    if raw:
+        try:
+            root = ET.fromstring(zf.read(raw))
+        except (ET.ParseError, zipfile.BadZipFile, RuntimeError):
+            root = None
+        if root is not None:
+            def meta(el):
+                return {m.get("key"): m.get("value") for m in el.findall("metadata")}
+            for obj in root.findall("object"):
+                oid, md = obj.get("id"), meta(obj)
+                try:
+                    out["extruder"][oid] = int(md.get("extruder", "1") or 1)
+                except ValueError:
+                    out["extruder"][oid] = 1
+                if md.get("name"):
+                    out["names"][oid] = md["name"]
+                parts = {}
+                for part in obj.findall("part"):
+                    pm = meta(part)
+                    if part.get("subtype", "normal_part") != "normal_part":
+                        continue
+                    try:
+                        ext = int(pm.get("extruder", "") or out["extruder"][oid])
+                    except ValueError:
+                        ext = out["extruder"][oid]
+                    parts[part.get("id")] = {"name": pm.get("name", ""), "extruder": ext}
+                out["parts"][oid] = parts
+    return out
 
 
 def _transform(text):

@@ -32,6 +32,10 @@ class SceneObject:
     # regions of the part with their own shade (e.g. a denture: gingiva + each tooth):
     # [{"name": str, "faces": int array into mesh.faces, "shade": str}]
     regions: list = field(default_factory=list)
+    filament: int = 1                            # FDM: filament number (1 = T0) for the whole model
+    # parts of the model printed with their own filament (e.g. from a Bambu / Orca / Creality Print 3MF):
+    # [{"name": str, "faces": int array into mesh.faces, "filament": int}]
+    filament_parts: list = field(default_factory=list)
     uid: int = field(default_factory=lambda: next(_ids))
 
     @classmethod
@@ -44,7 +48,32 @@ class SceneObject:
         obj.material = find(mat).code if find(mat) else mat
         obj.regions = [dict(r, shade=find(r["shade"]).code if find(r["shade"]) else r["shade"])
                        for r in getattr(mesh, "regions", [])]
+        parts = getattr(mesh, "filament_parts", None) or []
+        if parts and sum(len(p["faces"]) for p in parts) == len(centred.faces):
+            if len({p["filament"] for p in parts}) == 1:
+                obj.filament = int(parts[0]["filament"])
+            else:
+                obj.filament_parts = [dict(p) for p in parts]
+                obj.filament = int(parts[0]["filament"])
         return obj
+
+    def filaments_used(self) -> list[int]:
+        if self.filament_parts and sum(len(p["faces"]) for p in self.filament_parts) == len(self.mesh.faces):
+            return sorted({int(p["filament"]) for p in self.filament_parts})
+        return [int(self.filament)]
+
+    def print_meshes(self) -> list[tuple[Mesh, int]]:
+        """World meshes to slice with their filament (0-based T number): one per filament part, else the whole model."""
+        world = self.world_mesh()
+        parts = self.filament_parts
+        if parts and sum(len(p["faces"]) for p in parts) == len(world.faces) and len({p["filament"] for p in parts}) > 1:
+            out = []
+            for p in parts:
+                f = world.faces[np.asarray(p["faces"], dtype=np.int64)]
+                if len(f):
+                    out.append((Mesh(world.vertices, f, f"{self.name} {p.get('name', '')}".strip()), int(p["filament"]) - 1))
+            return out
+        return [(world, max(0, int(self.filament) - 1))]
 
     def matrix(self) -> np.ndarray:
         """Rotation and scale only (no placement)."""
@@ -131,11 +160,14 @@ class SceneObject:
         sp = None if self.support_points is None else self.support_points.copy()
         return (self.x, self.y, self.rotation.copy(), self.scale.copy(), self.base_rotation.copy(), self.mirror.copy(), sp,
                 self.drain_holes.copy(), self.role, self.z, self.direct, self.material,
-                [dict(r) for r in self.regions])
+                [dict(r) for r in self.regions], self.filament, [dict(p) for p in self.filament_parts])
 
     def restore(self, state: tuple) -> None:
         (self.x, self.y, rot, scale, base, mirror, sp, holes, self.role, self.z, self.direct, self.material,
-         regions) = state
+         regions) = state[:13]
+        if len(state) > 13:
+            self.filament, parts = state[13], state[14]
+            self.filament_parts = [dict(p) for p in parts]
         self.regions = [dict(r) for r in regions]
         self.drain_holes = holes.copy()
         self.rotation, self.scale, self.base_rotation, self.mirror = rot.copy(), scale.copy(), base.copy(), mirror.copy()
@@ -155,7 +187,8 @@ class SceneObject:
         sp = None if self.support_points is None else self.support_points.copy()
         return SceneObject(self.mesh, self.name, self.x, self.y, self.rotation.copy(), self.scale.copy(),
                            self.base_rotation.copy(), self.mirror.copy(), sp, self.drain_holes.copy(), self.role, self.z,
-                           self.direct, self.material, [dict(r) for r in self.regions])
+                           self.direct, self.material, [dict(r) for r in self.regions], self.filament,
+                           [dict(p) for p in self.filament_parts])
 
 
 def plate_rect(cfg) -> tuple[float, float, float, float]:

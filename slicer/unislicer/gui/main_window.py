@@ -233,6 +233,7 @@ class MainWindow(QMainWindow):
         mm.addAction(theme.icon("download"), tr("export_stl"), self.export_stl)
         mm.addAction(theme.icon("wifi"), tr("net_title") + "…", self.network_printers)
         mm.addAction(theme.icon("wifi"), tr("remote_title") + "…", self.remote_control)
+        mm.addAction(theme.icon("layers"), tr("fil_title") + "…", self.filaments_dialog)
         mm.addAction(theme.icon("sparkle"), tr("cad_title") + "…", self.dental_cad_dialog)
         mm.addAction(theme.icon("copy"), tr("multiply"), self.multiply_selected)
         mm.addSeparator()
@@ -1047,9 +1048,172 @@ class MainWindow(QMainWindow):
             for m in meshes:
                 added = self.add_mesh(m, rearrange=False)
                 self.status.setText(tr("loaded").format(m.name, len(m.faces)))
+            self._import_project_filaments(meshes)
         if added is not None:
             self.arrange_objects()
             self.viewer.fit_objects()
+
+    # ================================================================ filaments (multi-colour FDM)
+    def _import_project_filaments(self, meshes):
+        """A Bambu / Orca / Creality Print project names its filaments: take their colours and types."""
+        info = next((getattr(m, "project_filaments", None) for m in meshes if getattr(m, "project_filaments", None)), None)
+        if not info or not info.get("colours"):
+            return
+        from .. import filaments as fil
+        cfg = self.settings.config()
+        used = max([n for o in self.objects for n in o.filaments_used()] + [1])
+        count = max(int(cfg["filament_count"]), min(16, max(used, len(info["colours"]))))
+        colours = [fil.normalise_colour(c) for c in info["colours"]][:16]
+        types = [t.upper() for t in info.get("types", [])][:16]
+        old_c = cfg["filament_colors"].split(";")
+        old_t = cfg["filament_types"].split(";")
+        colours += old_c[len(colours):count]
+        types += old_t[len(types):count]
+        self.settings.set_value("filament_count", count)
+        self.settings.set_value("filament_colors", ";".join(colours[:count]))
+        self.settings.set_value("filament_types", ";".join(t or "PLA" for t in types[:count]))
+        if cfg["technology"] == "fdm":
+            self.status.setText(tr("fil_imported").format(count))
+        self._objects_changed()
+
+    def filament_colour_rgb(self, number: int, cfg=None):
+        from .. import filaments as fil
+        cfg = cfg or self.settings.config()
+        flist = fil.filament_list(cfg)
+        k = max(0, int(number) - 1)
+        return fil.rgb(flist[k].colour) if k < len(flist) else fil.rgb(fil.DEFAULT_COLOURS[k % len(fil.DEFAULT_COLOURS)])
+
+    def _multi_filament_view(self, cfg) -> bool:
+        return cfg["technology"] == "fdm" and (int(cfg["filament_count"]) > 1 or
+                                               any(o.filaments_used() != [1] for o in self.objects))
+
+    def set_filament_selected(self, number: int):
+        """Print the selected models with filament ``number`` (1 = T0); adds filament slots if needed."""
+        group = self.selected_objects()
+        if not group:
+            return
+        self._push_undo()
+        for o in group:
+            o.filament = int(number)
+            o.filament_parts = []
+        cfg = self.settings.config()
+        if number > int(cfg["filament_count"]):
+            self.settings.set_value("filament_count", int(number))
+        self._objects_changed()
+        self.status.setText(tr("fil_assigned").format(number, len(group)))
+
+    def _fill_filament_menu(self, menu):
+        from PySide6.QtGui import QColor, QIcon, QPixmap
+        from .. import filaments as fil
+        cfg = self.settings.config()
+        flist = fil.filament_list(cfg)
+        group = self.selected_objects()
+        current = {n for o in group for n in o.filaments_used()}
+        for k in range(max(len(flist), min(16, len(flist) + 1))):
+            colour = flist[k].colour if k < len(flist) else fil.DEFAULT_COLOURS[k % len(fil.DEFAULT_COLOURS)]
+            pm = QPixmap(16, 16)
+            pm.fill(QColor(colour))
+            label = (tr("fil_n").format(k + 1) + (f"  ·  {flist[k].type}" if k < len(flist) else "  ·  " + tr("fil_new")))
+            act = menu.addAction(QIcon(pm), label, lambda n=k + 1: self.set_filament_selected(n))
+            act.setCheckable(True)
+            act.setChecked(current == {k + 1})
+        if any(o.filament_parts for o in group):
+            menu.addSeparator()
+            note = menu.addAction(tr("fil_parts_note"))
+            note.setEnabled(False)
+        menu.addSeparator()
+        menu.addAction(theme.icon("settings"), tr("fil_edit") + "…", self.filaments_dialog)
+
+    def filaments_dialog(self):
+        """Edit the print's filaments: count, colour, type and temperature of each."""
+        from PySide6.QtGui import QColor
+        from PySide6.QtWidgets import QColorDialog, QComboBox, QGridLayout, QLabel, QPushButton, QSpinBox
+        from .. import filaments as fil
+        cfg = self.settings.config()
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("fil_title"))
+        lay = QVBoxLayout(dlg)
+        intro = QLabel(tr("fil_intro"))
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+        count = QSpinBox()
+        count.setRange(1, 16)
+        count.setValue(int(cfg["filament_count"]))
+        row = QHBoxLayout()
+        row.addWidget(QLabel(tr("fil_count")))
+        row.addWidget(count)
+        row.addStretch(1)
+        lay.addLayout(row)
+        grid = QGridLayout()
+        lay.addLayout(grid)
+        state = {"rows": []}
+        types = ("PLA", "PETG", "ABS", "ASA", "TPU", "PA", "PC", "PVA", "HIPS")
+
+        def build():
+            while grid.count():
+                w = grid.takeAt(0).widget()
+                if w is not None:
+                    w.deleteLater()
+            flist = fil.filament_list(self.settings.config().update({"filament_count": count.value(),
+                                                                         "filament_colors": ";".join(r["colour"] for r in state["rows"])
+                                                                         if state["rows"] else cfg["filament_colors"],
+                                                                         "filament_types": ";".join(r["type"].currentText() for r in state["rows"])
+                                                                         if state["rows"] else cfg["filament_types"]}))
+            old = state["rows"]
+            state["rows"] = []
+            for h, text in enumerate((tr("fil_slot"), tr("fil_colour"), tr("fil_type"), tr("fil_temp"))):
+                lab = QLabel(f"<b>{text}</b>")
+                grid.addWidget(lab, 0, h)
+            for k, f in enumerate(flist):
+                r = {"colour": old[k]["colour"] if k < len(old) else f.colour}
+                grid.addWidget(QLabel(f"T{k}  ({tr('fil_n').format(k + 1)})"), k + 1, 0)
+                btn = QPushButton(r["colour"])
+                btn.setStyleSheet(f"background:{r['colour']}; color:{'#000' if sum(fil.rgb(r['colour'])) > 1.5 else '#fff'}")
+
+                def pick(_=False, r=r, btn=btn):
+                    c = QColorDialog.getColor(QColor(r["colour"]), dlg, tr("fil_colour"))
+                    if c.isValid():
+                        r["colour"] = c.name().upper()
+                        btn.setText(r["colour"])
+                        btn.setStyleSheet(f"background:{r['colour']}; color:{'#000' if sum(fil.rgb(r['colour'])) > 1.5 else '#fff'}")
+                btn.clicked.connect(pick)
+                grid.addWidget(btn, k + 1, 1)
+                combo = QComboBox()
+                combo.setEditable(True)
+                combo.addItems(types)
+                combo.setCurrentText(old[k]["type"].currentText() if k < len(old) else f.type)
+                r["type"] = combo
+                grid.addWidget(combo, k + 1, 2)
+                temp = QSpinBox()
+                temp.setRange(150, 350)
+                temp.setSuffix(" °C")
+                temp.setValue(old[k]["temp"].value() if k < len(old) else f.temp)
+                r["temp"] = temp
+                grid.addWidget(temp, k + 1, 3)
+                state["rows"].append(r)
+
+        build()
+        count.valueChanged.connect(lambda _v: build())
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        ok = QPushButton(tr("apply"))
+        ok.setDefault(True)
+        cancel = QPushButton(tr("cancel"))
+        buttons.addWidget(cancel)
+        buttons.addWidget(ok)
+        lay.addLayout(buttons)
+        cancel.clicked.connect(dlg.reject)
+        ok.clicked.connect(dlg.accept)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        rows = state["rows"]
+        base_temp = int(cfg["nozzle_temp"])
+        temps = [r["temp"].value() for r in rows]
+        self.settings.set_value("filament_count", len(rows))
+        self.settings.set_value("filament_colors", ";".join(r["colour"] for r in rows))
+        self.settings.set_value("filament_types", ";".join(r["type"].currentText().strip().upper() or "PLA" for r in rows))
+        self.settings.set_value("filament_temps", "" if all(t == base_temp for t in temps) else ";".join(map(str, temps)))
+        self._objects_changed()
 
     def _rescue_model(self, path: str, error: Exception) -> list:
         """A model that did not load: recover it without losing quality, and learn what worked."""
@@ -1720,13 +1884,19 @@ class MainWindow(QMainWindow):
             if uid not in uids:
                 self.viewer.remove_object(uid)
         colliding = getattr(self, "_colliding", set())
+        multi = self._multi_filament_view(cfg)
         for o in self.objects:
             state = "cutter" if o.role == "cutter" else (self._outside_state(o, cfg) if o.uid in outside else
                                                          "collision" if o.uid in colliding else "normal")
             self.viewer.set_object(o.uid, o.mesh, self._display_matrix(o), state)
-            self.viewer.set_object_color(o.uid, dental_shades.display_rgb(o.material))
-            self.viewer.set_object_regions(o.uid, [(r["faces"], dental_shades.display_rgb(r["shade"]))
-                                                   for r in o.regions] or None)
+            if multi:
+                self.viewer.set_object_color(o.uid, self.filament_colour_rgb(o.filament, cfg))
+                self.viewer.set_object_regions(o.uid, [(p["faces"], self.filament_colour_rgb(p["filament"], cfg))
+                                                       for p in o.filament_parts] or None)
+            else:
+                self.viewer.set_object_color(o.uid, dental_shades.display_rgb(o.material))
+                self.viewer.set_object_regions(o.uid, [(r["faces"], dental_shades.display_rgb(r["shade"]))
+                                                       for r in o.regions] or None)
             self.viewer.set_object_supports(o.uid, self._support_preview(o, cfg))
             self.viewer.set_object_holes(o.uid, self._hole_preview(o, cfg))
         sel = self.selected()
@@ -2069,6 +2239,8 @@ class MainWindow(QMainWindow):
             menu.addAction(theme.icon("x"), tr("hide_models"), self.hide_selected)
             if len(group) > 1:
                 menu.addAction(theme.icon("copy"), tr("merge_models"), self.merge_selected)
+            if self.viewer.technology != "sla":
+                self._fill_filament_menu(menu.addMenu(theme.icon("layers"), tr("fil_menu")))
             menu.addAction(theme.icon("drop"), tr("shade_menu") + "…", self.dental_shades_dialog)
             dental = menu.addMenu(theme.icon("sparkle"), tr("dental_indication"))
             for key in ("model", "splint", "crown", "guide"):
@@ -2791,6 +2963,10 @@ class MainWindow(QMainWindow):
         else:
             self._update_overhang()
             self._invalidate()
+        fkey = (cfg["technology"], cfg["filament_count"], cfg["filament_colors"])
+        if fkey != getattr(self, "_filament_view_key", None):      # model colours follow the filament list
+            self._filament_view_key = fkey
+            self._objects_changed()
         self._save_state()
         self._schedule_suggestions()
 
@@ -2868,9 +3044,11 @@ class MainWindow(QMainWindow):
                 job = sla.prepare(meshes, cfg, progress, cancelled, support_points=manual, direct=direct, holes=holes, cutters=cutters,
                                   materials=materials)
                 return ("sla", job, cfg)
-            plan = fdm.plan(meshes, cfg, progress, cancelled, cutters=cutters)
+            parts = [mt for o in models for mt in o.print_meshes()]
+            fdm_meshes, tools = [m for m, _t in parts], [t for _m, t in parts]
+            plan = fdm.plan(fdm_meshes, cfg, progress, cancelled, cutters=cutters, tools=tools)
             progress("gcode", 0.0)
-            text, stats = gcode.generate(plan, cfg, name)
+            text, stats = gcode.generate(plan, cfg, name, meshes=fdm_meshes, tools=tools)
             progress("preview", 0.0)
             verts = toolpath_vertices(plan)
             return ("fdm", plan, text, stats, verts, cfg)

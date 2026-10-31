@@ -58,8 +58,10 @@ def slice_command(args) -> int:
               f"~{job.time_s / 3600:.2f} h  (sliced in {time.time() - t0:.1f}s)")
     else:
         from . import fdm, gcode
-        plan = fdm.plan(meshes, cfg, _progress)
-        text, stats = gcode.generate(plan, cfg, job_name)
+        parts = [mt for o in objects for mt in o.print_meshes()]
+        fmeshes, tools = [m for m, _t in parts], [t for _m, t in parts]
+        plan = fdm.plan(fmeshes, cfg, _progress, tools=tools)
+        text, stats = gcode.generate(plan, cfg, job_name, meshes=fmeshes, tools=tools)
         out = args.output or job_name + ".gcode"
         with open(out, "w", encoding="utf-8") as fh:
             fh.write(text)

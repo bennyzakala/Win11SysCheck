@@ -82,13 +82,16 @@
    "top_bottom_speed": 120,
    "support_speed": 150,
    "travel_speed": 300,
-   "first_layer_speed": 50
+   "first_layer_speed": 50,
+   "thumbnails": "96x96/PNG, 300x300/PNG",
+   "gcode_header": "creality",
+   "printer_model": "Creality K1"
   }
  },
  "creality_sparkx_i7": {
   "name": "Creality SPARKX i7",
   "vendor": "Creality",
-  "note": "260×260×255 mm, Klipper-based (Creality OS), up to 500 mm/s; CFS Lite multi-colour: one nozzle, 1.75 mm",
+  "note": "260×260×255 mm, Klipper-based (Creality OS), up to 500 mm/s; CFS multi-colour (one nozzle, 1.75 mm): filament changes use Creality's CFS sequence (cut, swap, purge into the chute) and the file carries 140/260 px previews for the screen",
   "values": {
    "technology": "fdm",
    "bed_x": 260,
@@ -104,7 +107,15 @@
    "top_bottom_speed": 150,
    "support_speed": 150,
    "travel_speed": 400,
-   "first_layer_speed": 50
+   "first_layer_speed": 50,
+   "relative_e": true,
+   "z_hop": 0.4,
+   "toolchange_mode": "creality_cfs",
+   "thumbnails": "140x140/PNG, 260x260/PNG",
+   "gcode_header": "creality",
+   "printer_model": "Creality SPARKX i7",
+   "filament_colors": "#FCE94F;#2E3436;#EF2929;#3465A4",
+   "filament_types": "PLA;PLA;PLA;PLA"
   }
  },
  "prusa_mk4": {
