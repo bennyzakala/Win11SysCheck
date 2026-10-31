@@ -97,6 +97,8 @@ const T = {
   link_wait: ["אשר את החיבור במסך של המחשב ({})…", "Confirm the link on the computer's screen ({})…"],
   link_done: ["המחשב {} קושר לחשבון שלך.", "{} is now linked to your account."],
   link_timeout: ["לא התקבל אישור במחשב. נסה שוב.", "The computer did not confirm. Try again."],
+  denied: ["Firebase דחה את הגישה: חוקי האבטחה של מסד הנתונים עוד לא פורסמו (Realtime Database › Rules › Publish).",
+           "Firebase denied access: the database security rules are not published yet (Realtime Database › Rules › Publish)."],
   no_agents: ["עוד לא קושרו מחשבים לחשבון.", "No computers linked yet."],
   online: ["מחובר", "Online"], offline: ["לא מחובר", "Offline"],
   seen: ["נראה לאחרונה {}", "Last seen {}"],
@@ -196,7 +198,7 @@ $("link").onclick = async () => {
       } catch (e) { /* not ours yet: the computer has not confirmed */ }
     }
     throw new Error(t("link_timeout"));
-  } catch (e) { msg.textContent = e.message; msg.className = "msg bad"; }
+  } catch (e) { msg.textContent = /permission.denied/i.test(e.message || e.code || "") ? t("denied") : e.message; msg.className = "msg bad"; }
   finally { $("link").disabled = false; }
 };
 
