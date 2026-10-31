@@ -36,4 +36,4 @@
 /build
 
 # Debug symbols
-*.pdb
+*.pdbslicer/dist_web/
