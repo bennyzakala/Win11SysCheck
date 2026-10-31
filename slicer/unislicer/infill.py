@@ -28,11 +28,24 @@ def _lines_of(geom: BaseGeometry) -> list[np.ndarray]:
     return []
 
 
+def _valid(geom: BaseGeometry) -> BaseGeometry:
+    """The polygonal part of ``geom``, repaired if it is invalid. Rotating a valid outline in floating point
+    can make tiny edges cross in near-degenerate spots, and clipping lines against such a shape returns
+    lines outside it (fill strands sticking out of the part)."""
+    if geom.is_empty or geom.is_valid:
+        return geom
+    fixed = shapely.make_valid(geom)
+    polys = [g for g in getattr(fixed, "geoms", [fixed]) if g.geom_type in ("Polygon", "MultiPolygon")]
+    return shapely.union_all(polys) if polys else fixed.buffer(0)
+
+
 def line_fill(area: BaseGeometry, spacing: float, angle: float, phase: float = 0.0) -> list[np.ndarray]:
     """Parallel lines ``spacing`` apart at ``angle`` degrees, aligned to a global grid."""
     if area.is_empty or spacing <= 0:
         return []
-    rotated = affinity.rotate(area, -angle, origin=(0, 0))
+    rotated = _valid(affinity.rotate(area, -angle, origin=(0, 0)))
+    if rotated.is_empty:
+        return []
     minx, miny, maxx, maxy = rotated.bounds
     start = math.floor((miny - phase) / spacing) * spacing + phase
     ys = np.arange(start, maxy + spacing, spacing)
@@ -96,6 +109,9 @@ def gyroid_fill(area: BaseGeometry, spacing: float, z: float) -> list[np.ndarray
     if not curves:
         return []
     lines = np.array([LineString(c) for c in curves], dtype=object)
+    area = _valid(area)
+    if area.is_empty:
+        return []
     shapely.prepare(area)
     out = []
     for g in shapely.intersection(lines, area):

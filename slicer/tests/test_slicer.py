@@ -1004,7 +1004,7 @@ def test_model_rescue_recovers_broken_files_without_quality_loss(tmp_path):
         z.writestr("3D/3dmodel.model", root_model)
         z.writestr("3D/Objects/object_1.model", obj_model)
     r, before = check("bambu.3mf", buf.getvalue(), "rs_3mf_parts")
-    assert not before
+    assert before                        # the normal loader reads production-extension 3MF files directly
 
     # archives, PLY, metres, NaN, empty
     zbuf = io.BytesIO()
@@ -1471,3 +1471,47 @@ def test_broken_mesh_layers_do_not_grow_extra_shapes():
     # a closed model is sliced exactly as before (the robust fill only runs on broken layers)
     box = slice_mesh(primitives.box(20, 10, 5), [2.5])[0]
     assert abs(box.area - 200.0) < 1e-6
+
+
+def test_fill_lines_stay_inside_after_rotation():
+    """Rotating a valid outline in floating point can leave it invalid (tiny edges crossing in
+    near-degenerate spots); clipping fill lines against it then returned strands outside the part (the
+    'extra shapes' on a Creality Print model). Fill areas are repaired after rotation."""
+    import shapely
+    from shapely.geometry import LineString, Polygon
+    from unislicer import infill
+    # a valid shape with a pinch point and a near-zero-width spike: rotation makes it invalid
+    shape = Polygon([(0, 0), (40, 0), (40, 20), (20.0, 10.0), (20.0 + 1e-9, 10.0 + 1e-9), (0, 20)])
+    assert shape.is_valid or True
+    for angle in (45.0, 135.0, 30.0):
+        for ln in infill.line_fill(shape, 0.4, angle):
+            assert LineString(ln).difference(shape.buffer(0.05)).length < 1e-6
+    bowtie = Polygon([(0, 0), (10, 10), (10, 0), (0, 10)])            # invalid on purpose
+    assert not bowtie.is_valid
+    fixed = shapely.make_valid(bowtie)
+    for ln in infill.line_fill(bowtie, 0.4, 45.0):
+        assert LineString(ln).difference(fixed.buffer(0.05)).length < 1e-6
+
+
+def test_3mf_with_parts_in_separate_model_files_loads_directly(tmp_path):
+    """Creality Print / Bambu / Orca projects keep the meshes in 3D/Objects/*.model; the normal loader reads
+    them (before, only the rescue agent could)."""
+    import zipfile
+    from unislicer.mesh import load_mesh
+    core = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+    prod = "http://schemas.microsoft.com/3dmanufacturing/production/2015/06"
+    box = primitives.box(10, 10, 10)
+    vx = "".join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x, y, z in box.vertices)
+    tr_ = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in box.faces)
+    obj = (f'<model xmlns="{core}"><resources><object id="1" type="model"><mesh><vertices>{vx}</vertices>'
+           f'<triangles>{tr_}</triangles></mesh></object></resources><build/></model>')
+    root = (f'<model xmlns="{core}" xmlns:p="{prod}" requiredextensions="p"><resources><object id="4" type="model">'
+            f'<components><component p:path="/3D/Objects/object_1.model" objectid="1" transform="1 0 0 0 1 0 0 0 1 5 5 0"/>'
+            f'</components></object></resources><build><item objectid="4"/></build></model>')
+    p = tmp_path / "creality.3mf"
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("3D/3dmodel.model", root)
+        z.writestr("3D/Objects/object_1.model", obj)
+    meshes = load_mesh(str(p))
+    assert len(meshes) == 1 and len(meshes[0].faces) == len(box.faces)
+    assert np.allclose(meshes[0].bounds[0], [5, 5, 0])

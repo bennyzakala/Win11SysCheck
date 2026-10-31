@@ -269,10 +269,16 @@ def _parse_3mf_transform(text: str | None) -> np.ndarray:
 
 def _read_3mf(path: str, name: str) -> list[Mesh]:
     with zipfile.ZipFile(path) as zf:
-        model_name = next((n for n in zf.namelist() if n.lower().endswith(".model")), None)
-        if model_name is None:
+        models = [n for n in zf.namelist() if n.lower().endswith(".model")]
+        if not models:
             raise ValueError("3MF archive has no model")
-        root = ET.fromstring(zf.read(model_name))
+        if len(models) > 1:
+            # objects spread over several .model files (production extension): Creality Print, Bambu Studio,
+            # OrcaSlicer and PrusaSlicer projects. Read them all, components across files included.
+            from .model_rescue import read_3mf_tolerant
+            with open(path, "rb") as fh:
+                return read_3mf_tolerant(fh.read(), [], name)
+        root = ET.fromstring(zf.read(models[0]))
     ns = {"m": root.tag.split("}")[0].strip("{")} if root.tag.startswith("{") else {"m": ""}
     q = (lambda tag: f"{{{ns['m']}}}{tag}") if ns["m"] else (lambda tag: tag)
 
