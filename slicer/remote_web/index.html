@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>UniSlicer Remote</title>
 <meta name="theme-color" content="#14161a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="UniSlicer">
 <style>
 :root {
   --bg: #f4f5f7; --card: #ffffff; --text: #16181d; --faint: #6b7280; --line: #e3e5ea;
@@ -49,6 +55,7 @@ a { color: var(--accent); }
 <body>
 <header>
   <h1 data-t="title"></h1>
+  <button id="install" class="primary hidden" type="button" data-t="install"></button>
   <button id="lang" type="button">English</button>
   <button id="signout" class="hidden" type="button" data-t="signout"></button>
 </header>
@@ -83,6 +90,7 @@ import { firebaseConfig } from "./config.js";
 const T = {
   title: ["UniSlicer – שליטה מרחוק", "UniSlicer – Remote control"],
   signout: ["התנתק", "Sign out"],
+  install: ["התקן אפליקציה", "Install app"],
   setup_title: ["הדף עוד לא מחובר לפרויקט Firebase", "This page is not connected to a Firebase project yet"],
   setup_body: ["מלא את config.js בהגדרות ה-Web App של הפרויקט (Project settings › Your apps) ופרסם שוב.",
                "Fill config.js with the project's Web App configuration (Project settings › Your apps) and publish again."],
@@ -285,6 +293,18 @@ function renderAll() {
   }
 }
 setInterval(renderAll, 15000);
+
+// ---------------------------------------------------------------- install as an app
+let installPrompt = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installPrompt = e; $("install").classList.remove("hidden"); });
+window.addEventListener("appinstalled", () => { installPrompt = null; $("install").classList.add("hidden"); });
+$("install").onclick = async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  try { await installPrompt.userChoice; } catch (e) {}
+  installPrompt = null; $("install").classList.add("hidden");
+};
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 $("code").addEventListener("keydown", e => { if (e.key === "Enter") $("link").click(); });
 boot().catch(e => { $("setup").classList.remove("hidden"); $("setup").append(el("div", { class: "msg bad" }, e.message)); });
 </script>
