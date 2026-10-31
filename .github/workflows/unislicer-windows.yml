@@ -43,6 +43,7 @@ jobs:
             --add-data "unislicer/profiles;unislicer/profiles" `
             --add-data "unislicer/gui/brand;unislicer/gui/brand" `
             --add-data "unislicer/gui/lang;unislicer/gui/lang" `
+            --add-data "unislicer/remote_config.json;unislicer" `
             --hidden-import PySide6.QtNetwork `
             --collect-submodules OpenGL @extra run_unislicer.py
           if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed' }

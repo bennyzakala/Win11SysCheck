@@ -1,11 +1,11 @@
-// Firebase web-app configuration of the lab's project (Project settings › General › Your apps › Web app).
+// Firebase web-app configuration of the UniSlicer project (Project settings › General › Your apps).
 // These values identify the project; they are not passwords. Access is guarded by database.rules.json.
-export const firebaseConfig = null;
-// Example:
-// export const firebaseConfig = {
-//   apiKey: "AIza...",
-//   authDomain: "my-lab.firebaseapp.com",
-//   databaseURL: "https://my-lab-default-rtdb.europe-west1.firebasedatabase.app",
-//   projectId: "my-lab",
-//   appId: "1:123:web:abc"
-// };
+export const firebaseConfig = {
+  apiKey: "AIzaSyCqoc8_l8k3ZHjsPxRDInzkAEtPaEpjAdY",
+  authDomain: "unislicer-8cf3e.firebaseapp.com",
+  databaseURL: "https://unislicer-8cf3e-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "unislicer-8cf3e",
+  storageBucket: "unislicer-8cf3e.firebasestorage.app",
+  messagingSenderId: "309073387383",
+  appId: "1:309073387383:web:dee57d2fb059f22515cb72"
+};

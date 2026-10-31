@@ -44,6 +44,8 @@ class RemoteController(QObject):
         if st.get("page_url"):
             return st["page_url"]
         cfg = self.config() or {}
+        if cfg.get("pageURL"):
+            return cfg["pageURL"]
         return f"https://{cfg['projectId']}.web.app" if cfg.get("projectId") else ""
 
     def save(self, **values):
