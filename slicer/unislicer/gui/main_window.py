@@ -232,6 +232,7 @@ class MainWindow(QMainWindow):
         mm.addSeparator()
         mm.addAction(theme.icon("download"), tr("export_stl"), self.export_stl)
         mm.addAction(theme.icon("wifi"), tr("net_title") + "…", self.network_printers)
+        mm.addAction(theme.icon("wifi"), tr("remote_title") + "…", self.remote_control)
         mm.addAction(theme.icon("sparkle"), tr("cad_title") + "…", self.dental_cad_dialog)
         mm.addAction(theme.icon("copy"), tr("multiply"), self.multiply_selected)
         mm.addSeparator()
@@ -778,6 +779,10 @@ class MainWindow(QMainWindow):
         self._cad_timer.setInterval(1500)
         self._cad_timer.timeout.connect(self._poll_cad_folder)
         QTimer.singleShot(0, self._start_cad_watch)
+        from .remote_dialog import RemoteController
+        self.remote = RemoteController(parent=self)
+        self.remote.commandDone.connect(self._remote_command_done)
+        QTimer.singleShot(1500, self.remote.start_if_enabled)
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setInterval(120000)          # autosave every 2 minutes while there are models
         self._autosave_timer.timeout.connect(self._autosave)
@@ -3609,6 +3614,18 @@ class MainWindow(QMainWindow):
             self._start_task(work, done, tr("exporting"))
             self.result = result
 
+    # ================================================================ remote control
+    def remote_control(self):
+        from .remote_dialog import RemoteDialog
+        RemoteDialog(self.remote, self).exec()
+
+    def _remote_command_done(self, cmd, ok, msg):
+        action = (cmd or {}).get("action", "")
+        if action == "refresh":
+            return
+        text = tr("remote_cmd_" + action) if ("remote_cmd_" + action) in i18n.STRINGS else action
+        self.status.setText(tr("remote_cmd_done").format(text) if ok else tr("remote_cmd_failed").format(text, msg))
+
     # ================================================================ network printers
     def network_printers(self):
         from .network_dialog import NetworkDialog
@@ -3706,6 +3723,8 @@ class MainWindow(QMainWindow):
         for t in (getattr(self, "_autosave_task", None), getattr(self, "_orient_task", None)):
             if t is not None and t.isRunning():
                 t.wait(5000)
+        if getattr(self, "remote", None) is not None:
+            self.remote.shutdown()
         self.store.setValue("geometry", self.saveGeometry())
         self._save_state()
         self.store.setValue("autosave_clean", "true")     # a normal exit: nothing to recover next time

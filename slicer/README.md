@@ -112,6 +112,27 @@ python run_unislicer.py
 - ייצוא ל-`.goo` (מדפסות Elegoo חדשות, כמו Saturn 3 Ultra ו-Mars 4 Ultra), ל-`.prz` (Phrozen Sonic Mini 8K S), ל-`.ctb` (פורמט CHITUBOX גרסה 4, למדפסות כמו Elegoo ו-Phrozen), ל-`.sl1` (Prusa ו-UVtools) או ל-ZIP של PNG עם קובץ `metadata.json`.
 - הערכה של נפח השרף, המשקל, זמן ההדפסה והעלות.
 
+## שליטה מרחוק (Google)
+
+צפייה ושליטה במדפסות הרשת מכל מקום, מהטלפון או מכל דפדפן, עם חשבון Google. הקישור עובר דרך פרויקט Firebase של המעבדה, ולא צריך לפתוח פורטים בראוטר.
+
+- **במחשב שליד המדפסות:** עוד › שליטה מרחוק › הפעל. UniSlicer מציג קוד בן 8 תווים, וצריך להישאר פתוח.
+- **בטלפון:** נכנסים לדף השליטה (`remote_web/`), מתחברים עם Google ומקלידים את הקוד. במחשב מופיעה שאלה אם לאשר את החשבון, ורק אחרי "אשר" החשבון מקושר.
+- **בדף השליטה:** מצב כל מדפסת (מדפיסה, מושהית, אחוז, שכבה, שם הקובץ), וכפתורים להשהיה, המשך ועצירה. עצירה דורשת אישור.
+- **מדפסות נתמכות:** Creality (מצב LAN או Moonraker), ELEGOO (SDCP), Klipper/Moonraker, OctoPrint ו-PrusaLink.
+- **אבטחה:**
+  - חוקי האבטחה ב-`remote_web/database.rules.json` מאפשרים רק לבעלים לראות ולשלוח פקודות, ורק פקודות מוכרות.
+  - פקודה ישנה מ-5 דקות לא מבוצעת.
+  - סיסמאות ומפתחות API של המדפסות לא יוצאים מהמחשב.
+  - אפשר לנתק את המחשב מהחשבון בתוכנה או בדף.
+
+**הקמת פרויקט Firebase (פעם אחת):**
+1. ב-[Firebase console](https://console.firebase.google.com/) יוצרים פרויקט.
+2. ב-Authentication › Sign-in method מפעילים את Google ואת Anonymous.
+3. יוצרים Realtime Database ומדביקים בלשונית Rules את התוכן של `database.rules.json`.
+4. ב-Project settings › Your apps יוצרים Web app ומעתיקים את `firebaseConfig`: אל `remote_web/config.js`, ואל חלון השליטה מרחוק ב-UniSlicer.
+5. מפרסמים את התיקייה `remote_web` ב-Firebase Hosting (`firebase deploy`) או ב-Netlify. כשמפרסמים ב-Netlify, מוסיפים את הכתובת שלו ל-Authentication › Settings › Authorized domains.
+
 ## שורת פקודה
 
 ```bash
@@ -147,6 +168,7 @@ python -m unislicer list-settings      # כל שמות ההגדרות לשימו
 | `unislicer/assistant.py`, `gui/assistant_panel.py` | העוזר הלומד |
 | `unislicer/gui/profile_manager.py` | חלון ספריית המדפסות והחומרים |
 | `unislicer/settings.py` | טבלת ההגדרות שממנה נבנים הממשק, שורת הפקודה והפרופילים |
+| `unislicer/network.py`, `remote.py`, `remote_web/` | מדפסות ברשת, ושליטה מרחוק דרך Firebase |
 | `unislicer/profiles/*.json` | פרופילי מדפסות, חומרים ואיכות |
 | `unislicer/gui/` | ממשק PySide6 ותצוגת OpenGL |
 
@@ -164,5 +186,11 @@ a shaded 3D toolpath preview, and 17 built-in printer profiles plus profiles you
 ```bash
 cd slicer && pip install -r requirements.txt && python run_unislicer.py
 ```
+
+**Remote control (Google sign-in):** More › Remote control links this computer to a Google account through the
+lab's own Firebase project (no router ports). The owner opens the control page (`remote_web/`) on a phone, signs in
+with Google, types the 8-character code, and confirms on the computer. The page then shows each network printer's
+state and progress and can pause, resume or stop prints. Setup steps are in the Hebrew section above and in the
+window itself.
 
 The limitations above apply. In particular, the output has been tested automatically but not yet printed on real hardware, so watch your first print.

@@ -1515,3 +1515,328 @@ def test_3mf_with_parts_in_separate_model_files_loads_directly(tmp_path):
     meshes = load_mesh(str(p))
     assert len(meshes) == 1 and len(meshes[0].faces) == len(box.faces)
     assert np.allclose(meshes[0].bounds[0], [5, 5, 0])
+
+
+def test_remote_control_agent_links_reports_and_obeys(tmp_path, monkeypatch):
+    """Remote control through Firebase: the agent signs in, shows a link code, waits for the computer's
+    'Allow', publishes printer status and carries out pause/resume/stop - against a local stand-in for
+    Firebase Auth + Realtime Database (with its event stream) and for a Klipper printer."""
+    import json, queue, threading, time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from unislicer import network, remote
+
+    # ---- parsing the snippet the Firebase console shows
+    snippet = '''const firebaseConfig = {
+      apiKey: "AIzaTest",
+      authDomain: 'lab.firebaseapp.com',
+      databaseURL: "https://lab-default-rtdb.europe-west1.firebasedatabase.app/",
+      projectId: "lab",
+    };'''
+    cfg = remote.parse_config(snippet)
+    assert cfg["apiKey"] == "AIzaTest" and cfg["databaseURL"].endswith(".app") and cfg["projectId"] == "lab"
+    for bad, why in (("", "empty"), ("hello", "no_config"), ('{apiKey: "x", projectId: "p"}', "no_database")):
+        with pytest.raises(remote.RemoteError, match=why):
+            remote.parse_config(bad)
+    rules = json.load(open(os.path.join(os.path.dirname(__file__), "..", "remote_web", "database.rules.json")))
+    assert "commands" in json.dumps(rules) and rules["rules"]["agents"]["$agent"][".read"]
+
+    # ---- a stand-in for Firebase
+    db, subs, lock = {}, [], threading.Lock()
+    tokens = {}
+
+    def node(path, create=False):
+        cur = db
+        parts = [p for p in path.strip("/").split("/") if p]
+        for p in parts[:-1]:
+            if p not in cur or not isinstance(cur[p], dict):
+                if not create:
+                    return None, None
+                cur[p] = {}
+            cur = cur[p]
+        return cur, (parts[-1] if parts else None)
+
+    def get(path):
+        parent, key = node(path)
+        if key is None:
+            return db if parent is not None else None
+        return parent.get(key) if parent is not None else None
+
+    def resolve(v):
+        if isinstance(v, dict):
+            if v == {".sv": "timestamp"}:
+                return int(time.time() * 1000)
+            return {k: resolve(x) for k, x in v.items() if x is not None}
+        return v
+
+    def write(path, value, merge=False):
+        with lock:
+            parent, key = node(path, create=True)
+            value = resolve(value)
+            if merge and isinstance(parent.get(key), dict) and isinstance(value, dict):
+                parent[key].update(value)
+            elif value is None:
+                parent.pop(key, None)
+            else:
+                parent[key] = value
+            for spath, q in list(subs):
+                if spath.startswith(path.strip("/")) or path.strip("/").startswith(spath):
+                    q.put(json.dumps({"path": "/", "data": get(spath)}))
+
+    class FB(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _send(self, obj, code=200):
+            raw = json.dumps(obj).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def _body(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            return json.loads(self.rfile.read(n) or b"null")
+
+        def _db_path(self):
+            path, _, query = self.path.partition("?")
+            assert "auth=" in query
+            tok = urllib.parse.unquote(query.split("auth=")[1].split("&")[0])
+            if tok not in tokens:
+                return None
+            return urllib.parse.unquote(path[: -len(".json")])
+
+        def do_POST(self):
+            if self.path.startswith("/v1/accounts:signUp"):
+                uid = "dev" + str(len(tokens))
+                tokens["tok-" + uid] = uid
+                return self._send({"localId": uid, "idToken": "tok-" + uid, "refreshToken": "ref-" + uid,
+                                   "expiresIn": "3600"})
+            if self.path.startswith("/v1/token"):
+                ref = self._body()["refresh_token"]
+                uid = ref[4:]
+                tokens["tok-" + uid] = uid
+                return self._send({"user_id": uid, "id_token": "tok-" + uid, "refresh_token": ref,
+                                   "expires_in": "3600"})
+            self._send({"error": "no"}, 404)
+
+        def do_GET(self):
+            path = self._db_path()
+            if path is None:
+                return self._send({"error": "Permission denied"}, 401)
+            if self.headers.get("Accept") == "text/event-stream":
+                q = queue.Queue()
+                spath = path.strip("/")
+                with lock:
+                    subs.append((spath, q))
+                    first = json.dumps({"path": "/", "data": get(spath)})
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                try:
+                    self.wfile.write(f"event: put\ndata: {first}\n\n".encode())
+                    self.wfile.flush()
+                    while True:
+                        try:
+                            msg = q.get(timeout=0.5)
+                            self.wfile.write(f"event: put\ndata: {msg}\n\n".encode())
+                        except queue.Empty:
+                            self.wfile.write(b"event: keep-alive\ndata: null\n\n")
+                        self.wfile.flush()
+                except OSError:
+                    pass
+                finally:
+                    with lock:
+                        subs.remove((spath, q))
+                return
+            self._send(get(path))
+
+        def do_PUT(self):
+            path = self._db_path()
+            v = self._body()
+            write(path, v)
+            self._send(v)
+
+        def do_PATCH(self):
+            path = self._db_path()
+            v = self._body()
+            write(path, v, merge=True)
+            self._send(v)
+
+        def do_DELETE(self):
+            write(self._db_path(), None)
+            self._send(None)
+
+    # ---- a stand-in Klipper printer
+    calls = []
+    printer_state = {"state": "printing"}
+
+    class Klipper(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _send(self, obj):
+            raw = json.dumps(obj).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def do_GET(self):
+            self._send({"result": {"status": {"print_stats": {"state": printer_state["state"],
+                                                              "filename": "crown.gcode"},
+                                              "display_status": {"progress": 0.42}}}})
+
+        def do_POST(self):
+            calls.append(self.path)
+            printer_state["state"] = {"/printer/print/pause": "paused", "/printer/print/resume": "printing",
+                                      "/printer/print/cancel": "cancelled"}[self.path]
+            self._send({"result": "ok"})
+
+    servers = [ThreadingHTTPServer(("127.0.0.1", 0), h) for h in (FB, Klipper)]
+    for s in servers:
+        s.daemon_threads = True
+        threading.Thread(target=s.serve_forever, daemon=True).start()
+    fb_port, k_port = servers[0].server_address[1], servers[1].server_address[1]
+    import urllib.parse
+    cfg = {"apiKey": "k", "databaseURL": f"http://127.0.0.1:{fb_port}", "projectId": "lab",
+           "authURL": f"http://127.0.0.1:{fb_port}/v1", "tokenURL": f"http://127.0.0.1:{fb_port}/v1"}
+    kp = network.NetPrinter("Lab K1", "moonraker", "127.0.0.1", k_port)
+    folder = str(tmp_path)
+    monkeypatch.setattr(remote, "STATUS_EVERY", 0.2)
+    monkeypatch.setattr(remote, "OWNER_CHECK_EVERY", 0.5)
+
+    states, claims, done = [], [], []
+
+    def wait(cond, secs=10.0):
+        end = time.time() + secs
+        while time.time() < end:
+            if cond():
+                return True
+            time.sleep(0.05)
+        return False
+
+    agent = remote.Agent(cfg, folder, name="Lab PC", on_state=lambda s, d: states.append((s, d)),
+                         on_claim=claims.append, on_command=lambda c, ok, m: done.append((c["action"], ok, m)),
+                         printers=lambda: [kp])
+    try:
+        agent.start()
+        assert wait(lambda: agent.state == "pairing"), states
+        code = agent.code
+        assert len(code) == 8 and set(code) <= set(remote.CODE_ALPHABET)
+        assert get(f"pairing/{code}")["agent"] == agent.fb.uid
+        uid = agent.fb.uid
+        # nothing is published before the computer allows the link
+        assert get(f"agents/{uid}/printers") is None
+
+        # a Google account types the code on the page; the computer is asked first
+        write(f"pairing/{code}/claim", {"uid": "owner1", "email": "lab@example.com"})
+        assert wait(lambda: claims == ["lab@example.com"])
+        agent.answer_claim(True)
+        assert wait(lambda: agent.state == "linked"), states
+        assert get(f"agents/{uid}/owner") == "owner1" and get(f"pairing/{code}") is None
+        assert remote.load_state(folder)["owner_email"] == "lab@example.com"
+        assert wait(lambda: (get(f"agents/{uid}/printers") or {}).get(kp.id, {}).get("percent") == 42.0)
+        row = get(f"agents/{uid}/printers")[kp.id]
+        assert row["state"] == "printing" and row["file"] == "crown.gcode" and row["control"] is True
+        assert "api_key" not in json.dumps(get(f"agents/{uid}")) and get(f"agents/{uid}/info")["online"]
+
+        # commands from the page are carried out once and answered
+        now = int(time.time() * 1000)
+        write(f"agents/{uid}/commands/c1", {"printer": kp.id, "action": "pause", "at": now, "by": "owner1"})
+        assert wait(lambda: (get(f"agents/{uid}/results/{kp.id}") or {}).get("id") == "c1")
+        assert get(f"agents/{uid}/results/{kp.id}")["ok"] and calls == ["/printer/print/pause"]
+        assert get(f"agents/{uid}/commands") in (None, {})
+        assert wait(lambda: get(f"agents/{uid}/printers")[kp.id]["state"] == "paused")
+        write(f"agents/{uid}/commands/c2", {"printer": kp.id, "action": "resume", "at": now, "by": "owner1"})
+        assert wait(lambda: calls == ["/printer/print/pause", "/printer/print/resume"])
+        # an old command (e.g. queued while the computer was off) is refused, an unknown printer too
+        write(f"agents/{uid}/commands/c3", {"printer": kp.id, "action": "stop", "at": now - 3_600_000, "by": "owner1"})
+        assert wait(lambda: (get(f"agents/{uid}/results/{kp.id}") or {}).get("id") == "c3")
+        assert not get(f"agents/{uid}/results/{kp.id}")["ok"] and "/printer/print/cancel" not in calls
+        write(f"agents/{uid}/commands/c4", {"printer": "nope", "action": "stop", "at": now, "by": "owner1"})
+        assert wait(lambda: (get(f"agents/{uid}/results/nope") or {}).get("id") == "c4")
+        assert not get(f"agents/{uid}/results/nope")["ok"]
+        assert wait(lambda: len(done) == 4)
+
+        # restarting keeps the device account and the link (no new code)
+        agent.stop(2.0)
+        agent2 = remote.Agent(cfg, folder, printers=lambda: [kp])
+        agent2.start()
+        assert wait(lambda: agent2.state == "linked") and agent2.fb.uid == uid
+        # the owner removes the computer on the page: the agent notices and shows a new code
+        write(f"agents/{uid}/owner", None)
+        assert wait(lambda: agent2.state == "pairing")
+        assert not remote.load_state(folder).get("owner")
+        agent2.unlink()
+        assert get(f"agents/{uid}") is None and not remote.load_state(folder).get("refresh_token")
+    finally:
+        agent.stop(1.0)
+        for s in servers:
+            s.shutdown()
+
+
+def test_network_printer_pause_resume_stop_commands(monkeypatch):
+    """Each connection type maps pause / resume / stop to its printer's own command."""
+    import json
+    from unislicer import network
+    sent = []
+
+    def fake_open(p, method, path, body=None, headers=None, timeout=15.0):
+        sent.append((p.kind, method, path, body))
+        if path == "/api/v1/status":
+            return 200, json.dumps({"job": {"id": 7, "progress": 10}}).encode()
+        return 200, b"{}"
+
+    monkeypatch.setattr(network, "_open", fake_open)
+    for kind in ("octoprint", "moonraker", "prusalink"):
+        p = network.NetPrinter(kind, kind, "10.0.0.5")
+        for a in network.CONTROL_ACTIONS:
+            network.control(p, a)
+    assert ("octoprint", "POST", "/api/job", b'{"command": "cancel"}') in sent
+    assert ("moonraker", "POST", "/printer/print/cancel", b"") in sent
+    assert ("prusalink", "PUT", "/api/v1/job/7/pause", b"") in sent
+    assert ("prusalink", "DELETE", "/api/v1/job/7", None) in sent
+    reqs = []
+    monkeypatch.setattr(network._Sdcp, "_request", lambda self, cmd, data, want="response", timeout=8.0:
+                        reqs.append(cmd) or {"Ack": 0})
+    for a in ("pause", "resume", "stop"):
+        network.control(network.NetPrinter("s", "sdcp", "10.0.0.6"), a)
+    assert reqs == [129, 131, 130]
+    with pytest.raises(network.NetworkError):
+        network.control(network.NetPrinter("f", "folder", "/tmp"), "pause")
+    with pytest.raises(network.NetworkError):
+        network.control(network.NetPrinter("o", "octoprint", "10.0.0.5"), "explode")
+    assert not network.can_control("folder") and network.can_control("creality")
+
+
+def test_remote_control_window_opens():
+    """The remote-control window builds in every state without a Firebase project."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, sys, tempfile
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui import i18n
+        from unislicer.gui.remote_dialog import RemoteController, RemoteDialog
+        d = tempfile.mkdtemp()
+        for lang in ("he", "en", "ru", "ar"):
+            i18n.set_language(lang)
+            ctl = RemoteController(d)
+            dlg = RemoteDialog(ctl)
+            for s, det in (("idle", ""), ("connecting", ""), ("pairing", "ABCD2345"), ("confirm", "a@b.c"),
+                           ("linked", "a@b.c"), ("unlinked", ""), ("error", "offline: x"), ("error", "denied: y")):
+                dlg._show(s, det)
+            ctl.save(config={"apiKey": "k", "databaseURL": "https://x.firebasedatabase.app", "projectId": "lab"})
+            dlg._show("pairing", "ABCD2345")
+            assert dlg.code.text() == "ABCD-2345" and "lab.web.app" in dlg.status.text(), dlg.status.text()
+            dlg.cfg_edit.setPlainText("not a config")
+            dlg._save_config()
+            assert dlg.cfg_msg.text()
+            assert ctl.agent is None
+        print("ok")
+    ''')
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120,
+                       cwd=os.path.join(os.path.dirname(__file__), ".."))
+    assert r.returncode == 0 and "ok" in r.stdout, r.stderr[-2000:]

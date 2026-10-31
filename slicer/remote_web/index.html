@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniSlicer Remote</title>
+<meta name="theme-color" content="#14161a">
+<style>
+:root {
+  --bg: #f4f5f7; --card: #ffffff; --text: #16181d; --faint: #6b7280; --line: #e3e5ea;
+  --accent: #2f7cf6; --ok: #1f9d55; --warn: #d98a00; --bad: #d64545; --bar: #e8ebf0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14161a; --card: #1d2026; --text: #eceef2; --faint: #9aa1ad; --line: #2c3038;
+    --accent: #5b9bff; --ok: #3ccf7f; --warn: #f0b13a; --bad: #ff6b6b; --bar: #2c3038;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
+header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line);
+  background: var(--card); position: sticky; top: 0; z-index: 2; }
+header h1 { font-size: 17px; margin: 0; flex: 1; }
+main { max-width: 760px; margin: 0 auto; padding: 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.grow { flex: 1; min-width: 0; }
+.faint { color: var(--faint); font-size: 13px; }
+button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
+  border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { color: var(--bad); }
+button:disabled { opacity: .45; cursor: default; }
+input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg);
+  color: var(--text); letter-spacing: 2px; text-transform: uppercase; width: 15ch; direction: ltr; }
+.printer { border-top: 1px solid var(--line); padding: 10px 0 2px; }
+.printer:first-of-type { border-top: 0; }
+.bar { height: 6px; background: var(--bar); border-radius: 3px; overflow: hidden; margin: 6px 0; }
+.bar > div { height: 100%; background: var(--accent); }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--faint); }
+.dot.on { background: var(--ok); } .dot.off { background: var(--bad); }
+.msg { font-size: 13px; margin-top: 4px; }
+.msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
+.hidden { display: none !important; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1 data-t="title"></h1>
+  <button id="lang" type="button">English</button>
+  <button id="signout" class="hidden" type="button" data-t="signout"></button>
+</header>
+<main>
+  <div id="setup" class="card hidden"><b data-t="setup_title"></b><p class="faint" data-t="setup_body"></p></div>
+
+  <div id="signin" class="card hidden">
+    <p data-t="signin_body"></p>
+    <button id="google" class="primary" type="button" data-t="signin_google"></button>
+    <div id="signin_msg" class="msg bad"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="card">
+      <div class="row"><span class="grow faint" id="who"></span></div>
+      <div class="row" style="margin-top:8px">
+        <span data-t="link_label"></span>
+        <input id="code" maxlength="9" autocomplete="off" spellcheck="false" placeholder="ABCD-EFGH">
+        <button id="link" class="primary" type="button" data-t="link_btn"></button>
+      </div>
+      <div class="faint" style="margin-top:6px" data-t="link_help"></div>
+      <div id="link_msg" class="msg"></div>
+    </div>
+    <div id="agents"></div>
+    <div id="empty" class="card faint hidden" data-t="no_agents"></div>
+  </div>
+</main>
+
+<script type="module">
+import { firebaseConfig } from "./config.js";
+
+const T = {
+  title: ["UniSlicer – שליטה מרחוק", "UniSlicer – Remote control"],
+  signout: ["התנתק", "Sign out"],
+  setup_title: ["הדף עוד לא מחובר לפרויקט Firebase", "This page is not connected to a Firebase project yet"],
+  setup_body: ["מלא את config.js בהגדרות ה-Web App של הפרויקט (Project settings › Your apps) ופרסם שוב.",
+               "Fill config.js with the project's Web App configuration (Project settings › Your apps) and publish again."],
+  signin_body: ["התחבר עם חשבון Google כדי לראות ולשלוט במדפסות שלך.", "Sign in with Google to see and control your printers."],
+  signin_google: ["התחברות עם Google", "Sign in with Google"],
+  signed_as: ["מחובר כ-", "Signed in as "],
+  link_label: ["קישור מחשב חדש:", "Link a computer:"],
+  link_btn: ["קשר", "Link"],
+  link_help: ["ב-UniSlicer במחשב שליד המדפסות: עוד › שליטה מרחוק. הקלד כאן את הקוד שמופיע שם.",
+              "In UniSlicer on the computer next to the printers: More › Remote control. Type the code it shows."],
+  link_bad: ["הקוד לא נמצא או שפג תוקפו. בדוק את הקוד במסך של UniSlicer.", "Code not found or expired. Check the code on the UniSlicer screen."],
+  link_wait: ["אשר את החיבור במסך של המחשב ({})…", "Confirm the link on the computer's screen ({})…"],
+  link_done: ["המחשב {} קושר לחשבון שלך.", "{} is now linked to your account."],
+  link_timeout: ["לא התקבל אישור במחשב. נסה שוב.", "The computer did not confirm. Try again."],
+  no_agents: ["עוד לא קושרו מחשבים לחשבון.", "No computers linked yet."],
+  online: ["מחובר", "Online"], offline: ["לא מחובר", "Offline"],
+  seen: ["נראה לאחרונה {}", "Last seen {}"],
+  no_printers: ["אין מדפסות רשת במחשב הזה (הוסף ב-UniSlicer › מדפסות ברשת).", "No network printers on this computer (add them in UniSlicer › Network printers)."],
+  pause: ["השהה", "Pause"], resume: ["המשך", "Resume"], stop: ["עצור", "Stop"], refresh: ["רענן", "Refresh"],
+  remove: ["הסר מהחשבון", "Remove"],
+  confirm_stop: ["לעצור את ההדפסה ב-{}? אי אפשר להמשיך אותה אחר כך.", "Stop the print on {}? It cannot be resumed."],
+  confirm_remove: ["להסיר את {} מהחשבון? כדי לחבר שוב צריך קוד חדש.", "Remove {} from your account? Linking again needs a new code."],
+  sent: ["נשלח…", "Sent…"], done: ["בוצע", "Done"], failed: ["נכשל: ", "Failed: "],
+  layer: ["שכבה {} מתוך {}", "Layer {} of {}"],
+  st_idle: ["פנויה", "Idle"], st_printing: ["מדפיסה", "Printing"], st_paused: ["מושהית", "Paused"],
+  st_complete: ["הסתיימה", "Finished"], st_offline: ["לא עונה", "Not answering"], st_standby: ["פנויה", "Idle"],
+  st_error: ["שגיאה", "Error"], st_cancelled: ["בוטלה", "Cancelled"], st_folder: ["תיקייה", "Folder"],
+};
+let L = (localStorage.getItem("lang") || (navigator.language || "he").slice(0, 2)) === "he" ? 0 : 1;
+const t = (k, ...a) => { let s = (T[k] || [k, k])[L]; a.forEach(v => s = s.replace("{}", v)); return s; };
+const $ = id => document.getElementById(id);
+function paintText() {
+  document.documentElement.lang = L ? "en" : "he";
+  document.documentElement.dir = L ? "ltr" : "rtl";
+  document.querySelectorAll("[data-t]").forEach(e => e.textContent = t(e.dataset.t));
+  $("lang").textContent = L ? "עברית" : "English";
+  renderAll();
+}
+$("lang").onclick = () => { L = 1 - L; try { localStorage.setItem("lang", L ? "en" : "he"); } catch (e) {} paintText(); };
+
+const V = "10.12.2", G = `https://www.gstatic.com/firebasejs/${V}`;
+let auth, db, A, D, user = null;
+const agents = {}, unsub = {};
+
+async function boot() {
+  paintText();
+  if (!firebaseConfig || !firebaseConfig.apiKey) { $("setup").classList.remove("hidden"); return; }
+  const [{ initializeApp }, Au, Db] = await Promise.all([
+    import(`${G}/firebase-app.js`), import(`${G}/firebase-auth.js`), import(`${G}/firebase-database.js`)]);
+  A = Au; D = Db;
+  const app = initializeApp(firebaseConfig);
+  auth = A.getAuth(app); db = D.getDatabase(app);
+  A.getRedirectResult(auth).catch(e => $("signin_msg").textContent = e.message);
+  A.onAuthStateChanged(auth, u => {
+    user = u && !u.isAnonymous ? u : null;
+    $("signin").classList.toggle("hidden", !!user);
+    $("app").classList.toggle("hidden", !user);
+    $("signout").classList.toggle("hidden", !user);
+    Object.values(unsub).forEach(f => f()); Object.keys(unsub).forEach(k => delete unsub[k]);
+    Object.keys(agents).forEach(k => delete agents[k]);
+    if (!user) { renderAll(); return; }
+    $("who").textContent = t("signed_as") + (user.email || user.displayName || "");
+    unsub.list = D.onValue(D.ref(db, `users/${user.uid}/agents`), snap => watchAgents(snap.val() || {}));
+  });
+}
+
+$("google").onclick = async () => {
+  const p = new A.GoogleAuthProvider();
+  try { await A.signInWithPopup(auth, p); }
+  catch (e) {
+    if (e.code === "auth/popup-blocked" || e.code === "auth/operation-not-supported-in-this-environment")
+      return A.signInWithRedirect(auth, p);
+    $("signin_msg").textContent = e.message;
+  }
+};
+$("signout").onclick = () => A.signOut(auth);
+
+function watchAgents(list) {
+  for (const id of Object.keys(unsub)) if (id !== "list" && !(id in list)) { unsub[id](); delete unsub[id]; delete agents[id]; }
+  for (const id of Object.keys(list)) {
+    if (unsub[id]) continue;
+    agents[id] = { name: list[id].name || id, loading: true };
+    unsub[id] = D.onValue(D.ref(db, `agents/${id}`), snap => { agents[id] = snap.val() || { gone: true, name: list[id].name }; renderAll(); },
+                          () => { agents[id] = { gone: true, name: list[id].name || id }; renderAll(); });
+  }
+  renderAll();
+}
+
+// ---------------------------------------------------------------- linking a computer
+$("link").onclick = async () => {
+  const code = $("code").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const msg = $("link_msg"); msg.className = "msg";
+  if (code.length !== 8) { msg.textContent = t("link_bad"); msg.className = "msg bad"; return; }
+  $("link").disabled = true;
+  try {
+    const snap = await D.get(D.ref(db, `pairing/${code}`));
+    const pair = snap.val();
+    if (!pair || !pair.agent) throw new Error(t("link_bad"));
+    await D.set(D.ref(db, `pairing/${code}/claim`), { uid: user.uid, email: user.email, at: D.serverTimestamp() });
+    msg.textContent = t("link_wait", pair.name || "");
+    const end = Date.now() + 5 * 60 * 1000;
+    while (Date.now() < end) {
+      await new Promise(r => setTimeout(r, 2000));
+      try {
+        const o = await D.get(D.ref(db, `agents/${pair.agent}/owner`));
+        if (o.val() === user.uid) {
+          await D.set(D.ref(db, `users/${user.uid}/agents/${pair.agent}`), { name: pair.name || "", added: D.serverTimestamp() });
+          msg.textContent = t("link_done", pair.name || ""); msg.className = "msg ok"; $("code").value = "";
+          return;
+        }
+      } catch (e) { /* not ours yet: the computer has not confirmed */ }
+    }
+    throw new Error(t("link_timeout"));
+  } catch (e) { msg.textContent = e.message; msg.className = "msg bad"; }
+  finally { $("link").disabled = false; }
+};
+
+// ---------------------------------------------------------------- commands
+async function command(agentId, printerId, action, printerName) {
+  if (action === "stop" && !confirm(t("confirm_stop", printerName))) return;
+  const key = agentId + "/" + printerId;
+  pending[key] = { text: t("sent"), cls: "", sentAt: Date.now() - 5000 }; renderAll();
+  try {
+    await D.push(D.ref(db, `agents/${agentId}/commands`),
+                 { printer: printerId, action, at: D.serverTimestamp(), by: user.uid });
+  } catch (e) { pending[key] = { text: t("failed") + e.message, cls: "bad" }; renderAll(); }
+}
+const pending = {};
+async function removeAgent(id) {
+  const a = agents[id] || {};
+  if (!confirm(t("confirm_remove", (a.info && a.info.name) || a.name || id))) return;
+  try { await D.remove(D.ref(db, `agents/${id}/owner`)); } catch (e) { /* already gone */ }
+  await D.remove(D.ref(db, `users/${user.uid}/agents/${id}`));
+}
+
+// ---------------------------------------------------------------- drawing
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v; else if (k.startsWith("on")) e[k] = v; else if (v !== false && v != null) e.setAttribute(k, v);
+  }
+  kids.flat().forEach(k => k != null && e.append(k));
+  return e;
+}
+function stateText(s) {
+  const k = "st_" + String(s || "").toLowerCase();
+  return T[k] ? t(k) : String(s || "");
+}
+function ago(ms) {
+  if (!ms) return "";
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 90) return L ? "just now" : "עכשיו";
+  if (s < 5400) return L ? `${Math.round(s / 60)} min ago` : `לפני ${Math.round(s / 60)} דק'`;
+  return new Date(ms).toLocaleString(L ? "en" : "he");
+}
+function renderAll() {
+  const box = $("agents"); if (!box) return;
+  box.replaceChildren();
+  const ids = Object.keys(agents);
+  $("empty").classList.toggle("hidden", !user || ids.length > 0);
+  for (const id of ids) {
+    const a = agents[id] || {}, info = a.info || {};
+    const live = info.online && info.seen && Date.now() - info.seen < 60000;
+    const card = el("div", { class: "card" },
+      el("div", { class: "row" },
+        el("span", { class: "dot " + (live ? "on" : "off") }),
+        el("b", { class: "grow" }, info.name || a.name || id),
+        el("span", { class: "faint" }, live ? t("online") : (info.seen ? t("seen", ago(info.seen)) : t("offline"))),
+        el("button", { type: "button", onclick: () => command(id, "agent", "refresh", ""), disabled: !live || a.gone }, t("refresh")),
+        el("button", { type: "button", class: "danger", onclick: () => removeAgent(id) }, t("remove"))));
+    const printers = a.printers || {};
+    const results = a.results || {};
+    if (!a.loading && !a.gone && !Object.keys(printers).length) card.append(el("div", { class: "faint" }, t("no_printers")));
+    for (const [pid, p] of Object.entries(printers)) {
+      const st = String(p.state || "").toLowerCase();
+      const printing = /print|busy|exposure/.test(st), paused = /paus/.test(st);
+      const pct = typeof p.percent === "number" ? Math.max(0, Math.min(100, p.percent)) : null;
+      const key = id + "/" + pid, res = results[pid];
+      let note = pending[key];
+      if (res && res.at && (note ? res.at > (note.sentAt || 0) : Date.now() - res.at < 60000))
+      { delete pending[key]; note = { text: res.ok ? t("done") : t("failed") + (res.message || ""), cls: res.ok ? "ok" : "bad", at: res.at }; }
+      const can = live && p.control && p.online !== false;
+      card.append(el("div", { class: "printer" },
+        el("div", { class: "row" },
+          el("span", { class: "dot " + (p.online === false ? "off" : "on") }),
+          el("b", { class: "grow" }, p.name || pid),
+          el("span", { class: "faint" }, stateText(p.state) + (pct != null ? ` · ${pct.toFixed(0)}%` : ""))),
+        p.file ? el("div", { class: "faint" }, p.file) : null,
+        pct != null ? el("div", { class: "bar" }, el("div", { style: `width:${pct}%` })) : null,
+        p.layer != null && p.layers ? el("div", { class: "faint" }, t("layer", p.layer, p.layers)) : null,
+        p.control ? el("div", { class: "row", style: "margin-top:6px" },
+          el("button", { type: "button", disabled: !can || !printing || paused, onclick: () => command(id, pid, "pause", p.name) }, t("pause")),
+          el("button", { type: "button", disabled: !can || !paused, onclick: () => command(id, pid, "resume", p.name) }, t("resume")),
+          el("button", { type: "button", class: "danger", disabled: !can || !(printing || paused), onclick: () => command(id, pid, "stop", p.name) }, t("stop"))) : null,
+        note ? el("div", { class: "msg " + note.cls }, note.text) : null));
+    }
+    box.append(card);
+  }
+}
+setInterval(renderAll, 15000);
+$("code").addEventListener("keydown", e => { if (e.key === "Enter") $("link").click(); });
+boot().catch(e => { $("setup").classList.remove("hidden"); $("setup").append(el("div", { class: "msg bad" }, e.message)); });
+</script>
+</body>
+</html>

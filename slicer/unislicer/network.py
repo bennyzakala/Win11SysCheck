@@ -550,6 +550,18 @@ class _Creality:
         return {"state": st, "file": name, "layer": t.get("layer"), "layers": t.get("TotalLayer"),
                 "percent": float(prog) if isinstance(prog, (int, float)) else None}
 
+    def control(self, action):
+        m = self._moonraker()
+        if m is not None:
+            return m.control(action)
+        ws = _creality_ws(self.p.host)
+        try:
+            ws.send(json.dumps({"method": "set", "params": {"pause": {"pause": 1, "resume": 0}[action]}
+                                if action in ("pause", "resume") else {"stop": 1}}))
+            _creality_read(ws, lambda t: "state" in t, 2.0)
+        finally:
+            ws.close()
+
 
 class _Sdcp:
     def __init__(self, p: NetPrinter):
@@ -640,6 +652,11 @@ class _Sdcp:
         return {"state": states.get(cur, str(cur)), "file": info.get("Filename", ""),
                 "layer": info.get("CurrentLayer"), "layers": info.get("TotalLayer")}
 
+    def control(self, action):
+        ack = self._request({"pause": 129, "stop": 130, "resume": 131}[action], {}).get("Ack", 0)
+        if ack:
+            raise NetworkError(f"printer refused: code {ack}")
+
 
 # ---------------------------------------------------------------- HTTP printers
 class _OctoPrint:
@@ -662,6 +679,11 @@ class _OctoPrint:
         prog = (j.get("progress") or {}).get("completion")
         return {"state": j.get("state", ""), "file": ((j.get("job") or {}).get("file") or {}).get("name", ""),
                 "percent": prog}
+
+    def control(self, action):
+        body = {"pause": {"command": "pause", "action": "pause"}, "resume": {"command": "pause", "action": "resume"},
+                "stop": {"command": "cancel"}}[action]
+        _open(self.p, "POST", "/api/job", json.dumps(body).encode(), {"Content-Type": "application/json"})
 
 
 class _Moonraker:
@@ -686,6 +708,9 @@ class _Moonraker:
         return {"state": ps.get("state", ""), "file": ps.get("filename", ""),
                 "percent": None if p is None else round(p * 100, 1)}
 
+    def control(self, action):
+        _open(self.p, "POST", "/printer/print/" + {"pause": "pause", "resume": "resume", "stop": "cancel"}[action], b"")
+
 
 class _PrusaLink:
     def __init__(self, p):
@@ -708,6 +733,16 @@ class _PrusaLink:
         j = _json(raw) or {}
         job = j.get("job") or {}
         return {"state": (j.get("printer") or {}).get("state", ""), "file": "", "percent": job.get("progress")}
+
+    def control(self, action):
+        _, raw = _open(self.p, "GET", "/api/v1/status")
+        job = (_json(raw) or {}).get("job") or {}
+        if "id" not in job:
+            raise NetworkError("not printing")
+        if action == "stop":
+            _open(self.p, "DELETE", f"/api/v1/job/{job['id']}")
+        else:
+            _open(self.p, "PUT", f"/api/v1/job/{job['id']}/{action}", b"")
 
 
 class _Folder:
@@ -741,6 +776,9 @@ class _Folder:
     def status(self):
         return {"state": "folder", "file": "", "percent": None}
 
+    def control(self, action):
+        raise NetworkError("not supported: a folder connection cannot pause or stop a print")
+
 
 def client(p: NetPrinter):
     return {"sdcp": _Sdcp, "creality": _Creality, "octoprint": _OctoPrint, "moonraker": _Moonraker,
@@ -767,6 +805,20 @@ def send(p: NetPrinter, path: str, name: str | None = None, start: bool = False,
 
 def printer_status(p: NetPrinter) -> dict:
     return client(p).status()
+
+
+CONTROL_ACTIONS = ("pause", "resume", "stop")
+
+
+def control(p: NetPrinter, action: str) -> None:
+    """Pause, resume or stop the print running on a network printer."""
+    if action not in CONTROL_ACTIONS:
+        raise NetworkError("unknown action: " + action)
+    client(p).control(action)
+
+
+def can_control(kind: str) -> bool:
+    return kind != "folder"
 
 
 def can_start(kind: str) -> bool:
