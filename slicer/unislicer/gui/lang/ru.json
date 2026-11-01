@@ -1161,5 +1161,12 @@
 "Note: the printer did not report that it is free": "Внимание: принтер не сообщил, что свободен",
 "Sent to {}": "Отправлено на {}",
 "Slice the plate before adding it to a queue": "Нарежьте платформу перед добавлением в очередь",
-"Added to the queue: {}": "Добавлено в очередь: {}"
+"Added to the queue: {}": "Добавлено в очередь: {}",
+"Model settings": "Настройки модели",
+"Tick a setting to give the selected models their own value (supports, hollowing and infill). Unticked settings follow the plate.": "Отметьте параметр, чтобы задать выбранным моделям своё значение (поддержки, полость и заполнение). Неотмеченные берутся из настроек платформы.",
+"This model's own value": "Собственное значение этой модели",
+"All from the plate": "Всё по платформе",
+"{} models now have {} settings of their own": "У моделей ({}) теперь свои параметры: {}",
+"{} models follow the plate settings again": "Модели ({}) снова следуют настройкам платформы",
+"Model settings are available for resin printers for now": "Настройки модели пока доступны для фотополимерных принтеров"
 }

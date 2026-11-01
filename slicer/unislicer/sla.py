@@ -239,6 +239,11 @@ def _per_layer(fn, items: list, *extra) -> list:
     return [x for chunk in chunks for x in chunk]
 
 
+HOLLOW_KEYS = ("hollow_enable", "hollow_wall", "hollow_base_height", "hollow_mode", "hollow_infill",
+               "hollow_infill_spacing", "hollow_infill_thickness", "drain_holes", "drain_hole_diameter",
+               "drain_hole_depth", "sla_internal_supports", "sla_internal_spacing")
+
+
 def covered_voids(layers: list[MultiPolygon]) -> list[MultiPolygon]:
     """Empty spaces inside the model that have model material above them: the cavity of a model that was
     already hollow when it came from the CAD (thin shell, open or closed base). A hole that goes right
@@ -661,7 +666,8 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             cancelled: Callable[[], bool] | None = None,
             support_points: list[np.ndarray | None] | None = None, direct: list[bool] | None = None,
             holes: list[np.ndarray | None] | None = None, cutters: list[Mesh] | None = None,
-            materials: list[str] | None = None, filled: list[bool] | None = None) -> SlaJob:
+            materials: list[str] | None = None, filled: list[bool] | None = None,
+            model_settings: list[dict | None] | None = None) -> SlaJob:
     """Slice resin models. ``support_points[i]`` holds manual contact points for ``meshes[i]``
     (same coordinates, before elevation), or None to place supports automatically."""
     def report(stage, f):
@@ -673,6 +679,9 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     if not meshes:
         raise ValueError("Nothing to slice")
     warnings = [f"'{m.name}' is not watertight; check the layer preview." for m in meshes if not m.is_watertight()]
+    # each model may carry its own settings (supports, hollowing / infill) over the plate's
+    cfgs = [cfg.copy().update(model_settings[i]) if model_settings and i < len(model_settings) and model_settings[i]
+            else cfg for i in range(len(meshes))]
     models = [_shrink_compensate(m, cfg) for m in meshes]
     process = cfg["sla_process"]
     jetting = process == "polyjet"
@@ -691,7 +700,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             manual = support_points[i] if support_points and i < len(support_points) else None
             if manual is not None:
                 manual = np.asarray(manual, dtype=np.float64).reshape(-1, 3) + [0, 0, lift]
-            s, p = build_supports(m, cfg, manual, label=meshes[i].name if cfg["sla_raft_label"] else "")
+            s, p = build_supports(m, cfgs[i], manual, label=meshes[i].name if cfg["sla_raft_label"] else "")
             parts.append(s)
             points += list(p)
         supports = Mesh.merge(parts, "Supports")
@@ -709,25 +718,39 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     n = len(stack)
     planes = [z - h / 2 for z, h in stack]
     split = 0.85 if support_meshes else 1.0
-    layers = slice_meshes(models, planes, cfg["resolution"],
-                          progress=lambda f: report("slice", f * split), cancelled=cancelled)
-    if cfg["xy_compensation"]:
-        layers = [as_multipolygon(g.buffer(cfg["xy_compensation"], join_style="mitre", mitre_limit=3))
-                  if not g.is_empty else g for g in layers]
-    if filled and any(filled):
-        # "Fill cavity": the cavity of these models (an open-base or closed shell) is printed solid
-        fm = [models[i] for i in range(min(len(models), len(filled))) if filled[i]]
-        voids = covered_voids(slice_meshes(fm, planes, cfg["resolution"]))
-        layers = [as_multipolygon(g.union(v)) if not v.is_empty else g for g, v in zip(layers, voids)]
-    saved = 0.0
+    # models with the same hollowing settings are sliced and hollowed together; a model with its own
+    # hollowing / infill is done on its own and merged in
+    groups: dict = {}
+    for i in range(len(models)):
+        groups.setdefault(tuple(cfgs[i][k] for k in HOLLOW_KEYS), []).append(i)
+    layers = [EMPTY] * len(planes)
     infill: list = []
-    # choosing an internal infill means "hollow it and fill the cavity": it turns hollowing on by itself
-    hollowing = (cfg["hollow_enable"] or cfg["hollow_infill"] != "none") and not jetting
-    if hollowing:
-        report("hollow", 0.0)
-        infill = []
-        layers, saved, notes = hollow(layers, lh, cfg, infill)
-        warnings += notes
+    saved = 0.0
+    hollowing = False
+    for gi, idx in enumerate(groups.values()):
+        gcfg = cfgs[idx[0]]
+        g_layers = slice_meshes([models[i] for i in idx], planes, cfg["resolution"],
+                                progress=lambda f, gi=gi: report("slice", (gi + f) / len(groups) * split),
+                                cancelled=cancelled)
+        if cfg["xy_compensation"]:
+            g_layers = [as_multipolygon(g.buffer(cfg["xy_compensation"], join_style="mitre", mitre_limit=3))
+                        if not g.is_empty else g for g in g_layers]
+        g_fill = [i for i in idx if filled and i < len(filled) and filled[i]]
+        if g_fill:
+            # "Fill cavity": the cavity of these models (an open-base or closed shell) is printed solid
+            voids = covered_voids(slice_meshes([models[i] for i in g_fill], planes, cfg["resolution"]))
+            g_layers = [as_multipolygon(g.union(v)) if not v.is_empty else g for g, v in zip(g_layers, voids)]
+        # choosing an internal infill means "hollow it and fill the cavity": it turns hollowing on by itself
+        if (gcfg["hollow_enable"] or gcfg["hollow_infill"] != "none") and not jetting:
+            report("hollow", gi / len(groups))
+            g_infill: list = []
+            g_layers, g_saved, notes = hollow(g_layers, lh, gcfg, g_infill)
+            saved += g_saved
+            warnings += [n for n in notes if n not in warnings]
+            if g_infill:
+                infill = g_infill if not infill else [a.union(b) if not b.is_empty else a for a, b in zip(infill, g_infill)]
+            hollowing = True
+        layers = g_layers if len(groups) == 1 else _per_layer(_union_chunk, list(zip(layers, g_layers)))
     lifted = lift if cfg["support_enable"] and not jetting else 0.0
     hole_tubes = []
     for i, group in enumerate(holes or []):

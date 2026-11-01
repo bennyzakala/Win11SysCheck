@@ -2231,6 +2231,7 @@ class MainWindow(QMainWindow):
         items = {}
         for o in self.objects:
             label = ((o.name or "object") + ("  ✂" if o.role == "cutter" else "") + ("  ⊥" if o.direct else "")
+                     + ("  ⚙" if o.settings else "")
                      + (f"  [{o.material}]" if o.material else ""))
             it = QListWidgetItem(theme.icon("cube", theme.DANGER if o.role == "cutter" else theme.TEXT_DIM, 16), label)
             it.setData(Qt.UserRole, o.uid)
@@ -2609,6 +2610,7 @@ class MainWindow(QMainWindow):
             if len(group) > 1:
                 menu.addAction(theme.icon("copy"), tr("merge_models"), self.merge_selected)
                 self._fill_align_menu(menu.addMenu(theme.icon("align"), tr("align_menu")))
+            menu.addAction(theme.icon("settings"), tr("model_settings") + "…", self.model_settings_dialog)
             lock = menu.addAction(theme.icon("lock"), tr("lock_position"))
             lock.setCheckable(True)
             lock.setChecked(all(o.locked for o in group))
@@ -2754,6 +2756,80 @@ class MainWindow(QMainWindow):
         self.objects.insert(idx, new)
         self._refresh_objects(select=new.uid)
         self.status.setText(tr("merged_done").format(len(group)))
+
+    # ------------------------------------------------------------ per-model settings (GrabCAD model-level)
+    MODEL_KEYS_SLA = ("sla_support_preset", "sla_support_spacing", "support_angle", "sla_support_type",
+                      "sla_tip_diameter", "sla_pillar_diameter", "sla_density", "hollow_enable", "hollow_wall",
+                      "hollow_mode", "hollow_infill", "hollow_infill_spacing", "hollow_infill_thickness", "drain_holes")
+
+    def model_settings_dialog(self):
+        """Right-click > Model settings: supports and hollowing / infill for the selected models only, over the
+        plate's settings (as GrabCAD Print's model-level settings). Ticked rows are the model's own."""
+        from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QGridLayout, QLabel, QScrollArea,
+                                       QVBoxLayout, QWidget)
+        from ..settings import SCHEMA_BY_KEY
+        from .settings_panel import SettingRow
+        group = [o for o in self.selected_objects() if o.role != "cutter"]
+        if not group:
+            self.status.setText(tr("select_first"))
+            return
+        if self.settings.technology != "sla":
+            QMessageBox.information(self, tr("model_settings"), tr("model_settings_resin_only"))
+            return
+        cfg = self.settings.config()
+        first = group[0]
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("model_settings") + " · " + (first.name if len(group) == 1 else tr("group_n").format(len(group))))
+        dlg.resize(620, 640)
+        v = QVBoxLayout(dlg)
+        hint = QLabel(tr("model_settings_hint"))
+        hint.setWordWrap(True)
+        hint.setObjectName("Faint")
+        v.addWidget(hint)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        box = QWidget()
+        grid = QGridLayout(box)
+        rows = {}
+        own_cfg = first.config(cfg)
+        for r, key in enumerate(self.MODEL_KEYS_SLA):
+            setting = SCHEMA_BY_KEY[key]
+            check = QCheckBox()
+            check.setToolTip(tr("model_settings_own"))
+            check.setChecked(key in first.settings)
+            row = SettingRow(setting, own_cfg[key], key in first.settings, own_cfg)
+            row.changed.connect(lambda _k, _v, c=check: c.setChecked(True))
+            row.reset.connect(lambda k, c=check, rw=None: c.setChecked(False))
+            grid.addWidget(check, r, 0)
+            grid.addWidget(row, r, 1)
+            rows[key] = (check, row)
+        grid.setRowStretch(len(rows), 1)
+        scroll.setWidget(box)
+        v.addWidget(scroll, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Reset)
+        buttons.button(QDialogButtonBox.Reset).setText(tr("model_settings_clear"))
+        buttons.button(QDialogButtonBox.Reset).clicked.connect(lambda: [c.setChecked(False) for c, _ in rows.values()])
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        v.addWidget(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        values = {key: row.editor_value() for key, (check, row) in rows.items() if check.isChecked()}
+        self.set_model_settings(group, values)
+
+    def set_model_settings(self, group, values: dict):
+        self._push_undo()
+        support_keys = {k for k in values if not k.startswith(("hollow", "drain"))}
+        for o in group:
+            changed_support = any(o.settings.get(k) != values.get(k) for k in support_keys | {k for k in o.settings
+                                                                                              if not k.startswith(("hollow", "drain"))})
+            o.settings = dict(values)
+            if changed_support and o.support_points is not None:
+                self._drop_supports(o)            # supports follow the model's new support settings
+        self._invalidate()
+        self._refresh_objects(select=[o.uid for o in group])
+        self.status.setText(tr("model_settings_done").format(len(group), len(values)) if values else
+                            tr("model_settings_cleared").format(len(group)))
 
     # ------------------------------------------------------------ align / lock / fill cavity
     ALIGN_MODES = ("left", "center_x", "right", "front", "center_y", "back", "dist_x", "dist_y")
@@ -3025,10 +3101,12 @@ class MainWindow(QMainWindow):
         if not self._shows_supports(o) or len(o.support_points) == 0:
             return None
         keys = sorted(k for k in cfg.values if k.startswith("sla_") and not k.startswith("sla_layer"))
-        key = (o.uid, o.support_points.tobytes(), o.matrix().tobytes(), tuple(cfg[k] for k in keys))
+        key = (o.uid, o.support_points.tobytes(), o.matrix().tobytes(), tuple(cfg[k] for k in keys),
+               tuple(sorted(o.settings.items())))
         hit = self._support_cache.get(o.uid)
         if hit is not None and hit[0] == key:
             return hit[1]
+        cfg = o.config(cfg)                    # the model's own support settings, if any
         lift = self._lift(cfg)
         disp = self._display_matrix(o)
         world, geo = self._support_geometry(o, lift)
@@ -3065,16 +3143,16 @@ class MainWindow(QMainWindow):
         self._push_undo()
         self._ensure_supports_enabled()
         cfg = self.settings.config()
-        learned = self.assistant.learned_config(cfg)   # density and angle learned from earlier edits
+        learned_plate = self.assistant.learned_config(cfg)   # density and angle learned from earlier edits
         lift = self._lift(cfg)
         for o in self._support_targets():
             if o.direct or o.role == "cutter":
                 continue
             world = o.mesh.transform(o.world_matrix())
             world = world.translated([0, 0, lift])
-            o.set_world_support_points(sla_supports.auto_support_points(world, learned), lift)
+            o.set_world_support_points(sla_supports.auto_support_points(world, o.config(learned_plate)), lift)
             o.__dict__["support_session"] = {"auto": len(o.support_points), "added": [], "removed": 0,
-                                             "threshold": learned["support_angle"]}
+                                             "threshold": o.config(learned_plate)["support_angle"]}
         self._objects_changed(refresh_list=False)
         self.status.setText(tr("sup_generated_hint"))
 
@@ -3521,12 +3599,13 @@ class MainWindow(QMainWindow):
                      for o in models]
         holes = [o.world_drain_holes(0.0) for o in models]
         filled = [o.fill_cavity for o in models]
+        own = [dict(o.settings) or None for o in models]
         name = self.objects[0].name or "print"
 
         def work(progress, cancelled):
             if cfg["technology"] == "sla":
                 job = sla.prepare(meshes, cfg, progress, cancelled, support_points=manual, direct=direct, holes=holes, cutters=cutters,
-                                  materials=materials, filled=filled)
+                                  materials=materials, filled=filled, model_settings=own)
                 return ("sla", job, cfg)
             parts = [mt for o in models for mt in o.print_meshes()]
             fdm_meshes, tools = [m for m, _t in parts], [t for _m, t in parts]

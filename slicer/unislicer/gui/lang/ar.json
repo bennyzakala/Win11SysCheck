@@ -1161,5 +1161,12 @@
 "Note: the printer did not report that it is free": "تنبيه: لم تُبلغ الطابعة أنها متاحة",
 "Sent to {}": "أُرسل إلى {}",
 "Slice the plate before adding it to a queue": "قطّع المنصة قبل إضافتها إلى الطابور",
-"Added to the queue: {}": "أُضيف إلى الطابور: {}"
+"Added to the queue: {}": "أُضيف إلى الطابور: {}",
+"Model settings": "إعدادات النموذج",
+"Tick a setting to give the selected models their own value (supports, hollowing and infill). Unticked settings follow the plate.": "حدّد إعدادًا لمنح النماذج المختارة قيمتها الخاصة (الدعامات والتجويف والحشو). الإعدادات غير المحددة تتبع المنصة.",
+"This model's own value": "القيمة الخاصة بهذا النموذج",
+"All from the plate": "الكل وفق المنصة",
+"{} models now have {} settings of their own": "أصبح لـ {} نماذج {} إعدادات خاصة",
+"{} models follow the plate settings again": "عادت {} نماذج لإعدادات المنصة",
+"Model settings are available for resin printers for now": "إعدادات النموذج متاحة حاليًا لطابعات الراتنج"
 }

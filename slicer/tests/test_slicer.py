@@ -3091,3 +3091,37 @@ def test_print_queue_window_sends_the_next_job(tmp_path):
     env = dict(os.environ, HOME=home, USERPROFILE=home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_model_settings_apply_to_that_model_only(tmp_path):
+    """Model-level settings (GrabCAD): one model hollowed with honeycomb while its neighbour prints solid;
+    denser supports for one model only; kept in undo snapshots, copies and projects."""
+    from shapely.geometry import Point, box
+    from unislicer import primitives, profiles, project, sla
+    from unislicer.scene import SceneObject
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": False, "sla_layer_height": 0.1})
+    a = SceneObject.from_mesh(primitives.box(30, 20, 15, "A")); a.x, a.y = 50, 50
+    b = SceneObject.from_mesh(primitives.box(30, 20, 15, "B")); b.x, b.y = 120, 50
+    a.settings = {"hollow_enable": True, "hollow_wall": 2.0, "hollow_infill": "hive", "drain_holes": 0}
+    job = sla.prepare([a.world_mesh(), b.world_mesh()], cfg, model_settings=[a.settings, b.settings])
+    mid = job.layers[len(job.layers) // 2]
+    ra, rb = box(38, 43, 62, 57), box(108, 43, 132, 57)          # inside each model, away from the walls
+    assert mid.intersection(ra).area < 0.8 * ra.area             # A: hollow with honeycomb walls
+    assert mid.intersection(ra).area > 0.05 * ra.area
+    assert mid.intersection(rb).area > 0.99 * rb.area             # B: solid
+    # supports: the model with its own spacing gets denser supports
+    sup = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": True, "sla_layer_height": 0.1})
+    ball = SceneObject.from_mesh(primitives.sphere(10)); ball.x, ball.y = 80, 60
+    plain = sla.prepare([ball.world_mesh()], sup)
+    dense = sla.prepare([ball.world_mesh()], sup, model_settings=[{"sla_support_spacing": 1.5, "sla_support_preset": "custom"}])
+    assert len(dense.support_points) > len(plain.support_points)
+    # undo / copies / projects keep them
+    st = a.state()
+    a.settings = {}
+    a.restore(st)
+    assert a.settings["hollow_infill"] == "hive" and a.duplicate().settings == a.settings
+    assert a.config(cfg)["hollow_wall"] == 2.0 and b.config(cfg)["hollow_enable"] == cfg["hollow_enable"]
+    path = str(tmp_path / "m.unislicer")
+    project.save(path, [a, b], {})
+    back, _ = project.load(path)
+    assert back[0].settings == a.settings and back[1].settings == {}

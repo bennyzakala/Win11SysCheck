@@ -86,7 +86,7 @@ def plate(objects: list, cfg: Config, supports: dict | None = None, lift: float 
         h = float(m.bounds[1][2]) + (0.0 if getattr(o, "direct", False) else lift)
         top = max(top, h)
         if tech == "sla":
-            model_ml = _hollowed_ml(vol, area, cfg)
+            model_ml = _hollowed_ml(vol, area, o.config(cfg) if hasattr(o, "config") else cfg)
             s = (supports or {}).get(o.uid)
             sup_ml = float(s.volume()) / 1000.0 if s is not None and len(s.faces) else 0.0
             ml = model_ml + sup_ml

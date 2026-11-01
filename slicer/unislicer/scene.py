@@ -38,6 +38,7 @@ class SceneObject:
     filament_parts: list = field(default_factory=list)
     fill_cavity: bool = False                    # resin: fill the model's own cavity (a hollow shell prints solid)
     locked: bool = False                         # position locked: dragging, layout and align leave it in place
+    settings: dict = field(default_factory=dict)  # this model's own settings (supports, hollowing...) over the plate's
     uid: int = field(default_factory=lambda: next(_ids))
 
     @classmethod
@@ -58,6 +59,10 @@ class SceneObject:
                 obj.filament_parts = [dict(p) for p in parts]
                 obj.filament = int(parts[0]["filament"])
         return obj
+
+    def config(self, cfg):
+        """The plate's settings with this model's own ones on top (supports, hollowing, infill...)."""
+        return cfg.copy().update(self.settings) if self.settings else cfg
 
     def filaments_used(self) -> list[int]:
         if self.filament_parts and sum(len(p["faces"]) for p in self.filament_parts) == len(self.mesh.faces):
@@ -164,7 +169,7 @@ class SceneObject:
                 self.drain_holes.copy(), self.role, self.z, self.direct, self.material,
                 [dict(r) for r in self.regions], self.filament, [dict(p) for p in self.filament_parts],
                 self.mesh,                    # repairs / cuts replace the mesh object: undo puts it back
-                self.fill_cavity, self.locked)
+                self.fill_cavity, self.locked, dict(self.settings))
 
     def restore(self, state: tuple) -> None:
         (self.x, self.y, rot, scale, base, mirror, sp, holes, self.role, self.z, self.direct, self.material,
@@ -176,6 +181,8 @@ class SceneObject:
             self.mesh = state[15]
         if len(state) > 17:
             self.fill_cavity, self.locked = bool(state[16]), bool(state[17])
+        if len(state) > 18:
+            self.settings = dict(state[18])
         self.regions = [dict(r) for r in regions]
         self.drain_holes = holes.copy()
         self.rotation, self.scale, self.base_rotation, self.mirror = rot.copy(), scale.copy(), base.copy(), mirror.copy()
@@ -196,7 +203,7 @@ class SceneObject:
         return SceneObject(self.mesh, self.name, self.x, self.y, self.rotation.copy(), self.scale.copy(),
                            self.base_rotation.copy(), self.mirror.copy(), sp, self.drain_holes.copy(), self.role, self.z,
                            self.direct, self.material, [dict(r) for r in self.regions], self.filament,
-                           [dict(p) for p in self.filament_parts])
+                           [dict(p) for p in self.filament_parts], self.fill_cavity, False, dict(self.settings))
 
 
 def plate_rect(cfg) -> tuple[float, float, float, float]:
