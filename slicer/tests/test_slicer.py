@@ -2230,3 +2230,82 @@ def test_orientation_suggestion_says_learned_only_after_learning(tmp_path):
     a.data["orient"]["sla"]["examples"] = 3
     keys = [s.text for s in a.suggestions(ctx) if s.id == "orient_1"]
     assert keys == ["sg_orient"]
+
+
+def test_assistant_learns_model_repairs_and_repairs_on_load(tmp_path):
+    """The assistant learns how the user repairs models (by the model's problems and where it came from), offers the
+    same repair for similar models, and with auto-repair on repairs them as they load (undo brings them back)."""
+    import subprocess, sys, textwrap
+    from unislicer import mesh_tools, primitives
+    from unislicer.assistant import Assistant, repair_fingerprint
+    holed = primitives.box(10, 10, 10)
+    holed = type(holed)(holed.vertices, holed.faces[2:], "holed")             # two triangles missing: a hole
+    fp = repair_fingerprint(mesh_tools.analyze(holed), ".stl|3Shape")
+    assert fp == "holes|.stl|3Shape"
+    assert repair_fingerprint(mesh_tools.analyze(primitives.box(5, 5, 5)), ".stl|-").startswith("clean|")
+    a = Assistant(str(tmp_path / "a"))
+    assert a.repair_recipe(fp) is None and not a.auto_repair
+    adv = {"mode": "advanced", "weld": 0.001, "shells": 0.02, "nonmanifold": True, "holes": True}
+    assert a.learn_repair(fp, adv) and not a.learn_repair("clean|.stl|-", adv)
+    assert a.repair_recipe(fp) == adv
+    assert a.repair_recipe("holes|.obj|Blender") == adv                    # same problems from elsewhere
+    assert a.repair_recipe("holes+dirty|.stl|3Shape") is None              # more problems than it has seen fixed
+    a.learn_repair("holes|.stl|exocad", {"mode": "basic"})
+    a.learn_repair("holes|.stl|exocad", {"mode": "basic"})
+    assert a.repair_recipe("holes|.stl|exocad") == {"mode": "basic"}       # the exact source wins
+    assert a.repair_recipe(fp) == adv
+    assert Assistant(str(tmp_path / "a")).repair_recipe(fp) == adv           # remembered
+    assert a.summary()["repairs_learned"] == 3
+
+    from unislicer.mesh import save_stl
+    for k in range(3):
+        save_stl(holed, str(tmp_path / f"part{k}.stl"))
+    code = textwrap.dedent(f'''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow()
+        d = {str(tmp_path)!r}
+        w.load_files([os.path.join(d, "part0.stl")])
+        first = w.objects[-1]
+        assert not first.mesh.is_watertight() and not w._repair_offers           # nothing learned yet
+        w._select_uid(first.uid)
+        w.repair_selected()                                                      # the user repairs it
+        assert first.mesh.is_watertight() and w.assistant.summary()["repairs_learned"] == 1
+        w.load_files([os.path.join(d, "part1.stl")])
+        second = w.objects[-1]
+        assert second.uid in w._repair_offers                                   # offered, not done
+        sugg = [s for s in w.assistant.suggestions(w._scene_context()) if s.id == f"repair_{{second.uid}}"]
+        assert sugg and sugg[0].action == "repair_like_before"
+        w._apply_suggestion(sugg[0])
+        assert second.mesh.is_watertight() and second.uid not in w._repair_offers
+        w._on_auto_repair_toggled(True)
+        w.load_files([os.path.join(d, "part2.stl")])
+        third = w.objects[-1]
+        assert third.mesh.is_watertight() and w.assistant.summary()["repairs_auto"] == 1
+        w.undo()
+        assert not [o for o in w.objects if o.uid == third.uid][0].mesh.is_watertight()
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path / "home"))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_undo_state_keeps_the_mesh_replaced_by_a_repair():
+    """Repairs, cuts and splits replace a model's mesh; undo must bring the old mesh back."""
+    from unislicer import mesh_tools, primitives
+    from unislicer.scene import SceneObject
+    box = primitives.box(10, 10, 10)
+    holed = type(box)(box.vertices, box.faces[2:], "holed")
+    o = SceneObject.from_mesh(holed)
+    before = o.state()
+    o.mesh, _ = mesh_tools.repair(o.mesh)
+    assert o.mesh.is_watertight()
+    o.restore(before)
+    assert not o.mesh.is_watertight() and len(o.mesh.faces) == len(holed.faces)
+    o.restore(before[:15])                                  # snapshots from before this change still restore
+    assert len(o.mesh.faces) == len(holed.faces)

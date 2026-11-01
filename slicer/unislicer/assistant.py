@@ -54,7 +54,36 @@ def _default_data() -> dict:
         "dismissed": [],
         "layout": {"choices": {}, "gap": None, "edge": None, "offcentre": None, "samples": 0, "runs": 0},
         "rescue": {"by_sig": {}, "rescued": 0, "failed": 0},
+        # model repairs learned from the user: problem fingerprint -> the repair they ran (and how often)
+        "repair": {"by_sig": {}, "learned": 0, "auto": False, "auto_applied": 0},
     }
+
+
+REPAIR_FLAGS = ("holes", "nonmanifold", "dirty", "shells")
+
+
+def repair_fingerprint(analysis: dict, source: str = "") -> str:
+    """What is wrong with a model (from mesh_tools.analyze) and where it came from (extension|exporting program):
+    "holes+dirty|.stl|3Shape". A clean model gives "clean|..."."""
+    flags = []
+    if analysis.get("open_edges"):
+        flags.append("holes")
+    if analysis.get("nonmanifold_edges"):
+        flags.append("nonmanifold")
+    if analysis.get("degenerate") or analysis.get("duplicates"):
+        flags.append("dirty")
+    if analysis.get("shells", 1) > 1:
+        flags.append("shells")
+    return ("+".join(flags) or "clean") + "|" + (source or "-|-")
+
+
+def normalise_recipe(recipe: dict) -> dict:
+    """A repair as stored: {"mode": "basic"} or the advanced options."""
+    if recipe.get("mode") != "advanced":
+        return {"mode": "basic"}
+    return {"mode": "advanced", "weld": round(float(recipe.get("weld", 1e-4)), 6),
+            "shells": round(float(recipe.get("shells", 0.0)), 4),
+            "nonmanifold": bool(recipe.get("nonmanifold", True)), "holes": bool(recipe.get("holes", True))}
 
 
 class Assistant:
@@ -302,6 +331,10 @@ class Assistant:
                     break
             if cfg["support_enable"] and cfg["sla_support_type"] == "pillar":
                 out.append(Suggestion("tree_supports", "improve", "sg_tree", (), "set", {"sla_support_type": "tree"}))
+        # models that look like ones the user repaired before: offer the same repair
+        for offer in ctx.get("repair_offers", []):
+            out.append(Suggestion(f"repair_{offer['uid']}", "learned", "sg_repair_learned",
+                                  (offer["name"], offer["recipe_text"]), "repair_like_before", {"uid": offer["uid"]}, False))
         # "based on what I learned" only once there is something learned; before that the built-in rules decide
         learned = self.data.get("orient", {}).get(tech, {}).get("examples", 0) > 0
         for o in ctx.get("objects", []):
@@ -357,6 +390,56 @@ class Assistant:
                 score[strat] = score.get(strat, 0.0) + w * n
         return [k for k, v in sorted(score.items(), key=lambda kv: -kv[1]) if v > 0]
 
+    # ---------------------------------------------------------------- model repairs
+    def learn_repair(self, fingerprint: str, recipe: dict) -> bool:
+        """The user repaired a model with this fingerprint using ``recipe``: remember it."""
+        if not self.enabled or fingerprint.startswith("clean|"):
+            return False
+        key = json.dumps(normalise_recipe(recipe), sort_keys=True)
+        r = self.data.setdefault("repair", {"by_sig": {}, "learned": 0, "auto": False, "auto_applied": 0})
+        entry = r.setdefault("by_sig", {}).setdefault(fingerprint, {})
+        entry[key] = entry.get(key, 0) + 1
+        r["learned"] = r.get("learned", 0) + 1
+        self.save()
+        return True
+
+    def repair_recipe(self, fingerprint: str) -> dict | None:
+        """The repair the user ran on models like this one: the same problems from the same source count most,
+        then the same problems from anywhere, then models whose problems include these."""
+        if fingerprint.startswith("clean|"):
+            return None
+        table = self.data.get("repair", {}).get("by_sig", {})
+        problems = set(fingerprint.split("|")[0].split("+"))
+        score: dict[str, float] = {}
+        for other, recipes in table.items():
+            oprob = set(other.split("|")[0].split("+"))
+            if other == fingerprint:
+                w = 4.0
+            elif oprob == problems:
+                w = 2.0
+            elif problems <= oprob:
+                w = 1.0
+            else:
+                continue
+            for key, n in recipes.items():
+                score[key] = score.get(key, 0.0) + w * n
+        if not score:
+            return None
+        return json.loads(max(score.items(), key=lambda kv: kv[1])[0])
+
+    @property
+    def auto_repair(self) -> bool:
+        return bool(self.data.get("repair", {}).get("auto", False))
+
+    def set_auto_repair(self, on: bool) -> None:
+        self.data.setdefault("repair", {}).update({"auto": bool(on)})
+        self.save()
+
+    def note_auto_repair(self) -> None:
+        r = self.data.setdefault("repair", {})
+        r["auto_applied"] = r.get("auto_applied", 0) + 1
+        self.save()
+
     def learn_rescue(self, sig: str, strategy: str | None) -> None:
         r = self.data["rescue"]
         if strategy:
@@ -381,6 +464,9 @@ class Assistant:
             "layout_samples": int(self.data["layout"].get("samples", 0)),
             "layout_runs": int(self.data["layout"].get("runs", 0)),
             "models_rescued": int(self.data.get("rescue", {}).get("rescued", 0)),
+            "repairs_learned": int(self.data.get("repair", {}).get("learned", 0)),
+            "repairs_auto": int(self.data.get("repair", {}).get("auto_applied", 0)),
+            "auto_repair": self.auto_repair,
         }
 
 

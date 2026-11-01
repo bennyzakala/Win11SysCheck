@@ -160,7 +160,8 @@ class SceneObject:
         sp = None if self.support_points is None else self.support_points.copy()
         return (self.x, self.y, self.rotation.copy(), self.scale.copy(), self.base_rotation.copy(), self.mirror.copy(), sp,
                 self.drain_holes.copy(), self.role, self.z, self.direct, self.material,
-                [dict(r) for r in self.regions], self.filament, [dict(p) for p in self.filament_parts])
+                [dict(r) for r in self.regions], self.filament, [dict(p) for p in self.filament_parts],
+                self.mesh)                    # repairs / cuts replace the mesh object: undo puts it back
 
     def restore(self, state: tuple) -> None:
         (self.x, self.y, rot, scale, base, mirror, sp, holes, self.role, self.z, self.direct, self.material,
@@ -168,6 +169,8 @@ class SceneObject:
         if len(state) > 13:
             self.filament, parts = state[13], state[14]
             self.filament_parts = [dict(p) for p in parts]
+        if len(state) > 15 and state[15] is not None:
+            self.mesh = state[15]
         self.regions = [dict(r) for r in regions]
         self.drain_holes = holes.copy()
         self.rotation, self.scale, self.base_rotation, self.mirror = rot.copy(), scale.copy(), base.copy(), mirror.copy()

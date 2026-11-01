@@ -108,6 +108,8 @@ class MainWindow(QMainWindow):
         self._islands: dict = {}
         self.assistant = Assistant()
         self._orient_gain: dict = {}          # uid -> (orientation key, gain)
+        self._model_source: dict = {}         # uid -> "extension|exporting program" (for learned repairs)
+        self._repair_offers: dict = {}        # uid -> repair the user ran on models like this one
         self._orient_task: Task | None = None
         self._dismissed_session: set = set()
         self._seen_problems: set = set()
@@ -682,6 +684,7 @@ class MainWindow(QMainWindow):
         self.assistant_panel.printReported.connect(self._on_print_report)
         self.assistant_panel.learningToggled.connect(self._on_learning_toggled)
         self.assistant_panel.resetRequested.connect(self._on_learning_reset)
+        self.assistant_panel.autoRepairToggled.connect(self._on_auto_repair_toggled)
         self.assistant_panel.closeRequested.connect(lambda: self.assistant_wrap.hide())
         awrap = QWidget()
         awrap.setObjectName("Overlay")
@@ -1040,6 +1043,7 @@ class MainWindow(QMainWindow):
 
     def load_files(self, paths):
         added = None
+        loaded = []
         for path in paths:
             try:
                 meshes = load_mesh(path)
@@ -1047,13 +1051,106 @@ class MainWindow(QMainWindow):
                 meshes = self._rescue_model(path, exc)     # the assistant tries to recover the file
                 if not meshes:
                     continue
+            source = self._file_source(path)
+            new_objs = []
             for m in meshes:
                 added = self.add_mesh(m, rearrange=False)
+                self._model_source[added.uid] = source
+                new_objs.append(added)
                 self.status.setText(tr("loaded").format(m.name, len(m.faces)))
             self._import_project_filaments(meshes)
+            loaded += new_objs
         if added is not None:
             self.arrange_objects()
             self.viewer.fit_objects()
+        for o in loaded:                      # after arranging, so Ctrl+Z first undoes an automatic repair
+            self._check_learned_repair(o)
+
+    # ================================================================ learned repairs
+    def _file_source(self, path: str) -> str:
+        """"extension|exporting program" of a model file (the program that wrote it, when it says so)."""
+        from .. import model_rescue
+        ext = os.path.splitext(path)[1].lower() or "?"
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read(4 << 20)
+            prog = model_rescue.exporter_of(data) or "-"
+        except Exception:
+            prog = "-"
+        return f"{ext}|{prog}"
+
+    def _repair_fingerprint(self, o) -> str:
+        from .. import mesh_tools
+        from ..assistant import repair_fingerprint
+        return repair_fingerprint(mesh_tools.analyze(o.mesh), self._model_source.get(o.uid, ""))
+
+    def _recipe_text(self, recipe: dict) -> str:
+        if recipe.get("mode") != "advanced":
+            return tr("rr_basic")
+        yes, no = tr("rr_yes"), tr("rr_no")
+        return tr("rr_advanced").format(f"{recipe['weld']:g}", f"{recipe['shells'] * 100:g}",
+                                        yes if recipe["holes"] else no, yes if recipe["nonmanifold"] else no)
+
+    def _apply_repair_recipe(self, o, recipe: dict) -> dict:
+        """Repair a model the way the user repaired similar ones (quick repair, or the advanced options)."""
+        from .. import mesh_tools
+        if recipe.get("mode") == "advanced":
+            fixed, rep = mesh_tools.repair_advanced(o.mesh, recipe["weld"], recipe["shells"], recipe["nonmanifold"],
+                                                    recipe["holes"])
+        else:
+            fixed, rep = mesh_tools.repair(o.mesh)
+        o.mesh = fixed
+        o.regions = []                    # faces changed: shaded regions / filament parts no longer apply
+        o.filament_parts = []
+        self._drop_supports(o)
+        return rep
+
+    def _check_learned_repair(self, o):
+        """A model that loaded with problems like ones the user repaired before: repair it the same way
+        (automatically when that is switched on), or offer it in the assistant."""
+        if not self.assistant.enabled or o.role == "cutter":
+            return
+        if o.mesh.is_watertight() and len(o.mesh.faces) > 150_000:
+            return                        # a big closed model: nothing worth the time to analyse
+        try:
+            fp = self._repair_fingerprint(o)
+        except Exception:
+            return
+        recipe = self.assistant.repair_recipe(fp)
+        if recipe is None:
+            return
+        if self.assistant.auto_repair:
+            self._push_undo()                 # Ctrl+Z gives back the model as it was in the file
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                self._apply_repair_recipe(o, recipe)
+            except Exception:
+                return
+            finally:
+                QApplication.restoreOverrideCursor()
+            self.assistant.note_auto_repair()
+            self._objects_changed()
+            self.status.setText(tr("rr_auto_done").format(o.name, self._recipe_text(recipe)))
+        else:
+            self._repair_offers[o.uid] = recipe
+            self._schedule_suggestions()
+
+    def _on_auto_repair_toggled(self, on: bool):
+        self.assistant.set_auto_repair(on)
+        if on and self._repair_offers:          # models already offered: repair them now, as asked
+            self._push_undo()
+            for o in [x for x in self.objects if x.uid in self._repair_offers]:
+                self._apply_repair_recipe(o, self._repair_offers.pop(o.uid))
+                self.assistant.note_auto_repair()
+            self._objects_changed()
+        self._schedule_suggestions()
+
+    def _learn_repair(self, fingerprints: dict, recipe: dict):
+        learned = False
+        for fp in fingerprints.values():
+            learned |= self.assistant.learn_repair(fp, recipe)
+        if learned:
+            self.status.setText(self.status.text() + "  ·  " + tr("rr_learned"))
 
     # ================================================================ filaments (multi-colour FDM)
     def _import_project_filaments(self, meshes):
@@ -1739,7 +1836,15 @@ class MainWindow(QMainWindow):
             return
         self._push_undo()
         totals = {"duplicates": 0, "flipped": 0, "holes_filled": 0}
+        prints = {}
+        if self.assistant.enabled:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                prints = {o.uid: self._repair_fingerprint(o) for o in targets}
+            finally:
+                QApplication.restoreOverrideCursor()
         for o in targets:
+            self._repair_offers.pop(o.uid, None)
             fixed, rep = mesh_tools.repair(o.mesh)
             o.mesh = fixed
             o.regions = []                        # faces changed: shaded regions no longer apply
@@ -1747,6 +1852,7 @@ class MainWindow(QMainWindow):
                 totals[k] += rep[k]
         self._objects_changed()
         self.status.setText(tr("repair_done").format(totals["flipped"], totals["holes_filled"], totals["duplicates"]))
+        self._learn_repair(prints, {"mode": "basic"})
 
     def open_layer_editor(self):
         """Paint / erase pixels on the sliced layers (resin), as in CHITUBOX Pro."""
@@ -1820,9 +1926,15 @@ class MainWindow(QMainWindow):
             return
         self._push_undo()
         lines = []
+        recipe = {"mode": "advanced", "weld": weld.value(), "shells": shells.value() / 100.0,
+                  "nonmanifold": nonman.isChecked(), "holes": holes.isChecked()}
+        prints = {}
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
+            if self.assistant.enabled:
+                prints = {o.uid: self._repair_fingerprint(o) for o in targets}
             for o in targets:
+                self._repair_offers.pop(o.uid, None)
                 fixed, rep = mesh_tools.repair_advanced(o.mesh, weld.value(), shells.value() / 100.0,
                                                         nonman.isChecked(), holes.isChecked())
                 o.mesh = fixed
@@ -1835,6 +1947,7 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
         self._objects_changed()
+        self._learn_repair(prints, recipe)
         QMessageBox.information(self, tr("repair_advanced"), "\n\n".join(lines))
 
     def _on_preview_click(self, uid):
@@ -3436,6 +3549,8 @@ class MainWindow(QMainWindow):
         return {"technology": cfg["technology"], "cfg": cfg, "objects": objects, "job": job,
                 "overrides": dict(self.settings.overrides), "plate_free_copies": free,
                 "overlapping": self._overlapping_count(), "crashes": self._crash_context(),
+                "repair_offers": [{"uid": o.uid, "name": o.name, "recipe_text": self._recipe_text(self._repair_offers[o.uid])}
+                                  for o in self.objects if o.uid in self._repair_offers],
                 "dismissed_session": self._dismissed_session}
 
     def _crash_context(self) -> list[dict]:
@@ -3590,6 +3705,20 @@ class MainWindow(QMainWindow):
         elif a == "auto_orient":
             self._select_uid(args["uid"])
             self.auto_orient_selected()
+        elif a == "repair_like_before":
+            o = next((x for x in self.objects if x.uid == args["uid"]), None)
+            recipe = self._repair_offers.pop(args["uid"], None)
+            if o is not None and recipe is not None:
+                self._push_undo()
+                fp = self._repair_fingerprint(o)
+                QApplication.setOverrideCursor(Qt.WaitCursor)
+                try:
+                    self._apply_repair_recipe(o, recipe)
+                finally:
+                    QApplication.restoreOverrideCursor()
+                self.assistant.learn_repair(fp, recipe)          # choosing it again confirms it
+                self._objects_changed()
+                self.status.setText(tr("rr_done").format(o.name, self._recipe_text(recipe)))
         elif a == "denser_supports":
             cfg = self.settings.config()
             self.settings.set_value("sla_support_spacing", round(cfg["sla_support_spacing"] * 0.75, 2))
