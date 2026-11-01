@@ -33,6 +33,22 @@ def _ray_hits(tris: np.ndarray, xy: np.ndarray):
     return z, idx
 
 
+_CASTERS: dict = {}
+
+
+def caster_for(mesh: Mesh) -> "_Caster":
+    """The ray caster of a mesh, shared: auto supports and the support preview both need it for the same
+    placed model (each build takes ~0.5 s on a big scan). Keyed by content, so a moved or turned model
+    gets a new one."""
+    key = (len(mesh.faces), hash(mesh.vertices.tobytes()), hash(mesh.faces.tobytes()))
+    hit = _CASTERS.get(key)
+    if hit is None:
+        if len(_CASTERS) >= 6:
+            _CASTERS.pop(next(iter(_CASTERS)))
+        hit = _CASTERS[key] = _Caster(mesh)
+    return hit
+
+
 class _Caster:
     """Vertical rays against one mesh, with a per-triangle XY bounding-box prefilter."""
 
@@ -105,7 +121,7 @@ def effective_spacing(cfg: Config) -> float:
 
 def auto_support_points(mesh: Mesh, cfg: Config) -> np.ndarray:
     """Contact points (N, 3) on the underside of ``mesh`` that need support."""
-    caster = _Caster(mesh)
+    caster = caster_for(mesh)
     threshold = -math.sin(math.radians(cfg["support_angle"]))
     overhang = caster.normals[:, 2] < threshold
     spacing = effective_spacing(cfg)
@@ -126,19 +142,57 @@ def auto_support_points(mesh: Mesh, cfg: Config) -> np.ndarray:
                     continue  # duplicate hit on a shared edge
                 points.append([gx, gy, z[k]])
     # lowest tips (vertices below all their neighbours) would be missed by a coarse grid
-    v = mesh.vertices
+    if cfg["sla_support_minima"]:
+        points += _tip_points(mesh, caster.normals, threshold, spacing, points)
+    return np.array(points, dtype=np.float64).reshape(-1, 3)
+
+
+def _tip_points(mesh: Mesh, normals: np.ndarray, threshold: float, spacing: float, existing: list) -> list:
+    """Local lowest points that need their own support. A scanned model (intraoral / desktop scans) has
+    thousands of tiny dips from scan noise: only tips on overhanging surface count, taken lowest first,
+    and none closer than half the spacing to a support already placed (grid or tip) - so the count stays
+    about area / spacing², not one per noisy vertex (which used to run out of memory on big scans)."""
+    v, f = mesh.vertices, mesh.faces
+    if len(f) == 0:
+        return []
     neighbour_min = np.full(len(v), np.inf)
-    f = mesh.faces
     for a, b in ((0, 1), (1, 2), (2, 0), (1, 0), (2, 1), (0, 2)):
         np.minimum.at(neighbour_min, f[:, a], v[f[:, b], 2])
-    tips = np.nonzero(v[:, 2] < neighbour_min - 1e-6)[0] if cfg["sla_support_minima"] else []
-    existing = np.array(points) if points else np.zeros((0, 3))
+    down = np.zeros(len(v), dtype=bool)                 # vertex touches an overhanging face
+    over = normals[:, 2] < threshold
+    for c in range(3):
+        down[f[over, c]] = True
+    tips = np.nonzero((v[:, 2] < neighbour_min - 1e-6) & down)[0]
+    if len(tips) == 0:
+        return []
+    tips = tips[np.argsort(v[tips, 2], kind="stable")]
+    r = spacing * 0.5
+    cell = max(r, 1e-3)
+    grid: dict = {}
+
+    def near(p):
+        cx, cy = int(math.floor(p[0] / cell)), int(math.floor(p[1] / cell))
+        for i in (cx - 1, cx, cx + 1):
+            for j in (cy - 1, cy, cy + 1):
+                for q in grid.get((i, j), ()):
+                    if math.hypot(q[0] - p[0], q[1] - p[1]) + abs(q[2] - p[2]) < r:
+                        return True
+        return False
+
+    def put(p):
+        grid.setdefault((int(math.floor(p[0] / cell)), int(math.floor(p[1] / cell))), []).append(p)
+
+    for p in existing:
+        put(p)
+    out = []
     for t in tips:
         p = v[t]
-        if len(existing) and np.min(np.hypot(*(existing[:, :2] - p[:2]).T) + np.abs(existing[:, 2] - p[2])) < spacing * 0.5:
+        if near(p):
             continue
-        points.append(p.copy())
-    return np.array(points, dtype=np.float64).reshape(-1, 3)
+        p = [float(p[0]), float(p[1]), float(p[2])]
+        put(p)
+        out.append(p)
+    return out
 
 
 def unsupported_faces(mesh: Mesh, cfg: Config, points: np.ndarray | None, reach: float | None = None) -> np.ndarray:
@@ -338,7 +392,7 @@ def _raft_label(text: str, feet: np.ndarray, cfg: Config, pad: float, raft: floa
     except Exception:          # pragma: no cover - Qt not available
         return []
     margin = pad + cfg["sla_raft_margin"]
-    hull = MultiPoint([tuple(q) for q in feet]).buffer(margin, quad_segs=6).convex_hull
+    hull = MultiPoint([tuple(q) for q in feet]).convex_hull.buffer(margin, quad_segs=6)
     minx, miny, maxx, maxy = hull.bounds
     height = min(3.0, max(1.2, (maxy - miny) * 0.18))
     try:
@@ -414,7 +468,7 @@ def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None) -> li
     scale = math.sqrt(max(cfg["sla_raft_area_ratio"], 1.0) / 100.0)
 
     def outline(group):
-        hull = MultiPoint([tuple(q) for q in group]).buffer(margin, quad_segs=6).convex_hull
+        hull = MultiPoint([tuple(q) for q in group]).convex_hull.buffer(margin, quad_segs=6)  # hull first: buffering thousands of points was ~1 s
         return shapely_scale(hull, scale, scale, origin="centroid") if scale != 1 else hull
 
     if kind == "mini":
@@ -478,7 +532,7 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
         points = auto_support_points(mesh, cfg)
     points = np.asarray(points, dtype=np.float64).reshape(-1, 3)
     if "caster" not in cache:
-        cache["caster"] = _Caster(mesh)
+        cache["caster"] = caster_for(mesh)
     caster = cache["caster"]
     tip_r = cfg["sla_tip_diameter"] / 2
     pillar_r = max(cfg["sla_pillar_diameter"] / 2, tip_r)

@@ -38,15 +38,32 @@ def _raster_outline(m) -> Polygon:
         return Polygon()
     lo = t.reshape(-1, 2).min(axis=0)
     hi = t.reshape(-1, 2).max(axis=0)
-    res = float(np.clip(max(hi - lo) / 700.0, 0.15, 1.0))
+    res = float(np.clip(max(hi - lo) / 500.0, 0.25, 1.0))      # 0.25 mm: far finer than the 2 mm gaps
     lo = lo - 2 * res
     w, h = (np.ceil((hi - lo) / res)).astype(int) + 2
-    px = ((t - lo) / res).reshape(-1, 6)
-    img = Image.new("1", (int(w), int(h)), 0)
-    draw = ImageDraw.Draw(img)
-    for row in px.tolist():
-        draw.polygon(row, fill=1, outline=1)
-    a = np.asarray(img, dtype=bool)
+    tri = (t - lo) / res
+    # a scan has hundreds of thousands of triangles smaller than a pixel: those just mark the pixels of
+    # their corners (vectorised); only the bigger ones are drawn one by one
+    ext = (tri.max(axis=1) - tri.min(axis=1)).max(axis=1)
+    a = np.zeros((int(h), int(w)), dtype=bool)
+    lim = [int(w) - 1, int(h) - 1]
+    # every vertex (a scan's triangles are mostly under a pixel, so its vertices already cover it) ...
+    # pixel k holds the points within half a pixel of k (rounding), so the outline errs equally both ways
+    vp = np.clip(np.rint((m.vertices[:, :2] - lo) / res).astype(np.int64), 0, lim)
+    a[vp[:, 1], vp[:, 0]] = True
+    # ... plus edge midpoints and centres of the 1-2 px triangles, and the bigger ones drawn one by one
+    mid = tri[(ext > 1.0) & (ext <= 2.0)]
+    if len(mid):
+        samples = np.concatenate([(mid + mid[:, [1, 2, 0]]) / 2, mid.mean(axis=1, keepdims=True)], axis=1)
+        pts = np.clip(np.rint(samples.reshape(-1, 2)).astype(np.int64), 0, lim)
+        a[pts[:, 1], pts[:, 0]] = True
+    big = tri[ext > 2.0].reshape(-1, 6)
+    if len(big):
+        img = Image.new("1", (int(w), int(h)), 0)
+        draw = ImageDraw.Draw(img)
+        for row in (big + 0.5).tolist():          # PIL pixel k spans [k, k+1): same centres as above
+            draw.polygon(row, fill=1, outline=1)
+        a |= np.asarray(img, dtype=bool)
     rects = []
     for y in np.flatnonzero(a.any(axis=1)):
         e = np.flatnonzero(np.diff(np.concatenate([[0], a[y].astype(np.int8), [0]])))
@@ -54,9 +71,12 @@ def _raster_outline(m) -> Polygon:
     if not rects:
         return MultiPoint(m.vertices[:, :2]).convex_hull
     r = np.array(rects, dtype=float)
+    r = r - [0.5, 0.5, 0.5, 0.5]
     g = shapely.union_all(shapely.box(lo[0] + r[:, 0] * res, lo[1] + r[:, 1] * res,
                                       lo[0] + r[:, 2] * res, lo[1] + r[:, 3] * res)).simplify(res * 0.6)
-    return shapely.union_all([Polygon(p.exterior) for p in getattr(g, "geoms", [g]) if not p.is_empty])
+    out = shapely.union_all([Polygon(p.exterior) for p in getattr(g, "geoms", [g]) if not p.is_empty])
+    # never wider than the part itself
+    return out.intersection(shapely.box(*t.reshape(-1, 2).min(axis=0), *hi))
 
 
 def footprint(o: SceneObject) -> Polygon:

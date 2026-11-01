@@ -14,8 +14,11 @@ from .mesh import Mesh
 class ColumnMap:
     def __init__(self, mesh: Mesh, cell: float = 0.5):
         tris = mesh.triangles
-        # sample each triangle at its corners, edge midpoints and centre (dense enough for a 0.5 mm grid
-        # once large triangles are split)
+        # small triangles (a scan's are mostly < 0.5 mm) are covered by their corners: only the big ones are
+        # split and sampled at corners, edge midpoints and centre (dense enough for a 0.5 mm grid)
+        edges = np.linalg.norm(tris[:, [1, 2, 0], :2] - tris[:, :, :2], axis=2).max(axis=1)
+        corners = np.asarray(mesh.vertices, dtype=np.float32)
+        tris = tris[edges > cell]
         for _ in range(10):
             edges = np.linalg.norm(tris[:, [1, 2, 0], :2] - tris[:, :, :2], axis=2).max(axis=1)
             big = edges > cell * 1.5
@@ -25,7 +28,7 @@ class ColumnMap:
             m01, m12, m20 = (t[:, 0] + t[:, 1]) / 2, (t[:, 1] + t[:, 2]) / 2, (t[:, 2] + t[:, 0]) / 2
             tris = np.concatenate([tris[~big], np.stack([t[:, 0], m01, m20], 1), np.stack([m01, t[:, 1], m12], 1),
                                    np.stack([m20, m12, t[:, 2]], 1), np.stack([m01, m12, m20], 1)])
-        pts = np.concatenate([tris.reshape(-1, 3), tris.mean(axis=1)]).astype(np.float32)
+        pts = np.concatenate([corners, tris.reshape(-1, 3).astype(np.float32), tris.mean(axis=1).astype(np.float32)])
         self.cell = cell
         self.origin = pts[:, :2].min(axis=0)
         ij = np.floor((pts[:, :2] - self.origin) / cell).astype(np.int64)

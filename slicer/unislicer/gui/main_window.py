@@ -1037,7 +1037,7 @@ class MainWindow(QMainWindow):
                     continue
                 world, geo = self._support_geometry(o, lift)
                 if "caster" not in geo:
-                    geo["caster"] = sla_supports._Caster(world)
+                    geo["caster"] = sla_supports.caster_for(world)
                 contact = sla_supports.underside_contact(geo["caster"], p + [0, 0, 0.3])
                 if contact is None:
                     continue
@@ -3076,7 +3076,7 @@ class MainWindow(QMainWindow):
             p = p + [0, 0, lift]
         world, geo = self._support_geometry(o, lift)
         if "caster" not in geo:
-            geo["caster"] = sla_supports._Caster(world)
+            geo["caster"] = sla_supports.caster_for(world)
         return sla_supports.underside_contact(geo["caster"], p)
 
     @staticmethod
