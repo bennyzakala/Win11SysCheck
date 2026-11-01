@@ -2143,6 +2143,9 @@ def test_phrozen_ds_slicer_profiles_import_and_layer_table(tmp_path):
     ls = printers["phrozen_sonic_ls_plus"]["values"]
     assert (ls["bed_x"], ls["bed_y"], ls["resolution_x"], ls["resolution_y"]) == (195.84, 122.4, 5760, 3600)
     assert printers["phrozen_lumii_2k"]["values"]["resolution_y"] == 1440 and "phrozen_sonic_4k_2022" in printers
+    k8 = printers["phrozen_8k_2023"]["values"]
+    assert (k8["bed_x"], k8["bed_y"], k8["max_z"]) == (199.68, 124.8, 140.0)
+    assert profiles.build_config("phrozen_8k_2023", "phrozen_ds_phrozen_ds_slicer_default_8k_2023")["exposure_time"] == 10.0
     mats = profiles.load("materials")
     ds = {k: v for k, v in mats.items() if k.startswith("phrozen_ds_")}
     assert len(ds) > 100 and all(v["printers_only"] and v["printers"] for v in ds.values())
@@ -2214,3 +2217,16 @@ def test_phrozen_ds_slicer_profiles_import_and_layer_table(tmp_path):
     env = dict(os.environ, HOME=str(tmp_path))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_orientation_suggestion_says_learned_only_after_learning(tmp_path):
+    """With no orientation choices learned yet, the auto-orient suggestion credits the built-in rules, not
+    "what I learned from your choices"."""
+    from unislicer.assistant import Assistant
+    a = Assistant(str(tmp_path))
+    ctx = {"technology": "sla", "objects": [{"uid": 1, "name": "Tooth_47", "orient_gain": 0.37}]}
+    keys = [s.text for s in a.suggestions(ctx) if s.id == "orient_1"]
+    assert keys == ["sg_orient_rules"]
+    a.data["orient"]["sla"]["examples"] = 3
+    keys = [s.text for s in a.suggestions(ctx) if s.id == "orient_1"]
+    assert keys == ["sg_orient"]

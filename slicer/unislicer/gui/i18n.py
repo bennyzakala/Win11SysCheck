@@ -201,6 +201,7 @@ STRINGS = {
     "sg_not_watertight": ("\"{}\" אינו אטום (יש בו חורים ברשת). מומלץ לתקן אותו בתוכנת עריכה לפני הדפסה.", "\"{}\" is not watertight (holes in the mesh). Repair it in a mesh editor before printing."),
     "sg_hollow": ("חלילה תחסוך כ-{:.0f} מ\"ל שרף. להפעיל חלילה עם חורי ניקוז?", "Hollowing would save about {:.0f} ml of resin. Turn on hollowing with drain holes?"),
     "sg_tree": ("תמיכות עץ חוסכות בדרך כלל 15–20% שרף ומשאירות פחות סימנים. לעבור לתמיכות עץ?", "Tree supports usually save 15–20% resin and leave fewer marks. Switch to tree supports?"),
+    "sg_orient_rules": ("כיוון אוטומטי יכול לשפר את \"{}\" בכ-{}% (פחות תמיכות ושטח הפרדה, לפי כללי ההדפסה המובנים).", "Auto-orient could improve \"{}\" by about {}% (fewer supports and less peel area, by the built-in printing rules)."),
     "sg_orient": ("כיוון אוטומטי יכול לשפר את \"{}\" בכ-{}% (לפי מה שלמדתי מהבחירות שלך).", "Auto-orient could improve \"{}\" by about {}% (based on what I learned from your choices)."),
     "sg_copies": ("יש מקום על המשטח לעוד כ-{} עותקים. להדפיס כמה במקביל?", "There's room on the plate for about {} more copies. Print several at once?"),
     "sg_make_default": ("שינית כמה פעמים את \"{}\" ל-{}. לשמור את זה כברירת מחדל?", "You often set \"{}\" to {}. Save it as the default?"),

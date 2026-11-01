@@ -302,11 +302,13 @@ class Assistant:
                     break
             if cfg["support_enable"] and cfg["sla_support_type"] == "pillar":
                 out.append(Suggestion("tree_supports", "improve", "sg_tree", (), "set", {"sla_support_type": "tree"}))
+        # "based on what I learned" only once there is something learned; before that the built-in rules decide
+        learned = self.data.get("orient", {}).get(tech, {}).get("examples", 0) > 0
         for o in ctx.get("objects", []):
             gain = o.get("orient_gain", 0)
             if gain >= 0.2:
-                out.append(Suggestion(f"orient_{o['uid']}", "improve", "sg_orient", (o["name"], int(gain * 100)),
-                                      "auto_orient", {"uid": o["uid"]}, False))
+                out.append(Suggestion(f"orient_{o['uid']}", "improve", "sg_orient" if learned else "sg_orient_rules",
+                                      (o["name"], int(gain * 100)), "auto_orient", {"uid": o["uid"]}, False))
         lay = self.data["layout"]
         if cfg is not None and lay.get("samples", 0) >= 3 and lay.get("gap") is not None \
                 and abs(lay["gap"] - cfg["arrange_spacing"]) >= 1.5:

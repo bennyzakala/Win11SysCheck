@@ -67,6 +67,7 @@
 "Auto-orient": "توجيه تلقائي",
 "Auto-orient again": "توجيه تلقائي مجددًا",
 "Auto-orient could improve \"{}\" by about {}% (based on what I learned from your choices).": "يمكن للتوجيه التلقائي تحسين «{}» بنحو {}% (بناءً على ما تعلّمته من اختياراتك).",
+"Auto-orient could improve \"{}\" by about {}% (fewer supports and less peel area, by the built-in printing rules).": "يمكن للتوجيه التلقائي تحسين \"{}\" بنحو {}% (دعامات أقل ومساحة انفصال أصغر، وفق قواعد الطباعة المضمّنة).",
 "Auto: wall thickness plus 1 mm, so the hole reaches the cavity": "تلقائي: سماكة الجدار زائد 1 مم ليصل الثقب إلى التجويف",
 "Automatic": "تلقائي",
 "BACK": "خلف",

@@ -67,6 +67,7 @@
 "Auto-orient": "Автоориентация",
 "Auto-orient again": "Снова автоориентация",
 "Auto-orient could improve \"{}\" by about {}% (based on what I learned from your choices).": "Автоориентация может улучшить «{}» примерно на {}% (на основе того, что я узнал из ваших выборов).",
+"Auto-orient could improve \"{}\" by about {}% (fewer supports and less peel area, by the built-in printing rules).": "Автоориентация может улучшить «{}» примерно на {}% (меньше поддержек и площади отрыва, по встроенным правилам печати).",
 "Auto: wall thickness plus 1 mm, so the hole reaches the cavity": "Авто: толщина стенки плюс 1 мм, чтобы отверстие доходило до полости",
 "Automatic": "Автоматически",
 "BACK": "ЗАД",

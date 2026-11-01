@@ -32,6 +32,7 @@ PRINTERS = {
     "Sonic CS+ Mini Plate": ("phrozen_sonic_cs_plus", 1),
     "Sonic LS+ Large Plate": ("phrozen_sonic_ls_plus", 0),
     "Sonic LS+ Standard Plate": ("phrozen_sonic_ls_plus", 1),
+    "8K 2023": ("phrozen_8k_2023", 0),
 }
 
 
@@ -104,7 +105,9 @@ def convert(xml_path: str) -> tuple[dict, dict, dict]:
             geometry[pid] = (prio, g)
         brand = (rc.findtext("BrandName") or "").strip()
         name = (rc.findtext("ResinName") or "").strip()
-        if not name or brand.startswith("<"):
+        if brand.startswith("<") or name.startswith("<"):        # DS Slicer's default resin (only on "8K 2023")
+            brand, name = "Phrozen", f"DS Slicer default ({pname})"
+        if not name:
             continue
         brand = {"ID Print": "ID print", "ID3DPRINT": "ID3DPRINT"}.get(brand, brand)
         rid = "phrozen_ds_" + slug(f"{brand} {name}")
