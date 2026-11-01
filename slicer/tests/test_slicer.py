@@ -2638,7 +2638,7 @@ def test_export_print_file_goes_to_the_central_library(tmp_path):
         w.slice()
         import time
         end = time.time() + 120
-        while w.result is None and time.time() < end:      # the result arrives by a queued signal
+        while (w.result is None or (w.task is not None and w.task.isRunning())) and time.time() < end:
             app.processEvents()
             time.sleep(0.01)
         w.export()
@@ -2731,7 +2731,7 @@ def test_align_lock_fill_cavity_and_layer_playback(tmp_path):
         w.slice()
         import time
         end = time.time() + 120
-        while w.result is None and time.time() < end:      # the result arrives by a queued signal
+        while (w.result is None or (w.task is not None and w.task.isRunning())) and time.time() < end:
             app.processEvents()
             time.sleep(0.01)
         assert w.result is not None
