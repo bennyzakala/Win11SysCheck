@@ -26,6 +26,7 @@ from .orient import DEFAULT_WEIGHTS, FEATURES
 from .settings import SCHEMA_BY_KEY, Config
 
 FILE_NAME = "learning.json"
+SEED_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "profiles", "learning_seed.json")
 SHORTCUTS = {"arrange": "A", "duplicate": "Ctrl+D", "slice": "Ctrl+R", "export": "Ctrl+E", "undo": "Ctrl+Z",
              "open": "Ctrl+O", "save_project": "Ctrl+S"}
 PRESET_ORDER = ["light", "medium", "heavy"]
@@ -91,8 +92,13 @@ class Assistant:
         self.folder = folder or profiles.USER_DIR
         self.path = os.path.join(self.folder, FILE_NAME)
         self.data = _default_data()
+        path = self.path
+        if folder is None and not os.path.exists(path) and not os.environ.get("UNISLICER_NO_SEED"):
+            # a new install starts with what the assistant learned on the Prodentix workstation (orientation,
+            # supports, layouts, repairs, usual settings); from then on it learns here, in the user's own file
+            path = SEED_FILE
         try:
-            with open(self.path, "r", encoding="utf-8") as fh:
+            with open(path, "r", encoding="utf-8") as fh:
                 saved = json.load(fh)
             for k, v in saved.items():
                 if isinstance(v, dict) and isinstance(self.data.get(k), dict):

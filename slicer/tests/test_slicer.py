@@ -2916,3 +2916,22 @@ def test_learn_layout_button_and_arrange_repeat_it():
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_new_install_starts_with_the_bundled_learning(tmp_path, monkeypatch):
+    """A new install (no learning file yet) starts with the knowledge learned on the Prodentix workstation;
+    the first save writes the user's own file, which wins from then on; an existing file is never replaced."""
+    import json
+    from unislicer import assistant, profiles
+    seed = json.load(open(assistant.SEED_FILE, encoding="utf-8"))
+    assert seed["layout"]["taught"]["count"] == 5 and seed["orient"]["sla"]["examples"] >= 8
+    assert not any(x.startswith("crash_") for x in seed["dismissed"])
+    monkeypatch.delenv("UNISLICER_NO_SEED", raising=False)
+    monkeypatch.setattr(profiles, "USER_DIR", str(tmp_path / "user"))
+    a = assistant.Assistant()
+    assert a.taught_layout()["count"] == 5
+    a.data["supports"]["angle_offset"] = -10.0
+    a.save()
+    b = assistant.Assistant()
+    assert b.data["supports"]["angle_offset"] == -10.0          # the user's own file wins
+    assert os.path.isfile(os.path.join(str(tmp_path / "user"), assistant.FILE_NAME))
