@@ -858,7 +858,7 @@ class MainWindow(QMainWindow):
         self.settings.technologyChanged.connect(lambda _t: self._apply_printer())
         self.settings.filamentEditRequested.connect(self.filaments_dialog)
         self.settings.cfsSyncRequested.connect(self.sync_cfs)
-        self.settings.applyRequested.connect(self.apply_settings)
+        self.settings.settingApplied.connect(self.apply_setting)
         lay.addWidget(self.settings, 1)
 
         action = _card()
@@ -2918,8 +2918,9 @@ class MainWindow(QMainWindow):
             self._objects_changed(refresh_list=False)
         cfg = self.settings.config()
         for key in self.RAFT_KEYS:
-            row = SettingRow(SCHEMA_BY_KEY[key], cfg[key], key in self.settings.overrides, cfg)
+            row = SettingRow(SCHEMA_BY_KEY[key], cfg[key], key in self.settings.overrides, cfg, staged=True)
             row.changed.connect(changed)
+            row.applied.connect(self.apply_setting)
             row.reset.connect(lambda k: (self.settings.set_value(k, self.settings.base_config()[k]), dlg.close(), self.raft_menu()))
             lay.addWidget(row)
             rows[key] = row
@@ -3196,18 +3197,27 @@ class MainWindow(QMainWindow):
         if fkey != getattr(self, "_filament_view_key", None):      # model colours follow the filament list
             self._filament_view_key = fkey
             self._objects_changed()
-        self.settings.set_pending(bool(self.objects))
         self._save_state()
         self._schedule_suggestions()
 
-    def apply_settings(self):
-        """The settings panel's "Apply": take the changes now and slice again (the preview shows the result)."""
+    # settings whose result is only seen in the sliced layers: their "Apply" slices right away
+    SLICE_TO_SEE = ("hollow",)
+
+    def apply_setting(self, key: str):
+        """A setting's own "Apply": only that setting was committed; make it take effect now. The plate
+        view follows at once (raft, plate, overhangs...); if the print was sliced, or the setting only shows
+        in the slice (hollowing, internal infill), it is sliced again."""
+        had_slice = self.result is not None or self.viewer.mode == "preview"
         if self._settings_timer.isActive():
             self._settings_timer.stop()
             self._on_settings_changed()
-        if self.task is not None and self.task.isRunning():
-            self.task.cancel()
-        self.slice()
+        setting = SCHEMA_BY_KEY.get(key)
+        if not self.objects:
+            return
+        if had_slice or (setting is not None and setting.category in self.SLICE_TO_SEE):
+            if self.task is not None and self.task.isRunning():
+                self.task.cancel()
+            self.slice()
 
     def _save_state(self):
         s = self.store
@@ -3366,7 +3376,6 @@ class MainWindow(QMainWindow):
 
     def _on_sliced(self, result):
         self.result = result
-        self.settings.set_pending(False)
         warnings = []
         if result[0] == "fdm":
             _, plan, text, stats, verts, cfg = result

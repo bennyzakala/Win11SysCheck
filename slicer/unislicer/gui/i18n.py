@@ -45,7 +45,7 @@ STRINGS = {
     "search": ("חיפוש הגדרה…", "Search settings…"),
     "reset_setting": ("אפס לערך הפרופיל", "Reset to profile value"),
     "apply_settings": ("החל", "Apply"),
-    "apply_settings_tip": ("חותך מחדש עם ההגדרות ששינית, כדי שהשינוי ייכנס לפעולה", "Slice again with the settings you changed so they take effect"),
+    "apply_setting_tip": ("מפעיל רק את השינוי בהגדרה הזו", "Apply only the change to this setting"),
     "reset_all": ("אפס את כל השינויים", "Reset all changes"),
     "slice": ("פרוס", "Slice"),
     "slicing": ("פורס…", "Slicing…"),

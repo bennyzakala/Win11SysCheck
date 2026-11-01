@@ -2497,8 +2497,8 @@ def test_long_collision_warning_does_not_widen_the_window():
 
 def test_choosing_infill_hollows_the_model_and_apply_reslices():
     """Picking the honeycomb infill alone (hollowing left off) used to do nothing: the model stayed solid.
-    The infill now hollows the model by itself, the panel turns 'Hollow the model' on with it, and an
-    'Apply' button appears after a change and slices again."""
+    The infill now hollows the model by itself, the panel turns 'Hollow the model' on with it, and every
+    setting has its own 'Apply' that commits only that setting."""
     from shapely.geometry import box
     from unislicer import profiles, primitives, sla
     from unislicer.scene import SceneObject
@@ -2525,12 +2525,23 @@ def test_choosing_infill_hollows_the_model_and_apply_reslices():
         w.add_mesh(primitives.box(20, 20, 10)); app.processEvents()
         w.settings._on_changed("hollow_infill", "hive")
         assert w.settings.config()["hollow_enable"] is True
-        w._on_settings_changed()
-        assert not w.settings.apply_btn.isHidden()
+        w.settings._on_changed("hollow_infill", "none")
+        # each setting has its own Apply: a picked value waits, Apply commits only that one and slices
         called = []
         w.slice = lambda: called.append(1)
-        w.settings.apply_btn.click()
-        assert called
+        infill, spacing = w.settings._rows["hollow_infill"], w.settings._rows["hollow_infill_spacing"]
+        assert not infill.apply_btn.isEnabled()
+        infill.editor.setCurrentIndex(infill.editor.findData("hive"))
+        spacing.editor.setValue(9.0)
+        assert infill.pending and spacing.pending and infill.apply_btn.isEnabled()
+        assert w.settings.config()["hollow_infill"] == "none"        # nothing applied yet
+        infill.apply_btn.click()
+        cfg = w.settings.config()
+        assert cfg["hollow_infill"] == "hive" and cfg["hollow_enable"] is True
+        assert cfg["hollow_infill_spacing"] != 9.0 and spacing.pending   # the other change still waits
+        assert called and not infill.pending and not infill.apply_btn.isEnabled()
+        spacing.apply_btn.click()
+        assert w.settings.config()["hollow_infill_spacing"] == 9.0
         w.settings._on_changed("hollow_enable", False)
         assert w.settings.config()["hollow_infill"] == "none"
         print("ok")

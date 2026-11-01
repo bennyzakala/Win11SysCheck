@@ -1058,5 +1058,5 @@
 "✓ Success": "✓ نجاح",
 "✦ Defaults adapted from your previous layouts (the assistant learns from the options you pick and from how you adjust a layout by hand)": "✦ قيم افتراضية مكيّفة من ترتيباتك السابقة (يتعلّم المساعد من الخيارات التي تختارها ومن تعديلك اليدوي للترتيب)",
 "➕ Add a plate size…": "➕ إضافة مقاس منصة…",
-"Slice again with the settings you changed so they take effect": "إعادة التقطيع بالإعدادات التي غيّرتها لتصبح سارية"
+"Apply only the change to this setting": "تطبيق تغيير هذا الإعداد فقط"
 }

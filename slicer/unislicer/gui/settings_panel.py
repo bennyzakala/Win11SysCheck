@@ -82,14 +82,22 @@ class Section(QFrame):
 
 
 class SettingRow(QWidget):
+    """One setting: label, reset, (Apply) and its editor.
+
+    With ``staged`` a typed or picked value waits in the row: its own "Apply" button commits that one
+    setting (``changed`` then ``applied``), so nothing else changes with it. On/off switches act at once."""
     changed = Signal(str, object)
     reset = Signal(str)
+    applied = Signal(str)
 
-    def __init__(self, setting, value, modified: bool, cfg: Config):
+    def __init__(self, setting, value, modified: bool, cfg: Config, staged: bool = False):
         super().__init__()
         self.setting = setting
         s = setting
         self.key = s.key
+        self.staged = staged and s.kind != "bool"
+        self._pending = None
+        self._has_pending = False
         tall = s.kind == "text" and s.key.endswith("gcode")
         outer = QVBoxLayout(self) if tall else QHBoxLayout(self)
         outer.setContentsMargins(0, 2, 0, 2)
@@ -109,6 +117,15 @@ class SettingRow(QWidget):
         self.reset_btn.clicked.connect(lambda: self.reset.emit(self.key))
         self.reset_btn.setVisible(modified)
         head.addWidget(self.reset_btn)
+        self.apply_btn = None
+        if self.staged:
+            self.apply_btn = QPushButton(tr("apply_settings"))
+            self.apply_btn.setObjectName("RowApply")
+            self.apply_btn.setCursor(Qt.PointingHandCursor)
+            self.apply_btn.setToolTip(tr("apply_setting_tip"))
+            self.apply_btn.setEnabled(False)
+            self.apply_btn.clicked.connect(self.apply)
+            head.addWidget(self.apply_btn)
         self.editor = self._make_editor(s, value, cfg)
         if tall:
             outer.addLayout(head)
@@ -119,8 +136,32 @@ class SettingRow(QWidget):
         if modified:
             self.label.setStyleSheet(f"color: {theme.TEXT}; font-weight: 600;")
 
+    def _edited(self, value):
+        if not self.staged:
+            self.changed.emit(self.key, value)
+            return
+        self._pending, self._has_pending = value, True
+        self.apply_btn.setEnabled(True)
+
+    @property
+    def pending(self) -> bool:
+        return self._has_pending
+
+    def apply(self):
+        """Commit this row's waiting value (only this setting) and ask for it to take effect."""
+        if not self._has_pending:
+            return
+        value = self._pending
+        self._pending, self._has_pending = None, False
+        self.apply_btn.setEnabled(False)
+        self.changed.emit(self.key, value)
+        self.applied.emit(self.key)
+
     def set_value(self, value):
-        """Show ``value`` without emitting a change."""
+        """Show ``value`` without emitting a change (a waiting, unapplied value is dropped)."""
+        if self._has_pending:
+            self._pending, self._has_pending = None, False
+            self.apply_btn.setEnabled(False)
         w = self.editor
         w.blockSignals(True)
         try:
@@ -145,7 +186,7 @@ class SettingRow(QWidget):
             w = QCheckBox()
             w.setChecked(bool(value))
             w.setCursor(Qt.PointingHandCursor)
-            w.toggled.connect(lambda v: self.changed.emit(self.key, v))
+            w.toggled.connect(self._edited)
             return w
         if s.kind == "enum":
             w = NoWheelCombo()
@@ -154,7 +195,7 @@ class SettingRow(QWidget):
                 w.addItem(option_label(opt), opt[0])
             w.setCurrentIndex(max(0, [o[0] for o in s.options].index(value) if value in [o[0] for o in s.options] else 0))
             w.setMinimumWidth(150)
-            w.currentIndexChanged.connect(lambda i: self.changed.emit(self.key, w.itemData(i)))
+            w.currentIndexChanged.connect(lambda i: self._edited(w.itemData(i)))
             return w
         if s.kind == "text":
             if s.key.endswith("gcode"):
@@ -164,11 +205,12 @@ class SettingRow(QWidget):
                 w.setPlaceholderText(default)
                 w.setFixedHeight(150)
                 w.setLayoutDirection(Qt.LeftToRight)
-                w.textChanged.connect(lambda: self.changed.emit(self.key, w.toPlainText()))
+                w.textChanged.connect(lambda: self._edited(w.toPlainText()))
                 return w
             w = QLineEdit(str(value))
             w.setFixedWidth(150)
-            w.editingFinished.connect(lambda: self.changed.emit(self.key, w.text()))
+            w.editingFinished.connect(lambda: self._edited(w.text()))
+            w.returnPressed.connect(lambda: self.apply() if self.staged else None)
             return w
         if s.kind == "int":
             w = NoWheelInt()
@@ -189,7 +231,9 @@ class SettingRow(QWidget):
         w.setFixedWidth(118)
         w.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         w.setButtonSymbols(QSpinBox.NoButtons)
-        w.valueChanged.connect(lambda v: self.changed.emit(self.key, v))
+        w.valueChanged.connect(self._edited)
+        if self.staged:                             # Enter in the box = Apply
+            w.lineEdit().returnPressed.connect(lambda: QTimer.singleShot(0, self.apply))
         return w
 
 
@@ -200,7 +244,7 @@ class SettingsPanel(QWidget):
     technologyChanged = Signal(str)
     filamentEditRequested = Signal()
     cfsSyncRequested = Signal()
-    applyRequested = Signal()              # "Apply": slice again with the changed settings
+    settingApplied = Signal(str)           # a row's "Apply": that one setting should take effect now
 
     def __init__(self, printer: str, material: str | None, quality: str | None, overrides: dict, show_advanced: bool):
         super().__init__()
@@ -314,14 +358,6 @@ class SettingsPanel(QWidget):
         self.reset_all_btn.clicked.connect(self.reset_all)
         tools.addWidget(self.reset_all_btn)
         lay.addLayout(tools)
-        # changed settings take effect on the next slice: "Apply" does it now (shown while changes are pending)
-        self.apply_btn = QPushButton(theme.icon("check", "#ffffff", 16), "  " + tr("apply_settings"))
-        self.apply_btn.setObjectName("Primary")
-        self.apply_btn.setCursor(Qt.PointingHandCursor)
-        self.apply_btn.setToolTip(tr("apply_settings_tip"))
-        self.apply_btn.clicked.connect(self.applyRequested.emit)
-        self.apply_btn.setVisible(False)
-        lay.addWidget(self.apply_btn)
         self.advanced = QCheckBox(tr("show_advanced"))
         self.advanced.setChecked(show_advanced)
         self.advanced.toggled.connect(self._on_advanced)
@@ -791,10 +827,6 @@ class SettingsPanel(QWidget):
             return
         row.set_value(self.config()[key])
 
-    def set_pending(self, pending: bool):
-        """Show "Apply" while settings changed since the last slice."""
-        self.apply_btn.setVisible(bool(pending))
-
     def _set_linked(self, key, value):
         """Change a setting that follows another one (no assistant learning, the row is refreshed)."""
         if value == self.base_config()[key]:
@@ -899,9 +931,10 @@ class SettingsPanel(QWidget):
             cols = 2 if dlg.width() > 1100 else 1
             per_col = (len(items) + cols - 1) // cols
             for k, setting in enumerate(items):
-                row = SettingRow(setting, cfg[setting.key], setting.key in self.overrides, cfg)
+                row = SettingRow(setting, cfg[setting.key], setting.key in self.overrides, cfg, staged=True)
                 row.setToolTip(tip(setting))
                 row.changed.connect(changed)
+                row.applied.connect(self.settingApplied.emit)
                 row.reset.connect(reset)
                 grid.addWidget(row, k % per_col if per_col else 0, k // per_col if per_col else 0)
             grid.setRowStretch(per_col + 1, 1)
@@ -972,8 +1005,9 @@ class SettingsPanel(QWidget):
             sec.header.customContextMenuRequested.connect(
                 lambda pos, c=cat, h=sec.header: self._section_menu(c, h.mapToGlobal(pos)))
             for s in items:
-                row = SettingRow(s, cfg[s.key], s.key in self.overrides, cfg)
+                row = SettingRow(s, cfg[s.key], s.key in self.overrides, cfg, staged=True)
                 row.changed.connect(self._on_changed)
+                row.applied.connect(self.settingApplied.emit)
                 row.reset.connect(self._on_reset)
                 sec.add_row(row)
                 self._rows[s.key] = row
