@@ -43,6 +43,7 @@ class AssistantPanel(QFrame):
     learningToggled = Signal(bool)
     resetRequested = Signal()
     autoRepairToggled = Signal(bool)
+    learnLayoutRequested = Signal()
     closeRequested = Signal()
 
     def __init__(self, parent=None):
@@ -105,7 +106,15 @@ class AssistantPanel(QFrame):
         self.learned = QLabel("")
         self.learned.setObjectName("Faint")
         self.learned.setWordWrap(True)
-        lay.addWidget(self.learned)
+        row = QHBoxLayout()
+        row.addWidget(self.learned, 1)
+        # "Learn layout": the assistant takes the arrangement now on the plate as the user's own layout
+        self.learn_layout_btn = QPushButton(tr("learn_layout"))
+        self.learn_layout_btn.setObjectName("Primary")
+        self.learn_layout_btn.setToolTip(tr("learn_layout_tip"))
+        self.learn_layout_btn.clicked.connect(self.learnLayoutRequested.emit)
+        row.addWidget(self.learn_layout_btn, 0, Qt.AlignTop)
+        lay.addLayout(row)
         self.auto_repair = QCheckBox(tr("rr_auto_toggle"))
         self.auto_repair.setToolTip(tr("rr_auto_tip"))
         self.auto_repair.toggled.connect(self.autoRepairToggled.emit)
@@ -142,11 +151,14 @@ class AssistantPanel(QFrame):
             lines.append(tr("learned_supports").format(f"{dens * 100:+.0f}%", f"{summary['angle_offset']:+.1f}°"))
         if summary.get("layout_samples") or summary.get("layout_runs"):
             lines.append(tr("learned_layout").format(summary.get("layout_runs", 0), summary.get("layout_samples", 0)))
+        if summary.get("layout_taught"):
+            lines.append(tr("learned_layout_taught").format(summary["layout_taught"]))
         if summary.get("repairs_learned"):
             lines.append(tr("learned_repairs").format(summary["repairs_learned"], summary.get("repairs_auto", 0)))
         self.auto_repair.blockSignals(True)
         self.auto_repair.setChecked(bool(summary.get("auto_repair")))
         self.auto_repair.setEnabled(enabled)
+        self.learn_layout_btn.setEnabled(enabled)
         self.auto_repair.blockSignals(False)
         prints = summary["prints"]
         total = sum(prints.values())

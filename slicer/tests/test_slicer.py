@@ -1360,7 +1360,8 @@ def test_auto_orient_twice_and_auto_prepare_twice():
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-2000:]
 
@@ -1437,7 +1438,8 @@ def test_dental_cad_link_indications_folder_and_handoff(tmp_path, monkeypatch):
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ, HOME=str(tmp_path / "home"))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
     r = subprocess.run([sys.executable, "-c", code, str(tmp_path)], cwd=root, capture_output=True, text=True,
                        timeout=300, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
@@ -2012,7 +2014,8 @@ def test_filament_menu_and_colours_in_the_window():
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
@@ -2128,7 +2131,8 @@ def test_printer_families_and_filament_panel():
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
@@ -2215,7 +2219,8 @@ def test_phrozen_ds_slicer_profiles_import_and_layer_table(tmp_path):
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ, HOME=str(tmp_path))
+    _home = str(tmp_path)
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
@@ -2291,7 +2296,8 @@ def test_assistant_learns_model_repairs_and_repairs_on_load(tmp_path):
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ, HOME=str(tmp_path / "home"))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
@@ -2490,7 +2496,8 @@ def test_long_collision_warning_does_not_widen_the_window():
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
@@ -2575,7 +2582,8 @@ def test_choosing_infill_hollows_the_model_and_apply_reslices():
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
@@ -2655,7 +2663,8 @@ def test_export_print_file_goes_to_the_central_library(tmp_path):
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ, HOME=str(tmp_path / "home"))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
@@ -2755,7 +2764,8 @@ def test_align_lock_fill_cavity_and_layer_playback(tmp_path):
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ, HOME=str(tmp_path / "home"))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
@@ -2792,7 +2802,8 @@ def test_section_header_click_opens_its_window_and_no_stray_selection_frame():
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
@@ -2827,6 +2838,81 @@ def test_rotate_tool_still_drags_the_model_with_the_left_button():
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_learn_layout_teaches_the_assistant_my_arrangement(tmp_path):
+    """Assistant › Learn layout: the user's arrangement (where each U-shaped arch sits and which way it is
+    turned) becomes the layout Arrange repeats; gaps, border and side come from it too."""
+    from shapely.geometry import Point
+    from unislicer import layout, mesh_tools
+    from unislicer.assistant import Assistant
+    from unislicer.scene import SceneObject
+
+    def arch():
+        ring = Point(0, 0).buffer(20).difference(Point(0, 0).buffer(12))
+        u = ring.difference(shapely_box(-30, -30, 30, -2))
+        return mesh_tools.extrude(u, 0, 8, "arch")
+    from shapely.geometry import box as shapely_box
+    plate = (0.0, 0.0, 200.0, 125.0)
+    objs = [SceneObject.from_mesh(arch()) for _ in range(4)]
+    spots = [(40, 35, 0), (95, 35, 180), (150, 35, 90), (60, 95, 270)]
+    for o, (x, y, a) in zip(objs, spots):
+        if a:
+            o.apply_world_rotation(layout._z_rotation(a))
+        o.x, o.y = x, y
+    tpl = layout.capture_template(objs, plate)
+    assert tpl and tpl["count"] == 4 and tpl["min_gap"] >= 0.3
+    want = [(layout.footprint(o).centroid, layout.footprint(o)) for o in objs]
+    # scramble: other places, other turns
+    for k, o in enumerate(objs):
+        o.apply_world_rotation(layout._z_rotation(45 * (k + 1)))
+        o.x, o.y = 20 + 45 * k, 110 - 20 * k
+    assert layout.apply_template(objs, plate, tpl)
+    got = [layout.footprint(o) for o in objs]
+    for (c, shape), g in zip(want, got):
+        assert any(abs(h.centroid.x - c.x) < 0.6 and abs(h.centroid.y - c.y) < 0.6 and
+                   h.intersection(shape).area / h.union(shape).area > 0.85 for h in got)
+    # a different number of parts: the template is not forced
+    assert not layout.apply_template(objs[:3], plate, tpl)
+    # the assistant keeps it and uses its gap / border / side
+    a = Assistant(str(tmp_path / "a.json"))
+    assert a.teach_layout(tpl)
+    out = a.learned_layout({"strategy": "contour", "spacing": 2.0, "margin": 2.0, "rotation": "free",
+                            "anchor": "center", "sort": "area"})
+    assert out["spacing"] == tpl["spacing"] and out["learned"]
+    assert Assistant(str(tmp_path / "a.json")).taught_layout()["count"] == 4
+    assert a.summary()["layout_taught"] == 4
+
+
+def test_learn_layout_button_and_arrange_repeat_it():
+    import subprocess, sys, textwrap
+    code = textwrap.dedent("""
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1600, 1000); w.show(); app.processEvents()
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus"); app.processEvents()
+        objs = [w.add_mesh(primitives.box(30, 12, 5)) for _ in range(3)]
+        for o, (x, y) in zip(objs, ((40, 30), (100, 30), (160, 90))):
+            o.x, o.y = x, y
+        w._objects_changed()
+        w.assistant_panel.learn_layout_btn.click(); app.processEvents()
+        keep = [(o.x, o.y) for o in objs]
+        for o in objs:
+            o.x, o.y = 60, 60
+        w.arrange_objects(); app.processEvents()
+        assert all(abs(o.x - k[0]) < 0.6 and abs(o.y - k[1]) < 0.6 for o, k in zip(objs, keep))
+        print("ok")
+    """)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

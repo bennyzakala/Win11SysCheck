@@ -217,6 +217,20 @@ class Assistant:
         self.save()
         return True
 
+    def teach_layout(self, template: dict) -> bool:
+        """"Learn layout": the user's arrangement on the plate, taught on purpose. It sets the gap, border and
+        side of the plate for every later layout, and Arrange copies it when the plate holds as many parts."""
+        if not self.enabled or not template:
+            return False
+        lay = self.data["layout"]
+        lay["taught"] = template
+        lay["taught_count"] = int(lay.get("taught_count", 0)) + 1
+        self.save()
+        return True
+
+    def taught_layout(self) -> dict | None:
+        return self.data["layout"].get("taught") if self.enabled else None
+
     def learned_layout(self, base: dict) -> dict:
         """Layout defaults: ``base`` updated with what the user usually picks and how they adjust layouts."""
         out = dict(base)
@@ -242,7 +256,12 @@ class Assistant:
                 vals = lay["choices"].get(k + "_values", [])
                 if len(vals) >= 2:
                     out[k] = float(np.median(vals))
-        out["learned"] = lay.get("samples", 0) >= 2 or lay.get("runs", 0) >= 2
+        taught = lay.get("taught")
+        if taught:                                    # taught on purpose: it wins over what was inferred
+            out["spacing"] = float(taught["spacing"])
+            out["margin"] = round(min(float(taught["margin"]), 30.0) * 2) / 2
+            out["anchor"] = taught["anchor"]
+        out["learned"] = bool(taught) or lay.get("samples", 0) >= 2 or lay.get("runs", 0) >= 2
         return out
 
     # --------------------------------------------------------------- prints
@@ -467,6 +486,7 @@ class Assistant:
             "prints": dict(self.data["prints"]),
             "layout_samples": int(self.data["layout"].get("samples", 0)),
             "layout_runs": int(self.data["layout"].get("runs", 0)),
+            "layout_taught": (self.data["layout"].get("taught") or {}).get("count", 0),
             "models_rescued": int(self.data.get("rescue", {}).get("rescued", 0)),
             "repairs_learned": int(self.data.get("repair", {}).get("learned", 0)),
             "repairs_auto": int(self.data.get("repair", {}).get("auto_applied", 0)),

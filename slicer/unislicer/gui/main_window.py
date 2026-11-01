@@ -747,6 +747,7 @@ class MainWindow(QMainWindow):
         self.assistant_panel.printReported.connect(self._on_print_report)
         self.assistant_panel.learningToggled.connect(self._on_learning_toggled)
         self.assistant_panel.resetRequested.connect(self._on_learning_reset)
+        self.assistant_panel.learnLayoutRequested.connect(self.learn_layout_now)
         self.assistant_panel.autoRepairToggled.connect(self._on_auto_repair_toggled)
         self.assistant_panel.closeRequested.connect(lambda: self.assistant_wrap.hide())
         awrap = QWidget()
@@ -1489,6 +1490,27 @@ class MainWindow(QMainWindow):
         options = layout.LayoutOptions(**{k: opts[k] for k in ("strategy", "spacing", "margin", "rotation", "anchor", "sort")})
         return not layout.auto_layout(self.objects, plate_area(cfg), options)
 
+    def learn_layout_now(self):
+        """Assistant › Learn layout: take the arrangement now on the plate as the user's own layout."""
+        from .. import layout
+        parts = [o for o in self.objects if o.role != "cutter"]
+        if len(parts) < 2:
+            self.status.setText(tr("learn_layout_need"))
+            return
+        cfg = self.settings.config()
+        if out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg), region=plate_region(cfg)):
+            self.status.setText(tr("learn_layout_outside"))
+            return
+        tpl = layout.capture_template(parts, plate_area(cfg))
+        if tpl is None:
+            self.status.setText(tr("learn_layout_touching"))
+            return
+        if not self.assistant.teach_layout(tpl):
+            self.status.setText(tr("learn_layout_off"))
+            return
+        self.status.setText(tr("learn_layout_done").format(tpl["count"], tpl["spacing"]))
+        self.assistant_panel.set_learning(self.assistant.enabled, self.assistant.summary())
+
     def arrange_objects(self):
         """Quick auto layout (A) with the options learned from earlier layouts."""
         self.auto_layout(dialog=False)
@@ -1576,6 +1598,9 @@ class MainWindow(QMainWindow):
                 self.objects += added
                 failed = []
                 self.status.setText(tr("fill_done").format(len(added)))
+            elif options.scope == "all" and layout.apply_template(self.objects, plate, self.assistant.taught_layout()):
+                failed = []                     # the user's own taught layout
+                learned = "taught"
             else:
                 failed = layout.auto_layout(self.objects, plate, options, self.selected_objects())
         finally:
@@ -1589,7 +1614,8 @@ class MainWindow(QMainWindow):
         if failed:
             self.status.setText(tr("layout_failed").format(len(failed)))
         elif not fill:
-            self.status.setText(tr("layout_done_learned") if learned else tr("layout_done"))
+            self.status.setText(tr("layout_done_taught") if learned == "taught" else
+                                tr("layout_done_learned") if learned else tr("layout_done"))
 
     def _layout_dialog(self, opts: dict):
         from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout

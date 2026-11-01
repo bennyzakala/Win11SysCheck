@@ -1088,5 +1088,14 @@
 "The cavity of {} models will print solid": "سيُطبع تجويف {} نماذج مصمتًا",
 "Fill cavity off for {} models": "أُلغي ملء التجويف لـ {} نماذج",
 "Play the layers": "تشغيل الطبقات",
-"Fold open / closed here": "فتح / طي هنا"
+"Fold open / closed here": "فتح / طي هنا",
+"Learn layout": "تعلّم الترتيب",
+"The assistant learns the arrangement now on the plate: where each model sits and how it is turned, the gaps and the border. Arrange repeats it": "يتعلم المساعد الترتيب الحالي على المنصة: موضع كل نموذج ودورانه والمسافات والحافة. سيكرره Arrange",
+"Arrange at least two models on the plate, then press Learn layout": "رتّب نموذجين على الأقل ثم اضغط «تعلّم الترتيب»",
+"Some models are off the plate: bring them back, then press Learn layout": "بعض النماذج خارج المنصة: أعدها ثم اضغط «تعلّم الترتيب»",
+"Some models touch each other: move them apart, then press Learn layout": "بعض النماذج تتلامس: باعد بينها ثم اضغط «تعلّم الترتيب»",
+"Learning is off: turn Learning on so the assistant can learn": "التعلّم متوقف: شغّله ليتمكن المساعد من التعلّم",
+"The assistant learned your layout: {} models, {} mm gaps. Arrange repeats it": "تعلّم المساعد ترتيبك: {} نماذج، مسافة {} مم. سيكرره Arrange",
+"Layout you taught: {} models": "الترتيب الذي علّمته: {} نماذج",
+"Laid out as the layout you taught": "رُتّب وفق الترتيب الذي علّمته"
 }

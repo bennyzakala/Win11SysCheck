@@ -1088,5 +1088,14 @@
 "The cavity of {} models will print solid": "Полость моделей ({}) будет напечатана сплошной",
 "Fill cavity off for {} models": "Заполнение полости отключено для моделей: {}",
 "Play the layers": "Воспроизвести слои",
-"Fold open / closed here": "Развернуть / свернуть здесь"
+"Fold open / closed here": "Развернуть / свернуть здесь",
+"Learn layout": "Запомнить раскладку",
+"The assistant learns the arrangement now on the plate: where each model sits and how it is turned, the gaps and the border. Arrange repeats it": "Ассистент запоминает текущую раскладку: положение и поворот каждой модели, зазоры и отступ. Arrange повторит её",
+"Arrange at least two models on the plate, then press Learn layout": "Расставьте хотя бы две модели, затем нажмите «Запомнить раскладку»",
+"Some models are off the plate: bring them back, then press Learn layout": "Некоторые модели за пределами платформы: верните их и нажмите «Запомнить раскладку»",
+"Some models touch each other: move them apart, then press Learn layout": "Некоторые модели касаются друг друга: раздвиньте их и нажмите «Запомнить раскладку»",
+"Learning is off: turn Learning on so the assistant can learn": "Обучение выключено: включите его, чтобы ассистент мог учиться",
+"The assistant learned your layout: {} models, {} mm gaps. Arrange repeats it": "Ассистент запомнил вашу раскладку: моделей {}, зазор {} мм. Arrange повторит её",
+"Layout you taught: {} models": "Ваша раскладка: моделей {}",
+"Laid out as the layout you taught": "Расставлено по вашей раскладке"
 }

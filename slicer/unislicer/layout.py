@@ -401,3 +401,83 @@ def align(objects: list[SceneObject], mode: str) -> None:
             pos += size + gap
         return
     raise ValueError(mode)
+
+
+def capture_template(objects: list[SceneObject], plate) -> dict | None:
+    """The user's own arrangement as a template ("Learn layout"): where each part sits on the plate (as a
+    fraction of it), its outline seen from above (so its turn about Z can be matched later), the usual gap
+    between neighbours, the border and which side of the plate the group keeps to."""
+    parts = [o for o in objects if o.role != "cutter"]
+    if len(parts) < 2:
+        return None
+    if not isinstance(plate, tuple):
+        plate = tuple(plate.bounds)
+    x0, y0, x1, y1 = plate
+    prints = [footprint(o) for o in parts]
+    near = []
+    for i, p in enumerate(prints):
+        near.append(min(p.distance(q) for j, q in enumerate(prints) if j != i))
+    if min(near) < 0.3:
+        return None                          # touching parts are a mistake, not a layout to copy
+    st = layout_stats(parts, plate)
+    cx = float(np.mean([p.centroid.x for p in prints]))
+    cy = float(np.mean([p.centroid.y for p in prints]))
+    if st["offcentre"] < 0.35:
+        anchor = "center"
+    else:
+        anchor = ("front" if cy < (y0 + y1) / 2 else "back") + "_" + ("left" if cx < (x0 + x1) / 2 else "right")
+    slots = []
+    for p in prints:
+        c = p.centroid
+        shape = affinity.translate(p, -c.x, -c.y).simplify(0.3)
+        ring = shape.exterior if hasattr(shape, "exterior") else shape.convex_hull.exterior
+        slots.append({"fx": (c.x - x0) / ((x1 - x0) or 1), "fy": (c.y - y0) / ((y1 - y0) or 1),
+                      "area": float(p.area), "outline": [[round(a, 2), round(b, 2)] for a, b in ring.coords]})
+    return {"count": len(parts), "spacing": round(float(np.median(near)), 2), "min_gap": round(float(min(near)), 2),
+            "margin": round(max(0.0, float(st["edge"])), 2), "anchor": anchor, "plate": [x0, y0, x1, y1], "slots": slots}
+
+
+def apply_template(objects: list[SceneObject], plate, tpl: dict | None) -> bool:
+    """Lay the parts out as the learned template: each part goes to the slot of the most similar size,
+    turned about Z (15° steps, tilt kept) to best match the outline it had there. Returns False and leaves
+    everything as it was if the parts do not fit that way (other sizes, or they would touch)."""
+    parts = [o for o in objects if o.role != "cutter"]
+    if not tpl or len(parts) != int(tpl.get("count", -1)) or any(o.locked for o in parts):
+        return False
+    if not isinstance(plate, tuple):
+        plate_shape = plate
+        plate = tuple(plate.bounds)
+    else:
+        plate_shape = box(*plate)
+    x0, y0, x1, y1 = plate
+    saved = [(o, o.x, o.y, o.base_rotation.copy()) for o in parts]
+    slots = sorted(tpl["slots"], key=lambda q: -q["area"])
+    order = sorted(parts, key=lambda o: -footprint(o).area)
+    try:
+        for o, slot in zip(order, slots):
+            target = Polygon(slot["outline"])
+            fp = footprint(o)
+            c = fp.centroid
+            base = affinity.translate(fp, -c.x, -c.y)
+            best, best_angle = -1.0, 0.0
+            for ang in range(0, 360, 15):
+                cand = affinity.rotate(base, ang, origin=(0, 0))
+                iou = cand.intersection(target).area / (cand.union(target).area or 1.0)
+                if iou > best + 1e-9:
+                    best, best_angle = iou, float(ang)
+            if best_angle:
+                o.apply_world_rotation(_z_rotation(best_angle))
+            fp = footprint(o)
+            c = fp.centroid
+            o.x += x0 + slot["fx"] * (x1 - x0) - c.x
+            o.y += y0 + slot["fy"] * (y1 - y0) - c.y
+        prints = [footprint(o) for o in parts]
+        gap = min(0.5, float(tpl.get("min_gap", 0.5)) * 0.8)
+        ok = all(plate_shape.buffer(1e-6).contains(p) for p in prints) and all(
+            prints[i].distance(prints[j]) >= gap for i in range(len(prints)) for j in range(i + 1, len(prints)))
+    except Exception:
+        ok = False
+    if not ok:
+        for o, x, y, base_rot in saved:
+            o.x, o.y, o.base_rotation = x, y, base_rot
+    return ok
