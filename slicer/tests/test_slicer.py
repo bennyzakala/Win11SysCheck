@@ -2636,9 +2636,11 @@ def test_export_print_file_goes_to_the_central_library(tmp_path):
         w.settings.select_printer("creality_ender3v2"); app.processEvents()
         o = w.add_mesh(primitives.box(10, 10, 5)); o.name = "my part"
         w.slice()
-        while w.task is not None and w.task.isRunning():
+        import time
+        end = time.time() + 120
+        while w.result is None and time.time() < end:      # the result arrives by a queued signal
             app.processEvents()
-        app.processEvents()
+            time.sleep(0.01)
         w.export()
         p = os.path.join({lib!r}, "my part", "my part.gcode")
         assert os.path.isfile(p) and os.path.getsize(p) > 1000, os.listdir({lib!r})
@@ -2727,9 +2729,12 @@ def test_align_lock_fill_cavity_and_layer_playback(tmp_path):
         w.select_all(); w.align_selected("left"); app.processEvents()
         assert a.x == x0
         w.slice()
-        while w.task is not None and w.task.isRunning():
+        import time
+        end = time.time() + 120
+        while w.result is None and time.time() < end:      # the result arrives by a queued signal
             app.processEvents()
-        app.processEvents()
+            time.sleep(0.01)
+        assert w.result is not None
         top = w.layer_slider.maximum()
         assert top > 5
         w.layer_slider.setValue(0)
