@@ -2829,7 +2829,7 @@ class MainWindow(QMainWindow):
             cfg = self.settings.config()
             kind = cfg["sla_raft_type"]
             for key, row in rows.items():
-                row.setVisible(not ((key in ("sla_raft_bar_spacing", "sla_raft_bar_width") and kind != "grid")
+                row.setVisible(not ((key in ("sla_raft_bar_spacing", "sla_raft_bar_width") and kind not in ("grid", "hexagon"))
                                     or (key == "sla_raft_group_reach" and kind != "mini")
                                     or (key not in ("sla_raft_type", "sla_elevation") and kind == "none")))
 

@@ -7,6 +7,7 @@ import numpy as np
 from shapely.affinity import scale as shapely_scale
 from shapely.geometry import LineString, MultiPoint
 from shapely.geometry import Polygon as ShapelyPolygon
+from shapely.ops import unary_union
 
 from .mesh import Mesh
 from .primitives import ball, frustum, tube
@@ -361,7 +362,47 @@ def _raft_label(text: str, feet: np.ndarray, cfg: Config, pad: float, raft: floa
     return [_slab(tab, 0.0, raft, 90), extrude(polys, raft - 0.01, raft + 0.4, "Raft label")]
 
 
-def _rafts(feet: list, cfg: Config, pad: float) -> list[Mesh]:
+def hex_edges(bounds, cell: float) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    """Wall segments of a honeycomb (flat-topped hexagons, ``cell`` = distance between opposite walls)
+    covering ``bounds`` = (minx, miny, maxx, maxy); each wall is listed once."""
+    minx, miny, maxx, maxy = bounds
+    r = cell / math.sqrt(3.0)                       # centre-to-corner
+    dx, dy = 1.5 * r, cell                          # column and row spacing
+    edges = {}
+    col = 0
+    x = minx - r
+    while x <= maxx + r:
+        y = miny - cell + (cell / 2 if col % 2 else 0.0)
+        while y <= maxy + cell:
+            corners = [(round(x + r * math.cos(math.radians(60 * k)), 6), round(y + r * math.sin(math.radians(60 * k)), 6))
+                       for k in range(6)]
+            for k in range(6):
+                a, b = corners[k], corners[(k + 1) % 6]
+                edges[(min(a, b), max(a, b))] = True
+            y += dy
+        x += dx
+        col += 1
+    return list(edges)
+
+
+def _hex_walls(hull, cell: float, width: float) -> list:
+    """Honeycomb walls covering the raft outline (2D wall rectangles, slightly overlapping at the corners)."""
+    out = []
+    half = max(width, 0.3) / 2
+    for a, b in hex_edges(hull.bounds, max(cell, 1.0)):
+        a, b = np.asarray(a), np.asarray(b)
+        d = b - a
+        length = float(np.hypot(*d))
+        if length < 1e-6:
+            continue
+        u = d / length
+        n = np.array([-u[1], u[0]]) * half
+        a2, b2 = a - u * half, b + u * half          # overlap at the corners: walls join without gaps
+        out.append(ShapelyPolygon([tuple(a2 - n), tuple(b2 - n), tuple(b2 + n), tuple(a2 + n)]))
+    return out
+
+
+def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None) -> list[Mesh]:
     """Raft geometry under the support feet for the chosen raft type."""
     kind = cfg["sla_raft_type"]
     raft = cfg["sla_raft_thickness"]
@@ -395,30 +436,30 @@ def _rafts(feet: list, cfg: Config, pad: float) -> list[Mesh]:
             groups.setdefault(find(a), []).append(pts[a])
         return [_slab(outline(g), 0.0, raft, slope) for g in groups.values()]
     hull = outline(pts)
-    if kind == "grid":
-        # outline band plus parallel bars, every piece convex so it can be a closed slab
-        out = []
-        ring = _sample_convex(hull, 32)
-        for k in range(len(ring)):
-            a, b = ring[k], ring[(k + 1) % len(ring)]
-            d = b - a
-            n = np.array([-d[1], d[0]]) / (np.hypot(*d) or 1) * max(cfg["sla_raft_bar_width"] * 0.66, 0.3)
-            quad = ShapelyPolygon([tuple(a - n), tuple(b - n), tuple(b + n), tuple(a + n)]).convex_hull
-            out.append(_slab(quad, 0.0, raft, 90))
-        for q in pts:   # every foot stands on a pad, never over a gap of the grid
-            out.append(_slab(ShapelyPolygon(MultiPoint([tuple(q)]).buffer(pad * 0.6 + 0.5, quad_segs=4).exterior.coords),
-                             0.0, raft, 90))
-        minx, miny, maxx, maxy = hull.bounds
-        step, half = cfg["sla_raft_bar_spacing"], cfg["sla_raft_bar_width"] / 2
-        for y in np.arange(miny + step / 2, maxy, step):
-            bar = hull.intersection(ShapelyPolygon([(minx, y - half), (maxx, y - half), (maxx, y + half), (minx, y + half)]))
-            if not bar.is_empty and bar.area > 0.5:
-                out.append(_slab(bar.convex_hull, 0.0, raft, 90))
-        for x in np.arange(minx + step / 2, maxx, step):
-            bar = hull.intersection(ShapelyPolygon([(x - half, miny), (x + half, miny), (x + half, maxy), (x - half, maxy)]))
-            if not bar.is_empty and bar.area > 0.5:
-                out.append(_slab(bar.convex_hull, 0.0, raft, 90))
-        return out
+    if kind in ("grid", "hexagon"):
+        # outline band, a pad under every foot and the pattern, merged in 2D and extruded once: one clean
+        # solid slices fast (overlapping slabs made every raft layer take the slow path for messy layers)
+        width = max(cfg["sla_raft_bar_width"], 0.3)
+        band = hull.exterior.buffer(max(width * 0.66, 0.3), join_style="mitre").intersection(hull.buffer(0.01))
+        pieces = [band]
+        # every foot stands on a pad just wider than its own base, never over a gap of the pattern
+        default_r = max(cfg["sla_base_diameter"] / 2, pad / 2)
+        for k, q in enumerate(pts):
+            foot_r = radii[k] if radii is not None and k < len(radii) else default_r
+            pieces.append(MultiPoint([tuple(q)]).buffer(max(foot_r, 0.3) + 0.4, quad_segs=6))
+        if kind == "hexagon":
+            pieces += _hex_walls(hull, cfg["sla_raft_bar_spacing"], width)
+        else:
+            minx, miny, maxx, maxy = hull.bounds
+            step, half = cfg["sla_raft_bar_spacing"], width / 2
+            for y in np.arange(miny + step / 2, maxy, step):
+                pieces.append(ShapelyPolygon([(minx, y - half), (maxx, y - half), (maxx, y + half), (minx, y + half)]))
+            for x in np.arange(minx + step / 2, maxx, step):
+                pieces.append(ShapelyPolygon([(x - half, miny), (x + half, miny), (x + half, maxy), (x - half, maxy)]))
+        shape = unary_union(pieces).intersection(hull).buffer(0)
+        shape = shape.simplify(0.01)
+        from .mesh_tools import extrude
+        return [extrude(shape, 0.0, raft, "Raft")] if not shape.is_empty else []
     return [_slab(hull, 0.0, raft, slope)]
 
 
@@ -452,6 +493,7 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     max_tilt = math.radians(cfg["sla_head_tilt"])
     widen = cfg["sla_pillar_widening"] / 100.0 / 10.0      # extra radius fraction per mm of height
     parts, feet, used, tree_tips, pillars = [], [], [], [], []
+    foot_radii = []                    # footprint radius of each foot's base (pads under it on patterned rafts)
     part_owner, groups, tip_index = [], [], []
     cur = [-1]                         # owner group of the parts being added
 
@@ -493,9 +535,10 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     def foot_on_bed(x, y, r, top):
         """Base standing on the raft (or the plate), from there up to at most ``top``. Returns its top height."""
         feet.append(np.array([x, y]))
+        base_r = cfg["sla_base_diameter"] / 2 or r * 2
+        foot_radii.append(r if base_shape == "none" else base_r * 1.2 if base_shape == "cube" else base_r)
         if base_shape == "none":
             return raft - 0.05
-        base_r = cfg["sla_base_diameter"] / 2 or r * 2
         h = min(cfg["sla_base_thickness"], (top - raft) * 0.5)
         if base_shape == "disk":
             parts.append(frustum(base_r, base_r, h + 0.05, segs, raft - 0.05, (x, y)))
@@ -607,8 +650,8 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     if cfg["sla_bracing"] and len(pillars) > 1:
         parts += _braces(pillars, underside(), cfg, segs)
 
-    parts += _rafts(feet, cfg, pillar_r * 4)
-    if label and feet and cfg["sla_raft_label"] and cfg["sla_raft_type"] in ("solid", "grid") and raft >= 0.4:
+    parts += _rafts(feet, cfg, pillar_r * 4, foot_radii)
+    if label and feet and cfg["sla_raft_label"] and cfg["sla_raft_type"] in ("solid", "grid", "hexagon") and raft >= 0.4:
         parts += _raft_label(label, np.array(feet), cfg, pillar_r * 4, raft)
     merged = Mesh.merge(list(parts), "Supports")
     if owners is not None:

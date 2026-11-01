@@ -2309,3 +2309,69 @@ def test_undo_state_keeps_the_mesh_replaced_by_a_repair():
     assert not o.mesh.is_watertight() and len(o.mesh.faces) == len(holed.faces)
     o.restore(before[:15])                                  # snapshots from before this change still restore
     assert len(o.mesh.faces) == len(holed.faces)
+
+
+def test_hexagonal_raft():
+    """Honeycomb raft: an outline band, hexagonal cells and a pad under every support foot, as one clean solid
+    (fast to slice), lighter than a solid raft; every foot stands on raft material."""
+    import math, time
+    from shapely.geometry import Point
+    from unislicer import primitives, profiles, sla
+    from unislicer.scene import SceneObject
+    from unislicer.sla_supports import hex_edges
+    edges = hex_edges((0, 0, 20, 20), 5.0)
+    lengths = [math.dist(a, b) for a, b in edges]
+    assert all(abs(L - 5.0 / math.sqrt(3)) < 1e-4 for L in lengths)          # wall length of a 5 mm cell
+    assert len(edges) == len({tuple(sorted(e)) for e in edges})               # shared walls listed once
+
+    results = {}
+    for kind in ("hexagon", "solid", "grid"):
+        cfg = profiles.build_config("elegoo_mars3", None, None,
+                                    {"support_enable": True, "sla_raft_type": kind, "sla_raft_bar_spacing": 5.0,
+                                     "sla_support_spacing": 7.0, "sla_support_preset": "custom"})
+        o = SceneObject.from_mesh(primitives.box(40, 26, 5))
+        o.x, o.y = cfg["bed_x"] / 2, cfg["bed_y"] / 2
+        t0 = time.time()
+        job = sla.prepare([o.world_mesh()], cfg)
+        results[kind] = (job, time.time() - t0, cfg)
+    hexjob, hex_t, cfg = results["hexagon"]
+    raft_layer = hexjob.layers[1]
+    holes = sum(len(p.interiors) for p in getattr(raft_layer, "geoms", [raft_layer]))
+    assert holes >= 15                                                        # open honeycomb cells
+    assert raft_layer.area < results["solid"][0].layers[1].area * 0.8         # lighter than a solid raft
+    assert len(getattr(raft_layer, "geoms", [raft_layer])) == 1               # one connected piece
+    # every foot stands on raft material
+    for p in hexjob.support_points:
+        assert raft_layer.buffer(0.05).contains(Point(float(p[0]), float(p[1]))) or raft_layer.distance(
+            Point(float(p[0]), float(p[1]))) < 0.5
+    assert hex_t < 20.0                                                       # a clean solid, not the messy-layer path
+
+
+def test_honeycomb_infill_continuous_walls_with_drain_bands():
+    """Hollow models filled with a honeycomb: walls are whole on most layers and open only in thin drain bands
+    (at the bottom of the cavity and then every few mm), so cells drain without sealed chambers; the infill walls
+    are not reported as thin model features, and it slices quickly."""
+    import time
+    from unislicer import primitives, profiles, sla
+    from unislicer.scene import SceneObject
+    cfg = profiles.build_config("elegoo_mars3", None, None, {
+        "support_enable": False, "hollow_enable": True, "hollow_wall": 2.0, "hollow_infill": "hive",
+        "hollow_infill_spacing": 6.0, "hollow_infill_thickness": 0.8, "drain_holes": 2, "sla_layer_height": 0.1})
+    o = SceneObject.from_mesh(primitives.box(50, 35, 20))
+    o.x, o.y = cfg["bed_x"] / 2, cfg["bed_y"] / 2
+    t0 = time.time()
+    job = sla.prepare([o.world_mesh()], cfg)
+    assert time.time() - t0 < 30
+    assert job.thin_layers == [] and job.cups == [] and job.saved_ml > 10
+    n = len(job.layers)
+    mid = job.layers[n // 2]
+    first_cavity = int(round(2.0 / 0.1)) + 1
+    band = job.layers[first_cavity + 2]
+    holes_mid = sum(len(p.interiors) for p in getattr(mid, "geoms", [mid]))
+    holes_band = sum(len(p.interiors) for p in getattr(band, "geoms", [band]))
+    assert holes_mid >= 30                         # closed honeycomb cells on an ordinary layer
+    assert holes_band < holes_mid / 2              # in a drain band the cells open into each other
+    assert band.area < mid.area                    # windows cut in the walls
+    full_layers = sum(1 for g in job.layers[first_cavity:n - 25]
+                      if sum(len(p.interiors) for p in getattr(g, "geoms", [g])) >= 30)
+    assert full_layers > (n - 25 - first_cavity) * 0.7       # whole walls on most of the height

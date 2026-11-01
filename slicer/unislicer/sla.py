@@ -185,8 +185,11 @@ def _and(a, b):
     return as_multipolygon(a.intersection(b))
 
 
-def hollow(layers: list[MultiPolygon], lh: float, cfg: Config) -> tuple[list[MultiPolygon], float, list[str]]:
-    """Hollow solid layers to ``hollow_wall`` thickness and cut drain holes. Returns (layers, saved ml, notes)."""
+def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list | None = None
+           ) -> tuple[list[MultiPolygon], float, list[str]]:
+    """Hollow solid layers to ``hollow_wall`` thickness and cut drain holes. Returns (layers, saved ml, notes).
+    With ``infill_out`` (a list), the internal infill of each layer is also put there (for checks that
+    should look at the shell only)."""
     wall = cfg["hollow_wall"]
     k = max(1, int(math.ceil(wall / lh)))
     eroded = [as_multipolygon(g.buffer(-wall)) if not g.is_empty else EMPTY for g in layers]
@@ -212,7 +215,32 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config) -> tuple[list[Mul
     out = [g.difference(c) if not c.is_empty else g for g, c in zip(layers, cavity)]
     pattern = _infill_pattern(cavity, cfg)
     if pattern is not None:
-        out = [o.union(c.intersection(pattern)) if not c.is_empty else o for o, c in zip(out, cavity)]
+        full, vented = pattern
+        shapely.prepare(full)
+        shapely.prepare(vented)
+        # drain windows: a band at the bottom of the cavity (resin flows to the drain holes) and then every
+        # few millimetres, so no cell is a sealed chamber; between the bands the walls are whole
+        band = max(cfg["hollow_infill_thickness"] * 1.5, 1.2)
+        period = max(3.0 * cfg["hollow_infill_spacing"], 8.0)
+        first = next((i for i, c in enumerate(cavity) if not c.is_empty), 0)
+        cache: dict = {}
+        fills = []
+        for i, (o, c) in enumerate(zip(out, cavity)):
+            if c.is_empty:
+                fills.append(EMPTY)
+                continue
+            z = (i - first) * lh
+            pat = vented if (z % period) < band else full
+            key = (c.wkb, pat is vented)          # prismatic cavities repeat: compute each shape once
+            fill = cache.get(key)
+            if fill is None:
+                fill = as_multipolygon(c.intersection(pat))
+                if len(cache) < 400:
+                    cache[key] = fill
+            fills.append(fill)
+        out = [o.union(f) if not f.is_empty else o for o, f in zip(out, fills)]
+        if infill_out is not None:
+            infill_out[:] = fills
     elif cfg["sla_internal_supports"] and cfg["support_enable"]:
         out = _internal_pillars(out, cavity, cfg)
     holes = 0 if cfg["hollow_mode"] == "bottom" else int(cfg["drain_holes"])
@@ -242,7 +270,9 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config) -> tuple[list[Mul
 
 
 def _infill_pattern(cavity: list, cfg: Config):
-    """2D wall pattern (grid or honeycomb) covering all cavities, or None."""
+    """2D wall pattern (grid or honeycomb) covering all cavities, or None: (walls, vent openings).
+    The openings are the middles of the walls; they are cut only in thin bands of height (see ``hollow``)
+    so every cell drains while the walls stay continuous and hold the shell."""
     kind = cfg["hollow_infill"]
     if kind == "none":
         return None
@@ -278,7 +308,8 @@ def _infill_pattern(cavity: list, cfg: Config):
                 vents += [Point((hexagon[k][0] + hexagon[k + 1][0]) / 2, (hexagon[k][1] + hexagon[k + 1][1]) / 2)
                           for k in range(6)]
     walls = shapely.union_all([shapely.LineString(l) for l in lines]).buffer(t / 2, cap_style="flat")
-    return walls.difference(shapely.union_all([v.buffer(slot / 2, quad_segs=4) for v in vents]))
+    openings = shapely.union_all([v.buffer(slot / 2, quad_segs=4) for v in vents])
+    return walls, walls.difference(openings)
 
 
 def _internal_pillars(layers: list, cavity: list, cfg: Config) -> list:
@@ -593,9 +624,11 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         layers = [as_multipolygon(g.buffer(cfg["xy_compensation"], join_style="mitre", mitre_limit=3))
                   if not g.is_empty else g for g in layers]
     saved = 0.0
+    infill: list = []
     if cfg["hollow_enable"] and not jetting:
         report("hollow", 0.0)
-        layers, saved, notes = hollow(layers, lh, cfg)
+        infill = []
+        layers, saved, notes = hollow(layers, lh, cfg, infill)
         warnings += notes
     lifted = lift if cfg["support_enable"] and not jetting else 0.0
     hole_tubes = []
@@ -607,7 +640,12 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         cut_layers = slice_meshes(cutter_meshes, planes, cfg["resolution"])
         layers = [as_multipolygon(g.difference(c)) if not c.is_empty and not g.is_empty else g
                   for g, c in zip(layers, cut_layers)]
-    thin = find_thin(layers, layer_height=lh)
+    # thin features of the model itself: the internal infill walls are thin on purpose and sit inside
+    shell = layers
+    if cfg["hollow_enable"] and not jetting and infill:
+        shell = [as_multipolygon(g.difference(f)) if not f.is_empty and not g.is_empty else g
+                 for g, f in zip(layers, infill)]
+    thin = find_thin(shell, layer_height=lh)
     if support_meshes:
         sup_layers = slice_meshes(support_meshes, planes, cfg["resolution"],
                                   progress=lambda f: report("slice", split + f * (1 - split)), cancelled=cancelled)
