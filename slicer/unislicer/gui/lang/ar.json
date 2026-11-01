@@ -1063,5 +1063,9 @@
 "{}: raft rebuilt": "{}: أُعيد بناء القاعدة",
 "{}: models arranged again": "{}: أُعيد ترتيب النماذج",
 "Saved: {} (no models on the plate)": "تم الحفظ: {} (لا توجد نماذج على المنصة)",
-"Save only this setting and carry it out on the model (supports, raft, layout, slice)": "احفظ هذا الإعداد فقط ونفّذه على النموذج (الدعامات، القاعدة، الترتيب، التقطيع)"
+"Save only this setting and carry it out on the model (supports, raft, layout, slice)": "احفظ هذا الإعداد فقط ونفّذه على النموذج (الدعامات، القاعدة، الترتيب، التقطيع)",
+"Export print file as": "تصدير ملف الطباعة باسم",
+"Open the prints folder": "فتح مجلد الطباعة",
+"Choose the prints folder": "اختيار مجلد الطباعة",
+"Print files will now be saved in: {}": "ستُحفظ ملفات الطباعة الآن في: {}"
 }

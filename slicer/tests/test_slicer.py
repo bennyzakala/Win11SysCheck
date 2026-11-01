@@ -2605,3 +2605,44 @@ def test_vents_found_for_cups_that_start_narrow():
     cut = sla.slice_meshes(holes, z, 0.05)
     drilled = [g.difference(c) if not c.is_empty else g for g, c in zip(layers, cut)]
     assert not sla.find_cups(drilled)
+
+
+def test_export_print_file_goes_to_the_central_library(tmp_path):
+    """Export Print File saves without a dialog into <library>/<file name>/<file name>.<ext>; a second
+    export of the same name is kept next to the first; odd characters in the name are made safe."""
+    from unislicer import export_library
+    lib = str(tmp_path / "UniSlicer Prints")
+    p1 = export_library.target_path(lib, "SOD26-005 arch.stl", ".ctb")
+    assert p1 == os.path.join(lib, "SOD26-005 arch", "SOD26-005 arch.ctb") and os.path.isdir(os.path.dirname(p1))
+    open(p1, "w").close()
+    p2 = export_library.target_path(lib, "SOD26-005 arch", ".ctb")
+    assert p2 == os.path.join(lib, "SOD26-005 arch", "SOD26-005 arch (2).ctb")
+    assert export_library.safe_name('a<b>:c?.') == "a_b__c_" and export_library.safe_name("CON") == "_CON"
+    assert export_library.safe_name("") == "print"
+
+    import subprocess, sys, textwrap
+    code = textwrap.dedent(f'''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication, QFileDialog
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        QFileDialog.getSaveFileName = lambda *a, **k: (_ for _ in ()).throw(AssertionError("no dialog"))
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("export_library", {lib!r})
+        w.settings.select_printer("creality_ender3v2"); app.processEvents()
+        o = w.add_mesh(primitives.box(10, 10, 5)); o.name = "my part"
+        w.slice()
+        while w.task is not None and w.task.isRunning():
+            app.processEvents()
+        app.processEvents()
+        w.export()
+        p = os.path.join({lib!r}, "my part", "my part.gcode")
+        assert os.path.isfile(p) and os.path.getsize(p) > 1000, os.listdir({lib!r})
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path / "home"))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

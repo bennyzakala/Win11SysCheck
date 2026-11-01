@@ -1063,5 +1063,9 @@
 "{}: raft rebuilt": "{}: подложка перестроена",
 "{}: models arranged again": "{}: модели заново расставлены",
 "Saved: {} (no models on the plate)": "Сохранено: {} (на платформе нет моделей)",
-"Save only this setting and carry it out on the model (supports, raft, layout, slice)": "Сохранить только эту настройку и применить её к модели (поддержки, подложка, расстановка, нарезка)"
+"Save only this setting and carry it out on the model (supports, raft, layout, slice)": "Сохранить только эту настройку и применить её к модели (поддержки, подложка, расстановка, нарезка)",
+"Export print file as": "Экспортировать файл печати как",
+"Open the prints folder": "Открыть папку печати",
+"Choose the prints folder": "Выбрать папку печати",
+"Print files will now be saved in: {}": "Файлы печати теперь сохраняются в: {}"
 }

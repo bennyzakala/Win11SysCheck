@@ -280,6 +280,9 @@ class MainWindow(QMainWindow):
         mm.addAction(theme.icon("save"), tr("save_project"), lambda: self._act("save_project", "button", self.save_project))
         mm.addSeparator()
         mm.addAction(theme.icon("download"), tr("export_stl"), self.export_stl)
+        mm.addAction(theme.icon("download"), tr("export_as") + "…", lambda: self.export(ask=True))
+        mm.addAction(theme.icon("open"), tr("export_library_open"), self.open_export_library)
+        mm.addAction(theme.icon("settings"), tr("export_library_choose") + "…", self.choose_export_library)
         mm.addAction(theme.icon("wifi"), tr("net_title") + "…", self.network_printers)
         mm.addAction(theme.icon("wifi"), tr("remote_title") + "…", self.remote_control)
         mm.addAction(theme.icon("layers"), tr("fil_title") + "…", self.filaments_dialog)
@@ -4071,37 +4074,68 @@ class MainWindow(QMainWindow):
         self.status.setText(tr("export_done").format(path))
 
     # ================================================================ export
-    def export(self):
+    def export_library(self) -> str:
+        """The central folder every print file is exported to (chosen in More › Export folder)."""
+        from .. import export_library
+        return self.store.value("export_library", "") or export_library.default_library()
+
+    def choose_export_library(self):
+        path = QFileDialog.getExistingDirectory(self, tr("export_library_choose"), self.export_library())
+        if path:
+            self.store.setValue("export_library", path)
+            self.status.setText(tr("export_library_set").format(path))
+
+    def open_export_library(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        path = self.export_library()
+        os.makedirs(path, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+    def _export_ext(self) -> str:
+        if self.result[0] == "fdm":
+            return ".gcode"
+        return {"sl1": ".sl1", "ctb": ".ctb", "goo": ".goo", "prz": ".prz", "slc": ".slc", "cli": ".cli",
+                "3mf": ".3mf"}.get(self.result[2]["sla_format"], ".zip")
+
+    def export(self, ask: bool = False):
+        """Export Print File: saved straight into the central library, in a folder named after the file
+        (<library>/<name>/<name>.<ext>), no dialog. ``ask`` (More › Export as…) picks the place by hand."""
+        from .. import export_library
         if self.result is None or (self.task is not None and self.task.isRunning()):
             return
-        name = (self.objects[0].name if self.objects else "print") or "print"
-        last = self.store.value("export_dir", os.path.expanduser("~"))
-        if self.result[0] == "fdm":
-            path, _ = QFileDialog.getSaveFileName(self, tr("export_gcode"), os.path.join(last, name + ".gcode"),
-                                                  "G-code (*.gcode *.gco *.g)")
+        name = export_library.safe_name((self.objects[0].name if self.objects else "print") or "print")
+        ext = self._export_ext()
+        if ask:
+            last = self.store.value("export_dir", os.path.expanduser("~"))
+            path, _ = QFileDialog.getSaveFileName(self, tr("export_gcode") if ext == ".gcode" else tr("export_sla"),
+                                                  os.path.join(last, name + ext), f"*{ext}")
             if not path:
                 return
+            self.store.setValue("export_dir", os.path.dirname(path))
+        else:
+            try:
+                path = export_library.target_path(self.export_library(), name, ext)
+            except OSError as exc:
+                QMessageBox.critical(self, tr("export_error"), str(exc))
+                return
+        self.last_export_path = path
+        if self.result[0] == "fdm":
             try:
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write(self.result[2])
             except OSError as exc:
                 QMessageBox.critical(self, tr("export_error"), str(exc))
                 return
-            self.store.setValue("export_dir", os.path.dirname(path))
             self.status.setText(tr("export_done").format(path))
             self._ask_print_feedback()
         else:
             job, cfg = self.result[1], self.result[2]
-            ext = {"sl1": ".sl1", "ctb": ".ctb", "goo": ".goo", "prz": ".prz", "slc": ".slc", "cli": ".cli",
-                   "3mf": ".3mf"}.get(cfg["sla_format"], ".zip")
-            path, _ = QFileDialog.getSaveFileName(self, tr("export_sla"), os.path.join(last, name + ext), f"*{ext}")
-            if not path:
-                return
-            self.store.setValue("export_dir", os.path.dirname(path))
             result = self.result
+            base = os.path.splitext(os.path.basename(path))[0]
 
             def work(progress, cancelled):
-                return sla.export(job, cfg, path, name, lambda f: progress("export", f), cancelled)
+                return sla.export(job, cfg, path, base, lambda f: progress("export", f), cancelled)
 
             def done(p):
                 self.status.setText(tr("export_done").format(p))
