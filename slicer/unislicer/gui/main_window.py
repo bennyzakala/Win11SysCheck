@@ -3559,13 +3559,20 @@ class MainWindow(QMainWindow):
         out = []
         models = [o for o in self.objects if o.role != "cutter"]
         for v in job.cup_vents:
+            best = None
             for o in models:
                 lift = self._lift(cfg) if cfg["support_enable"] and not o.direct else 0.0
                 lo, hi = o.world_mesh().bounds
                 if lo[0] - 0.5 <= v["x"] <= hi[0] + 0.5 and lo[1] - 0.5 <= v["y"] <= hi[1] + 0.5 \
                         and lo[2] - 0.5 <= v["z_surface"] - lift <= hi[2] + 0.5:
-                    out.append((o, v, lift))
+                    best = (o, lift)
                     break
+                # not inside any box (lift or compensation moved it a little): the nearest model in XY
+                d = max(lo[0] - v["x"], v["x"] - hi[0], lo[1] - v["y"], v["y"] - hi[1], 0.0)
+                if d < 3.0 and (best is None or d < best[2]):
+                    best = (o, lift, d)
+            if best is not None:
+                out.append((best[0], v, best[1]))
         return out
 
     def fix_suction_cups(self):

@@ -554,14 +554,22 @@ def cup_vents(layers: list[MultiPolygon], layer_z: list[float], min_area: float 
     from shapely.ops import polylabel
     sealed = sealed if sealed is not None else _sealed_layers(layers)
     vents = []
-    prev = EMPTY
+    handled_prev = EMPTY          # cavity area in the layer below that already has its vent (or got one tried)
     for i, s in enumerate(sealed):
+        handled = []
         for c in polygons_of(s):
-            if c.area < min_area or (not prev.is_empty and c.intersects(prev)):
-                continue                       # not the start of a new cavity
+            if not handled_prev.is_empty and c.intersects(handled_prev):
+                handled.append(c)              # the same cavity, already vented
+                continue
+            # a cavity often starts as a dot (a rounded or tilted bottom) and widens: it is vented at the
+            # first layer where it is big enough to need it and wide enough for the hole
+            if c.area < min_area:
+                continue
             inner = c.buffer(-radius)
             if inner.is_empty:
-                continue
+                inner = c.buffer(-radius * 0.5)
+                if inner.is_empty:
+                    continue
             spots = [polylabel(p, 0.1) for p in polygons_of(as_multipolygon(inner))]
             x0, y0, x1, y1 = inner.bounds
             for gx in np.linspace(x0, x1, 5)[1:-1]:          # more tries, in case a support sits under the first
@@ -571,20 +579,28 @@ def cup_vents(layers: list[MultiPolygon], layer_z: list[float], min_area: float 
                         spots.append(q)
             found = None
             for q in spots:
-                j = i - 1
+                # down through the cavity below this layer (it may have started lower, narrower) ...
+                top = i - 1
+                while top >= 0 and sealed[top].contains(q):
+                    top -= 1
+                # ... to the roof that seals it, and through the roof to its outer surface
+                if top < 0 or not layers[top].contains(q):
+                    continue
+                j = top
                 while j >= 0 and layers[j].contains(q):
                     j -= 1
-                if j < 0 or j == i - 1:
-                    continue
+                if j < 0:
+                    continue                   # the roof sits on the plate here
                 found = {"kind": "roof", "x": float(q.x), "y": float(q.y), "z_surface": float(layer_z[j]),
-                         "z_cavity": float(layer_z[i - 1]), "normal": (0.0, 0.0, -1.0),
-                         "depth": float(layer_z[i - 1] - layer_z[j]), "area": float(c.area), "layer": i}
+                         "z_cavity": float(layer_z[top]), "normal": (0.0, 0.0, -1.0),
+                         "depth": float(layer_z[top] - layer_z[j]), "area": float(c.area), "layer": top + 1}
                 break
             if found is None:        # roof on the plate (or blocked): drill sideways through the wall, at the roof
                 found = _side_vent(layers, layer_z, i, c, spots[0], radius)
             if found is not None:
                 vents.append(found)
-        prev = s
+            handled.append(c)
+        handled_prev = shapely.union_all(handled) if handled else EMPTY
     return vents
 
 

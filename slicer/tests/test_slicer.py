@@ -2578,3 +2578,30 @@ def test_choosing_infill_hollows_the_model_and_apply_reslices():
     env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_vents_found_for_cups_that_start_narrow():
+    """A suction cup with a rounded bottom starts as a dot and widens (dental arches, bowls): no vent was
+    found, so 'Add automatic vent holes' showed (0) and stayed disabled. The vent now drills from below
+    the narrow start, and drilling it clears the cup."""
+    from shapely.geometry import Point
+    from unislicer import mesh_tools, profiles, sla
+    from unislicer.mesh import Mesh
+    lift = 3.0
+    parts = [mesh_tools.extrude(Point(0, 0).buffer(10), lift, lift + 2)]
+    for k in range(16):
+        z = lift + 2 + k * 0.5
+        parts.append(mesh_tools.extrude(Point(0, 0).buffer(10).difference(Point(0, 0).buffer(0.5 + k * 0.5)), z, z + 0.5))
+    bowl = Mesh.merge(parts, "bowl")
+    z = [0.05 + 0.1 * i for i in range(130)]
+    layers = sla.slice_meshes([bowl], z, 0.05)
+    assert sla.find_cups(layers)
+    vents = sla.cup_vents(layers, z, radius=1.5)
+    assert len(vents) == 1 and vents[0]["kind"] == "roof"
+    v = vents[0]
+    assert abs(v["x"]) < 1.5 and abs(v["y"]) < 1.5 and abs(v["z_surface"] - lift) < 0.2
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"drain_hole_diameter": 3.0})
+    holes = sla.hole_meshes([sla.vent_hole_rows(v, cfg)], cfg, 0.0)
+    cut = sla.slice_meshes(holes, z, 0.05)
+    drilled = [g.difference(c) if not c.is_empty else g for g, c in zip(layers, cut)]
+    assert not sla.find_cups(drilled)
