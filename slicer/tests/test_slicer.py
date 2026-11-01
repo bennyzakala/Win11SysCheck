@@ -3125,3 +3125,49 @@ def test_model_settings_apply_to_that_model_only(tmp_path):
     project.save(path, [a, b], {})
     back, _ = project.load(path)
     assert back[0].settings == a.settings and back[1].settings == {}
+
+
+def test_3d_texture_keeps_the_model_closed_and_the_base_flat():
+    """3D textures (GrabCAD Print Pro): the pattern moves the surface by at most the depth, the model
+    stays watertight, the flat base stays flat, 'sides' leaves the top alone; pressing in (negative depth)
+    removes material."""
+    import numpy as np
+    from unislicer import primitives, texture
+    box = primitives.box(20, 20, 10)
+    for kind in texture.PATTERNS:
+        t = texture.apply(box, kind, 2.0, 0.4, "sides")
+        assert t.is_watertight(), kind
+        lo, hi = t.bounds
+        assert lo[2] >= -1e-9 and abs(hi[2] - 10) < 1e-9                    # base and top untouched
+        assert lo[0] >= -0.4 - 1e-6 and hi[0] <= 20.4 + 1e-6                 # never more than the depth
+    t = texture.apply(box, "knurl", 2.0, 0.4, "sides")
+    v = t.vertices
+    assert np.allclose(v[v[:, 2] < 1e-9][:, 2], 0.0)                         # base vertices stay on z = 0
+    assert t.volume() > box.volume()
+    pressed = texture.apply(box, "dots", 2.0, -0.4, "all")
+    assert pressed.is_watertight() and pressed.volume() < box.volume()
+
+
+def test_texture_from_the_window_and_undo():
+    import subprocess, sys, textwrap
+    code = textwrap.dedent("""
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        o = w.add_mesh(primitives.box(20, 20, 10)); w._select_uid(o.uid)
+        smooth = o.mesh
+        w.apply_texture([o], "ribs", 2.0, 0.3, "sides"); app.processEvents()
+        assert o.mesh is not smooth and len(o.mesh.faces) > len(smooth.faces) and o.mesh.is_watertight()
+        w.undo(); app.processEvents()
+        assert w.objects[0].mesh is smooth
+        print("ok")
+    """)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

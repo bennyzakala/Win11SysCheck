@@ -304,6 +304,7 @@ class MainWindow(QMainWindow):
         mm.addAction(theme.icon("grid"), tr("split_parts"), self.split_selected)
         mm.addAction(theme.icon("settings"), tr("repair_mesh"), self.repair_selected)
         mm.addAction(theme.icon("settings"), tr("repair_advanced") + "…", self.repair_advanced_dialog)
+        mm.addAction(theme.icon("grid"), tr("texture_title") + "…", self.texture_dialog)
         mm.addAction(theme.icon("grid"), tr("pixel_edit") + "…", self.open_layer_editor)
         more.setMenu(mm)
         more.setPopupMode(QToolButton.InstantPopup)
@@ -2611,6 +2612,7 @@ class MainWindow(QMainWindow):
                 menu.addAction(theme.icon("copy"), tr("merge_models"), self.merge_selected)
                 self._fill_align_menu(menu.addMenu(theme.icon("align"), tr("align_menu")))
             menu.addAction(theme.icon("settings"), tr("model_settings") + "…", self.model_settings_dialog)
+            menu.addAction(theme.icon("grid"), tr("texture_title") + "…", self.texture_dialog)
             lock = menu.addAction(theme.icon("lock"), tr("lock_position"))
             lock.setCheckable(True)
             lock.setChecked(all(o.locked for o in group))
@@ -2756,6 +2758,80 @@ class MainWindow(QMainWindow):
         self.objects.insert(idx, new)
         self._refresh_objects(select=new.uid)
         self.status.setText(tr("merged_done").format(len(group)))
+
+    # ------------------------------------------------------------ 3D surface texture (GrabCAD Print Pro)
+    def texture_dialog(self):
+        from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QLabel
+        from .. import texture
+        group = [o for o in self.selected_objects() if o.role != "cutter"]
+        if not group:
+            self.status.setText(tr("select_first"))
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("texture_title"))
+        form = QFormLayout(dlg)
+        kind = QComboBox()
+        for k in texture.PATTERNS:
+            kind.addItem(tr("texture_" + k), k)
+        area = QComboBox()
+        for k in texture.AREAS:
+            area.addItem(tr("texture_area_" + k), k)
+        spacing = QDoubleSpinBox()
+        spacing.setRange(0.3, 20.0)
+        spacing.setSingleStep(0.1)
+        spacing.setSuffix(" mm")
+        spacing.setValue(float(self.store.value("texture_spacing", 1.5)))
+        depth = QDoubleSpinBox()
+        depth.setRange(-3.0, 3.0)
+        depth.setSingleStep(0.05)
+        depth.setSuffix(" mm")
+        depth.setValue(float(self.store.value("texture_depth", 0.3)))
+        last = str(self.store.value("texture_kind", "knurl"))
+        kind.setCurrentIndex(max(0, kind.findData(last)))
+        area.setCurrentIndex(max(0, area.findData(str(self.store.value("texture_area", "sides")))))
+        form.addRow(tr("texture_pattern"), kind)
+        form.addRow(tr("texture_spacing"), spacing)
+        form.addRow(tr("texture_depth"), depth)
+        form.addRow(tr("texture_area"), area)
+        note = QLabel(tr("texture_note"))
+        note.setWordWrap(True)
+        note.setObjectName("Faint")
+        form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText(tr("texture_apply"))
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        for k, val in (("texture_kind", kind.currentData()), ("texture_area", area.currentData()),
+                       ("texture_spacing", spacing.value()), ("texture_depth", depth.value())):
+            self.store.setValue(k, val)
+        self.apply_texture(group, kind.currentData(), spacing.value(), depth.value(), area.currentData())
+
+    def apply_texture(self, group, kind: str, spacing: float, depth: float, area: str):
+        """Press the texture into each model, in plate orientation (so 'sides' / 'top' and the clean base
+        follow how the model stands now). Undo puts the smooth mesh back."""
+        from .. import texture
+        self._push_undo()
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            for o in group:
+                lin = o.matrix()
+                inv = np.linalg.inv(lin)
+                placed = o.mesh.transform(lin)
+                done = texture.apply(placed, kind, spacing, depth, area)
+                o.mesh = done.transform(inv)
+                o.mesh.name = o.name
+                if o.support_points is not None:
+                    self._drop_supports(o)
+                for cache in ("_support_cache", "_geometry_cache", "_column_maps"):
+                    self.__dict__.get(cache, {}).pop(o.uid, None)
+                self.viewer.remove_object(o.uid)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self._refresh_objects(select=[o.uid for o in group])
+        self.status.setText(tr("texture_done").format(len(group), sum(len(o.mesh.faces) for o in group)))
 
     # ------------------------------------------------------------ per-model settings (GrabCAD model-level)
     MODEL_KEYS_SLA = ("sla_support_preset", "sla_support_spacing", "support_angle", "sla_support_type",

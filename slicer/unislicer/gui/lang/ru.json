@@ -1168,5 +1168,21 @@
 "All from the plate": "Всё по платформе",
 "{} models now have {} settings of their own": "У моделей ({}) теперь свои параметры: {}",
 "{} models follow the plate settings again": "Модели ({}) снова следуют настройкам платформы",
-"Model settings are available for resin printers for now": "Настройки модели пока доступны для фотополимерных принтеров"
+"Model settings are available for resin printers for now": "Настройки модели пока доступны для фотополимерных принтеров",
+"3D texture": "3D-текстура",
+"Pattern": "Узор",
+"Pattern size": "Размер узора",
+"Depth (+ raised, − pressed in)": "Глубина (+ выпуклый, − вдавленный)",
+"Where": "Где",
+"Knurl (diamonds)": "Накатка (ромбы)",
+"Dots": "Точки",
+"Ribs": "Рёбра",
+"Grain": "Зерно",
+"Honeycomb": "Соты",
+"Whole model (not the base)": "Вся модель (кроме основания)",
+"Sides": "Боковые стороны",
+"Top surfaces": "Верхние поверхности",
+"The texture changes the model itself (Undo puts it back). The flat base stays smooth. Large models take a few seconds.": "Текстура изменяет саму модель (Отменить вернёт её). Плоское основание остаётся гладким. Большие модели обрабатываются несколько секунд.",
+"Apply texture": "Применить текстуру",
+"Texture applied to {} models ({:,} triangles)": "Текстура применена к моделям: {} ({:,} треугольников)"
 }

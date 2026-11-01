@@ -1168,5 +1168,21 @@
 "All from the plate": "الكل وفق المنصة",
 "{} models now have {} settings of their own": "أصبح لـ {} نماذج {} إعدادات خاصة",
 "{} models follow the plate settings again": "عادت {} نماذج لإعدادات المنصة",
-"Model settings are available for resin printers for now": "إعدادات النموذج متاحة حاليًا لطابعات الراتنج"
+"Model settings are available for resin printers for now": "إعدادات النموذج متاحة حاليًا لطابعات الراتنج",
+"3D texture": "نسيج ثلاثي الأبعاد",
+"Pattern": "النقش",
+"Pattern size": "حجم النقش",
+"Depth (+ raised, − pressed in)": "العمق (+ بارز، − غائر)",
+"Where": "أين",
+"Knurl (diamonds)": "تخريش (معينات)",
+"Dots": "نقاط",
+"Ribs": "أضلاع",
+"Grain": "حبيبي",
+"Honeycomb": "خلية نحل",
+"Whole model (not the base)": "النموذج كله (عدا القاعدة)",
+"Sides": "الجوانب",
+"Top surfaces": "الأسطح العلوية",
+"The texture changes the model itself (Undo puts it back). The flat base stays smooth. Large models take a few seconds.": "يغيّر النسيج النموذج نفسه (التراجع يعيده). تبقى القاعدة المسطحة ملساء. تستغرق النماذج الكبيرة بضع ثوانٍ.",
+"Apply texture": "تطبيق النسيج",
+"Texture applied to {} models ({:,} triangles)": "طُبّق النسيج على {} نماذج ({:,} مثلث)"
 }
