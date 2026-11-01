@@ -2635,8 +2635,12 @@ def test_export_print_file_goes_to_the_central_library(tmp_path):
         w._reveal = opened.append
         w.settings.select_printer("creality_ender3v2"); app.processEvents()
         o = w.add_mesh(primitives.box(10, 10, 5)); o.name = "my part"
-        w.slice()
         import time
+        settle = time.time() + 1.0                       # let pending settings / collision timers fire first:
+        while time.time() < settle:                      # a late settings change would clear the result
+            app.processEvents()
+            time.sleep(0.01)
+        w.slice()
         end = time.time() + 120
         while (w.result is None or (w.task is not None and w.task.isRunning())) and time.time() < end:
             app.processEvents()
@@ -2728,8 +2732,12 @@ def test_align_lock_fill_cavity_and_layer_playback(tmp_path):
         assert a.x == x0
         w.select_all(); w.align_selected("left"); app.processEvents()
         assert a.x == x0
-        w.slice()
         import time
+        settle = time.time() + 1.0                       # let pending settings / collision timers fire first:
+        while time.time() < settle:                      # a late settings change would clear the result
+            app.processEvents()
+            time.sleep(0.01)
+        w.slice()
         end = time.time() + 120
         while (w.result is None or (w.task is not None and w.task.isRunning())) and time.time() < end:
             app.processEvents()
