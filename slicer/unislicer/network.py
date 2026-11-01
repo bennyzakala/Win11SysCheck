@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import http.client
 import json
 import os
 import shutil
@@ -351,7 +352,9 @@ def _http_json(host: str, port: int, path: str, timeout: float = 1.5):
             return r.status, _json(r.read(65536)), dict(r.headers)
     except urllib.error.HTTPError as e:
         return e.code, None, dict(e.headers or {})
-    except (urllib.error.URLError, OSError, ValueError):
+    except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException):
+        # HTTPException: a device that answers with something that is not HTTP (BadStatusLine, e.g. a page
+        # without a status line), or hangs up mid-reply - it is simply not a printer we know
         return 0, None, {}
 
 
@@ -414,7 +417,12 @@ def scan(progress=None, cancelled=None, timeout: float = 0.3, prefixes: list[str
             if ok:
                 open_ports.setdefault(h, set()).add(port)
         candidates = [h for h, ports in open_ports.items() if ports & {80, 7125, 4408, 4409, 5000, 9999, 3030}]
-        for h, results in zip(candidates, pool.map(lambda h: identify(h, open_ports[h]), candidates)):
+        def safe_identify(h):
+            try:
+                return identify(h, open_ports[h])
+            except Exception:              # one odd device (router page, camera, NAS...) never stops the scan
+                return []
+        for h, results in zip(candidates, pool.map(safe_identify, candidates)):
             for r in results:
                 found.setdefault((r["host"], r["kind"]), r)
             if 3030 in open_ports[h] and (h, "sdcp") not in found:

@@ -185,6 +185,60 @@ def _and(a, b):
     return as_multipolygon(a.intersection(b))
 
 
+# ------------------------------------------------------------ per-layer work spread over the CPU cores
+def _erode_chunk(layers: list, wall: float) -> list:
+    return [as_multipolygon(g.buffer(-wall)) if not g.is_empty else EMPTY for g in layers]
+
+
+def _thin_chunk(layers: list, r: float) -> list:
+    out = []
+    for g in layers:
+        if g.is_empty:
+            out.append(EMPTY)
+            continue
+        opened = g.buffer(-r).buffer(r).buffer(0.01)
+        out.append(as_multipolygon(g.difference(opened)))
+    return out
+
+
+def _fill_chunk(cavities: list, vented_flags: list, full, vented) -> list:
+    shapely.prepare(full)
+    shapely.prepare(vented)
+    cache: dict = {}
+    out = []
+    for c, v in zip(cavities, vented_flags):
+        if c.is_empty:
+            out.append(EMPTY)
+            continue
+        key = (c.wkb, v)                       # prismatic cavities repeat: compute each shape once
+        fill = cache.get(key)
+        if fill is None:
+            fill = as_multipolygon(c.intersection(vented if v else full))
+            if len(cache) < 200:
+                cache[key] = fill
+        out.append(fill)
+    return out
+
+
+def _union_chunk(pairs: list) -> list:
+    return [as_multipolygon(shapely.union_all([a, b])) if not b.is_empty else a for a, b in pairs]
+
+
+def _minus_chunk(pairs: list) -> list:
+    return [as_multipolygon(g.difference(f)) if not f.is_empty and not g.is_empty else g for g, f in pairs]
+
+
+def _per_layer(fn, items: list, *extra) -> list:
+    """``fn(chunk, *extra)`` over contiguous chunks of ``items`` on all cores; results in order."""
+    from . import parallel
+    n = len(items)
+    if n == 0:
+        return []
+    ranges = parallel.chunk_ranges(n, 16, parallel.workers() * 2)
+    chunks = parallel.run_chunks(fn, [(items[a:b], *extra) for a, b in ranges], weights=[b - a for a, b in ranges])
+    return [x for chunk in chunks for x in chunk]
+
+
 def covered_voids(layers: list[MultiPolygon]) -> list[MultiPolygon]:
     """Empty spaces inside the model that have model material above them: the cavity of a model that was
     already hollow when it came from the CAD (thin shell, open or closed base). A hole that goes right
@@ -219,7 +273,7 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list 
     should look at the shell only)."""
     wall = cfg["hollow_wall"]
     k = max(1, int(math.ceil(wall / lh)))
-    eroded = [as_multipolygon(g.buffer(-wall)) if not g.is_empty else EMPTY for g in layers]
+    eroded = _per_layer(_erode_chunk, layers, wall)
     cavity = _window_intersection(eroded, k)
     cavity = [as_multipolygon(c.buffer(-0.01).buffer(0.01)) if not c.is_empty else c for c in cavity]
     saved = sum(c.area for c in cavity) * lh / 1000.0
@@ -246,28 +300,18 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list 
     pattern = _infill_pattern(infill_space, cfg)
     if pattern is not None:
         full, vented = pattern
-        shapely.prepare(full)
-        shapely.prepare(vented)
         # drain windows: a band at the bottom of the cavity (resin flows to the drain holes) and then every
         # few millimetres, so no cell is a sealed chamber; between the bands the walls are whole
         band = max(cfg["hollow_infill_thickness"] * 1.5, 1.2)
         period = max(3.0 * cfg["hollow_infill_spacing"], 8.0)
         first = next((i for i, c in enumerate(infill_space) if not c.is_empty), 0)
-        cache: dict = {}
-        fills = []
-        for i, (o, c) in enumerate(zip(out, infill_space)):
-            if c.is_empty:
-                fills.append(EMPTY)
-                continue
-            z = (i - first) * lh
-            pat = vented if (z % period) < band else full
-            key = (c.wkb, pat is vented)          # prismatic cavities repeat: compute each shape once
-            fill = cache.get(key)
-            if fill is None:
-                fill = as_multipolygon(c.intersection(pat))
-                if len(cache) < 400:
-                    cache[key] = fill
-            fills.append(fill)
+        flags = [((i - first) * lh) % period < band for i in range(len(infill_space))]
+        from . import parallel
+        n = len(infill_space)
+        ranges = parallel.chunk_ranges(n, 16, parallel.workers() * 2)
+        chunks = parallel.run_chunks(_fill_chunk, [(infill_space[a:b], flags[a:b], full, vented) for a, b in ranges],
+                                     weights=[b - a for a, b in ranges])
+        fills = [x for chunk in chunks for x in chunk]
         out = [o.union(f) if not f.is_empty else o for o, f in zip(out, fills)]
         if infill_out is not None:
             infill_out[:] = fills
@@ -590,13 +634,7 @@ def find_thin(layers: list[MultiPolygon], min_width: float = 0.3, min_area: floa
     Only regions that stay thin through ``persist`` mm of height count (a real thin wall or fin), so the
     small slivers at the tips of tilted parts are not reported."""
     r = min_width / 2
-    thin = []
-    for g in layers:
-        if g.is_empty:
-            thin.append(EMPTY)
-            continue
-        opened = g.buffer(-r).buffer(r).buffer(0.01)
-        thin.append(as_multipolygon(g.difference(opened)))
+    thin = _per_layer(_thin_chunk, layers, r)
     k = max(1, int(round(persist / layer_height / 2)))
     lasting = _window_intersection(thin, k)
     return [i for i, t in enumerate(lasting) if t.area > min_area]
@@ -680,13 +718,12 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     # thin features of the model itself: the internal infill walls are thin on purpose and sit inside
     shell = layers
     if cfg["hollow_enable"] and not jetting and infill:
-        shell = [as_multipolygon(g.difference(f)) if not f.is_empty and not g.is_empty else g
-                 for g, f in zip(layers, infill)]
+        shell = _per_layer(_minus_chunk, list(zip(layers, infill)))
     thin = find_thin(shell, layer_height=lh)
     if support_meshes:
         sup_layers = slice_meshes(support_meshes, planes, cfg["resolution"],
                                   progress=lambda f: report("slice", split + f * (1 - split)), cancelled=cancelled)
-        layers = [as_multipolygon(shapely.union_all([a, b])) if not b.is_empty else a for a, b in zip(layers, sup_layers)]
+        layers = _per_layer(_union_chunk, list(zip(layers, sup_layers)))
     foot = cfg["bottom_xy_compensation"]
     if foot > 0:
         for i in range(min(int(cfg["bottom_layers"]), len(layers))):
@@ -718,10 +755,13 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         job.time_s = top / max(cfg["pj_build_speed"], 0.1) * 3600.0
         return job        # no peel, so no suction cups or unsupported islands
     job.islands = find_islands(layers)
-    sealed = _sealed_layers(layers)
-    job.cups = find_cups(layers, sealed=sealed)
+    # suction cups are cavities of the model itself: look at the shell (no supports, no honeycomb infill,
+    # whose hundreds of cells per layer made this the slowest step)
+    cup_layers = shell if len(shell) == len(layers) else layers
+    sealed = _sealed_layers(cup_layers)
+    job.cups = find_cups(cup_layers, sealed=sealed)
     if job.cups:
-        job.cup_vents = cup_vents(layers, job.layer_z, radius=max(0.5, cfg["drain_hole_diameter"] / 2), sealed=sealed)
+        job.cup_vents = cup_vents(cup_layers, job.layer_z, radius=max(0.5, cfg["drain_hole_diameter"] / 2), sealed=sealed)
     if process == "laser":
         from .vector_formats import scan_length
         job.time_s = sum(scan_length(g, cfg) / max(cfg["laser_scan_speed"], 1.0) + cfg["laser_recoat_time"]

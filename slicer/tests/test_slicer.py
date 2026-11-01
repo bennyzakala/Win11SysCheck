@@ -2404,3 +2404,31 @@ def test_honeycomb_fills_models_that_came_already_hollow():
     job2 = sla.prepare([a.world_mesh()], cfg2)
     mid2 = job2.layers[len(job2.layers) // 2]
     assert mid2.intersection(box(60 - 18, 60 - 4.5, 60 + 18, 60 + 4.5)).area < 3
+
+
+def test_network_scan_survives_devices_that_do_not_speak_http(monkeypatch):
+    """A device that answers on a printer port with raw HTML (no HTTP status line) made the scan crash with
+    BadStatusLine; it must just be skipped, and one failing device never stops the scan."""
+    import socket, threading
+    from unislicer import network
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(5)
+    port = srv.getsockname()[1]
+
+    def serve():
+        for _ in range(3):
+            try:
+                c, _a = srv.accept()
+            except OSError:
+                return
+            c.recv(1024)
+            c.sendall(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">\r\n<html></html>')
+            c.close()
+    threading.Thread(target=serve, daemon=True).start()
+    assert network._http_json("127.0.0.1", port, "/server/info") == (0, None, {})
+    srv.close()
+    monkeypatch.setattr(network, "discover", lambda *a, **k: [])
+    monkeypatch.setattr(network, "_open_port", lambda h, p, t: h.endswith(".5") and p == 80)
+    monkeypatch.setattr(network, "identify", lambda h, ports: (_ for _ in ()).throw(RuntimeError("odd device")))
+    assert network.scan(prefixes=["10.9.8"]) == []
