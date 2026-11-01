@@ -2530,18 +2530,30 @@ def test_choosing_infill_hollows_the_model_and_apply_reslices():
         called = []
         w.slice = lambda: called.append(1)
         infill, spacing = w.settings._rows["hollow_infill"], w.settings._rows["hollow_infill_spacing"]
-        assert not infill.apply_btn.isEnabled()
+        assert infill.apply_btn.isEnabled() and not infill.pending      # always clickable
         infill.editor.setCurrentIndex(infill.editor.findData("hive"))
         spacing.editor.setValue(9.0)
-        assert infill.pending and spacing.pending and infill.apply_btn.isEnabled()
+        assert infill.pending and spacing.pending
         assert w.settings.config()["hollow_infill"] == "none"        # nothing applied yet
         infill.apply_btn.click()
         cfg = w.settings.config()
         assert cfg["hollow_infill"] == "hive" and cfg["hollow_enable"] is True
         assert cfg["hollow_infill_spacing"] != 9.0 and spacing.pending   # the other change still waits
-        assert called and not infill.pending and not infill.apply_btn.isEnabled()
+        assert called and not infill.pending
         spacing.apply_btn.click()
         assert w.settings.config()["hollow_infill_spacing"] == 9.0
+        # Apply with nothing changed still carries the setting out (slices with its current value)
+        n = len(called)
+        infill.apply_btn.click()
+        assert len(called) == n + 1 and w.settings.config()["hollow_infill"] == "hive"
+        # typing a number and clicking Apply straight away (no Enter) applies the typed number
+        from PySide6.QtTest import QTest
+        from PySide6.QtCore import Qt
+        w.activateWindow(); spacing.editor.setFocus(); spacing.editor.selectAll()
+        QTest.keyClicks(spacing.editor, "12")
+        QTest.mouseClick(spacing.apply_btn, Qt.LeftButton)
+        app.processEvents()
+        assert w.settings.config()["hollow_infill_spacing"] == 12.0, w.settings.config()["hollow_infill_spacing"]
         w.settings._on_changed("hollow_enable", False)
         assert w.settings.config()["hollow_infill"] == "none"
         print("ok")

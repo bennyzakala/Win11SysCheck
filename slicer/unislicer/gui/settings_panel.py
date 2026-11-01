@@ -123,7 +123,7 @@ class SettingRow(QWidget):
             self.apply_btn.setObjectName("RowApply")
             self.apply_btn.setCursor(Qt.PointingHandCursor)
             self.apply_btn.setToolTip(tr("apply_setting_tip"))
-            self.apply_btn.setEnabled(False)
+            self.apply_btn.setProperty("pending", "false")
             self.apply_btn.clicked.connect(self.apply)
             head.addWidget(self.apply_btn)
         self.editor = self._make_editor(s, value, cfg)
@@ -141,19 +141,37 @@ class SettingRow(QWidget):
             self.changed.emit(self.key, value)
             return
         self._pending, self._has_pending = value, True
-        self.apply_btn.setEnabled(True)
+        self._mark(True)
+
+    def _mark(self, pending: bool):
+        """Lit (filled) while a changed value waits; always clickable."""
+        if self.apply_btn is not None:
+            self.apply_btn.setProperty("pending", "true" if pending else "false")
+            self.apply_btn.style().unpolish(self.apply_btn)
+            self.apply_btn.style().polish(self.apply_btn)
 
     @property
     def pending(self) -> bool:
         return self._has_pending
 
+    def editor_value(self):
+        w, kind = self.editor, self.setting.kind
+        if kind == "bool":
+            return w.isChecked()
+        if kind == "enum":
+            return w.currentData()
+        if kind == "text":
+            return w.toPlainText() if hasattr(w, "toPlainText") else w.text()
+        if hasattr(w, "interpretText"):
+            w.interpretText()                      # a number typed but not yet confirmed counts
+        return int(w.value()) if kind == "int" else float(w.value())
+
     def apply(self):
-        """Commit this row's waiting value (only this setting) and ask for it to take effect."""
-        if not self._has_pending:
-            return
-        value = self._pending
+        """Commit what the editor shows (only this setting) and make it take effect now. Clickable at any
+        time: with nothing changed it runs the setting's action with its current value."""
+        value = self.editor_value()
         self._pending, self._has_pending = None, False
-        self.apply_btn.setEnabled(False)
+        self._mark(False)
         self.changed.emit(self.key, value)
         self.applied.emit(self.key)
 
@@ -161,7 +179,7 @@ class SettingRow(QWidget):
         """Show ``value`` without emitting a change (a waiting, unapplied value is dropped)."""
         if self._has_pending:
             self._pending, self._has_pending = None, False
-            self.apply_btn.setEnabled(False)
+            self._mark(False)
         w = self.editor
         w.blockSignals(True)
         try:

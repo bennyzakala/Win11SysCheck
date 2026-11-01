@@ -167,8 +167,9 @@ QToolButton:hover {{ background: {SURFACE_3}; border-color: {BORDER}; }}
 QToolButton:pressed, QToolButton:checked {{ background: {ACCENT_SOFT}; border-color: {ACCENT}; }}
 QToolButton#TextTool {{ padding: 6px 10px; }}
 QPushButton#RowApply {{ background: transparent; border: 1.5px solid {ACCENT}; color: {ACCENT}; font-weight: 700; font-size: 11px; padding: 2px 8px; border-radius: 6px; min-height: 18px; }}
-QPushButton#RowApply:hover {{ background: {ACCENT}; color: {ON_ACCENT}; }}
-QPushButton#RowApply:disabled {{ border-color: {BORDER}; color: {TEXT_DIM}; }}
+QPushButton#RowApply:hover {{ background: {ACCENT_HOVER}; border-color: {ACCENT_HOVER}; color: {ON_ACCENT}; }}
+QPushButton#RowApply[pending="true"] {{ background: {ACCENT}; color: {ON_ACCENT}; }}
+QPushButton#RowApply:pressed {{ background: {ACCENT_PRESSED}; color: {ON_ACCENT}; }}
 QToolButton#Reset {{ padding: 2px; border-radius: 6px; }}
 QToolButton#SectionHeader {{ border: none; border-radius: 10px; padding: 10px 12px; font-weight: 600; font-size: 13px; text-align: left; }}
 QToolButton#SectionHeader:hover {{ background: {SURFACE_2}; }}

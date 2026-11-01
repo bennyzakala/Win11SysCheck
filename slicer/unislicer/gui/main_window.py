@@ -3200,24 +3200,21 @@ class MainWindow(QMainWindow):
         self._save_state()
         self._schedule_suggestions()
 
-    # settings whose result is only seen in the sliced layers: their "Apply" slices right away
-    SLICE_TO_SEE = ("hollow",)
-
     def apply_setting(self, key: str):
-        """A setting's own "Apply": only that setting was committed; make it take effect now. The plate
-        view follows at once (raft, plate, overhangs...); if the print was sliced, or the setting only shows
-        in the slice (hollowing, internal infill), it is sliced again."""
-        had_slice = self.result is not None or self.viewer.mode == "preview"
+        """A setting's own "Apply": only that setting was committed; carry it out now. The plate view
+        follows at once (raft, plate, overhangs...) and the models are sliced with it, so its result shows
+        in the preview (a honeycomb infill, a raft type...)."""
         if self._settings_timer.isActive():
             self._settings_timer.stop()
-            self._on_settings_changed()
-        setting = SCHEMA_BY_KEY.get(key)
+        self._on_settings_changed()
         if not self.objects:
+            self.status.setText(tr("no_models"))
             return
-        if had_slice or (setting is not None and setting.category in self.SLICE_TO_SEE):
-            if self.task is not None and self.task.isRunning():
-                self.task.cancel()
-            self.slice()
+        if self.task is not None and self.task.isRunning():
+            self.task.cancel()
+            if hasattr(self.task, "wait"):
+                self.task.wait(5000)
+        self.slice()
 
     def _save_state(self):
         s = self.store
