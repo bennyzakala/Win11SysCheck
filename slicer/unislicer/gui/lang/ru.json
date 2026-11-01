@@ -1087,5 +1087,6 @@
 "The model's cavity (a hollow shell or open base) prints solid": "Полость модели (пустая оболочка или открытое основание) печатается сплошной",
 "The cavity of {} models will print solid": "Полость моделей ({}) будет напечатана сплошной",
 "Fill cavity off for {} models": "Заполнение полости отключено для моделей: {}",
-"Play the layers": "Воспроизвести слои"
+"Play the layers": "Воспроизвести слои",
+"Fold open / closed here": "Развернуть / свернуть здесь"
 }

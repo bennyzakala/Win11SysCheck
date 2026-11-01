@@ -2750,3 +2750,40 @@ def test_align_lock_fill_cavity_and_layer_playback(tmp_path):
     env = dict(os.environ, HOME=str(tmp_path / "home"))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_section_header_click_opens_its_window_and_no_stray_selection_frame():
+    """A left click on a settings section header (Printer, Quality, Supports...) opens that section in its
+    own window; the chevron folds it in the panel. A box-selection frame whose mouse release was missed
+    (a dialog opened mid-drag) is removed instead of staying over the window."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import QPointF, Qt
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus"); app.processEvents()
+        opened = []
+        w.settings.open_section_window = lambda cat: opened.append(cat[0])
+        w.settings.rebuild(); app.processEvents()
+        sec = w.settings._sections["support"]
+        sec.header.click()
+        assert opened == ["support"], opened
+        before = sec.body.isVisible()
+        sec.toggle.click(); app.processEvents()
+        assert sec.body.isVisible() != before and opened == ["support"]
+        from PySide6.QtWidgets import QRubberBand
+        v = w.viewer
+        band = QRubberBand(QRubberBand.Rectangle, v); band.show()
+        v._band = (QPointF(1, 1), band)
+        v.focusOutEvent(__import__("PySide6.QtGui", fromlist=["QFocusEvent"]).QFocusEvent(__import__("PySide6.QtCore", fromlist=["QEvent"]).QEvent.FocusOut))
+        assert v._band is None and band.isHidden()
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

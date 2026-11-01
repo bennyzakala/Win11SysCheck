@@ -50,7 +50,9 @@ class NoWheelCombo(_NoWheelMixin, QComboBox):
 
 
 class Section(QFrame):
-    """Collapsible card with an icon header."""
+    """Card with an icon header: a left click on the header opens the section in its own window; the
+    chevron on the right folds the settings open / closed inside the panel."""
+    openRequested = Signal()
 
     def __init__(self, title: str, icon_name: str, expanded: bool):
         super().__init__()
@@ -58,24 +60,40 @@ class Section(QFrame):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(4, 4, 4, 8)
         lay.setSpacing(0)
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(0)
         self.header = QToolButton()
         self.header.setObjectName("SectionHeader")
         self.header.setText("  " + title.replace("&", "&&"))
         self.header.setIcon(theme.icon(icon_name, theme.ACCENT, 18))
         self.header.setIconSize(QSize(18, 18))
         self.header.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.header.setCheckable(True)
-        self.header.setChecked(expanded)
         self.header.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.header.setCursor(Qt.PointingHandCursor)
-        lay.addWidget(self.header)
+        self.header.setToolTip(tr("section_open"))
+        self.header.clicked.connect(self.openRequested.emit)
+        head.addWidget(self.header, 1)
+        self.toggle = QToolButton()
+        self.toggle.setObjectName("SectionToggle")
+        self.toggle.setCheckable(True)
+        self.toggle.setCursor(Qt.PointingHandCursor)
+        self.toggle.setAutoRaise(True)
+        self.toggle.setToolTip(tr("section_fold"))
+        head.addWidget(self.toggle)
+        lay.addLayout(head)
         self.body = QWidget()
         self.body_layout = QVBoxLayout(self.body)
         self.body_layout.setContentsMargins(12, 2, 10, 2)
         self.body_layout.setSpacing(6)
         lay.addWidget(self.body)
-        self.body.setVisible(expanded)
-        self.header.toggled.connect(self.body.setVisible)
+        self.toggle.toggled.connect(self._fold)
+        self.toggle.setChecked(expanded)
+        self._fold(expanded)
+
+    def _fold(self, on: bool):
+        self.body.setVisible(on)
+        self.toggle.setIcon(theme.icon("chevron_down" if on else "chevron", theme.TEXT_DIM, 16))
 
     def add_row(self, widget):
         self.body_layout.addWidget(widget)
@@ -906,7 +924,7 @@ class SettingsPanel(QWidget):
 
     def _expand_all(self, on: bool):
         for sec in self._sections.values():
-            sec.header.setChecked(on)
+            sec.toggle.setChecked(on)
 
     def open_section_window(self, cat):
         """All settings of one section (advanced ones too) in a window 80% of the screen."""
@@ -996,7 +1014,7 @@ class SettingsPanel(QWidget):
         old = self.scroll.widget()
         if old is not None:
             for cat, sec in getattr(self, "_sections", {}).items():
-                self._expanded[cat] = sec.header.isChecked()
+                self._expanded[cat] = sec.toggle.isChecked()
         self._fill_plates()
         self._building = True
         cfg = self.config()
@@ -1022,6 +1040,7 @@ class SettingsPanel(QWidget):
             sec.header.setContextMenuPolicy(Qt.CustomContextMenu)
             sec.header.customContextMenuRequested.connect(
                 lambda pos, c=cat, h=sec.header: self._section_menu(c, h.mapToGlobal(pos)))
+            sec.openRequested.connect(lambda c=cat: self.open_section_window(c))
             for s in items:
                 row = SettingRow(s, cfg[s.key], s.key in self.overrides, cfg, staged=True)
                 row.changed.connect(self._on_changed)

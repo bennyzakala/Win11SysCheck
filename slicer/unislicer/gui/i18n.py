@@ -65,6 +65,7 @@ STRINGS = {
     "fill_cavity_on": ("החלל של {} מודלים יודפס מלא", "The cavity of {} models will print solid"),
     "fill_cavity_off": ("מילוי החלל בוטל ל-{} מודלים", "Fill cavity off for {} models"),
     "layers_play": ("נגן את השכבות", "Play the layers"),
+    "section_fold": ("פתח / סגור כאן", "Fold open / closed here"),
     "export_as": ("ייצוא קובץ הדפסה למיקום אחר", "Export print file as"),
     "export_library_open": ("פתח את ספריית ההדפסות", "Open the prints folder"),
     "export_library_choose": ("בחר ספריית הדפסות", "Choose the prints folder"),

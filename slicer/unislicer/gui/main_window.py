@@ -3336,7 +3336,7 @@ class MainWindow(QMainWindow):
         s.setValue("quality", self.settings.quality_id or "")
         s.setValue("overrides", json.dumps(self.settings.overrides))
         s.setValue("advanced", "true" if self.settings.show_advanced else "false")
-        sections = {cat: sec.header.isChecked() for cat, sec in getattr(self.settings, "_sections", {}).items()}
+        sections = {cat: sec.toggle.isChecked() for cat, sec in getattr(self.settings, "_sections", {}).items()}
         if sections and not self.settings.filter_text:
             s.setValue("expanded_sections", json.dumps({**self.settings._expanded, **sections}))
         s.sync()

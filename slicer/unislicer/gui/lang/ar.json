@@ -1087,5 +1087,6 @@
 "The model's cavity (a hollow shell or open base) prints solid": "يُطبع تجويف النموذج (قشرة مجوفة أو قاعدة مفتوحة) مصمتًا",
 "The cavity of {} models will print solid": "سيُطبع تجويف {} نماذج مصمتًا",
 "Fill cavity off for {} models": "أُلغي ملء التجويف لـ {} نماذج",
-"Play the layers": "تشغيل الطبقات"
+"Play the layers": "تشغيل الطبقات",
+"Fold open / closed here": "فتح / طي هنا"
 }

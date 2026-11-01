@@ -11,6 +11,7 @@ from OpenGL import GL
 from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QSurfaceFormat
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
+from PySide6.QtWidgets import QApplication
 
 from ..mesh import Mesh
 from . import theme
@@ -1241,6 +1242,8 @@ class Viewer(QOpenGLWidget):
                 if start is not None:
                     self._drag = (uid, start)
             elif mods:
+                if self._band is not None:
+                    self._end_band()
                 from PySide6.QtWidgets import QRubberBand
                 band = QRubberBand(QRubberBand.Rectangle, self)
                 band.setGeometry(int(e.position().x()), int(e.position().y()), 1, 1)
@@ -1281,6 +1284,8 @@ class Viewer(QOpenGLWidget):
                 self.setCursor(Qt.OpenHandCursor if axis is not None else Qt.ArrowCursor)
                 self.update()
             return
+        if self._band is not None and not (e.buttons() & Qt.LeftButton):
+            self._end_band()                       # the release was missed: drop the frame
         if self._band is not None:
             from PySide6.QtCore import QRect
             origin = self._band[0]
@@ -1319,15 +1324,33 @@ class Viewer(QOpenGLWidget):
                 out.append(uid)
         return out
 
+    def _end_band(self):
+        """Remove the box-selection frame (also when the release never arrives: focus lost, a dialog
+        opened mid-drag), so no stray frame is left over the window. Returns its last rectangle."""
+        band = self._band[1] if self._band is not None else None
+        self._band = None
+        if band is None:
+            return None
+        rect = band.geometry()
+        band.hide()
+        band.deleteLater()
+        return rect
+
+    def focusOutEvent(self, e):
+        if self._band is not None:
+            self._end_band()
+        super().focusOutEvent(e)
+
+    def leaveEvent(self, e):
+        if self._band is not None and not (QApplication.mouseButtons() & Qt.LeftButton):
+            self._end_band()
+        super().leaveEvent(e)
+
     def mouseReleaseEvent(self, e):
         moved = (e.position() - self._press_pos).manhattanLength() > 3
         click_select, self._click_select = self._click_select, None
         if self._band is not None:
-            band = self._band[1]
-            rect = band.geometry()
-            band.hide()
-            band.deleteLater()
-            self._band = None
+            rect = self._end_band()
             self.boxSelected.emit(self.objects_in_rect(rect), True)
             return
         if e.button() == Qt.RightButton and not moved:
