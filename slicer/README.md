@@ -112,6 +112,14 @@ python run_unislicer.py
 - ייצוא ל-`.goo` (מדפסות Elegoo חדשות, כמו Saturn 3 Ultra ו-Mars 4 Ultra), ל-`.prz` (Phrozen Sonic Mini 8K S), ל-`.ctb` (פורמט CHITUBOX גרסה 4, למדפסות כמו Elegoo ו-Phrozen), ל-`.sl1` (Prusa ו-UVtools) או ל-ZIP של PNG עם קובץ `metadata.json`.
 - הערכה של נפח השרף, המשקל, זמן ההדפסה והעלות.
 
+## פרופילי Phrozen מ-DS Slicer
+
+הפרופילים של Phrozen נבנים מקובץ המפעל של Phrozen DS Slicer 4.4:
+- **מדפסות:** גודל משטח ורזולוציה מדויקים ל-Sonic CS+, ‏LS+, ‏Lumii 2K, ‏XL 4K Plus, ‏XL 4K 2022 ו-4K 2022.
+- **שרפים:** 170 שרפים של Phrozen, ‏NextDent, ‏Keystone, ‏Dreve, ‏Pacdent, ‏Detax, ‏BEGO ועוד, כל שרף מקושר רק למדפסות שיש לו נתונים עבורן.
+- **ערכים אוטומטיים:** לכל מדפסת, עובי שכבה (30/50/100 מיקרון) ומצב (יציב/מהיר) נלקחים ערכי היצרן: זמן חשיפה, שכבות בסיס, הרמה, מהירויות, המתנות, עוצמת אור, תנועה דו-שלבית ופיצוי התכווצות. ערך שמשנים ידנית נשמר.
+- **עדכון:** לייבוא מחדש מקובץ חדש: `python tools/import_phrozen_ds.py all_PHROZEN_machine_profile.xml`.
+
 ## סוגי מדפסות
 
 מעל רשימת המדפסות יש שלוש לשוניות: **FILAMENT** ‏(FDM), ‏**RESIN** ‏(LCD, ‏DLP ולייזר SLA) ו-**UV** (הזרקה עם ייבוש UV, ‏PolyJet, למשל Stratasys J5). כל לשונית מציגה רק את המדפסות מהסוג שלה, ומעבר ללשונית חוזר למדפסת האחרונה שנבחרה בה.

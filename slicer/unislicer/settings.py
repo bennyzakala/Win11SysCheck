@@ -288,6 +288,10 @@ SCHEMA: list[Setting] = [
     S("brim_width", "float", 6.0, "adhesion", "fdm", "רוחב שוליים", "Brim width", "mm", 0, 50, 0.5),
 
     # --------------------------------------------------------------- exposure
+    S("exposure_mode", "enum", "stable", "exposure", "sla", "מצב פרופיל השרף", "Resin profile mode",
+      options=(("stable", "יציב (Stable)", "Stable"), ("fast", "מהיר (Fast)", "Fast")),
+      tip_he="שרפים עם טבלה מהיצרן (למשל Phrozen): ערכי החשיפה והתנועה של מצב יציב או מהיר, לפי המדפסת ועובי השכבה",
+      tip_en="Resins with a maker's table (e.g. Phrozen): the Stable or Fast exposure and motion values for the printer and layer height"),
     S("exposure_time", "float", 2.5, "exposure", "sla", "זמן חשיפה", "Exposure time", "s", 0.1, 120, 0.1),
     S("bottom_exposure_time", "float", 30.0, "exposure", "sla", "זמן חשיפה לשכבות תחתונות", "Bottom exposure time", "s", 1, 300, 1),
     S("bottom_layers", "int", 5, "exposure", "sla", "מספר שכבות תחתונות", "Bottom layer count", "", 0, 100, 1),

@@ -595,6 +595,8 @@ class SettingsPanel(QWidget):
                                                                 kv[1].get("vendor", ""), profiles.display_name(kv[1])))
             last_group = None
             for pid, p in ordered:
+                if p.get("printers_only") and not linked(p):     # e.g. Phrozen DS resins: only on their printers
+                    continue
                 vendor = p.get("vendor", "")
                 group = (linked(p), vendor)
                 if kind == "materials" and last_group is not None and group != last_group:
@@ -759,7 +761,10 @@ class SettingsPanel(QWidget):
         return profiles.build_config(self.printer_id, self.material_id, self.quality_id)
 
     def config(self) -> Config:
-        return self.base_config().update(self.overrides)
+        cfg = self.base_config().update(self.overrides)
+        if self.technology == "sla":
+            profiles.apply_layer_table(cfg, self.printer_id, self.material_id, self.overrides)
+        return cfg
 
     def set_value(self, key: str, value):
         """Programmatic override (e.g. the overhang toggle in the viewport). Only that row is refreshed;

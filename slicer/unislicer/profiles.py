@@ -20,10 +20,36 @@ def _load(path: str) -> dict:
         return {}
 
 
+_extra_cache: dict = {}
+
+
+def _builtin_extras(kind: str) -> dict:
+    """Profile libraries shipped beside the main file: ``<kind>-<source>.json`` (e.g. materials-phrozen_ds.json)."""
+    out = {}
+    try:
+        names = sorted(n for n in os.listdir(BUILTIN_DIR) if n.startswith(kind + "-") and n.endswith(".json"))
+    except OSError:
+        return out
+    for n in names:
+        path = os.path.join(BUILTIN_DIR, n)
+        try:
+            stamp = os.path.getmtime(path)
+        except OSError:
+            continue
+        cached = _extra_cache.get(path)
+        if cached is None or cached[0] != stamp:
+            cached = (stamp, _load(path))
+            _extra_cache[path] = cached
+        out.update(cached[1])
+    return out
+
+
 def load(kind: str) -> dict:
     """All profiles of a kind; user profiles (marked ``user``) override built-in ones."""
     assert kind in KINDS
     out = _load(os.path.join(BUILTIN_DIR, f"{kind}.json"))
+    for pid, prof in _builtin_extras(kind).items():
+        out.setdefault(pid, prof)
     for pid, prof in _load(os.path.join(USER_DIR, f"{kind}.json")).items():
         prof["user"] = True
         out[pid] = prof
@@ -135,6 +161,25 @@ def import_profiles(kind: str, path: str) -> list[str]:
     return added
 
 
+def apply_layer_table(cfg: Config, printer: str | None, material: str | None, overrides: dict | None = None) -> Config:
+    """Resins with a per-printer table (e.g. Phrozen DS Slicer profiles): take the row for this printer, the
+    layer height nearest to the chosen one and the Stable / Fast mode. Values the user set stay as they are."""
+    if not material or not printer:
+        return cfg
+    prof = load("materials").get(material)
+    table = (prof or {}).get("layer_table", {}).get(printer)
+    if not table:
+        return cfg
+    want = float(cfg["sla_layer_height"])
+    key = min(table, key=lambda k: abs(float(k) - want))
+    modes = table[key]
+    row = modes.get(cfg["exposure_mode"]) or modes.get("stable") or next(iter(modes.values()))
+    keep = set(overrides or {})
+    cfg.update({k: v for k, v in row.items() if k not in keep and k != "sla_layer_height"})
+    cfg.values["sla_layer_height"] = want if "sla_layer_height" in keep or abs(float(key) - want) > 1e-6 else float(key)
+    return cfg
+
+
 def build_config(printer: str | None = None, material: str | None = None, quality: str | None = None,
                  overrides: dict | None = None) -> Config:
     cfg = Config()
@@ -147,4 +192,4 @@ def build_config(printer: str | None = None, material: str | None = None, qualit
         cfg.update(profiles[pid].get("values", {}))
     if overrides:
         cfg.update(overrides)
-    return cfg
+    return apply_layer_table(cfg, printer, material, overrides)

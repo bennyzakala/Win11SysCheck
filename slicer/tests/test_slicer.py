@@ -2130,3 +2130,87 @@ def test_printer_families_and_filament_panel():
     env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_phrozen_ds_slicer_profiles_import_and_layer_table(tmp_path):
+    """Phrozen DS Slicer's factory profiles: correct printer geometry, resins linked to their printers only, and the
+    exposure row picked by printer, layer height and Stable / Fast mode (user values win)."""
+    import importlib.util, subprocess, sys, textwrap
+    from unislicer import profiles
+    printers = profiles.load("printers")
+    cs = printers["phrozen_sonic_cs_plus"]["values"]
+    assert (cs["bed_x"], cs["bed_y"], cs["resolution_x"], cs["resolution_y"]) == (165.79, 71.28, 7536, 3240)
+    ls = printers["phrozen_sonic_ls_plus"]["values"]
+    assert (ls["bed_x"], ls["bed_y"], ls["resolution_x"], ls["resolution_y"]) == (195.84, 122.4, 5760, 3600)
+    assert printers["phrozen_lumii_2k"]["values"]["resolution_y"] == 1440 and "phrozen_sonic_4k_2022" in printers
+    mats = profiles.load("materials")
+    ds = {k: v for k, v in mats.items() if k.startswith("phrozen_ds_")}
+    assert len(ds) > 100 and all(v["printers_only"] and v["printers"] for v in ds.values())
+    wdm = mats["phrozen_ds_phrozen_dental_washable_dental_model"]
+    assert "phrozen_sonic_cs_plus" in wdm["printers"]
+    rows = {}
+    for lh in (0.03, 0.05, 0.1):
+        for mode in ("stable", "fast"):
+            c = profiles.build_config("phrozen_sonic_cs_plus", "phrozen_ds_phrozen_dental_washable_dental_model", None,
+                                      {"sla_layer_height": lh, "exposure_mode": mode})
+            rows[(lh, mode)] = c
+            assert c["sla_layer_height"] == lh
+    assert rows[(0.03, "stable")]["exposure_time"] < rows[(0.05, "stable")]["exposure_time"] < rows[(0.1, "stable")]["exposure_time"]
+    assert rows[(0.05, "fast")]["lift_speed"] > rows[(0.05, "stable")]["lift_speed"]
+    assert rows[(0.05, "stable")]["shrink_xy"] > 0 and rows[(0.05, "stable")]["bottom_layers"] >= 1
+    near = profiles.build_config("phrozen_sonic_cs_plus", "phrozen_ds_phrozen_dental_washable_dental_model", None,
+                                 {"sla_layer_height": 0.045})
+    assert near["exposure_time"] == rows[(0.05, "stable")]["exposure_time"] and near["sla_layer_height"] == 0.045
+    mine = profiles.build_config("phrozen_sonic_cs_plus", "phrozen_ds_phrozen_dental_washable_dental_model", None,
+                                 {"sla_layer_height": 0.05, "exposure_time": 9.5})
+    assert mine["exposure_time"] == 9.5
+    other = profiles.build_config("elegoo_mars3", "phrozen_ds_phrozen_dental_washable_dental_model")   # no table there
+    assert other["exposure_time"] == wdm["values"]["exposure_time"]
+
+    # the converter on a small export
+    xml = """<?xml version="1.0"?><PrintingInformation><SoftwareInfo><VersionInfo><Version>9.9</Version></VersionInfo>
+    </SoftwareInfo><PrintingParameters><PrinterConfig><ResinConfig><BrandName>Acme</BrandName><ResinName>Model Grey</ResinName>
+    <PrinterName>Sonic CS+</PrinterName><DimensionX>165.79</DimensionX><DimensionY>71.28</DimensionY><DimensionZ>175</DimensionZ>
+    <ResolutionX>7536</ResolutionX><ResolutionY>3240</ResolutionY><ThicknessConfig><Thickness>0.05</Thickness>
+    <ExposureData><ThicknessName>stable</ThicknessName><Ratio><RatioX>1.01</RatioX><RatioY>1.01</RatioY><RatioZ>1.0</RatioZ></Ratio>
+    <TwoStage>1</TwoStage><liftSecondDistInputFile>3</liftSecondDistInputFile><liftSecondSpeedInputFile>200</liftSecondSpeedInputFile>
+    <retractSecondDistInputFile>2</retractSecondDistInputFile><retractSecondSpeedInputFile>60</retractSecondSpeedInputFile>
+    <NumBaseLayer>5</NumBaseLayer><BaseCuringTime>30</BaseCuringTime><NormalCuringTime>2.2</NormalCuringTime>
+    <NormalLiftHeight>6</NormalLiftHeight><NormalPeelSpeed>60</NormalPeelSpeed><BufferLayerNumber>4</BufferLayerNumber>
+    </ExposureData><ExposureData><ThicknessName>customize</ThicknessName></ExposureData></ThicknessConfig></ResinConfig>
+    </PrinterConfig></PrintingParameters></PrintingInformation>"""
+    path = tmp_path / "ds.xml"
+    path.write_text(xml)
+    spec = importlib.util.spec_from_file_location("imp", os.path.join(os.path.dirname(__file__), "..", "tools", "import_phrozen_ds.py"))
+    imp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(imp)
+    geometry, materials, info = imp.convert(str(path))
+    assert info == {"version": "9.9", "resins": 1}
+    assert geometry["phrozen_sonic_cs_plus"]["resolution_x"] == 7536
+    m = materials["phrozen_ds_acme_model_grey"]
+    row = m["layer_table"]["phrozen_sonic_cs_plus"]["0.050"]["stable"]
+    assert (row["exposure_time"], row["bottom_layers"], row["transition_layers"], row["shrink_xy"]) == (2.2, 5, 4, 1.0)
+    assert row["tsmc_enable"] and row["lift_height_2"] == 3 and m["printers"] == ["phrozen_sonic_cs_plus"]
+
+    # the resins appear only on their printers
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.settings_panel import SettingsPanel
+        p = SettingsPanel("phrozen_sonic_cs_plus", None, None, {}, False)
+        ids = [p.material_combo.itemData(i) for i in range(p.material_combo.count())]
+        assert sum(1 for i in ids if i and i.startswith("phrozen_ds_")) >= 30      # 38 in DS Slicer 4.4
+        p.material_combo.setCurrentIndex(ids.index("phrozen_ds_phrozen_dental_washable_dental_model"))
+        p.set_value("sla_layer_height", 0.1)
+        assert p.config()["exposure_time"] > 2.0
+        assert p.select_printer("elegoo_mars3")
+        ids = [p.material_combo.itemData(i) for i in range(p.material_combo.count())]
+        assert not any(i and i.startswith("phrozen_ds_") for i in ids)
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

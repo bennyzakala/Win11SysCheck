@@ -569,13 +569,13 @@
  "phrozen_sonic_cs_plus": {
   "name": "Phrozen Sonic CS+ (dental)",
   "vendor": "Phrozen",
-  "note": "385 nm mono LCD, 22 µm XY. Plates per manufacturer listings: Standard 165 x 71 x 175 mm, Mini 70 x 70 x 175 mm. Screen pixels derived from the 22 µm pixel size (same panel size as Sonic Mini 8K); mini plate assumed centred. Reads .prz from DS Slicer.",
+  "note": "385 nm mono LCD, 22 µm XY. Build area 165.79 x 71.28 x 175 mm, 7536 x 3240 px (Phrozen DS Slicer 4.4 factory profile). Plates: standard 165 x 71 mm, mini 70 x 70 mm (manufacturer listings; mini assumed centred). Reads .prz from DS Slicer.",
   "values": {
    "technology": "sla",
-   "bed_x": 165.0,
+   "bed_x": 165.79,
    "bed_y": 71.28,
-   "max_z": 175,
-   "resolution_x": 7500,
+   "max_z": 175.0,
+   "resolution_x": 7536,
    "resolution_y": 3240,
    "sla_format": "prz",
    "sla_layer_height": 0.05,
@@ -602,14 +602,14 @@
  "phrozen_lumii_2k": {
   "name": "Phrozen Lumii 2K DLP (dental)",
   "vendor": "Phrozen",
-  "note": "405 nm 2K DLP, 51 µm XY, standard plate 130 x 75 x 160 mm; a mini plate exists but its size is not published (add it from the plate menu). Projector pixels derived from 51 µm over 130 x 75 mm. Uses DS Slicer (.prz assumed, as for the Sonic CS+).",
+  "note": "405 nm 2K DLP. Build area 130 x 73 x 160 mm, 2560 x 1440 px (Phrozen DS Slicer 4.4 factory profile); a mini plate exists (add its size from the plate menu). .prz as for the Sonic CS+.",
   "values": {
    "technology": "sla",
-   "bed_x": 130.56,
-   "bed_y": 74.97,
-   "max_z": 160,
+   "bed_x": 130.0,
+   "bed_y": 73.0,
+   "max_z": 160.0,
    "resolution_x": 2560,
-   "resolution_y": 1470,
+   "resolution_y": 1440,
    "sla_format": "prz",
    "sla_layer_height": 0.05,
    "bottom_layers": 6,
@@ -619,7 +619,7 @@
    {
     "name": "Standard plate",
     "width": 130.0,
-    "depth": 74.97,
+    "depth": 73.0,
     "offset_x": 0.0,
     "offset_y": 0.0
    }
@@ -866,15 +866,15 @@
  "phrozen_sonic_ls_plus": {
   "name": "Phrozen Sonic LS+ (dental)",
   "vendor": "Phrozen",
-  "note": "385 nm mono LCD, 34 µm XY, 10 µm Z. Print volume of the standard kit per Phrozen's page: 209 x 133 x 175 mm; distributors also list 198 x 125 and 168 x 74 mm plates. Screen pixels derived from the 34 µm pixel size; .prz assumed as for the Sonic CS+ (Phrozen Dental slicer) - switch the output format if your firmware differs.",
+  "note": "385 nm mono LCD, 34 µm XY. Build area 195.84 x 122.4 x 175 mm, 5760 x 3600 px (Phrozen DS Slicer 4.4 factory profile, same for the large and standard plates); distributors also list a 168 x 74 mm small plate. .prz as for the Sonic CS+.",
   "values": {
    "technology": "sla",
    "sla_process": "lcd",
-   "bed_x": 209.0,
-   "bed_y": 133.0,
-   "max_z": 175,
-   "resolution_x": 6147,
-   "resolution_y": 3912,
+   "bed_x": 195.84,
+   "bed_y": 122.4,
+   "max_z": 175.0,
+   "resolution_x": 5760,
+   "resolution_y": 3600,
    "sla_format": "prz",
    "sla_layer_height": 0.05,
    "bottom_layers": 6,
@@ -882,16 +882,9 @@
   },
   "plates": [
    {
-    "name": "Standard kit plate",
-    "width": 209.0,
-    "depth": 133.0,
-    "offset_x": 0.0,
-    "offset_y": 0.0
-   },
-   {
-    "name": "Large plate (distributor listing)",
-    "width": 198.0,
-    "depth": 125.0,
+    "name": "Large / standard plate",
+    "width": 195.84,
+    "depth": 122.4,
     "offset_x": 0.0,
     "offset_y": 0.0
    },
@@ -913,9 +906,26 @@
    "sla_process": "lcd",
    "bed_x": 192.0,
    "bed_y": 120.0,
-   "max_z": 200,
+   "max_z": 200.0,
    "resolution_x": 3840,
    "resolution_y": 2400,
+   "sla_format": "zip",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 6
+  }
+ },
+ "phrozen_sonic_4k_2022": {
+  "name": "Phrozen Sonic 4K 2022",
+  "vendor": "Phrozen",
+  "note": "Mono 4K LCD, 35 µm XY, 134.4 x 75.6 x 200 mm and 3840 x 2160 px per Phrozen DS Slicer 4.4's factory profile. Output format as for the Sonic XL 4K 2022 (.zip); switch it if your firmware differs.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "lcd",
+   "bed_x": 134.4,
+   "bed_y": 75.6,
+   "max_z": 200.0,
+   "resolution_x": 3840,
+   "resolution_y": 2160,
    "sla_format": "zip",
    "sla_layer_height": 0.05,
    "bottom_layers": 6
@@ -924,13 +934,13 @@
  "phrozen_sonic_xl_4k_2022": {
   "name": "Phrozen Sonic XL 4K 2022",
   "vendor": "Phrozen",
-  "note": "9.3\" mono 4K LCD, 52 µm XY (some listings say 50 µm), ParaLED 3.0 405 nm. Print volume 196.6 x 120.3 x 200 mm per Phrozen (retailers list 200 x 125 x 200). Phrozen's format chart lists .zip (CHITUBOX ZIP) for this model. Screen pixels derived from the published XY resolution and print area.",
+  "note": "9.3\" mono 4K LCD, 52 µm XY, ParaLED 3.0 405 nm. Build area 199.68 x 124.8 x 200 mm, 3840 x 2400 px (Phrozen DS Slicer 4.4 factory profile). Phrozen's format chart lists .zip (CHITUBOX ZIP) for this model.",
   "values": {
    "technology": "sla",
    "sla_process": "lcd",
-   "bed_x": 196.6,
-   "bed_y": 120.3,
-   "max_z": 200,
+   "bed_x": 199.68,
+   "bed_y": 124.8,
+   "max_z": 200.0,
    "resolution_x": 3840,
    "resolution_y": 2400,
    "sla_format": "zip",
@@ -941,13 +951,13 @@
  "phrozen_sonic_xl_4k_plus": {
   "name": "Phrozen Sonic XL 4K Plus (dental)",
   "vendor": "Phrozen",
-  "note": "9.3\" mono 4K LCD, 52 µm XY, ParaLED 3.0 405 nm, dual ball-screw Z. Print volume 196.6 x 120.3 x 200 mm per Phrozen Dental. Phrozen's format chart lists .ctb and .prz for this model. Screen pixels derived from the published XY resolution and print area.",
+  "note": "9.3\" mono 4K LCD, 52 µm XY, ParaLED 3.0 405 nm, dual ball-screw Z. Build area 199.68 x 124.8 x 200 mm, 3840 x 2400 px (Phrozen DS Slicer 4.4 factory profile). Phrozen's format chart lists .ctb and .prz for this model.",
   "values": {
    "technology": "sla",
    "sla_process": "lcd",
-   "bed_x": 196.6,
-   "bed_y": 120.3,
-   "max_z": 200,
+   "bed_x": 199.68,
+   "bed_y": 124.8,
+   "max_z": 200.0,
    "resolution_x": 3840,
    "resolution_y": 2400,
    "sla_format": "ctb",
