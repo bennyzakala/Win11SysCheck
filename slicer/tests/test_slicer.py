@@ -2631,6 +2631,8 @@ def test_export_print_file_goes_to_the_central_library(tmp_path):
         QFileDialog.getSaveFileName = lambda *a, **k: (_ for _ in ()).throw(AssertionError("no dialog"))
         w = MainWindow(); w.show(); app.processEvents()
         w.store.setValue("export_library", {lib!r})
+        opened = []
+        w._reveal = opened.append
         w.settings.select_printer("creality_ender3v2"); app.processEvents()
         o = w.add_mesh(primitives.box(10, 10, 5)); o.name = "my part"
         w.slice()
@@ -2640,6 +2642,10 @@ def test_export_print_file_goes_to_the_central_library(tmp_path):
         w.export()
         p = os.path.join({lib!r}, "my part", "my part.gcode")
         assert os.path.isfile(p) and os.path.getsize(p) > 1000, os.listdir({lib!r})
+        assert opened == [p]                              # the folder opens with the file
+        w.store.setValue("export_library", "")
+        from unislicer import export_library
+        assert w.export_library() == os.path.join(export_library.app_dir(), "Prints")
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

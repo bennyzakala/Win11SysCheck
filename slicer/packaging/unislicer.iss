@@ -60,6 +60,11 @@ Root: HKCU; Subkey: "Software\Classes\.ply\OpenWithProgids"; ValueType: string; 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
+[Dirs]
+; exported print files: <install folder>\Prints\<file name>\<file name>.<ext>; writable for the user even
+; in Program Files, and kept when UniSlicer is uninstalled or updated
+Name: "{app}\Prints"; Permissions: users-modify; Flags: uninsneveruninstall
+
 [Files]
 Source: "..\dist\UniSlicer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 

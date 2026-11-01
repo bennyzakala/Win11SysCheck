@@ -4,7 +4,8 @@ from __future__ import annotations
 import os
 import re
 
-FOLDER_NAME = "UniSlicer Prints"
+FOLDER_NAME = "UniSlicer Prints"     # the fallback under Documents
+APP_FOLDER = "Prints"                 # inside the folder UniSlicer is installed in
 _BAD = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 
@@ -25,8 +26,31 @@ def documents_dir() -> str:
     return docs if os.path.isdir(docs) else home
 
 
+def app_dir() -> str:
+    """The folder UniSlicer runs from: the install folder (UniSlicer.exe), or the source tree."""
+    import sys
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def writable(folder: str) -> bool:
+    try:
+        os.makedirs(folder, exist_ok=True)
+        probe = os.path.join(folder, ".unislicer_write_test")
+        with open(probe, "w") as fh:
+            fh.write("")
+        os.remove(probe)
+        return True
+    except OSError:
+        return False
+
+
 def default_library() -> str:
-    return os.path.join(documents_dir(), FOLDER_NAME)
+    """<install folder>/Prints (the installer makes it writable); Documents/UniSlicer Prints if the
+    install folder cannot be written to (e.g. a Program Files install from an older installer)."""
+    folder = os.path.join(app_dir(), APP_FOLDER)
+    return folder if writable(folder) else os.path.join(documents_dir(), FOLDER_NAME)
 
 
 def safe_name(name: str, fallback: str = "print") -> str:

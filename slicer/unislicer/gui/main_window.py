@@ -4085,6 +4085,19 @@ class MainWindow(QMainWindow):
             self.store.setValue("export_library", path)
             self.status.setText(tr("export_library_set").format(path))
 
+    def _reveal(self, path: str):
+        """Open the folder a file was saved in, with the file selected (Windows Explorer)."""
+        import subprocess
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        try:
+            if os.name == "nt" and os.path.isfile(path):
+                subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+                return
+        except OSError:
+            pass
+        QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(path)))
+
     def open_export_library(self):
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
@@ -4128,6 +4141,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, tr("export_error"), str(exc))
                 return
             self.status.setText(tr("export_done").format(path))
+            self._reveal(path)
             self._ask_print_feedback()
         else:
             job, cfg = self.result[1], self.result[2]
@@ -4139,6 +4153,7 @@ class MainWindow(QMainWindow):
 
             def done(p):
                 self.status.setText(tr("export_done").format(p))
+                self._reveal(p if isinstance(p, str) and p else path)
                 self._ask_print_feedback()
 
             self._start_task(work, done, tr("exporting"))
