@@ -294,6 +294,7 @@ class MainWindow(QMainWindow):
         mm.addAction(theme.icon("open"), tr("export_library_open"), self.open_export_library)
         mm.addAction(theme.icon("settings"), tr("export_library_choose") + "…", self.choose_export_library)
         mm.addAction(theme.icon("wifi"), tr("net_title") + "…", self.network_printers)
+        mm.addAction(theme.icon("layers"), tr("queue_title") + "…", self.queue_dialog)
         mm.addAction(theme.icon("wifi"), tr("remote_title") + "…", self.remote_control)
         mm.addAction(theme.icon("layers"), tr("fil_title") + "…", self.filaments_dialog)
         mm.addAction(theme.icon("sparkle"), tr("cad_title") + "…", self.dental_cad_dialog)
@@ -4538,6 +4539,56 @@ class MainWindow(QMainWindow):
             return
         text = tr("remote_cmd_" + action) if ("remote_cmd_" + action) in i18n.STRINGS else action
         self.status.setText(tr("remote_cmd_done").format(text) if ok else tr("remote_cmd_failed").format(text, msg))
+
+    # ================================================================ print queue (Schedule view)
+    def queue_dialog(self):
+        from .queue_dialog import QueueDialog
+        dlg = getattr(self, "_queue_dialog", None)
+        if dlg is None or not dlg.isVisible():
+            dlg = QueueDialog(self)
+            self._queue_dialog = dlg
+        dlg.show()
+        dlg.raise_()
+        return dlg
+
+    def add_plate_to_queue(self, printer_id: str, dialog=None):
+        """Save the sliced plate into the prints folder and put it at the end of that printer's queue."""
+        from .. import export_library, print_queue
+        if self.result is None or (self.task is not None and self.task.isRunning()):
+            QMessageBox.information(self, tr("queue_title"), tr("queue_slice_first"))
+            return
+        name = export_library.safe_name((self.objects[0].name if self.objects else "print") or "print")
+        try:
+            path = export_library.target_path(self.export_library(), name, self._export_ext())
+        except OSError as exc:
+            QMessageBox.critical(self, tr("export_error"), str(exc))
+            return
+        est = self.plate_estimate()
+        unit = "ml" if est.technology == "sla" else "cm³"
+        result = self.result
+
+        def finish(p):
+            queue = dialog.queue if dialog is not None else print_queue.Queue()
+            queue.add(printer_id, p, os.path.basename(p), est.time_s, f"{est.total_ml:.1f} {unit}")
+            self._report_with_export(p)
+            self.status.setText(tr("queue_added").format(os.path.basename(p)))
+            if dialog is not None:
+                dialog.refresh()
+
+        if result[0] == "fdm":
+            try:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(result[2])
+            except OSError as exc:
+                QMessageBox.critical(self, tr("export_error"), str(exc))
+                return
+            finish(path)
+            return
+        job, cfg = result[1], result[2]
+        base = os.path.splitext(os.path.basename(path))[0]
+        self._start_task(lambda progress, cancelled: sla.export(job, cfg, path, base, lambda f: progress("export", f), cancelled),
+                         lambda p: finish(p if isinstance(p, str) and p else path), tr("exporting"))
+        self.result = result
 
     # ================================================================ network printers
     def network_printers(self):

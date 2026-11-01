@@ -3024,3 +3024,70 @@ def test_job_report_pdf_is_written_beside_the_export(tmp_path):
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_print_queue_order_moves_and_states(tmp_path):
+    from unislicer import print_queue
+    q = print_queue.Queue(str(tmp_path))
+    a = q.add("p1", str(tmp_path / "a.ctb"), time_s=3600)
+    b = q.add("p1", str(tmp_path / "b.ctb"), time_s=1800)
+    c = q.add("p2", str(tmp_path / "c.ctb"))
+    assert q.next_for("p1").id == a.id and q.waiting_time("p1") == 5400
+    q.reorder("p1", [b.id, a.id])
+    assert [j.id for j in q.for_printer("p1")] == [b.id, a.id] and q.for_printer("p2")[0].id == c.id
+    q.move_to(a.id, "p2")
+    assert [j.id for j in q.for_printer("p2")] == [c.id, a.id]
+    q.mark(b.id, "sending")
+    q2 = print_queue.Queue(str(tmp_path))                     # reopened after a crash mid-upload
+    assert q2.get(b.id).state == "waiting"
+    q2.mark(b.id, "sent", "ok")
+    q2.clear_sent()
+    assert q2.get(b.id) is None and len(q2.jobs) == 2
+    assert print_queue.printer_ready({"state": "Idle"}) and not print_queue.printer_ready({"state": "printing"})
+    assert not print_queue.printer_ready(None)
+
+
+def test_print_queue_window_sends_the_next_job(tmp_path):
+    """Schedule view: the sliced plate goes into a printer's queue (file in the prints folder) and
+    'Send & start next' delivers it (here to a network-folder printer) after the plate-empty question."""
+    import subprocess, sys, textwrap
+    lib, drop, home = str(tmp_path / "prints"), str(tmp_path / "printer_folder"), str(tmp_path / "home")
+    os.makedirs(drop)
+    code = textwrap.dedent(f'''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication, QMessageBox
+        app = QApplication([])
+        from unislicer import network, primitives, print_queue
+        network.save_printers([network.NetPrinter("Lab folder", "folder", {drop!r})])
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("export_library", {lib!r}); w._reveal = lambda p: None
+        w.settings.select_printer("creality_ender3v2"); app.processEvents()
+        o = w.add_mesh(primitives.box(10, 10, 5)); o.name = "crown"
+        settle = time.time() + 1.0
+        while time.time() < settle:
+            app.processEvents(); time.sleep(0.01)
+        w.slice()
+        end = time.time() + 120
+        while (w.result is None or (w.task is not None and w.task.isRunning())) and time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        dlg = w.queue_dialog(); app.processEvents()
+        pid = dlg.printers[0].id
+        w.add_plate_to_queue(pid, dlg); app.processEvents()
+        jobs = dlg.queue.for_printer(pid)
+        assert len(jobs) == 1 and os.path.isfile(jobs[0].path) and jobs[0].time_s > 0, jobs
+        QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+        dlg.columns[pid].send_btn.click()
+        end = time.time() + 60
+        while dlg.queue.for_printer(pid)[0].state in ("waiting", "sending") and time.time() < end:
+            app.processEvents(); time.sleep(0.02)
+        assert dlg.queue.for_printer(pid)[0].state == "sent", dlg.queue.for_printer(pid)[0]
+        assert os.listdir({drop!r}) == ["crown.gcode"], os.listdir({drop!r})
+        assert print_queue.Queue().for_printer(pid)[0].state == "sent"
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=home, USERPROFILE=home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
