@@ -248,6 +248,7 @@ def auto_layout(objects: list[SceneObject], plate, opt: LayoutOptions,
         movable = [o for o in parts if not p.contains(footprint(o))]
     else:
         movable = parts
+    movable = [o for o in movable if not getattr(o, "locked", False)]     # locked parts stay where they are
     moving = {id(o) for o in movable}          # by identity: copies of one part have equal values
     fixed = [o for o in parts if id(o) not in moving]
     if not movable:
@@ -329,3 +330,54 @@ def layout_stats(objects: list[SceneObject], plate: tuple) -> dict | None:
     cy = np.mean([p.centroid.y for p in prints])
     off = math.hypot((cx - (x0 + x1) / 2) / ((x1 - x0) / 2 or 1), (cy - (y0 + y1) / 2) / ((y1 - y0) / 2 or 1)) / math.sqrt(2)
     return {"gap": min(gaps) if gaps else None, "edge": edge, "offcentre": off, "count": len(parts)}
+
+
+def align(objects: list[SceneObject], mode: str) -> None:
+    """Align parts by their footprints (as CHITUBOX's Align): left / right / front / back edges, centre X / Y,
+    or spread evenly along X / Y ('dist_x' / 'dist_y': equal gaps between neighbours). Locked parts are
+    the reference and do not move."""
+    parts = [o for o in objects if o.role != "cutter"]
+    if len(parts) < 2:
+        return
+    boxes = {o.uid: footprint(o).bounds for o in parts}
+    free = [o for o in parts if not o.locked]
+    ref = [o for o in parts if o.locked] or parts
+    rb = [boxes[o.uid] for o in ref]
+    if mode in ("left", "right", "front", "back", "center_x", "center_y"):
+        target = {"left": min(b[0] for b in rb), "right": max(b[2] for b in rb),
+                  "front": min(b[1] for b in rb), "back": max(b[3] for b in rb),
+                  "center_x": (min(b[0] for b in rb) + max(b[2] for b in rb)) / 2,
+                  "center_y": (min(b[1] for b in rb) + max(b[3] for b in rb)) / 2}[mode]
+        for o in free:
+            b = boxes[o.uid]
+            if mode == "left":
+                o.x += target - b[0]
+            elif mode == "right":
+                o.x += target - b[2]
+            elif mode == "front":
+                o.y += target - b[1]
+            elif mode == "back":
+                o.y += target - b[3]
+            elif mode == "center_x":
+                o.x += target - (b[0] + b[2]) / 2
+            else:
+                o.y += target - (b[1] + b[3]) / 2
+        return
+    if mode in ("dist_x", "dist_y"):
+        k = 0 if mode == "dist_x" else 1
+        order = sorted(parts, key=lambda o: (boxes[o.uid][k] + boxes[o.uid][k + 2]) / 2)
+        lo = boxes[order[0].uid][k]
+        hi = boxes[order[-1].uid][k + 2]
+        sizes = [boxes[o.uid][k + 2] - boxes[o.uid][k] for o in order]
+        gap = (hi - lo - sum(sizes)) / (len(order) - 1)
+        pos = lo
+        for o, size in zip(order, sizes):
+            if not o.locked:
+                shift = pos - boxes[o.uid][k]
+                if k == 0:
+                    o.x += shift
+                else:
+                    o.y += shift
+            pos += size + gap
+        return
+    raise ValueError(mode)

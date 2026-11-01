@@ -299,6 +299,10 @@ def apply(app) -> None:
 
 # --------------------------------------------------------------------- icons
 _ICONS = {
+    "lock": '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/>',
+    "play": '<path d="M7 4.5v15l12-7.5z"/>',
+    "pause": '<path d="M8 5v14M16 5v14"/>',
+    "align": '<path d="M4 3v18"/><rect x="7" y="5" width="12" height="5" rx="1"/><rect x="7" y="14" width="8" height="5" rx="1"/>',
     "check": '<path d="M4.5 12.5 9.5 17.5 19.5 6.5"/>',
     "open": '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1"/><path d="M3 7v10a2 2 0 0 0 2 2h12.5a2 2 0 0 0 1.9-1.4L22 11H7.5a2 2 0 0 0-1.9 1.4L3 19"/>',
     "cube": '<path d="M12 2.8 20.5 7.5v9L12 21.2 3.5 16.5v-9z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9.2"/>',

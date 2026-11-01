@@ -265,6 +265,8 @@ class MainWindow(QMainWindow):
         am.addAction(theme.icon("arrange"), tr("layout_quick") + "\tA", lambda: self._act("arrange", "button", self.arrange_objects))
         am.addAction(theme.icon("settings"), tr("auto_layout") + "…\tShift+A", lambda: self.auto_layout())
         am.addAction(theme.icon("copy"), tr("lay_fill"), self._fill_plate_quick)
+        am.addSeparator()
+        self._fill_align_menu(am.addMenu(theme.icon("align"), tr("align_menu")))
         arr.setMenu(am)
         arr.setPopupMode(QToolButton.MenuButtonPopup)
         arr.clicked.connect(lambda: self._act("arrange", "button", self.arrange_objects))
@@ -650,6 +652,17 @@ class MainWindow(QMainWindow):
         lb.addWidget(self.layer_label)
         lb.addWidget(self.layer_z)
         lb.addWidget(self.layer_slider, 1, Qt.AlignHCenter)
+        # play the layers bottom to top (as CHITUBOX's preview playback)
+        self.play_btn = QToolButton()
+        self.play_btn.setIcon(theme.icon("play", theme.ACCENT, 18))
+        self.play_btn.setToolTip(tr("layers_play"))
+        self.play_btn.setCursor(Qt.PointingHandCursor)
+        self.play_btn.setCheckable(True)
+        self.play_btn.toggled.connect(self._play_layers)
+        lb.addWidget(self.play_btn, 0, Qt.AlignHCenter)
+        self._play_timer = QTimer(self)
+        self._play_timer.setInterval(40)
+        self._play_timer.timeout.connect(self._play_step)
         self.island_btn = QToolButton()
         self.island_btn.setIcon(theme.icon("info", theme.DANGER, 18))
         self.island_btn.setToolTip(tr("next_island"))
@@ -2471,6 +2484,11 @@ class MainWindow(QMainWindow):
             menu.addAction(theme.icon("x"), tr("hide_models"), self.hide_selected)
             if len(group) > 1:
                 menu.addAction(theme.icon("copy"), tr("merge_models"), self.merge_selected)
+                self._fill_align_menu(menu.addMenu(theme.icon("align"), tr("align_menu")))
+            lock = menu.addAction(theme.icon("lock"), tr("lock_position"))
+            lock.setCheckable(True)
+            lock.setChecked(all(o.locked for o in group))
+            lock.toggled.connect(self._set_locked)
             if self.viewer.technology != "sla":
                 self._fill_filament_menu(menu.addMenu(theme.icon("layers"), tr("fil_menu")))
             menu.addAction(theme.icon("drop"), tr("shade_menu") + "…", self.dental_shades_dialog)
@@ -2494,6 +2512,11 @@ class MainWindow(QMainWindow):
                 flat.setCheckable(True)
                 flat.setChecked(all(o.direct for o in group))
                 flat.toggled.connect(self._set_direct)
+                fill = menu.addAction(theme.icon("drop"), tr("fill_cavity"))
+                fill.setToolTip(tr("fill_cavity_tip"))
+                fill.setCheckable(True)
+                fill.setChecked(all(o.fill_cavity for o in group))
+                fill.toggled.connect(self._set_fill_cavity)
             menu.addSeparator()
             menu.addAction(theme.icon("square"), tr("cut_height"), self.cut_selected)
             menu.addAction(theme.icon("grid"), tr("split_parts"), self.split_selected)
@@ -2607,6 +2630,47 @@ class MainWindow(QMainWindow):
         self.objects.insert(idx, new)
         self._refresh_objects(select=new.uid)
         self.status.setText(tr("merged_done").format(len(group)))
+
+    # ------------------------------------------------------------ align / lock / fill cavity
+    ALIGN_MODES = ("left", "center_x", "right", "front", "center_y", "back", "dist_x", "dist_y")
+
+    def _fill_align_menu(self, menu):
+        for k, mode in enumerate(self.ALIGN_MODES):
+            if k in (3, 6):
+                menu.addSeparator()
+            menu.addAction(tr("align_" + mode), lambda m=mode: self.align_selected(m))
+
+    def align_selected(self, mode: str):
+        """Align the selected models (or all) by their footprints; locked models are the reference."""
+        from .. import layout
+        group = [o for o in (self.selected_objects() or list(self.objects)) if o.role != "cutter"]
+        if len(group) < 2:
+            self.status.setText(tr("align_need_two"))
+            return
+        self._push_undo()
+        layout.align(group, mode)
+        self._objects_changed(refresh_list=False)
+        self.status.setText(tr("align_done").format(len(group)))
+
+    def _set_locked(self, on: bool):
+        group = self.selected_objects()
+        if not group:
+            return
+        self._push_undo()
+        for o in group:
+            o.locked = bool(on)
+        self._refresh_objects(select=[o.uid for o in group])
+        self.status.setText(tr("locked_on" if on else "locked_off").format(len(group)))
+
+    def _set_fill_cavity(self, on: bool):
+        group = self.selected_objects()
+        if not group:
+            return
+        self._push_undo()
+        for o in group:
+            o.fill_cavity = bool(on)
+        self._objects_changed(refresh_list=False)
+        self.status.setText(tr("fill_cavity_on" if on else "fill_cavity_off").format(len(group)))
 
     DENTAL = {
         # indication: (tilt about X in degrees, print straight on the plate)
@@ -2791,6 +2855,10 @@ class MainWindow(QMainWindow):
         group = self.selected_objects()
         if not any(o.uid == uid for o in group):
             group = [o for o in self.objects if o.uid == uid]
+        if group and all(o.locked for o in group):
+            self.status.setText(tr("locked_hint"))
+            return
+        group = [o for o in group if not o.locked]       # locked parts stay in place
         if group:
             self.viewer.begin_interaction()
             if not self._dragging:
@@ -3328,12 +3396,13 @@ class MainWindow(QMainWindow):
         materials = [dental_shades.face_shades(len(o.mesh.faces), o.material, o.regions) if o.regions else o.material
                      for o in models]
         holes = [o.world_drain_holes(0.0) for o in models]
+        filled = [o.fill_cavity for o in models]
         name = self.objects[0].name or "print"
 
         def work(progress, cancelled):
             if cfg["technology"] == "sla":
                 job = sla.prepare(meshes, cfg, progress, cancelled, support_points=manual, direct=direct, holes=holes, cutters=cutters,
-                                  materials=materials)
+                                  materials=materials, filled=filled)
                 return ("sla", job, cfg)
             parts = [mt for o in models for mt in o.print_meshes()]
             fdm_meshes, tools = [m for m, _t in parts], [t for _m, t in parts]
@@ -3505,6 +3574,28 @@ class MainWindow(QMainWindow):
     def _step_layer(self, delta):
         if self.viewer.mode == "preview":
             self.layer_slider.setValue(self.layer_slider.value() + delta)
+
+    def _play_layers(self, on: bool):
+        self.play_btn.setIcon(theme.icon("pause" if on else "play", theme.ACCENT, 18))
+        if not on:
+            self._play_timer.stop()
+            return
+        top = self.layer_slider.maximum()
+        if top <= 0 or self.result is None:
+            self.play_btn.setChecked(False)
+            return
+        if self.layer_slider.value() >= top:
+            self.layer_slider.setValue(0)
+        # about 8 seconds for the whole print, whatever its layer count
+        self._play_stride = max(1, int(round(top / 200)))
+        self._play_timer.start()
+
+    def _play_step(self):
+        top = self.layer_slider.maximum()
+        v = min(top, self.layer_slider.value() + getattr(self, "_play_stride", 1))
+        self.layer_slider.setValue(v)
+        if v >= top:
+            self.play_btn.setChecked(False)
 
     def _on_layer(self, value):
         if self.result is None:

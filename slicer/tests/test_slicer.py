@@ -2652,3 +2652,96 @@ def test_export_print_file_goes_to_the_central_library(tmp_path):
     env = dict(os.environ, HOME=str(tmp_path / "home"))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_align_lock_fill_cavity_and_layer_playback(tmp_path):
+    """CHITUBOX-style tools: Align / Distribute, Lock position (layout and align leave it in place),
+    Fill cavity (an open-base dental shell prints solid) and the preview's layer playback."""
+    from shapely.geometry import Point, box
+    from unislicer import layout, mesh_tools, primitives, profiles, project, sla
+    from unislicer.mesh import Mesh
+    from unislicer.scene import SceneObject
+    objs = [SceneObject.from_mesh(primitives.box(w, 10, 5)) for w in (10, 20, 6)]
+    for o, (x, y) in zip(objs, ((20, 10), (60, 40), (110, 25))):
+        o.x, o.y = x, y
+    fp = lambda o: layout.footprint(o).bounds
+    layout.align(objs, "left")
+    assert len({round(fp(o)[0], 3) for o in objs}) == 1
+    layout.align(objs, "front")
+    assert len({round(fp(o)[1], 3) for o in objs}) == 1
+    for o, x in zip(objs, (20, 45, 110)):
+        o.x = x
+    layout.align(objs, "dist_x")
+    b = sorted((fp(o) for o in objs), key=lambda q: q[0])
+    gaps = [b[k + 1][0] - b[k][2] for k in range(2)]
+    assert abs(gaps[0] - gaps[1]) < 1e-6
+    # locked: the reference for align, and left alone by auto layout
+    objs[1].locked = True
+    keep = (objs[1].x, objs[1].y)
+    layout.align(objs, "back")
+    assert (objs[1].x, objs[1].y) == keep and all(abs(fp(o)[3] - fp(objs[1])[3]) < 1e-6 for o in objs)
+    layout.auto_layout(objs, (0, 0, 200, 120), layout.LayoutOptions(spacing=2.0))
+    assert (objs[1].x, objs[1].y) == keep
+    fps = [layout.footprint(o) for o in objs]
+    assert all(fps[a].distance(fps[c]) >= 1.9 for a in range(3) for c in range(a + 1, 3))
+    # lock and fill survive undo snapshots and projects
+    objs[0].fill_cavity = True
+    st = objs[0].state()
+    objs[0].fill_cavity, objs[0].locked = False, True
+    objs[0].restore(st)
+    assert objs[0].fill_cavity and not objs[0].locked
+    path = str(tmp_path / "p.unislicer")
+    project.save(path, objs, {})
+    back, _ = project.load(path)
+    assert back[0].fill_cavity and back[1].locked and not back[2].locked
+    # fill cavity: an open-base shell prints solid; without it the cavity stays empty
+    arch = box(-20, -6, 20, 6)
+    shell = Mesh.merge([mesh_tools.extrude(arch.difference(arch.buffer(-1.5)), 0, 12),
+                        mesh_tools.extrude(arch, 10.5, 12)], "shell")
+    o = SceneObject.from_mesh(shell)
+    o.x, o.y = 60, 60
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": False, "sla_layer_height": 0.1})
+    inner = box(60 - 17, 60 - 3.5, 60 + 17, 60 + 3.5)
+    empty = sla.prepare([o.world_mesh()], cfg)
+    full = sla.prepare([o.world_mesh()], cfg, filled=[True])
+    mid = len(full.layers) // 2
+    assert empty.layers[mid].intersection(inner).area < 1
+    assert full.layers[mid].intersection(inner).area > 0.95 * inner.area
+    assert not full.cups
+
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.settings.select_printer("creality_ender3v2"); app.processEvents()
+        a = w.add_mesh(primitives.box(10, 10, 4)); b = w.add_mesh(primitives.box(10, 10, 4))
+        w._select_uid(a.uid); w._set_locked(True)
+        x0 = a.x
+        w._on_drag(a.uid, 5.0, 0.0)
+        assert a.x == x0
+        w.select_all(); w.align_selected("left"); app.processEvents()
+        assert a.x == x0
+        w.slice()
+        while w.task is not None and w.task.isRunning():
+            app.processEvents()
+        app.processEvents()
+        top = w.layer_slider.maximum()
+        assert top > 5
+        w.layer_slider.setValue(0)
+        w.play_btn.setChecked(True)
+        for _ in range(400):
+            w._play_step()
+            if not w.play_btn.isChecked():
+                break
+        assert w.layer_slider.value() == top and not w.play_btn.isChecked()
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path / "home"))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

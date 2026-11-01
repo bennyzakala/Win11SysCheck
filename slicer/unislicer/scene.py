@@ -36,6 +36,8 @@ class SceneObject:
     # parts of the model printed with their own filament (e.g. from a Bambu / Orca / Creality Print 3MF):
     # [{"name": str, "faces": int array into mesh.faces, "filament": int}]
     filament_parts: list = field(default_factory=list)
+    fill_cavity: bool = False                    # resin: fill the model's own cavity (a hollow shell prints solid)
+    locked: bool = False                         # position locked: dragging, layout and align leave it in place
     uid: int = field(default_factory=lambda: next(_ids))
 
     @classmethod
@@ -161,7 +163,8 @@ class SceneObject:
         return (self.x, self.y, self.rotation.copy(), self.scale.copy(), self.base_rotation.copy(), self.mirror.copy(), sp,
                 self.drain_holes.copy(), self.role, self.z, self.direct, self.material,
                 [dict(r) for r in self.regions], self.filament, [dict(p) for p in self.filament_parts],
-                self.mesh)                    # repairs / cuts replace the mesh object: undo puts it back
+                self.mesh,                    # repairs / cuts replace the mesh object: undo puts it back
+                self.fill_cavity, self.locked)
 
     def restore(self, state: tuple) -> None:
         (self.x, self.y, rot, scale, base, mirror, sp, holes, self.role, self.z, self.direct, self.material,
@@ -171,6 +174,8 @@ class SceneObject:
             self.filament_parts = [dict(p) for p in parts]
         if len(state) > 15 and state[15] is not None:
             self.mesh = state[15]
+        if len(state) > 17:
+            self.fill_cavity, self.locked = bool(state[16]), bool(state[17])
         self.regions = [dict(r) for r in regions]
         self.drain_holes = holes.copy()
         self.rotation, self.scale, self.base_rotation, self.mirror = rot.copy(), scale.copy(), base.copy(), mirror.copy()

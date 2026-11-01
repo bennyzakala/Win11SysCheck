@@ -661,7 +661,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             cancelled: Callable[[], bool] | None = None,
             support_points: list[np.ndarray | None] | None = None, direct: list[bool] | None = None,
             holes: list[np.ndarray | None] | None = None, cutters: list[Mesh] | None = None,
-            materials: list[str] | None = None) -> SlaJob:
+            materials: list[str] | None = None, filled: list[bool] | None = None) -> SlaJob:
     """Slice resin models. ``support_points[i]`` holds manual contact points for ``meshes[i]``
     (same coordinates, before elevation), or None to place supports automatically."""
     def report(stage, f):
@@ -714,6 +714,11 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     if cfg["xy_compensation"]:
         layers = [as_multipolygon(g.buffer(cfg["xy_compensation"], join_style="mitre", mitre_limit=3))
                   if not g.is_empty else g for g in layers]
+    if filled and any(filled):
+        # "Fill cavity": the cavity of these models (an open-base or closed shell) is printed solid
+        fm = [models[i] for i in range(min(len(models), len(filled))) if filled[i]]
+        voids = covered_voids(slice_meshes(fm, planes, cfg["resolution"]))
+        layers = [as_multipolygon(g.union(v)) if not v.is_empty else g for g, v in zip(layers, voids)]
     saved = 0.0
     infill: list = []
     # choosing an internal infill means "hollow it and fill the cavity": it turns hollowing on by itself
