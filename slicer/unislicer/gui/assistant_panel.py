@@ -44,6 +44,8 @@ class AssistantPanel(QFrame):
     resetRequested = Signal()
     autoRepairToggled = Signal(bool)
     learnLayoutRequested = Signal()
+    exportRequested = Signal()
+    importRequested = Signal()
     closeRequested = Signal()
 
     def __init__(self, parent=None):
@@ -128,6 +130,17 @@ class AssistantPanel(QFrame):
         reset.clicked.connect(self.resetRequested.emit)
         foot.addWidget(reset)
         lay.addLayout(foot)
+        # move the learning to another computer (or keep a backup): nothing leaves the computer by itself
+        share = QHBoxLayout()
+        self.export_btn = QPushButton(tr("learning_export"))
+        self.export_btn.setToolTip(tr("learning_export_tip"))
+        self.export_btn.clicked.connect(self.exportRequested.emit)
+        share.addWidget(self.export_btn)
+        self.import_btn = QPushButton(tr("learning_import"))
+        self.import_btn.setToolTip(tr("learning_import_tip"))
+        self.import_btn.clicked.connect(self.importRequested.emit)
+        share.addWidget(self.import_btn)
+        lay.addLayout(share)
         privacy = QLabel(tr("learning_privacy"))
         privacy.setObjectName("Faint")
         privacy.setWordWrap(True)

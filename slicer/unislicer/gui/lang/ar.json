@@ -1097,5 +1097,13 @@
 "Learning is off: turn Learning on so the assistant can learn": "التعلّم متوقف: شغّله ليتمكن المساعد من التعلّم",
 "The assistant learned your layout: {} models, {} mm gaps. Arrange repeats it": "تعلّم المساعد ترتيبك: {} نماذج، مسافة {} مم. سيكرره Arrange",
 "Layout you taught: {} models": "الترتيب الذي علّمته: {} نماذج",
-"Laid out as the layout you taught": "رُتّب وفق الترتيب الذي علّمته"
+"Laid out as the layout you taught": "رُتّب وفق الترتيب الذي علّمته",
+"Export learning": "تصدير التعلّم",
+"Save everything the assistant learned to a file, to move it to another computer or keep a backup": "احفظ كل ما تعلّمه المساعد في ملف لنقله إلى حاسوب آخر أو كنسخة احتياطية",
+"Import learning": "استيراد التعلّم",
+"Load learning from a file exported by UniSlicer (another computer or a backup)": "حمّل التعلّم من ملف صدّره UniSlicer (من حاسوب آخر أو نسخة احتياطية)",
+"The learning on this computer will be replaced by the one in the file. Continue?": "سيُستبدل التعلّم على هذا الحاسوب بما في الملف. متابعة؟",
+"This is not a UniSlicer learning file": "هذا ليس ملف تعلّم من UniSlicer",
+"Learning saved: {}": "تم حفظ التعلّم: {}",
+"Learning loaded: the assistant carries on from here": "تم تحميل التعلّم: يتابع المساعد من هنا"
 }

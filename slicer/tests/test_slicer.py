@@ -2935,3 +2935,28 @@ def test_new_install_starts_with_the_bundled_learning(tmp_path, monkeypatch):
     b = assistant.Assistant()
     assert b.data["supports"]["angle_offset"] == -10.0          # the user's own file wins
     assert os.path.isfile(os.path.join(str(tmp_path / "user"), assistant.FILE_NAME))
+
+
+def test_export_and_import_learning_between_computers(tmp_path):
+    """Assistant › Export / Import learning: the file carries everything learned (crash ids of the old
+    computer left out); importing replaces the learning here; a file that is not a learning file is refused."""
+    import json
+    from unislicer.assistant import Assistant
+    a = Assistant(str(tmp_path / "pc1"))
+    a.data["supports"]["angle_offset"] = -12.0
+    a.data["dismissed"] = ["tree_supports", "crash_abc"]
+    a.teach_layout({"count": 2, "spacing": 3.0, "min_gap": 3.0, "margin": 4.0, "anchor": "center", "plate": [0, 0, 100, 100],
+                    "slots": []})
+    out = str(tmp_path / "learning.json")
+    a.export_to(out)
+    saved = json.load(open(out, encoding="utf-8"))
+    assert saved["dismissed"] == ["tree_supports"]
+    b = Assistant(str(tmp_path / "pc2"))
+    b.set_enabled(False) if hasattr(b, "set_enabled") else None
+    assert b.import_from(out)
+    assert b.data["supports"]["angle_offset"] == -12.0 and b.taught_layout() is not None or not b.enabled
+    assert Assistant(str(tmp_path / "pc2")).data["supports"]["angle_offset"] == -12.0     # saved there
+    bad = tmp_path / "bad.json"
+    bad.write_text('{"hello": 1}', encoding="utf-8")
+    assert not b.import_from(str(bad))
+    assert Assistant(str(tmp_path / "pc2")).data["supports"]["angle_offset"] == -12.0

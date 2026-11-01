@@ -748,6 +748,8 @@ class MainWindow(QMainWindow):
         self.assistant_panel.learningToggled.connect(self._on_learning_toggled)
         self.assistant_panel.resetRequested.connect(self._on_learning_reset)
         self.assistant_panel.learnLayoutRequested.connect(self.learn_layout_now)
+        self.assistant_panel.exportRequested.connect(self.export_learning)
+        self.assistant_panel.importRequested.connect(self.import_learning)
         self.assistant_panel.autoRepairToggled.connect(self._on_auto_repair_toggled)
         self.assistant_panel.closeRequested.connect(lambda: self.assistant_wrap.hide())
         awrap = QWidget()
@@ -4057,6 +4059,37 @@ class MainWindow(QMainWindow):
         if QMessageBox.question(self, tr("assistant"), tr("learning_reset_q")) == QMessageBox.Yes:
             self.assistant.reset()
             self._refresh_suggestions()
+
+    def export_learning(self):
+        """Assistant › Export learning: everything it learned, as a file to take to another computer."""
+        import time as _time
+        last = self.store.value("learning_dir", os.path.expanduser("~"))
+        name = f"UniSlicer-learning-{_time.strftime('%Y-%m-%d')}.json"
+        path, _ = QFileDialog.getSaveFileName(self, tr("learning_export"), os.path.join(last, name), "JSON (*.json)")
+        if not path:
+            return
+        try:
+            self.assistant.export_to(path)
+        except OSError as exc:
+            QMessageBox.critical(self, tr("learning_export"), str(exc))
+            return
+        self.store.setValue("learning_dir", os.path.dirname(path))
+        self.status.setText(tr("learning_exported").format(path))
+
+    def import_learning(self):
+        """Assistant › Import learning: replace what it learned here with an exported file."""
+        last = self.store.value("learning_dir", os.path.expanduser("~"))
+        path, _ = QFileDialog.getOpenFileName(self, tr("learning_import"), last, "JSON (*.json)")
+        if not path:
+            return
+        if QMessageBox.question(self, tr("learning_import"), tr("learning_import_q")) != QMessageBox.Yes:
+            return
+        if not self.assistant.import_from(path):
+            QMessageBox.warning(self, tr("learning_import"), tr("learning_import_bad"))
+            return
+        self.store.setValue("learning_dir", os.path.dirname(path))
+        self._refresh_suggestions()
+        self.status.setText(tr("learning_imported"))
 
     # ================================================================ files
     def save_project(self):

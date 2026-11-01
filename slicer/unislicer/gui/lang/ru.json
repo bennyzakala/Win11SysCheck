@@ -1097,5 +1097,13 @@
 "Learning is off: turn Learning on so the assistant can learn": "Обучение выключено: включите его, чтобы ассистент мог учиться",
 "The assistant learned your layout: {} models, {} mm gaps. Arrange repeats it": "Ассистент запомнил вашу раскладку: моделей {}, зазор {} мм. Arrange повторит её",
 "Layout you taught: {} models": "Ваша раскладка: моделей {}",
-"Laid out as the layout you taught": "Расставлено по вашей раскладке"
+"Laid out as the layout you taught": "Расставлено по вашей раскладке",
+"Export learning": "Экспорт обучения",
+"Save everything the assistant learned to a file, to move it to another computer or keep a backup": "Сохранить всё, чему научился ассистент, в файл — для другого компьютера или резервной копии",
+"Import learning": "Импорт обучения",
+"Load learning from a file exported by UniSlicer (another computer or a backup)": "Загрузить обучение из файла, экспортированного UniSlicer (с другого компьютера или из резервной копии)",
+"The learning on this computer will be replaced by the one in the file. Continue?": "Обучение на этом компьютере будет заменено данными из файла. Продолжить?",
+"This is not a UniSlicer learning file": "Это не файл обучения UniSlicer",
+"Learning saved: {}": "Обучение сохранено: {}",
+"Learning loaded: the assistant carries on from here": "Обучение загружено: ассистент продолжит отсюда"
 }

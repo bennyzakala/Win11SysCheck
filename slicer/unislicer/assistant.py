@@ -109,6 +109,35 @@ class Assistant:
             pass
 
     # ------------------------------------------------------------- storage
+    def export_to(self, path: str) -> None:
+        """Write everything the assistant learned to ``path`` (to move it to another computer)."""
+        out = dict(self.data)
+        out["dismissed"] = [x for x in out.get("dismissed", []) if not str(x).startswith("crash_")]
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(out, fh, indent=1, ensure_ascii=False)
+
+    def import_from(self, path: str) -> bool:
+        """Replace the learning with a file exported by UniSlicer (another computer, a backup). Returns
+        False (and changes nothing) if the file is not a UniSlicer learning file."""
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                saved = json.load(fh)
+        except (OSError, ValueError):
+            return False
+        if not isinstance(saved, dict) or "orient" not in saved or "layout" not in saved:
+            return False
+        enabled = self.data.get("enabled", True)
+        data = _default_data()
+        for k, v in saved.items():
+            if isinstance(v, dict) and isinstance(data.get(k), dict):
+                data[k].update(v)
+            elif k in data or k in ("seed",):
+                data[k] = v
+        data["enabled"] = enabled
+        self.data = data
+        self.save()
+        return True
+
     def save(self) -> None:
         try:
             os.makedirs(self.folder, exist_ok=True)
