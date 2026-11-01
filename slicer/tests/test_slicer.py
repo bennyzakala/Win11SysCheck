@@ -2546,9 +2546,25 @@ def test_choosing_infill_hollows_the_model_and_apply_reslices():
         n = len(called)
         infill.apply_btn.click()
         assert len(called) == n + 1 and w.settings.config()["hollow_infill"] == "hive"
+        # each Apply carries its setting out on the models: supports settings generate supports, raft
+        # settings rebuild the raft, layout spacing re-arranges, other settings are just saved
+        assert [w.setting_action(k) for k in ("sla_support_spacing", "sla_raft_type", "arrange_spacing",
+                                              "hollow_infill", "exposure_time")] == ["supports", "raft", "arrange", "slice", "save"]
+        w.slice = lambda: called.append(1)
+        n = len(called)
+        assert all(o.support_points is None or not len(o.support_points) for o in w.objects)
+        sp = w.settings._rows["sla_support_spacing"]
+        sp.editor.setValue(3.0); sp.apply_btn.click(); app.processEvents()
+        assert w.settings.config()["sla_support_spacing"] == 3.0 and w.settings.config()["support_enable"]
+        assert any(o.support_points is not None and len(o.support_points) for o in w.objects)
+        assert len(called) == n                                        # supports made, no slice needed
+        ex = w.settings._rows["exposure_time"]
+        ex.editor.setValue(3.3); ex.apply_btn.click(); app.processEvents()
+        assert abs(w.settings.config()["exposure_time"] - 3.3) < 1e-6 and len(called) == n
         # typing a number and clicking Apply straight away (no Enter) applies the typed number
         from PySide6.QtTest import QTest
         from PySide6.QtCore import Qt
+        spacing = w.settings._rows["hollow_infill_spacing"]
         w.activateWindow(); spacing.editor.setFocus(); spacing.editor.selectAll()
         QTest.keyClicks(spacing.editor, "12")
         QTest.mouseClick(spacing.apply_btn, Qt.LeftButton)

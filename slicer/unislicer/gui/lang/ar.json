@@ -1058,5 +1058,10 @@
 "✓ Success": "✓ نجاح",
 "✦ Defaults adapted from your previous layouts (the assistant learns from the options you pick and from how you adjust a layout by hand)": "✦ قيم افتراضية مكيّفة من ترتيباتك السابقة (يتعلّم المساعد من الخيارات التي تختارها ومن تعديلك اليدوي للترتيب)",
 "➕ Add a plate size…": "➕ إضافة مقاس منصة…",
-"Apply only the change to this setting": "تطبيق تغيير هذا الإعداد فقط"
+"Saved: {} (used by the next slice and export)": "تم الحفظ: {} (يُستخدم في التقطيع والتصدير التاليين)",
+"{}: supports generated again on the model": "{}: أُعيد إنشاء الدعامات على النموذج",
+"{}: raft rebuilt": "{}: أُعيد بناء القاعدة",
+"{}: models arranged again": "{}: أُعيد ترتيب النماذج",
+"Saved: {} (no models on the plate)": "تم الحفظ: {} (لا توجد نماذج على المنصة)",
+"Save only this setting and carry it out on the model (supports, raft, layout, slice)": "احفظ هذا الإعداد فقط ونفّذه على النموذج (الدعامات، القاعدة، الترتيب، التقطيع)"
 }

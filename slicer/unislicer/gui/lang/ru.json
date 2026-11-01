@@ -1058,5 +1058,10 @@
 "✓ Success": "✓ Успешно",
 "✦ Defaults adapted from your previous layouts (the assistant learns from the options you pick and from how you adjust a layout by hand)": "✦ Значения подобраны по вашим прошлым расстановкам (помощник учится на выбранных опциях и на том, как вы правите расстановку вручную)",
 "➕ Add a plate size…": "➕ Добавить размер платформы…",
-"Apply only the change to this setting": "Применить только изменение этой настройки"
+"Saved: {} (used by the next slice and export)": "Сохранено: {} (будет использовано при следующей нарезке и экспорте)",
+"{}: supports generated again on the model": "{}: поддержки заново созданы на модели",
+"{}: raft rebuilt": "{}: подложка перестроена",
+"{}: models arranged again": "{}: модели заново расставлены",
+"Saved: {} (no models on the plate)": "Сохранено: {} (на платформе нет моделей)",
+"Save only this setting and carry it out on the model (supports, raft, layout, slice)": "Сохранить только эту настройку и применить её к модели (поддержки, подложка, расстановка, нарезка)"
 }

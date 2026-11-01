@@ -19,7 +19,7 @@ from ..settings import SCHEMA_BY_KEY
 from ..slicing import MultiPolygon
 from . import i18n, theme
 from .assistant_panel import AssistantPanel
-from .i18n import tr
+from .i18n import label as setting_label, tr
 from .preview_data import toolpath_vertices
 from .settings_panel import SettingsPanel
 from .viewer import Viewer
@@ -3200,21 +3200,63 @@ class MainWindow(QMainWindow):
         self._save_state()
         self._schedule_suggestions()
 
+    # FDM settings that only show in the toolpaths: their Apply slices
+    FDM_SLICE_CATEGORIES = ("quality", "walls", "infill", "support", "adhesion", "filaments")
+
+    def setting_action(self, key: str) -> str:
+        """What a setting's Apply carries out on the models: 'supports' (generate the supports with it),
+        'raft' (rebuild the raft under the supports), 'arrange' (lay the plate out again), 'slice' (its
+        result only shows in the sliced layers) or 'save' (kept for the next slice / export)."""
+        setting = SCHEMA_BY_KEY.get(key)
+        if setting is None:
+            return "save"
+        cat = setting.category
+        if key in ("arrange_spacing", "arrange_margin"):
+            return "arrange"
+        if self.settings.technology == "sla":
+            if cat == "hollow" or key in ("sla_internal_supports", "sla_internal_spacing"):
+                return "slice"
+            if cat == "support":
+                return "supports"
+            if cat == "raft":
+                return "raft"
+            return "save"
+        return "slice" if cat in self.FDM_SLICE_CATEGORIES else "save"
+
     def apply_setting(self, key: str):
-        """A setting's own "Apply": only that setting was committed; carry it out now. The plate view
-        follows at once (raft, plate, overhangs...) and the models are sliced with it, so its result shows
-        in the preview (a honeycomb infill, a raft type...)."""
+        """A setting's own "Apply": that one setting was committed (and saved); now carry it out on the
+        models, e.g. supports settings generate the supports, raft settings rebuild the raft, layout
+        spacing re-arranges the plate, hollowing / infill slices so the honeycomb shows."""
         if self._settings_timer.isActive():
             self._settings_timer.stop()
-        self._on_settings_changed()
-        if not self.objects:
-            self.status.setText(tr("no_models"))
+        self._on_settings_changed()                  # stores the value (kept after a restart too)
+        setting = SCHEMA_BY_KEY.get(key)
+        name = setting_label(setting) if setting is not None else key
+        action = self.setting_action(key)
+        if action != "save" and not self.objects:
+            self.status.setText(tr("applied_no_models").format(name))
             return
-        if self.task is not None and self.task.isRunning():
-            self.task.cancel()
-            if hasattr(self.task, "wait"):
+        if action == "supports":
+            self.generate_supports()
+            self.status.setText(tr("applied_supports").format(name))
+        elif action == "raft":
+            if not any(o.support_points is not None and len(o.support_points) for o in self.objects):
+                self.generate_supports()             # a raft stands under supports
+            else:
+                self._ensure_supports_enabled()
+                self._objects_changed(refresh_list=False)
+            self._update_raft_view(self.settings.config())
+            self.status.setText(tr("applied_raft").format(name))
+        elif action == "arrange":
+            self.arrange_objects()
+            self.status.setText(tr("applied_arrange").format(name))
+        elif action == "slice":
+            if self.task is not None and self.task.isRunning():
+                self.task.cancel()
                 self.task.wait(5000)
-        self.slice()
+            self.slice()
+        else:
+            self.status.setText(tr("applied_saved").format(name))
 
     def _save_state(self):
         s = self.store
