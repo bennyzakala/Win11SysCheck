@@ -17,19 +17,67 @@ from .scene import SceneObject, arrange
 @dataclass
 class LayoutOptions:
     strategy: str = "contour"     # box (shelf rows) | contour (true footprints, tight) | grid (equal cells)
-    spacing: float = 6.0          # gap between parts
+    spacing: float = 2.0          # gap between parts
     margin: float = 2.0           # free border inside the plate
-    rotation: str = "none"        # none | 90 | free (15° steps)  - turning parts about Z to fit more
+    rotation: str = "free"        # none | 90 | free (15° steps) - turning parts about Z only (their tilt stays)
     scope: str = "all"            # all | selected | outside (only parts off the plate)
     anchor: str = "center"        # center | front_left | back_left | front_right | back_right
     sort: str = "area"            # area | height | name | none
     step: float = 0.0             # search grid for contour placement (mm); 0 = from the plate size
 
 
+_FOOTPRINTS: dict = {}
+
+
+def _raster_outline(m) -> Polygon:
+    """The part's real outline seen from above (U-shaped dental arches nest), from a fine raster of its
+    triangles; holes inside the outline are filled."""
+    from PIL import Image, ImageDraw
+    t = m.triangles[:, :, :2]
+    if len(t) == 0:
+        return Polygon()
+    lo = t.reshape(-1, 2).min(axis=0)
+    hi = t.reshape(-1, 2).max(axis=0)
+    res = float(np.clip(max(hi - lo) / 700.0, 0.15, 1.0))
+    lo = lo - 2 * res
+    w, h = (np.ceil((hi - lo) / res)).astype(int) + 2
+    px = ((t - lo) / res).reshape(-1, 6)
+    img = Image.new("1", (int(w), int(h)), 0)
+    draw = ImageDraw.Draw(img)
+    for row in px.tolist():
+        draw.polygon(row, fill=1, outline=1)
+    a = np.asarray(img, dtype=bool)
+    rects = []
+    for y in np.flatnonzero(a.any(axis=1)):
+        e = np.flatnonzero(np.diff(np.concatenate([[0], a[y].astype(np.int8), [0]])))
+        rects += [(x0, y, x1, y + 1) for x0, x1 in zip(e[::2], e[1::2])]
+    if not rects:
+        return MultiPoint(m.vertices[:, :2]).convex_hull
+    r = np.array(rects, dtype=float)
+    g = shapely.union_all(shapely.box(lo[0] + r[:, 0] * res, lo[1] + r[:, 1] * res,
+                                      lo[0] + r[:, 2] * res, lo[1] + r[:, 3] * res)).simplify(res * 0.6)
+    return shapely.union_all([Polygon(p.exterior) for p in getattr(g, "geoms", [g]) if not p.is_empty])
+
+
 def footprint(o: SceneObject) -> Polygon:
-    """Convex hull of the part as seen from above, in plate coordinates."""
-    m = o.world_mesh()
-    return MultiPoint(m.vertices[:, :2]).convex_hull
+    """The part as seen from above, in plate coordinates: its real outline (cached; recomputed only when the
+    part is turned, tilted or scaled), so concave parts such as dental arches can nest."""
+    mat = o.world_matrix()
+    key = (id(o.mesh), len(o.mesh.faces), tuple(np.round(mat[:3, :3], 6).ravel()))
+    hit = _FOOTPRINTS.get(key)
+    if hit is None:
+        m = o.world_mesh()
+        try:
+            shape = _raster_outline(m) if len(m.faces) > 12 else MultiPoint(m.vertices[:, :2]).convex_hull
+        except Exception:
+            shape = MultiPoint(m.vertices[:, :2]).convex_hull
+        if shape.is_empty:
+            shape = MultiPoint(m.vertices[:, :2]).convex_hull
+        hit = (affinity.translate(shape, -mat[0, 3], -mat[1, 3]), o.mesh)   # keep the mesh alive: id() stays valid
+        if len(_FOOTPRINTS) > 256:
+            _FOOTPRINTS.clear()
+        _FOOTPRINTS[key] = hit
+    return affinity.translate(hit[0], mat[0, 3], mat[1, 3])
 
 
 def _rotations(kind: str) -> list[float]:
@@ -64,48 +112,84 @@ def _order(objs: list[SceneObject], sort: str, prints: dict) -> list[SceneObject
     return list(objs)
 
 
+def _mask(geom, x0: float, y0: float, res: float, w: int, h: int) -> np.ndarray:
+    """Cells of a (w x h) grid at ``res`` mm from (x0, y0) that ``geom`` touches (conservative: the outline
+    cells count), as a bool array [row = y, column = x]."""
+    from PIL import Image, ImageDraw
+    img = Image.new("1", (max(1, w), max(1, h)), 0)
+    draw = ImageDraw.Draw(img)
+    for p in getattr(geom, "geoms", [geom]):
+        if p.is_empty or p.geom_type != "Polygon":
+            continue
+        pts = [((x - x0) / res, (y - y0) / res) for x, y in np.asarray(p.exterior.coords)[:, :2]]
+        if len(pts) >= 3:
+            draw.polygon(pts, fill=1, outline=1)
+        for ring in p.interiors:
+            hole = [((x - x0) / res, (y - y0) / res) for x, y in np.asarray(ring.coords)[:, :2]]
+            if len(hole) >= 3:
+                draw.polygon(hole, fill=0, outline=1)
+    return np.asarray(img, dtype=bool)
+
+
 def _place_contour(objs, fixed, rect, opt: LayoutOptions, region=None) -> list[SceneObject]:
-    """Greedy placement of true footprints; returns the parts that did not fit (left where they were).
+    """Placement of the parts' real outlines (each grown by half the gap) on a fine grid: for every turn about Z
+    all free positions are found at once (FFT correlation of the plate's occupancy with the part's shape), and
+    the one nearest the anchor wins. Returns the parts that did not fit (left where they were).
     ``region`` limits placement to a round plate or a ring tray."""
     half = opt.spacing / 2
-    if region is not None:
-        shapely.prepare(region)
+    x0, y0, x1, y1 = rect
+    res = max(0.25, min(opt.step if opt.step > 0 else 0.5, 1.0))
+    W, H = int(math.floor((x1 - x0) / res)), int(math.floor((y1 - y0) / res))
+    if W < 2 or H < 2:
+        return list(objs)
+    occ = np.zeros((H, W), dtype=bool)
+    if region is not None:                         # cells outside a round / ring plate are taken
+        occ |= ~_mask(region.buffer(-1e-3), x0, y0, res, W, H)[:H, :W]
+    for o in fixed:
+        occ |= _mask(footprint(o).buffer(half, quad_segs=4), x0, y0, res, W, H)[:H, :W]
+    target = {"center": ((x0 + x1) / 2, (y0 + y1) / 2), "front_left": (x0, y0), "back_left": (x0, y1),
+              "front_right": (x1, y0), "back_right": (x1, y1)}.get(opt.anchor, ((x0 + x1) / 2, (y0 + y1) / 2))
     prints = {o.uid: footprint(o) for o in objs}
-    occupied = shapely.union_all([footprint(o).buffer(half, quad_segs=4) for o in fixed]) if fixed else Polygon()
     failed = []
     for o in _order(objs, opt.sort, prints):
         base = prints[o.uid]
-        c = np.array(base.centroid.coords[0])
+        c = tuple(np.asarray(base.centroid.coords[0]))
+        occ_f = np.fft.rfft2(occ.astype(np.float32))
         best = None
         for ang in _rotations(opt.rotation):
-            shape = affinity.rotate(base, ang, origin=tuple(c)).buffer(half, quad_segs=4)
-            minx, miny, maxx, maxy = shape.bounds
-            local = affinity.translate(shape, -(minx + maxx) / 2, -(miny + maxy) / 2)
-            if not occupied.is_empty:
-                shapely.prepare(occupied)
-            for px, py in _scan_order(rect, opt.anchor, opt.step, maxx - minx, maxy - miny):
-                cand = affinity.translate(local, px, py)
-                if region is not None and not region.contains(cand.buffer(-half + 1e-3) if half > 0 else cand):
-                    continue
-                if occupied.is_empty or not occupied.intersects(cand):
-                    score = (np.hypot(px - (rect[0] + rect[2]) / 2, py - (rect[1] + rect[3]) / 2)
-                             if opt.anchor == "center" else 0.0)
-                    if best is None or score < best[0] - 1e-9:
-                        best = (score, ang, cand)
-                    break        # nearest free spot for this rotation found
+            shape = affinity.rotate(base, ang, origin=c).buffer(half, quad_segs=4)
+            sx0, sy0, sx1, sy1 = shape.bounds
+            mw, mh = int(math.ceil((sx1 - sx0) / res)) + 1, int(math.ceil((sy1 - sy0) / res)) + 1
+            if mw > W or mh > H:
+                continue
+            m = _mask(shape, sx0, sy0, res, mw, mh)
+            pad = np.zeros((H, W), dtype=np.float32)
+            pad[:m.shape[0], :m.shape[1]] = m
+            overlap = np.fft.irfft2(occ_f * np.conj(np.fft.rfft2(pad)), s=(H, W))
+            ok = overlap[:H - mh + 1, :W - mw + 1] < 0.5
+            if not ok.any():
+                continue
+            rows, cols = np.nonzero(ok)
+            cx = x0 + cols * res + (sx1 - sx0) / 2          # shape-box centre at each free position
+            cy = y0 + rows * res + (sy1 - sy0) / 2
+            if opt.anchor == "center":
+                score = np.hypot(cx - target[0], cy - target[1])
+            else:                                           # rows from the anchored corner, then along the row
+                score = np.abs(cy - target[1]) * 1000 + np.abs(cx - target[0])
+            k = int(np.argmin(score))
+            if best is None or score[k] < best[0] - 1e-6:
+                best = (float(score[k]), ang, (cx[k], cy[k]))
         if best is None:
             failed.append(o)
             continue
-        _, ang, cand = best
+        _, ang, (tx, ty) = best
         if ang:
             o.apply_world_rotation(_z_rotation(ang))
-        # move so the footprint's bounding-box centre lands on the chosen spot
-        now = footprint(o).buffer(half, quad_segs=4)
+        now = footprint(o).buffer(half, quad_segs=4)       # move so the box centre lands on the chosen spot
         nx, ny = (now.bounds[0] + now.bounds[2]) / 2, (now.bounds[1] + now.bounds[3]) / 2
-        tx, ty = (cand.bounds[0] + cand.bounds[2]) / 2, (cand.bounds[1] + cand.bounds[3]) / 2
         o.x += tx - nx
         o.y += ty - ny
-        occupied = shapely.union_all([occupied, footprint(o).buffer(half, quad_segs=4)])
+        occ |= _mask(footprint(o).buffer(half, quad_segs=4), x0, y0, res, W, H)[:H, :W]
     return failed
 
 
@@ -169,7 +253,7 @@ def auto_layout(objects: list[SceneObject], plate, opt: LayoutOptions,
     if not movable:
         return []
     if region is not None:                  # round plate / ring tray: true footprints inside the shape
-        return _place_contour(movable, fixed, rect, opt, region)
+        return _place_with_fallback(movable, fixed, rect, opt, region)
     if opt.strategy == "grid" and not fixed:
         return _place_grid(_order(movable, opt.sort, {o.uid: footprint(o) for o in movable}), rect, opt)
     if opt.strategy == "box" and not fixed:
@@ -180,7 +264,31 @@ def auto_layout(objects: list[SceneObject], plate, opt: LayoutOptions,
                     o.apply_world_rotation(_z_rotation(90))
         ok = arrange(movable, x1 - x0, y1 - y0, opt.spacing, rect=rect)
         return [] if ok else [o for o in movable if not box(*plate).contains(footprint(o))]
-    return _place_contour(movable, fixed, rect, opt)
+    return _place_with_fallback(movable, fixed, rect, opt)
+
+
+def _place_with_fallback(movable, fixed, rect, opt: LayoutOptions, region=None) -> list[SceneObject]:
+    """Place from the chosen anchor; if some parts do not fit, also try packing from each corner and keep the
+    arrangement that fits the most parts (the chosen anchor wins ties)."""
+    start = [o.state() for o in movable]
+    failed = _place_contour(movable, fixed, rect, opt, region)
+    if not failed:
+        return failed
+    best = (len(failed), [o.state() for o in movable], failed)
+    for anchor in ("front_left", "back_left", "front_right", "back_right"):
+        if anchor == opt.anchor:
+            continue
+        for o, st in zip(movable, start):
+            o.restore(st)
+        trial = LayoutOptions(**{**opt.__dict__, "anchor": anchor})
+        f = _place_contour(movable, fixed, rect, trial, region)
+        if len(f) < best[0]:
+            best = (len(f), [o.state() for o in movable], f)
+            if not f:
+                break
+    for o, st in zip(movable, best[1]):
+        o.restore(st)
+    return best[2]
 
 
 def fill_plate(objects: list[SceneObject], source: SceneObject, plate, opt: LayoutOptions,

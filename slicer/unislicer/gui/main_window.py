@@ -9,7 +9,7 @@ from PySide6.QtCore import QItemSelectionModel, QSettings, QSize, Qt, QTimer, Si
 from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap
 from PySide6.QtWidgets import (QApplication, QDialog, QCheckBox, QDoubleSpinBox, QFileDialog, QInputDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QListWidget, QListWidgetItem, QScrollArea, QMainWindow, QMenu, QMessageBox, QProgressBar,
-                               QPushButton, QSlider, QToolButton, QVBoxLayout, QWidget)
+                               QPushButton, QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget)
 
 from .. import __version__, dental_shades, fdm, gcode, orient, primitives, profiles, project, sla, sla_supports
 from ..assistant import Assistant, hollow_saving_ml
@@ -134,6 +134,9 @@ class MainWindow(QMainWindow):
         root.addLayout(body, 1)
         self.setCentralWidget(central)
         self.status = QLabel(tr("ready"))
+        # a long message must never make the window wider than the screen (the right panel would go off it)
+        self.status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.status.setMinimumWidth(0)
         self.statusBar().addWidget(self.status, 1)
         if os.environ.get("UNISLICER_SOFTWARE_GL"):
             sw = QLabel("⚠ " + tr("software_gl"))
@@ -152,12 +155,55 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(geo)
         else:
             self.resize(1560, 940)
+        self._fit_to_screen()
         self._apply_printer()
         self._refresh_objects(select=self.objects[0].uid if self.objects else None)
         self.viewer.view_preset("iso")
 
     # ================================================================ layout
+    def _fit_to_screen(self):
+        """Keep the whole window on its screen (a saved size from a bigger screen, or a long message, must not
+        push the right panel off the edge)."""
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None or self.isMaximized() or self.isFullScreen():
+            return
+        avail = screen.availableGeometry()
+        g = self.frameGeometry()
+        w, h = min(g.width(), avail.width()), min(g.height(), avail.height())
+        if (w, h) != (g.width(), g.height()):
+            self.resize(max(200, w - (g.width() - self.width())), max(200, h - (g.height() - self.height())))
+        g = self.frameGeometry()
+        x = min(max(g.x(), avail.x()), avail.right() - g.width() + 1)
+        y = min(max(g.y(), avail.y()), avail.bottom() - g.height() + 1)
+        if (x, y) != (g.x(), g.y()):
+            self.move(x, y)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._compact_top_bar()
+        QTimer.singleShot(0, self._fit_to_screen)
+
+    def _compact_top_bar(self):
+        """On a narrow window (small screen, large Windows scaling) the top bar shows icons only, so it never
+        forces the window wider than the screen; the names stay in the tooltips."""
+        tools = getattr(self, "_top_tools", [])
+        if not tools:
+            return
+        screen = self.screen() or QApplication.primaryScreen()
+        avail = screen.availableGeometry().width() if screen is not None else 1920
+        compact = min(self.width(), avail) < 1500
+        style = Qt.ToolButtonIconOnly if compact else Qt.ToolButtonTextBesideIcon
+        if tools[0].toolButtonStyle() != style:
+            for b in tools:
+                if b.text():
+                    b.setToolButtonStyle(style)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._compact_top_bar()
+
     def _build_top_bar(self):
+        self._top_tools = []
         bar = QFrame()
         bar.setObjectName("TopBar")
         bar.setFixedHeight(60)
@@ -199,6 +245,7 @@ class MainWindow(QMainWindow):
             if slot:
                 b.clicked.connect(slot)
             lay.addWidget(b)
+            self._top_tools.append(b)
             return b
 
         tool("open", tr("open"), tr("open_tip"), lambda: self._act("open", "button", self.open_files))
@@ -724,13 +771,19 @@ class MainWindow(QMainWindow):
         bl = QHBoxLayout(banner)
         bl.setContentsMargins(14, 8, 8, 8)
         self.collision_label = QLabel("")
-        bl.addWidget(self.collision_label)
+        # the model names can be long: wrap and stay inside the 3D view instead of widening the window
+        self.collision_label.setWordWrap(True)
+        self.collision_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.collision_label.setMinimumWidth(0)
+        bl.addWidget(self.collision_label, 1)
         fix = QPushButton(tr("auto_layout"))
         fix.setStyleSheet("QPushButton { background: white; color: black; border: none; border-radius: 7px; padding: 5px 12px; font-weight: 600; }")
         fix.setCursor(Qt.PointingHandCursor)
         fix.clicked.connect(lambda: self.auto_layout(scope="all", dialog=False))
         bl.addWidget(fix)
         cwl0.addWidget(banner)
+        self.collision_banner = banner
+        self.collision_wrap.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
         grid.addWidget(self.collision_wrap, 0, 0, Qt.AlignTop | Qt.AlignHCenter)
         self.collision_wrap.hide()
 
@@ -1445,7 +1498,8 @@ class MainWindow(QMainWindow):
         on top of what the assistant learned."""
         cfg = self.settings.config()
         base = {"strategy": "contour", "spacing": cfg["arrange_spacing"], "margin": cfg["arrange_margin"],
-                "rotation": "none", "anchor": "center", "sort": "area"}
+                "rotation": "free", "anchor": "center", "sort": "area"}
+        self._migrate_layout_defaults()
         out = self.assistant.learned_layout(base)
         try:
             last = json.loads(self.store.value("layout_options", "{}"))
@@ -1455,6 +1509,29 @@ class MainWindow(QMainWindow):
             if k in last:
                 out[k] = last[k]
         return out
+
+    def _migrate_layout_defaults(self):
+        """Once: the old defaults (6 mm gap, no turning) stored from earlier layouts are dropped, so the new
+        defaults apply (2 mm, turning about Z) unless the user picks other values again."""
+        if self.store.value("layout_defaults_v2", "") == "1":
+            return
+        try:
+            last = json.loads(self.store.value("layout_options", "{}"))
+        except (TypeError, ValueError):
+            last = {}
+        if isinstance(last, dict):
+            if last.get("spacing") == 6.0:
+                last.pop("spacing")
+            if last.get("rotation") == "none":
+                last.pop("rotation")
+            self.store.setValue("layout_options", json.dumps(last))
+        lay = self.assistant.data.get("layout", {}).get("choices", {})
+        if "spacing_values" in lay:
+            lay["spacing_values"] = [v for v in lay["spacing_values"] if v != 6.0]
+        if "rotation" in lay:
+            lay["rotation"].pop("none", None)
+        self.assistant.save()
+        self.store.setValue("layout_defaults_v2", "1")
 
     def auto_layout(self, scope: str | None = None, dialog: bool = True):
         """Auto layout with PreForm / CHITUBOX / Composer style options; the assistant learns the choices."""
@@ -3613,8 +3690,15 @@ class MainWindow(QMainWindow):
                     self.viewer.set_object_state(o.uid, "collision" if o.uid in colliding else "normal")
         if pairs:
             names = {o.uid: o.name or "model" for o in self.objects}
-            text = ", ".join(f"{names[a]} ↔ {names[b]}" for a, b in pairs[:3]) + ("…" if len(pairs) > 3 else "")
+
+            def short(n):
+                return n if len(n) <= 28 else n[:12] + "…" + n[-14:]
+            text = ", ".join(f"{short(names[a])} ↔ {short(names[b])}" for a, b in pairs[:3]) + ("…" if len(pairs) > 3 else "")
             self.collision_label.setText("⚠ " + tr("collision_warning").format(text))
+            self.collision_label.setToolTip("\n".join(f"{names[a]} ↔ {names[b]}" for a, b in pairs))
+            width = max(320, int(self.viewer.width() * 0.8))
+            self.collision_banner.setMaximumWidth(width)
+            self.collision_label.setMaximumWidth(width - 140)
             self.collision_wrap.show()
             self.collision_wrap.raise_()
         else:

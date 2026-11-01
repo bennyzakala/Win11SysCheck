@@ -228,8 +228,12 @@ class Assistant:
             if counts and max(counts.values()) >= 2:
                 out[k] = max(counts, key=counts.get)
         if lay.get("samples", 0) >= 2:
-            out["spacing"] = round(float(lay["gap"]) * 2) / 2
+            # the gap the user asked for is theirs to set (Auto layout window); gaps seen in finished
+            # layouts only feed a suggestion, they never change the default by themselves
             out["margin"] = round(min(float(lay["edge"]), 30.0) * 2) / 2
+            vals = lay["choices"].get("spacing_values", [])
+            if len(vals) >= 2:
+                out["spacing"] = float(np.median(vals))
             anchors = lay["choices"].get("anchor", {})
             if not anchors or max(anchors.values()) < 2:      # no explicit habit: follow where parts end up
                 out["anchor"] = "center" if lay["offcentre"] < 0.35 else "front_left"

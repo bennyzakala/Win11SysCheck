@@ -627,7 +627,8 @@ def test_auto_layout_options_and_learning(tmp_path):
         a.learn_layout({"gap": 2.5, "edge": 4.0, "offcentre": 0.1, "count": 5})
     got = a.learned_layout({"strategy": "contour", "spacing": 6, "margin": 2, "rotation": "none", "anchor": "center", "sort": "area"})
     assert got["learned"] and got["strategy"] == "grid" and got["rotation"] == "90" and got["anchor"] == "back_left"
-    assert got["spacing"] == 2.5 and got["margin"] == 4.0
+    # the gap is the one the user set in the Auto layout window (3), not the gaps measured afterwards (2.5)
+    assert got["spacing"] == 3.0 and got["margin"] == 4.0
     assert not a.learn_layout({"gap": 0.0, "edge": 1, "offcentre": 0, "count": 3})   # overlapping parts are not a preference
 
 
@@ -2432,3 +2433,63 @@ def test_network_scan_survives_devices_that_do_not_speak_http(monkeypatch):
     monkeypatch.setattr(network, "_open_port", lambda h, p, t: h.endswith(".5") and p == 80)
     monkeypatch.setattr(network, "identify", lambda h, ports: (_ for _ in ()).throw(RuntimeError("odd device")))
     assert network.scan(prefixes=["10.9.8"]) == []
+
+
+def test_layout_nests_real_outlines_turning_only_about_z():
+    """Auto layout uses the parts' real outlines (U-shaped arches nest), turns them only about Z (the tilt from
+    the red/green rings stays), keeps the default 2 mm gap and never leaves overlapping parts."""
+    import time
+    from shapely.geometry import Point, box
+    from unislicer import layout, mesh_tools
+    arch = Point(0, 0).buffer(24, quad_segs=32).difference(Point(0, 0).buffer(14, quad_segs=32)).difference(
+        box(-40, -40, 40, -2))
+    assert layout.LayoutOptions().spacing == 2.0 and layout.LayoutOptions().rotation == "free"
+    objs = []
+    for k in range(6):
+        o = SceneObject.from_mesh(mesh_tools.extrude(arch, 0, 15, f"arch{k}"))
+        o.rotation[:] = [20.0, 0.0, 0.0]                                  # tilted
+        objs.append(o)
+    hull_area = sum(o.mesh.vertices.shape[0] and layout.MultiPoint(o.world_mesh().vertices[:, :2]).convex_hull.area
+                    for o in objs[:1])
+    assert layout.footprint(objs[0]).area < hull_area * 0.8               # the real outline, not the hull
+    tilt = [o.matrix()[2, :3].copy() for o in objs]
+    plate = (0, 0, 200, 125)
+    t0 = time.time()
+    assert layout.auto_layout(objs, plate, layout.LayoutOptions()) == []
+    assert time.time() - t0 < 20
+    for o, z in zip(objs, tilt):                                          # turning about Z keeps the tilt
+        assert np.allclose(o.matrix()[2, :3], z, atol=1e-6)
+    fps = [layout.footprint(o) for o in objs]
+    gaps = [fps[i].distance(fps[j]) for i in range(len(fps)) for j in range(i + 1, len(fps))]
+    assert min(gaps) >= 2.0 - 0.3 and all(box(*plate).contains(f) for f in fps)
+
+
+def test_long_collision_warning_does_not_widen_the_window():
+    """The collision banner with long model names used to push the window wider than the screen, hiding the
+    right panel; it now wraps inside the view (and long status messages do not widen it either)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        base = w.minimumSizeHint().width()
+        name = "SOD260043723-005-15-14-13-12-11-21-22-23-24-25-modelbase_fixed-2"
+        a = w.add_mesh(primitives.box(20, 20, 5)); b = w.add_mesh(primitives.box(20, 20, 5))
+        a.name, b.name = name, name + "-copy"
+        b.x, b.y = a.x + 5, a.y
+        w._check_collisions(); app.processEvents()
+        assert w.collision_wrap.isVisible()
+        assert w.minimumSizeHint().width() <= base + 5, (base, w.minimumSizeHint().width())
+        assert name in w.collision_label.toolTip()
+        w.status.setText("x" * 800); app.processEvents()
+        assert w.minimumSizeHint().width() <= base + 5
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

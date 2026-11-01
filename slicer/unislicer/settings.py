@@ -91,7 +91,7 @@ SCHEMA: list[Setting] = [
     S("plate_offset_y", "float", 0.0, "printer", "both", "היסט משטח Y", "Plate offset Y", "mm", -1000, 1000, 0.5, advanced=True),
     S("arrange_margin", "float", 2.0, "printer", "both", "שוליים משולי המשטח בסידור", "Arrange edge margin", "mm", 0, 30, 0.5, advanced=True,
       tip_he="מרחק מינימלי בין המודלים לשולי המשטח בסידור אוטומטי", tip_en="Minimum distance from parts to the plate edge when auto-arranging"),
-    S("arrange_spacing", "float", 6.0, "printer", "both", "מרווח בסידור אוטומטי", "Auto-arrange spacing", "mm", 0, 50, 0.5, advanced=True),
+    S("arrange_spacing", "float", 2.0, "printer", "both", "מרווח בסידור אוטומטי", "Auto-arrange spacing", "mm", 0, 50, 0.5, advanced=True),
     S("origin_center", "bool", False, "printer", "fdm", "ראשית במרכז המשטח", "Origin at bed center",
       tip_he="סמן עבור מדפסות דלתא ומדפסות שהראשית שלהן במרכז", tip_en="Enable for delta printers"),
     S("nozzle_diameter", "float", 0.4, "printer", "fdm", "קוטר נחיר", "Nozzle diameter", "mm", 0.1, 2.0, 0.05),
