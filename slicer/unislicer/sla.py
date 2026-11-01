@@ -700,7 +700,9 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
                   if not g.is_empty else g for g in layers]
     saved = 0.0
     infill: list = []
-    if cfg["hollow_enable"] and not jetting:
+    # choosing an internal infill means "hollow it and fill the cavity": it turns hollowing on by itself
+    hollowing = (cfg["hollow_enable"] or cfg["hollow_infill"] != "none") and not jetting
+    if hollowing:
         report("hollow", 0.0)
         infill = []
         layers, saved, notes = hollow(layers, lh, cfg, infill)
@@ -717,7 +719,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
                   for g, c in zip(layers, cut_layers)]
     # thin features of the model itself: the internal infill walls are thin on purpose and sit inside
     shell = layers
-    if cfg["hollow_enable"] and not jetting and infill:
+    if hollowing and infill:
         shell = _per_layer(_minus_chunk, list(zip(layers, infill)))
     thin = find_thin(shell, layer_height=lh)
     if support_meshes:

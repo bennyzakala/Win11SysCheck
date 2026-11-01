@@ -2493,3 +2493,49 @@ def test_long_collision_warning_does_not_widen_the_window():
     env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_choosing_infill_hollows_the_model_and_apply_reslices():
+    """Picking the honeycomb infill alone (hollowing left off) used to do nothing: the model stayed solid.
+    The infill now hollows the model by itself, the panel turns 'Hollow the model' on with it, and an
+    'Apply' button appears after a change and slices again."""
+    from shapely.geometry import box
+    from unislicer import profiles, primitives, sla
+    from unislicer.scene import SceneObject
+    o = SceneObject.from_mesh(primitives.box(30, 20, 15))
+    o.x, o.y = 60, 60
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {
+        "support_enable": False, "hollow_enable": False, "hollow_infill": "hive", "sla_layer_height": 0.1})
+    job = sla.prepare([o.world_mesh()], cfg)
+    mid = job.layers[len(job.layers) // 2]
+    solid = box(*mid.bounds).area
+    assert 0.25 * solid < mid.area < 0.8 * solid            # shell + honeycomb walls, not solid, not empty
+
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus"); app.processEvents()
+        w.settings.set_value("hollow_enable", False)
+        w.add_mesh(primitives.box(20, 20, 10)); app.processEvents()
+        w.settings._on_changed("hollow_infill", "hive")
+        assert w.settings.config()["hollow_enable"] is True
+        w._on_settings_changed()
+        assert not w.settings.apply_btn.isHidden()
+        called = []
+        w.slice = lambda: called.append(1)
+        w.settings.apply_btn.click()
+        assert called
+        w.settings._on_changed("hollow_enable", False)
+        assert w.settings.config()["hollow_infill"] == "none"
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

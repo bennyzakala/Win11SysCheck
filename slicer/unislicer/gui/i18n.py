@@ -44,6 +44,8 @@ STRINGS = {
     "show_advanced": ("הצג הגדרות מתקדמות", "Show advanced settings"),
     "search": ("חיפוש הגדרה…", "Search settings…"),
     "reset_setting": ("אפס לערך הפרופיל", "Reset to profile value"),
+    "apply_settings": ("החל", "Apply"),
+    "apply_settings_tip": ("חותך מחדש עם ההגדרות ששינית, כדי שהשינוי ייכנס לפעולה", "Slice again with the settings you changed so they take effect"),
     "reset_all": ("אפס את כל השינויים", "Reset all changes"),
     "slice": ("פרוס", "Slice"),
     "slicing": ("פורס…", "Slicing…"),

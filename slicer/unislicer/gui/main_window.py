@@ -858,6 +858,7 @@ class MainWindow(QMainWindow):
         self.settings.technologyChanged.connect(lambda _t: self._apply_printer())
         self.settings.filamentEditRequested.connect(self.filaments_dialog)
         self.settings.cfsSyncRequested.connect(self.sync_cfs)
+        self.settings.applyRequested.connect(self.apply_settings)
         lay.addWidget(self.settings, 1)
 
         action = _card()
@@ -3195,8 +3196,18 @@ class MainWindow(QMainWindow):
         if fkey != getattr(self, "_filament_view_key", None):      # model colours follow the filament list
             self._filament_view_key = fkey
             self._objects_changed()
+        self.settings.set_pending(bool(self.objects))
         self._save_state()
         self._schedule_suggestions()
+
+    def apply_settings(self):
+        """The settings panel's "Apply": take the changes now and slice again (the preview shows the result)."""
+        if self._settings_timer.isActive():
+            self._settings_timer.stop()
+            self._on_settings_changed()
+        if self.task is not None and self.task.isRunning():
+            self.task.cancel()
+        self.slice()
 
     def _save_state(self):
         s = self.store
@@ -3355,6 +3366,7 @@ class MainWindow(QMainWindow):
 
     def _on_sliced(self, result):
         self.result = result
+        self.settings.set_pending(False)
         warnings = []
         if result[0] == "fdm":
             _, plan, text, stats, verts, cfg = result

@@ -6,7 +6,7 @@ import json
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QScrollArea, QSizePolicy, QSpinBox,
-                               QToolButton, QVBoxLayout, QWidget)
+                               QPushButton, QToolButton, QVBoxLayout, QWidget)
 
 from .. import profiles
 from ..gcode import default_end_gcode, default_start_gcode
@@ -200,6 +200,7 @@ class SettingsPanel(QWidget):
     technologyChanged = Signal(str)
     filamentEditRequested = Signal()
     cfsSyncRequested = Signal()
+    applyRequested = Signal()              # "Apply": slice again with the changed settings
 
     def __init__(self, printer: str, material: str | None, quality: str | None, overrides: dict, show_advanced: bool):
         super().__init__()
@@ -313,6 +314,14 @@ class SettingsPanel(QWidget):
         self.reset_all_btn.clicked.connect(self.reset_all)
         tools.addWidget(self.reset_all_btn)
         lay.addLayout(tools)
+        # changed settings take effect on the next slice: "Apply" does it now (shown while changes are pending)
+        self.apply_btn = QPushButton(theme.icon("check", "#ffffff", 16), "  " + tr("apply_settings"))
+        self.apply_btn.setObjectName("Primary")
+        self.apply_btn.setCursor(Qt.PointingHandCursor)
+        self.apply_btn.setToolTip(tr("apply_settings_tip"))
+        self.apply_btn.clicked.connect(self.applyRequested.emit)
+        self.apply_btn.setVisible(False)
+        lay.addWidget(self.apply_btn)
         self.advanced = QCheckBox(tr("show_advanced"))
         self.advanced.setChecked(show_advanced)
         self.advanced.toggled.connect(self._on_advanced)
@@ -782,9 +791,29 @@ class SettingsPanel(QWidget):
             return
         row.set_value(self.config()[key])
 
+    def set_pending(self, pending: bool):
+        """Show "Apply" while settings changed since the last slice."""
+        self.apply_btn.setVisible(bool(pending))
+
+    def _set_linked(self, key, value):
+        """Change a setting that follows another one (no assistant learning, the row is refreshed)."""
+        if value == self.base_config()[key]:
+            self.overrides.pop(key, None)
+        else:
+            self.overrides[key] = value
+        row = self._rows.get(key)
+        if row is not None:
+            row.set_value(value)
+            row.reset_btn.setVisible(key in self.overrides)
+
     def _on_changed(self, key, value):
         if self._building:
             return
+        # an internal infill needs a hollow model: picking one turns hollowing on, turning hollowing off drops it
+        if key == "hollow_infill" and value != "none" and not self.config()["hollow_enable"]:
+            self._set_linked("hollow_enable", True)
+        elif key == "hollow_enable" and not value and self.config()["hollow_infill"] != "none":
+            self._set_linked("hollow_infill", "none")
         base = self.base_config()[key]
         if value == base or (isinstance(base, float) and abs(float(value) - base) < 1e-9):
             self.overrides.pop(key, None)
