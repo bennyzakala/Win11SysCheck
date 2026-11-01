@@ -50,8 +50,8 @@ class NoWheelCombo(_NoWheelMixin, QComboBox):
 
 
 class Section(QFrame):
-    """Card with an icon header: a left click on the header opens the section in its own window; the
-    chevron on the right folds the settings open / closed inside the panel."""
+    """Card with an icon header: a left click opens the section in its own window. The settings show
+    inside the panel only while searching (the matches)."""
     openRequested = Signal()
 
     def __init__(self, title: str, icon_name: str, expanded: bool):
@@ -79,8 +79,7 @@ class Section(QFrame):
         self.toggle.setCheckable(True)
         self.toggle.setCursor(Qt.PointingHandCursor)
         self.toggle.setAutoRaise(True)
-        self.toggle.setToolTip(tr("section_fold"))
-        head.addWidget(self.toggle)
+        self.toggle.setVisible(False)            # no folding in the panel: the header opens the window
         lay.addLayout(head)
         self.body = QWidget()
         self.body_layout = QVBoxLayout(self.body)
@@ -917,9 +916,6 @@ class SettingsPanel(QWidget):
         from PySide6.QtWidgets import QMenu
         menu = QMenu(self)
         menu.addAction(theme.icon("fit"), tr("section_open"), lambda: self.open_section_window(cat))
-        menu.addSeparator()
-        menu.addAction(theme.icon("chevron_down"), tr("sections_expand"), lambda: self._expand_all(True))
-        menu.addAction(theme.icon("chevron"), tr("sections_collapse"), lambda: self._expand_all(False))
         menu.exec(global_pos)
 
     def _expand_all(self, on: bool):
@@ -1035,7 +1031,7 @@ class SettingsPanel(QWidget):
                          or self.filter_text in s.en.lower()]
             if not items:
                 continue
-            expanded = bool(self.filter_text) or self._expanded.get(cat[0], cat[0] in EXPANDED_BY_DEFAULT)
+            expanded = bool(self.filter_text)        # search results show in the panel; otherwise the window
             sec = Section(category_label(cat), cat[3], expanded)
             sec.header.setContextMenuPolicy(Qt.CustomContextMenu)
             sec.header.customContextMenuRequested.connect(

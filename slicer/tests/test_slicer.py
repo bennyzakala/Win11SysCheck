@@ -2754,7 +2754,7 @@ def test_align_lock_fill_cavity_and_layer_playback(tmp_path):
 
 def test_section_header_click_opens_its_window_and_no_stray_selection_frame():
     """A left click on a settings section header (Printer, Quality, Supports...) opens that section in its
-    own window; the chevron folds it in the panel. A box-selection frame whose mouse release was missed
+    own window (nothing folds open under it). A box-selection frame whose mouse release was missed
     (a dialog opened mid-drag) is removed instead of staying over the window."""
     import subprocess, sys, textwrap
     code = textwrap.dedent('''
@@ -2772,9 +2772,9 @@ def test_section_header_click_opens_its_window_and_no_stray_selection_frame():
         sec = w.settings._sections["support"]
         sec.header.click()
         assert opened == ["support"], opened
-        before = sec.body.isVisible()
-        sec.toggle.click(); app.processEvents()
-        assert sec.body.isVisible() != before and opened == ["support"]
+        assert not sec.body.isVisible() and not sec.toggle.isVisible()     # nothing folds open in the panel
+        w.settings.search.setText("spacing"); app.processEvents()
+        assert any(s.body.isVisible() for s in w.settings._sections.values())   # search shows the matches
         from PySide6.QtWidgets import QRubberBand
         v = w.viewer
         band = QRubberBand(QRubberBand.Rectangle, v); band.show()
