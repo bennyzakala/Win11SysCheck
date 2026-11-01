@@ -2795,3 +2795,38 @@ def test_section_header_click_opens_its_window_and_no_stray_selection_frame():
     env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_rotate_tool_still_drags_the_model_with_the_left_button():
+    """With the rotate tool on, pressing on the model itself (not on a ring) and dragging moves it."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        import numpy as np
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtTest import QTest
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        o = w.add_mesh(primitives.box(20, 20, 5)); app.processEvents()
+        w._select_uid(o.uid); app.processEvents()
+        v = w.viewer
+        v.tool = "rotate"
+        v._ring_hit = lambda pos, only_axis=None: None          # not on a ring
+        v.pick = lambda pos, *a, **k: o.uid                       # on the model
+        v._bed_point = lambda pos: np.array([pos.x() * 0.1, pos.y() * 0.1, 0.0])
+        x0 = o.x
+        QTest.mousePress(v, Qt.LeftButton, Qt.NoModifier, QPoint(100, 100))
+        QTest.mouseMove(v, QPoint(150, 100))
+        QTest.mouseRelease(v, Qt.LeftButton, Qt.NoModifier, QPoint(150, 100))
+        app.processEvents()
+        assert abs(o.x - (x0 + 5.0)) < 1e-6, (x0, o.x)
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(__import__("tempfile").mkdtemp()))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

@@ -1227,10 +1227,7 @@ class Viewer(QOpenGLWidget):
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE:
             uid = self.pick(e.position())
             mods = (SEL_TOGGLE if e.modifiers() & Qt.ControlModifier else 0) | (SEL_ADD if e.modifiers() & Qt.ShiftModifier else 0)
-            if uid is not None and self.tool == "rotate":
-                self.objectClicked.emit(uid, mods)   # select only; rotating happens on the rings
-                self._picked = True
-                return
+            # rotate tool: the rings were checked above; a press on the model itself selects and drags it
             if uid is not None:
                 if mods or uid not in self.selection:
                     self.objectClicked.emit(uid, mods)
