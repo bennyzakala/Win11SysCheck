@@ -2375,3 +2375,32 @@ def test_honeycomb_infill_continuous_walls_with_drain_bands():
     full_layers = sum(1 for g in job.layers[first_cavity:n - 25]
                       if sum(len(p.interiors) for p in getattr(g, "geoms", [g])) >= 30)
     assert full_layers > (n - 25 - first_cavity) * 0.7       # whole walls on most of the height
+
+
+def test_honeycomb_fills_models_that_came_already_hollow():
+    """A dental model exported as a shell (open base, closed top, posts inside) gets the honeycomb in its own
+    cavity; a hole that goes right through (a ring's centre) is left empty."""
+    from shapely.geometry import Point, box
+    from unislicer import mesh_tools, profiles, sla
+    from unislicer.mesh import Mesh
+    from unislicer.scene import SceneObject
+    arch = box(-20, -6, 20, 6)
+    shell = arch.difference(arch.buffer(-1.5))
+    pre = Mesh.merge([mesh_tools.extrude(shell, 0, 12), mesh_tools.extrude(arch, 10.5, 12),
+                      mesh_tools.extrude(Point(0, 0).buffer(0.6), 0, 11)], "shell")
+    ring = mesh_tools.extrude(Point(0, 0).buffer(8).difference(Point(0, 0).buffer(5)), 0, 12, "ring")
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {
+        "support_enable": False, "hollow_enable": True, "hollow_wall": 2.0, "hollow_infill": "hive",
+        "hollow_infill_spacing": 5.0, "hollow_infill_thickness": 0.8, "sla_layer_height": 0.1})
+    a, r = SceneObject.from_mesh(pre), SceneObject.from_mesh(ring)
+    a.x, a.y, r.x, r.y = 60, 60, 130, 60
+    job = sla.prepare([a.world_mesh(), r.world_mesh()], cfg)
+    mid = job.layers[len(job.layers) // 2]
+    inside = mid.intersection(box(60 - 18, 60 - 4.5, 60 + 18, 60 + 4.5))      # within the shell's cavity
+    assert inside.area > 20                                                  # honeycomb walls (+ the post)
+    assert not mid.contains(Point(130, 60)) and mid.intersection(Point(130, 60).buffer(4)).area < 1
+    # without infill the cavity stays empty (only the post)
+    cfg2 = cfg.copy().update({"hollow_infill": "none"})
+    job2 = sla.prepare([a.world_mesh()], cfg2)
+    mid2 = job2.layers[len(job2.layers) // 2]
+    assert mid2.intersection(box(60 - 18, 60 - 4.5, 60 + 18, 60 + 4.5)).area < 3

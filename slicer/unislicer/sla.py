@@ -185,6 +185,33 @@ def _and(a, b):
     return as_multipolygon(a.intersection(b))
 
 
+def covered_voids(layers: list[MultiPolygon]) -> list[MultiPolygon]:
+    """Empty spaces inside the model that have model material above them: the cavity of a model that was
+    already hollow when it came from the CAD (thin shell, open or closed base). A hole that goes right
+    through (the middle of a ring, a hole for a pin) has nothing above it and is not included."""
+    n = len(layers)
+    holes = []
+    for g in layers:
+        if g.is_empty:
+            holes.append(EMPTY)
+            continue
+        inner = [shapely.Polygon(r) for p in polygons_of(g) for r in p.interiors]
+        h = shapely.union_all(inner).difference(g) if inner else EMPTY
+        holes.append(as_multipolygon(h) if not h.is_empty else EMPTY)
+    out = [EMPTY] * n
+    above = EMPTY                                   # model material over this layer, seen from the top
+    for i in range(n - 1, -1, -1):
+        if not holes[i].is_empty and not above.is_empty:
+            v = holes[i].intersection(above)
+            if not v.is_empty and v.area > 0.5:
+                out[i] = as_multipolygon(v.buffer(-0.05).buffer(0.05)) if v.area > 1 else EMPTY
+        if not layers[i].is_empty:
+            above = above.union(layers[i]) if not above.is_empty else layers[i]
+            if i % 25 == 0:
+                above = above.simplify(0.02)
+    return out
+
+
 def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list | None = None
            ) -> tuple[list[MultiPolygon], float, list[str]]:
     """Hollow solid layers to ``hollow_wall`` thickness and cut drain holes. Returns (layers, saved ml, notes).
@@ -196,7 +223,9 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list 
     cavity = _window_intersection(eroded, k)
     cavity = [as_multipolygon(c.buffer(-0.01).buffer(0.01)) if not c.is_empty else c for c in cavity]
     saved = sum(c.area for c in cavity) * lh / 1000.0
-    if saved <= 0:
+    # a model that is already hollow (e.g. a dental model exported as a shell): its own cavity takes the infill
+    existing = covered_voids(layers) if cfg["hollow_infill"] != "none" else [EMPTY] * len(layers)
+    if saved <= 0 and not any(not v.is_empty for v in existing):
         return layers, 0.0, ["The model is too thin to hollow with this wall thickness."]
     notes = []
     if cfg["hollow_mode"] == "solid_base":
@@ -208,12 +237,13 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list 
         saved = sum(c.area for c in cavity) * lh / 1000.0
     if cfg["hollow_mode"] == "bottom":
         # open base: the cavity continues down through the floor (walls stay)
-        first = next(i for i, c in enumerate(cavity) if not c.is_empty)
+        first = next((i for i, c in enumerate(cavity) if not c.is_empty), 0)
         for i in range(first):
             if not eroded[i].is_empty:
                 cavity[i] = eroded[i]
     out = [g.difference(c) if not c.is_empty else g for g, c in zip(layers, cavity)]
-    pattern = _infill_pattern(cavity, cfg)
+    infill_space = [as_multipolygon(c.union(v)) if not v.is_empty else c for c, v in zip(cavity, existing)]
+    pattern = _infill_pattern(infill_space, cfg)
     if pattern is not None:
         full, vented = pattern
         shapely.prepare(full)
@@ -222,10 +252,10 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list 
         # few millimetres, so no cell is a sealed chamber; between the bands the walls are whole
         band = max(cfg["hollow_infill_thickness"] * 1.5, 1.2)
         period = max(3.0 * cfg["hollow_infill_spacing"], 8.0)
-        first = next((i for i, c in enumerate(cavity) if not c.is_empty), 0)
+        first = next((i for i, c in enumerate(infill_space) if not c.is_empty), 0)
         cache: dict = {}
         fills = []
-        for i, (o, c) in enumerate(zip(out, cavity)):
+        for i, (o, c) in enumerate(zip(out, infill_space)):
             if c.is_empty:
                 fills.append(EMPTY)
                 continue
@@ -243,7 +273,7 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list 
             infill_out[:] = fills
     elif cfg["sla_internal_supports"] and cfg["support_enable"]:
         out = _internal_pillars(out, cavity, cfg)
-    holes = 0 if cfg["hollow_mode"] == "bottom" else int(cfg["drain_holes"])
+    holes = 0 if cfg["hollow_mode"] == "bottom" or saved <= 0 else int(cfg["drain_holes"])
     if cfg["hollow_mode"] == "bottom":
         pass
     elif holes > 0:
@@ -264,7 +294,7 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list 
                 out[i] = as_multipolygon(out[i].difference(cut))
         else:
             notes.append("The cavity is too small for the drain holes.")
-    else:
+    elif saved > 0:
         notes.append("Hollowed without drain holes: uncured resin will stay trapped inside.")
     return [as_multipolygon(g) for g in out], saved, notes
 
@@ -447,8 +477,15 @@ def _sealed_layers(layers: list[MultiPolygon]) -> list[MultiPolygon]:
         # a cavity is sealed only if all of it sits on solid or on a cavity that is itself sealed;
         # any opening (e.g. a drain or vent hole) vents the whole cavity. The allowance only absorbs
         # numeric noise, so even a 1 mm vent in a large cavity counts as an opening.
-        keep = [c for c in polygons_of(space)
-                if not floor.is_empty and c.difference(floor).area < min(0.01 * c.area, 0.3) + 1e-6]
+        cells = np.array(polygons_of(space), dtype=object)
+        if floor.is_empty or len(cells) == 0:
+            keep = []
+        else:
+            shapely.prepare(floor)
+            # one vectorised call for all cells (a honeycomb infill has hundreds of them per layer)
+            open_area = shapely.area(shapely.difference(cells, floor))
+            limit = np.minimum(0.01 * shapely.area(cells), 0.3) + 1e-6
+            keep = list(cells[open_area < limit])
         sealed = as_multipolygon(shapely.union_all(keep)) if keep else EMPTY
         out.append(sealed)
     return out
