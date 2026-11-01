@@ -2960,3 +2960,67 @@ def test_export_and_import_learning_between_computers(tmp_path):
     bad.write_text('{"hello": 1}', encoding="utf-8")
     assert not b.import_from(str(bad))
     assert Assistant(str(tmp_path / "pc2")).data["supports"]["angle_offset"] == -12.0
+
+
+def test_estimate_void_bodies_and_job_report(tmp_path):
+    """GrabCAD-style tools: per-model estimate (calibrated by a slice), insert / void bodies (a magnet
+    pocket cut into the model's base) and the job report (HTML; the GUI writes it as a PDF)."""
+    from shapely.geometry import Point
+    from unislicer import estimate, primitives, profiles, report, sla, void_body
+    from unislicer.scene import SceneObject
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": False, "sla_layer_height": 0.1})
+    a = SceneObject.from_mesh(primitives.box(20, 20, 10, "A")); a.x, a.y = 50, 50
+    b = SceneObject.from_mesh(primitives.box(10, 10, 5, "B")); b.x, b.y = 100, 50
+    est = estimate.plate([a, b], cfg)
+    assert [r.name for r in est.rows] == ["A", "B"]
+    assert abs(est.rows[0].model_ml - 4.0) < 0.01 and abs(est.rows[1].model_ml - 0.5) < 0.01
+    assert est.layers == 100 and est.time_s > 0 and est.cost > 0
+    assert "TOTAL" in est.csv()
+    # a magnet pocket from the base: the slice loses exactly that cylinder
+    spec = void_body.PRESETS["magnet_6x3"]
+    cut = SceneObject.from_mesh(void_body.body(spec))
+    void_body.place(cut, a.world_bounds(), spec)
+    assert cut.role == "cutter" and abs(cut.x - 50) < 1e-6 and cut.z == 0.0
+    job = sla.prepare([a.world_mesh(), b.world_mesh()], cfg, cutters=[cut.world_mesh()])
+    low = job.layers[10]                                        # z ~1 mm: inside the pocket
+    assert not low.contains(Point(50, 50)) and low.contains(Point(55, 50))
+    assert job.layers[50].contains(Point(50, 50))               # above the pocket: solid
+    # calibrated by the slice: rows add up to the sliced volume
+    cal = estimate.plate([a, b], cfg, result=("sla", job, cfg))
+    assert cal.calibrated and abs(cal.total_ml - job.volume_ml) < 1e-6
+    html = report.build_html(cal, cfg, "Phrozen Sonic XL 4K Plus", "Dental model", "A",
+                             picture_png=report.plate_picture_png([a, b]))
+    assert "UniSlicer job report" in html and "Phrozen Sonic XL 4K Plus" in html and "data:image/png" in html
+
+
+def test_job_report_pdf_is_written_beside_the_export(tmp_path):
+    import subprocess, sys, textwrap
+    lib = str(tmp_path / "prints")
+    code = textwrap.dedent(f'''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("export_library", {lib!r}); w._reveal = lambda p: None
+        w.settings.select_printer("creality_ender3v2"); app.processEvents()
+        o = w.add_mesh(primitives.box(10, 10, 5)); o.name = "part"
+        settle = time.time() + 1.0
+        while time.time() < settle:
+            app.processEvents(); time.sleep(0.01)
+        w.slice()
+        end = time.time() + 120
+        while (w.result is None or (w.task is not None and w.task.isRunning())) and time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        w.export()
+        pdf = os.path.join({lib!r}, "part", "part - report.pdf")
+        assert os.path.isfile(pdf) and open(pdf, "rb").read(5) == b"%PDF-", os.listdir(os.path.join({lib!r}, "part"))
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

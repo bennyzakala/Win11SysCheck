@@ -257,6 +257,7 @@ class MainWindow(QMainWindow):
         menu.addAction(tr("shape_bridge"), lambda: self.add_mesh(primitives.demo_bridge()))
         menu.addSeparator()
         menu.addAction(theme.icon("code"), tr("add_text"), self.add_text)
+        menu.addAction(theme.icon("drop"), tr("void_title") + "…", self.void_body_dialog)
         shapes.setMenu(menu)
         shapes.setPopupMode(QToolButton.InstantPopup)
         tool("sparkle", tr("auto_prepare"), tr("auto_prepare_tip"), self.auto_prepare)
@@ -282,6 +283,13 @@ class MainWindow(QMainWindow):
         mm.addAction(theme.icon("save"), tr("save_project"), lambda: self._act("save_project", "button", self.save_project))
         mm.addSeparator()
         mm.addAction(theme.icon("download"), tr("export_stl"), self.export_stl)
+        mm.addAction(theme.icon("coin"), tr("estimate_title") + "…", self.estimate_dialog)
+        mm.addAction(theme.icon("download"), tr("report_save") + "…", lambda: self.save_job_report())
+        self.report_auto_act = mm.addAction(tr("report_auto"))
+        self.report_auto_act.setCheckable(True)
+        self.report_auto_act.setChecked(self.store.value("export_report", "true") == "true")
+        self.report_auto_act.toggled.connect(lambda on: self.store.setValue("export_report", "true" if on else "false"))
+        mm.addSeparator()
         mm.addAction(theme.icon("download"), tr("export_as") + "…", lambda: self.export(ask=True))
         mm.addAction(theme.icon("open"), tr("export_library_open"), self.open_export_library)
         mm.addAction(theme.icon("settings"), tr("export_library_choose") + "…", self.choose_export_library)
@@ -1465,6 +1473,93 @@ class MainWindow(QMainWindow):
             self._arrange(cfg)
         self._refresh_objects(select=obj.uid)
         return obj
+
+    def void_body_dialog(self):
+        """Shapes › Insert / void body: a ready hole or pocket (die pin, magnet, implant analog, insert, vent)
+        cut into the selected model; it is a cutter part, so it can be dragged to the exact spot."""
+        from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout
+        from .. import void_body
+        target = self.selected()
+        if target is not None and target.role == "cutter":
+            target = None
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("void_title"))
+        form = QFormLayout(dlg)
+        preset = QComboBox()
+        for key in void_body.PRESETS:
+            preset.addItem(tr("void_" + key), key)
+        preset.addItem(tr("void_custom"), "custom")
+        shape = QComboBox()
+        shape.addItem(tr("void_cylinder"), "cylinder")
+        shape.addItem(tr("void_box"), "box")
+        side = QComboBox()
+        for k in void_body.SIDES:
+            side.addItem(tr("void_side_" + k), k)
+
+        def spin(lo, hi, step, suffix=" mm"):
+            w = QDoubleSpinBox()
+            w.setRange(lo, hi)
+            w.setDecimals(2)
+            w.setSingleStep(step)
+            w.setSuffix(suffix)
+            return w
+        dia, length, depth, clear = spin(0.3, 60, 0.1), spin(0.3, 120, 0.5), spin(0.2, 200, 0.5), spin(0.0, 2.0, 0.05)
+        form.addRow(tr("void_preset"), preset)
+        form.addRow(tr("void_shape"), shape)
+        form.addRow(tr("void_diameter"), dia)
+        form.addRow(tr("void_length"), length)
+        form.addRow(tr("void_depth"), depth)
+        form.addRow(tr("void_clearance"), clear)
+        form.addRow(tr("void_side"), side)
+
+        def fill(_i=None):
+            key = preset.currentData()
+            if key == "custom":
+                return
+            sp = void_body.PRESETS[key]
+            shape.setCurrentIndex(shape.findData(sp.shape))
+            dia.setValue(sp.diameter)
+            length.setValue(sp.length)
+            depth.setValue(sp.depth or 1.0)
+            clear.setValue(sp.clearance)
+            side.setCurrentIndex(side.findData(sp.side))
+            sync()
+
+        def sync(_i=None):
+            length.setEnabled(shape.currentData() == "box")
+            depth.setEnabled(side.currentData() != "through")
+        preset.currentIndexChanged.connect(fill)
+        shape.currentIndexChanged.connect(sync)
+        side.currentIndexChanged.connect(sync)
+        fill()
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText(tr("void_add"))
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        spec = void_body.VoidSpec(shape.currentData(), dia.value(), length.value(), depth.value(), clear.value(),
+                                  side.currentData())
+        self.add_void_body(spec, target, preset.currentText())
+
+    def add_void_body(self, spec, target=None, label: str = ""):
+        from .. import void_body
+        self._push_undo()
+        cfg = self.settings.config()
+        if target is not None:
+            bounds = target.world_bounds()
+        else:
+            cx, cy = self._plate_center(cfg)
+            bounds = ((cx, cy, 0.0), (cx, cy, spec.depth))
+        height = float(bounds[1][2] - bounds[0][2])
+        cutter = SceneObject.from_mesh(void_body.body(spec, height))
+        cutter.name = (tr("void_name") + " · " + label).strip(" ·") if label else tr("void_name")
+        void_body.place(cutter, bounds, spec)
+        self.objects.append(cutter)
+        self._refresh_objects(select=cutter.uid)
+        self.status.setText(tr("void_added"))
+        return cutter
 
     def duplicate_selected(self):
         group = self.selected_objects()
@@ -4224,6 +4319,127 @@ class MainWindow(QMainWindow):
         self.status.setText(tr("export_done").format(path))
 
     # ================================================================ export
+    # ------------------------------------------------------------ estimate & job report (GrabCAD Print)
+    def plate_estimate(self):
+        from .. import estimate
+        cfg = self.settings.config()
+        supports = {}
+        if cfg["technology"] == "sla" and cfg["support_enable"]:
+            for o in self.objects:
+                try:
+                    local = self._support_preview(o, cfg)
+                except Exception:
+                    local = None
+                if local is not None and len(local.faces):
+                    supports[o.uid] = local.transform(self._display_matrix(o))
+        return estimate.plate(self.objects, cfg, supports, self._lift(cfg) if cfg["technology"] == "sla" else 0.0,
+                              self.result)
+
+    def estimate_dialog(self):
+        """Per-model time / material / weight / cost for the plate (before slicing, or from the slice)."""
+        from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHeaderView, QLabel, QTableWidget,
+                                       QTableWidgetItem, QVBoxLayout)
+        from .. import estimate
+        if not [o for o in self.objects if o.role != "cutter"]:
+            self.status.setText(tr("no_models"))
+            return
+        est = self.plate_estimate()
+        unit = "ml" if est.technology == "sla" else "cm³"
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("estimate_title"))
+        dlg.resize(760, 420)
+        v = QVBoxLayout(dlg)
+        head = QLabel(tr("estimate_head").format(estimate.fmt_time(est.time_s), est.layers, est.total_ml, unit,
+                                                 est.weight_g, est.cost))
+        head.setStyleSheet("font-weight: 700; font-size: 14px;")
+        v.addWidget(head)
+        note = QLabel(tr("estimate_sliced") if est.calibrated else tr("estimate_rough"))
+        note.setObjectName("Faint")
+        v.addWidget(note)
+        cols = [tr("est_model"), tr("est_model_ml").format(unit), tr("est_support_ml").format(unit),
+                tr("est_total_ml").format(unit), tr("est_weight"), tr("est_cost"), tr("est_height")]
+        table = QTableWidget(len(est.rows) + 1, len(cols))
+        table.setHorizontalHeaderLabels(cols)
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        for i, r in enumerate(est.rows + [None]):
+            vals = ([r.name, f"{r.model_ml:.2f}", f"{r.support_ml:.2f}", f"{r.total_ml:.2f}", f"{r.weight_g:.1f}",
+                     f"₪{r.cost:.2f}", f"{r.height:.1f}"] if r is not None else
+                    [tr("est_total"), "", "", f"{est.total_ml:.2f}", f"{est.weight_g:.1f}", f"₪{est.cost:.2f}", ""])
+            for j, val in enumerate(vals):
+                item = QTableWidgetItem(val)
+                if r is None:
+                    f = item.font()
+                    f.setBold(True)
+                    item.setFont(f)
+                table.setItem(i, j, item)
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        v.addWidget(table, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.button(QDialogButtonBox.Close).setText(tr("close"))
+        copy = buttons.addButton(tr("estimate_copy"), QDialogButtonBox.ActionRole)
+        copy.clicked.connect(lambda: (QApplication.clipboard().setText(est.csv()), self.status.setText(tr("estimate_copied"))))
+        rep = buttons.addButton(tr("report_save") + "…", QDialogButtonBox.ActionRole)
+        rep.clicked.connect(lambda: self.save_job_report())
+        buttons.rejected.connect(dlg.reject)
+        v.addWidget(buttons)
+        self._estimate_dialog = dlg
+        dlg.exec()
+
+    def write_job_report(self, path: str, file_path: str = "") -> str:
+        """The job report of the plate as a PDF at ``path`` (returns the path)."""
+        from PySide6.QtCore import QMarginsF, QUrl
+        from PySide6.QtGui import QImage, QPageLayout, QPageSize, QPdfWriter, QTextDocument
+        from .. import report
+        est = self.plate_estimate()
+        cfg = self.settings.config()
+        png = report.plate_picture_png(self.objects)
+        printer = self.settings.printer_combo.currentText() if hasattr(self.settings, "printer_combo") else cfg.get("printer_model", "")
+        material = self.settings.material_combo.currentText() if hasattr(self.settings, "material_combo") else ""
+        name = (self.objects[0].name if self.objects else "print") or "print"
+        doc = QTextDocument()
+        if png:
+            doc.addResource(QTextDocument.ImageResource, QUrl("plate.png"), QImage.fromData(png, "PNG"))
+        doc.setHtml(report.build_html(est, cfg, printer.replace("★", "").strip(), material.replace("★", "").strip(), name,
+                                      picture_src="plate.png" if png else "", file_path=file_path))
+        writer = QPdfWriter(path)
+        writer.setPageLayout(QPageLayout(QPageSize(QPageSize.A4), QPageLayout.Portrait, QMarginsF(12, 12, 12, 12),
+                                         QPageLayout.Millimeter))
+        writer.setResolution(110)
+        doc.setPageSize(writer.pageLayout().paintRectPixels(writer.resolution()).size().toSizeF())
+        doc.print_(writer)
+        return path
+
+    def save_job_report(self, path: str | None = None):
+        if not [o for o in self.objects if o.role != "cutter"]:
+            self.status.setText(tr("no_models"))
+            return None
+        if path is None:
+            from .. import export_library
+            name = export_library.safe_name((self.objects[0].name if self.objects else "print") or "print")
+            start = os.path.join(self.export_library(), name, name + " - report.pdf")
+            os.makedirs(os.path.dirname(start), exist_ok=True)
+            path, _ = QFileDialog.getSaveFileName(self, tr("report_save"), start, "PDF (*.pdf)")
+            if not path:
+                return None
+        try:
+            self.write_job_report(path)
+        except Exception as exc:              # a report must never break exporting
+            self.status.setText(tr("report_failed").format(exc))
+            return None
+        self.status.setText(tr("report_saved").format(path))
+        return path
+
+    def _report_with_export(self, print_path: str):
+        """After an export: the job report beside the print file (More › Save job report with each export)."""
+        if self.store.value("export_report", "true") != "true":
+            return
+        base = os.path.splitext(print_path)[0]
+        try:
+            self.write_job_report(base + " - report.pdf", file_path=print_path)
+        except Exception:
+            pass
+
     def export_library(self) -> str:
         """The central folder every print file is exported to (chosen in More › Export folder)."""
         from .. import export_library
@@ -4290,6 +4506,7 @@ class MainWindow(QMainWindow):
             except OSError as exc:
                 QMessageBox.critical(self, tr("export_error"), str(exc))
                 return
+            self._report_with_export(path)
             self.status.setText(tr("export_done").format(path))
             self._reveal(path)
             self._ask_print_feedback()
@@ -4302,6 +4519,7 @@ class MainWindow(QMainWindow):
                 return sla.export(job, cfg, path, base, lambda f: progress("export", f), cancelled)
 
             def done(p):
+                self._report_with_export(p if isinstance(p, str) and p else path)
                 self.status.setText(tr("export_done").format(p))
                 self._reveal(p if isinstance(p, str) and p else path)
                 self._ask_print_feedback()
