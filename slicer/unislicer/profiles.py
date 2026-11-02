@@ -81,7 +81,43 @@ def _user_path(kind: str) -> str:
 
 
 def builtin_ids(kind: str) -> set:
-    return set(_load(os.path.join(BUILTIN_DIR, f"{kind}.json")))
+    return set(_load(os.path.join(BUILTIN_DIR, f"{kind}.json"))) | set(_builtin_extras(kind))
+
+
+def builtin(kind: str, pid: str | None) -> dict | None:
+    """The shipped (original) profile, ignoring any user change saved under the same id."""
+    if not pid:
+        return None
+    prof = _load(os.path.join(BUILTIN_DIR, f"{kind}.json")).get(pid)
+    return prof if prof is not None else _builtin_extras(kind).get(pid)
+
+
+def profile_keys(kind: str, pid: str | None) -> set:
+    """Every setting a profile controls: its values plus, for resins, the keys of its per-printer layer table."""
+    keys: set = set()
+    for prof in (load(kind).get(pid or ""), builtin(kind, pid)):
+        if not prof:
+            continue
+        keys |= set(prof.get("values", {}))
+        for layers in prof.get("layer_table", {}).values():
+            for modes in layers.values():
+                for row in modes.values():
+                    keys |= set(row)
+    keys.discard("technology")
+    return keys
+
+
+def is_modified(kind: str, pid: str | None) -> bool:
+    """A shipped profile the user changed and saved under its own id."""
+    return bool(pid) and builtin(kind, pid) is not None and pid in _load(_user_path(kind))
+
+
+def restore_default(kind: str, pid: str | None) -> bool:
+    """Bring a shipped profile back to its original values (drops the user's saved changes). True if one was dropped."""
+    if not is_modified(kind, pid):
+        return False
+    delete_user_profile(kind, pid)
+    return True
 
 
 def new_id(kind: str, name: str) -> str:
@@ -103,8 +139,13 @@ def save_user_profile(kind: str, name: str, values: dict, technology: str, pid: 
     clean["technology"] = technology
     entry = {"name": name, "vendor": vendor or "User", "technology": technology, "values": clean}
     existing = load(kind).get(pid, {})
-    if existing.get("plates"):
-        entry["plates"] = existing["plates"]
+    for k, v in existing.items():      # keep what the editor does not show (plates, per-printer layer table, links)
+        if k not in entry and k not in ("user", "user_keys") and not k.startswith("name"):
+            entry[k] = v
+    if entry.get("layer_table"):
+        # the per-printer table normally sets exposure and motion; values the user changed from the original win
+        orig = (builtin(kind, pid) or {}).get("values", {})
+        entry["user_keys"] = sorted(k for k, v in clean.items() if k != "technology" and orig.get(k) != v)
     data[pid] = entry
     with open(_user_path(kind), "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, ensure_ascii=False)
@@ -174,7 +215,7 @@ def apply_layer_table(cfg: Config, printer: str | None, material: str | None, ov
     key = min(table, key=lambda k: abs(float(k) - want))
     modes = table[key]
     row = modes.get(cfg["exposure_mode"]) or modes.get("stable") or next(iter(modes.values()))
-    keep = set(overrides or {})
+    keep = set(overrides or {}) | set(prof.get("user_keys", []))
     cfg.update({k: v for k, v in row.items() if k not in keep and k != "sla_layer_height"})
     cfg.values["sla_layer_height"] = want if "sla_layer_height" in keep or abs(float(key) - want) > 1e-6 else float(key)
     return cfg

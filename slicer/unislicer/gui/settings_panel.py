@@ -363,6 +363,17 @@ class SettingsPanel(QWidget):
                 lib.setCursor(Qt.PointingHandCursor)
                 lib.clicked.connect(lambda _=False, k=key: self.open_library("printers" if k == "printer" else "materials"))
                 row.addWidget(lib)
+            if key == "material":
+                # back to the resin's original settings: drops edits in the panel and changes saved over the profile
+                self.material_default_btn = QToolButton()
+                self.material_default_btn.setObjectName("MaterialDefault")
+                self.material_default_btn.setText(tr("material_default"))
+                self.material_default_btn.setIcon(theme.icon("reset", theme.TEXT_DIM, 16))
+                self.material_default_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+                self.material_default_btn.setToolTip(tr("material_default_tip"))
+                self.material_default_btn.setCursor(Qt.PointingHandCursor)
+                self.material_default_btn.clicked.connect(self.ask_material_default)
+                row.addWidget(self.material_default_btn)
             if key == "printer":
                 # favorites: star the printers you use; the filter switches between favorites and all printers
                 self.fav_btn = QToolButton()
@@ -432,6 +443,8 @@ class SettingsPanel(QWidget):
         self._fill_dependent()
         self._default_plate()
         self.rebuild()
+        self.changed.connect(self._update_material_default)
+        self._update_material_default()
 
     # -------------------------------------------------------------- profiles
     def _profile_combo(self):
@@ -773,6 +786,47 @@ class SettingsPanel(QWidget):
         self._drop_overrides_for("materials", self.material_id)
         self.rebuild()
         self.changed.emit()
+
+    def material_changed_keys(self) -> list:
+        """Settings of the chosen resin that differ from its original profile (panel edits or saved changes)."""
+        if not self.material_id:
+            return []
+        keys = profiles.profile_keys("materials", self.material_id)
+        changed = sorted(k for k in keys if k in self.overrides)
+        if profiles.is_modified("materials", self.material_id):
+            changed.append("profile")
+        return changed
+
+    def ask_material_default(self):
+        if not self.material_id:
+            return
+        name = self.material_combo.currentText().strip()
+        if not self.material_changed_keys():
+            QMessageBox.information(self, tr("material_default"), tr("material_default_none").format(name))
+            return
+        if QMessageBox.question(self, tr("material_default"), tr("material_default_q").format(name)) == QMessageBox.Yes:
+            self.restore_material_default()
+
+    def restore_material_default(self):
+        """Put the chosen resin back on its original values."""
+        if not self.material_id:
+            return
+        keys = profiles.profile_keys("materials", self.material_id)
+        restored = profiles.restore_default("materials", self.material_id)
+        for k in keys:
+            self.overrides.pop(k, None)
+        if restored:
+            self._fill_dependent()
+        self.rebuild()
+        self._update_material_default()
+        self.changed.emit()
+
+    def _update_material_default(self):
+        btn = getattr(self, "material_default_btn", None)
+        if btn is not None:
+            btn.setProperty("pending", bool(self.material_changed_keys()))
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
 
     def _on_quality(self, index):
         if self._building or index < 0:

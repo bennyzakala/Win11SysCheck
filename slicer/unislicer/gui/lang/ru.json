@@ -1226,5 +1226,9 @@
 "Detail (25 µm)": "Детально (25 мкм)",
 "{} models touch each other": "Моделей касаются друг друга: {}",
 "Fix all": "Исправить всё",
-"Applies every fix in the list and slices once to check": "Применяет все исправления из списка и нарезает один раз для проверки"
+"Applies every fix in the list and slices once to check": "Применяет все исправления из списка и нарезает один раз для проверки",
+"Default": "По умолчанию",
+"Put this resin profile back on its original settings": "Вернуть профилю смолы исходные настройки",
+"Put \"{}\" back on its original settings? Your changes to this resin's settings will be dropped.": "Вернуть «{}» исходные настройки? Ваши изменения настроек этой смолы будут удалены.",
+"\"{}\" is already on its original settings.": "«{}» уже использует исходные настройки."
 }

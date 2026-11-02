@@ -1226,5 +1226,9 @@
 "Detail (25 µm)": "تفصيلي (25 ميكرون)",
 "{} models touch each other": "{} نماذج تتلامس",
 "Fix all": "إصلاح الكل",
-"Applies every fix in the list and slices once to check": "يطبّق كل الإصلاحات في القائمة ويقطّع مرة واحدة للتحقق"
+"Applies every fix in the list and slices once to check": "يطبّق كل الإصلاحات في القائمة ويقطّع مرة واحدة للتحقق",
+"Default": "الافتراضي",
+"Put this resin profile back on its original settings": "إعادة ملف الراتنج إلى إعداداته الأصلية",
+"Put \"{}\" back on its original settings? Your changes to this resin's settings will be dropped.": "هل تريد إعادة «{}» إلى إعداداته الأصلية؟ سيتم حذف تغييراتك على إعدادات هذا الراتنج.",
+"\"{}\" is already on its original settings.": "«{}» يستخدم إعداداته الأصلية بالفعل."
 }

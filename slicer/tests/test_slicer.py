@@ -3640,3 +3640,50 @@ def test_fix_keeps_the_check_list_and_fix_all_slices_once():
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_resin_default_button_restores_original(tmp_path, monkeypatch):
+    """'Default' next to the resin puts it back on its shipped values: panel edits and changes saved over the profile go,
+    and a saved change keeps the per-printer layer table."""
+    import subprocess, sys, textwrap
+    monkeypatch.setattr(profiles, "USER_DIR", str(tmp_path))
+    wdm = "phrozen_ds_phrozen_dental_washable_dental_model"
+    orig = profiles.build_config("phrozen_sonic_cs_plus", wdm)["exposure_time"]
+    assert wdm in profiles.builtin_ids("materials") and not profiles.is_modified("materials", wdm)
+    assert {"exposure_time", "lift_speed"} <= profiles.profile_keys("materials", wdm)
+    profiles.save_user_profile("materials", "WDM tweak", {"bottom_exposure_time": 40.0}, "sla", pid=wdm, vendor="Phrozen")
+    assert profiles.is_modified("materials", wdm)
+    assert profiles.load("materials")[wdm]["layer_table"]        # saving does not lose the table
+    assert profiles.build_config("phrozen_sonic_cs_plus", wdm)["bottom_exposure_time"] == 40.0
+    assert profiles.restore_default("materials", wdm) and not profiles.is_modified("materials", wdm)
+    assert profiles.build_config("phrozen_sonic_cs_plus", wdm)["exposure_time"] == orig
+    assert not profiles.restore_default("materials", wdm)
+
+    code = textwrap.dedent(f'''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import profiles
+        from unislicer.gui.settings_panel import SettingsPanel
+        wdm = "{wdm}"
+        profiles.save_user_profile("materials", "WDM tweak", {{"bottom_exposure_time": 40.0}}, "sla", pid=wdm, vendor="Phrozen")
+        p = SettingsPanel("phrozen_sonic_cs_plus", wdm, None, {{}}, False)
+        assert p.material_id == wdm and p.config()["bottom_exposure_time"] == 40.0
+        p.set_value("exposure_time", 9.9)
+        p.set_value("infill_density", 33)                   # not a resin setting: stays
+        assert "exposure_time" in p.material_changed_keys() and "profile" in p.material_changed_keys()
+        assert p.material_default_btn.property("pending")
+        p.restore_material_default()
+        assert not profiles.is_modified("materials", wdm)
+        assert p.config()["exposure_time"] == {orig!r} and "exposure_time" not in p.overrides
+        assert p.config()["bottom_exposure_time"] != 40.0 and p.overrides.get("infill_density") == 33
+        assert p.material_changed_keys() == [] and not p.material_default_btn.property("pending")
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    os.makedirs(_home, exist_ok=True)
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
