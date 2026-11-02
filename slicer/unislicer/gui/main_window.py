@@ -61,6 +61,44 @@ def _spin(lo, hi, step, decimals, suffix="", width=72) -> QDoubleSpinBox:
     return s
 
 
+class BarGrip(QLabel):
+    """Handle that drags its floating bar around inside the bar's parent; double-click puts it back by the model."""
+
+    def __init__(self, bar, moved, reset):
+        super().__init__()
+        self._bar, self._moved, self._reset = bar, moved, reset
+        self._grab = None
+        self.setPixmap(theme.icon("grip", theme.TEXT_DIM, 18).pixmap(18, 18))
+        self.setCursor(Qt.SizeAllCursor)
+        self.setToolTip(tr("bar_drag_tip"))
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self._grab = e.globalPosition().toPoint() - self._bar.pos()
+            e.accept()
+
+    def mouseMoveEvent(self, e):
+        if self._grab is None:
+            return
+        holder = self._bar.parentWidget()
+        p = e.globalPosition().toPoint() - self._grab
+        x = min(max(0, p.x()), max(0, holder.width() - self._bar.width()))
+        y = min(max(0, p.y()), max(0, holder.height() - self._bar.height()))
+        self._bar.move(x, y)
+        e.accept()
+
+    def mouseReleaseEvent(self, e):
+        if self._grab is not None:
+            self._grab = None
+            self._moved(self._bar.pos())
+            e.accept()
+
+    def mouseDoubleClickEvent(self, e):
+        self._grab = None
+        self._reset()
+        e.accept()
+
+
 class StatTile(QFrame):
     def __init__(self, icon_name: str, caption: str, parent=None):
         super().__init__(parent)
@@ -2533,6 +2571,9 @@ class MainWindow(QMainWindow):
         lay = QHBoxLayout(bar)
         lay.setContentsMargins(6, 4, 6, 4)
         lay.setSpacing(2)
+        # drag the bar anywhere by its handle; it then opens where you left it (double-click: back by the model)
+        self.edit_grip = BarGrip(bar, self._edit_bar_moved, self._edit_bar_reset)
+        lay.addWidget(self.edit_grip)
         self.edit_title = QLabel("")
         self.edit_title.setObjectName("Dim")
         self.edit_title.setMaximumWidth(150)
@@ -2594,6 +2635,22 @@ class MainWindow(QMainWindow):
         menu.addAction(theme.icon("flat"), tr("lay_flat"), self.lay_flat)
         menu.addAction(theme.icon("reset"), tr("reset_transform"), self.reset_transform)
 
+    def _edit_bar_place(self):
+        """Where the user dragged the edit bar to (None: it opens next to the clicked model)."""
+        try:
+            x, y = (int(v) for v in str(self.store.value("edit_bar_pos", "") or "").split(","))
+            return x, y
+        except (TypeError, ValueError):
+            return None
+
+    def _edit_bar_moved(self, pos):
+        self.store.setValue("edit_bar_pos", f"{pos.x()},{pos.y()}")
+
+    def _edit_bar_reset(self):
+        self.store.remove("edit_bar_pos")
+        if self.edit_bar.isVisible():
+            self._show_edit_bar()
+
     def _show_edit_bar(self):
         group = self.selected_objects()
         if not group or self.viewer.mode != "prepare" or self.viewer.tool != "move" or self.viewer.pick_mode:
@@ -2604,12 +2661,18 @@ class MainWindow(QMainWindow):
         self.edit_sup_btn.setVisible(sla_supports_on)
         self.edit_bar.adjustSize()
         holder = self.edit_bar.parentWidget()
-        p = self.viewer.mapTo(holder, self.viewer.last_click.toPoint())
-        x = min(max(8, p.x() - self.edit_bar.width() // 2), holder.width() - self.edit_bar.width() - 8)
-        y = p.y() - self.edit_bar.height() - 24
-        if y < 70:
-            y = p.y() + 28
-        self.edit_bar.move(x, min(y, holder.height() - self.edit_bar.height() - 8))
+        placed = self._edit_bar_place()
+        if placed is not None:                # the user moved it: keep it there (inside the view)
+            x = min(max(0, placed[0]), max(0, holder.width() - self.edit_bar.width()))
+            y = min(max(0, placed[1]), max(0, holder.height() - self.edit_bar.height()))
+            self.edit_bar.move(x, y)
+        else:
+            p = self.viewer.mapTo(holder, self.viewer.last_click.toPoint())
+            x = min(max(8, p.x() - self.edit_bar.width() // 2), holder.width() - self.edit_bar.width() - 8)
+            y = p.y() - self.edit_bar.height() - 24
+            if y < 70:
+                y = p.y() + 28
+            self.edit_bar.move(x, min(y, holder.height() - self.edit_bar.height() - 8))
         self.edit_bar.show()
         self.edit_bar.raise_()
 

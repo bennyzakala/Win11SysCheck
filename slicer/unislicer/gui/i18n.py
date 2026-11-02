@@ -220,6 +220,8 @@ STRINGS = {
     "apply_setting_tip": ("שומר את ההגדרה הזו בלבד ומבצע אותה על המודל (תמיכות, Raft, סידור, חיתוך)", "Save only this setting and carry it out on the model (supports, raft, layout, slice)"),
     "reset_all": ("אפס את כל השינויים", "Reset all changes"),
     "material_default": ("ברירת מחדל", "Default"),
+    "bar_drag_tip": ("גרור כדי להזיז את הסרגל. לחיצה כפולה מחזירה אותו ליד המודל",
+                     "Drag to move the bar. Double-click puts it back next to the model"),
     "mode_tip": ("מצב השרף: יציב או מהיר. קובע את זמני החשיפה ומהירויות התנועה מטבלת היצרן לפי המדפסת ועובי השכבה",
                  "Resin mode: Stable or Fast. Sets exposure and motion from the maker's table for this printer and layer height"),
     "mode_no_table": ("לשרף הזה אין טבלת יצרן למדפסת הזו, ולכן למצב אין השפעה",

@@ -3703,3 +3703,49 @@ def test_resin_default_button_restores_original(tmp_path, monkeypatch):
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_floating_edit_bar_can_be_dragged_and_stays_there(tmp_path):
+    import subprocess, sys, textwrap
+    code = textwrap.dedent("""
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import QPoint, QPointF, Qt, QEvent
+        from PySide6.QtGui import QMouseEvent
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        o = w.add_mesh(primitives.box(10, 10, 10))
+        w.select(o.uid) if hasattr(w, "select") else None
+        w.viewer.selection = {o.uid} if hasattr(w.viewer, "selection") else None
+        w.selected_objects = lambda: [o]
+        w._show_edit_bar(); app.processEvents()
+        bar, grip = w.edit_bar, w.edit_grip
+        assert bar.isVisible()
+        start = bar.pos()
+
+        def send(kind, gpos, buttons):
+            local = QPointF(grip.mapFromGlobal(gpos))
+            ev = QMouseEvent(kind, local, QPointF(gpos), Qt.LeftButton, buttons, Qt.NoModifier)
+            QApplication.sendEvent(grip, ev)
+
+        g0 = grip.mapToGlobal(QPoint(5, 5))
+        send(QEvent.MouseButtonPress, g0, Qt.LeftButton)
+        send(QEvent.MouseMove, g0 + QPoint(0, 90), Qt.LeftButton)
+        send(QEvent.MouseButtonRelease, g0 + QPoint(0, 90), Qt.NoButton)
+        moved = bar.pos()
+        assert moved != start and moved == start + QPoint(0, 90), (start, moved)
+        assert w._edit_bar_place() == (moved.x(), moved.y())
+        bar.hide(); w._show_edit_bar(); app.processEvents()
+        assert bar.pos() == moved                          # opens where it was left
+        w._edit_bar_reset()
+        assert w._edit_bar_place() is None
+        print("ok")
+    """)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path)
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
