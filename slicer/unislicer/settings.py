@@ -262,6 +262,9 @@ SCHEMA: list[Setting] = [
     S("sla_internal_spacing", "float", 6.0, "support", "sla", "מרווח תמיכות פנימיות", "Internal support spacing", "mm", 2, 30, 0.5, advanced=True),
 
     # ------------------------------------------------------------- hollowing
+    S("sla_thicken_thin", "bool", False, "hollow", "sla", "עבה חלקים דקים (מינימום 0.3 מ״מ)", "Thicken thin features (min 0.3 mm)",
+      tip_he="חלקים צרים מ-0.3 מ״מ מתעבים מעט כדי שיודפסו; שאר המודל לא משתנה",
+      tip_en="Parts narrower than 0.3 mm grow a little so they print; the rest of the model is unchanged"),
     S("hollow_enable", "bool", False, "hollow", "sla", "חלול את המודל", "Hollow the model",
       tip_he="חוסך שרף ומפחית כוחות יניקה. מומלץ להוסיף חורי ניקוז", tip_en="Saves resin and reduces suction; add drain holes"),
     S("hollow_wall", "float", 2.0, "hollow", "sla", "עובי דופן", "Wall thickness", "mm", 0.5, 20, 0.1),

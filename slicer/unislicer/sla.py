@@ -201,6 +201,22 @@ def _thin_chunk(layers: list, r: float) -> list:
     return out
 
 
+def _thicken_chunk(layers: list, r: float) -> list:
+    """Grow only the parts narrower than 2r (they would not form) by r/2 on each side; the rest is untouched."""
+    out = []
+    for g in layers:
+        if g.is_empty:
+            out.append(g)
+            continue
+        thin = g.difference(g.buffer(-r).buffer(r).buffer(0.01))
+        if thin.is_empty or thin.area < 1e-4:
+            out.append(g)
+            continue
+        # square corners: rounded tips left slivers that still read as thin
+        out.append(as_multipolygon(g.union(thin.buffer(r, join_style="mitre", mitre_limit=2.0))))
+    return out
+
+
 def _fill_chunk(cavities: list, vented_flags: list, full, vented) -> list:
     shapely.prepare(full)
     shapely.prepare(vented)
@@ -770,6 +786,13 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         cut_layers = slice_meshes(cutter_meshes, planes, cfg["resolution"])
         layers = [as_multipolygon(g.difference(c)) if not c.is_empty and not g.is_empty else g
                   for g, c in zip(layers, cut_layers)]
+    if cfg["sla_thicken_thin"]:
+        if hollowing and infill:              # thicken the model, never the honeycomb walls inside it
+            shell_only = _per_layer(_minus_chunk, list(zip(layers, infill)))
+            thick = _per_layer(_thicken_chunk, shell_only, 0.15)
+            layers = _per_layer(_union_chunk, list(zip(thick, infill)))
+        else:
+            layers = _per_layer(_thicken_chunk, layers, 0.15)
     # thin features of the model itself: the internal infill walls are thin on purpose and sit inside
     shell = layers
     if hollowing and infill:

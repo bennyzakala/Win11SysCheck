@@ -1212,5 +1212,10 @@
 "This computer is not linked to your Google account yet. Open Remote control to link it?": "Этот компьютер ещё не привязан к аккаунту Google. Открыть удалённое управление?",
 "Learning synced with {} other computers": "Обучение синхронизировано с другими компьютерами: {}",
 "Sync failed: {}": "Ошибка синхронизации: {}",
-"Learning stays on this computer; sharing between your computers goes only through your own Firebase, under your account.": "Обучение хранится на этом компьютере; обмен между вашими компьютерами идёт только через ваш Firebase, под вашим аккаунтом."
+"Learning stays on this computer; sharing between your computers goes only through your own Firebase, under your account.": "Обучение хранится на этом компьютере; обмен между вашими компьютерами идёт только через ваш Firebase, под вашим аккаунтом.",
+"Fix": "Исправить",
+"Applies the fix and slices again to check": "Применяет исправление и нарезает заново для проверки",
+"Fixing and slicing again to check…": "Исправление и повторная нарезка для проверки…",
+"Thicken thin features (min 0.3 mm)": "Утолщать тонкие элементы (мин. 0,3 мм)",
+"Parts narrower than 0.3 mm grow a little so they print; the rest of the model is unchanged": "Детали тоньше 0,3 мм немного утолщаются, чтобы напечататься; остальная модель не меняется"
 }

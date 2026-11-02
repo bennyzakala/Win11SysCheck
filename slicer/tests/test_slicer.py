@@ -3459,3 +3459,61 @@ def test_window_syncs_learning_with_a_linked_computer():
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_thicken_thin_features_only_grows_the_thin_parts():
+    from shapely.geometry import box
+    from unislicer import mesh_tools, profiles, sla
+    from unislicer.mesh import Mesh
+    part = Mesh.merge([mesh_tools.extrude(box(0, 0, 10, 10), 0, 6), mesh_tools.extrude(box(10, 4, 20, 4.2), 0, 6)], "fin")
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": False, "sla_layer_height": 0.1})
+    plain = sla.prepare([part.translated([60, 60, 0])], cfg)
+    assert plain.thin_layers                                            # a 0.2 mm fin
+    thick = sla.prepare([part.translated([60, 60, 0])], cfg.copy().update({"sla_thicken_thin": True}))
+    assert len(thick.thin_layers) < len(plain.thin_layers) * 0.2
+    mid = len(thick.layers) // 2
+    block = box(60.5, 60.5, 69.5, 69.5)
+    assert abs(thick.layers[mid].intersection(block).area - plain.layers[mid].intersection(block).area) < 1e-6   # body untouched
+    fin = box(72, 63, 78, 65.5)
+    assert thick.layers[mid].intersection(fin).area > plain.layers[mid].intersection(fin).area * 1.3
+
+
+def test_print_check_rows_have_fix_buttons():
+    import subprocess, sys, textwrap
+    code = textwrap.dedent("""
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus"); app.processEvents()
+        w.settings.set_value("support_enable", False)
+        w.settings.set_value("hollow_enable", True); w.settings.set_value("drain_holes", 0)
+        o = w.add_mesh(primitives.box(30, 20, 15)); o.direct = True
+        settle = time.time() + 1.0
+        while time.time() < settle:
+            app.processEvents(); time.sleep(0.01)
+        w.slice()
+        end = time.time() + 120
+        while (w.result is None or (w.task is not None and w.task.isRunning())) and time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        assert w.warn_box.isVisible() or not w.warn_box.isHidden()
+        texts = [t for t, _b in w.check_fix_buttons]
+        assert texts, "no fix buttons"
+        called = []
+        w.slice = lambda: called.append(1)
+        btn = next(b for t, b in w.check_fix_buttons if "drain" in t.lower() or "ניקוז" in t or "cup" in t.lower() or "יניקה" in t)
+        btn.click()
+        end = time.time() + 5
+        while not called and time.time() < end:
+            app.processEvents(); time.sleep(0.02)
+        assert called, texts
+        print("ok")
+    """)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

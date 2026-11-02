@@ -1017,11 +1017,18 @@ class MainWindow(QMainWindow):
         stats.addWidget(self.stat_weight, 1, 0)
         stats.addWidget(self.stat_cost, 1, 1)
         al.addLayout(stats)
-        self.warn_label = QLabel("")
+        self.warn_label = QLabel("")             # kept as the plain text of the checks (not shown)
         self.warn_label.setObjectName("Warning")
         self.warn_label.setWordWrap(True)
         self.warn_label.hide()
         al.addWidget(self.warn_label)
+        # the print check: one row per result, a Fix button next to every problem that has one
+        self.warn_box = QWidget()
+        self.warn_rows = QVBoxLayout(self.warn_box)
+        self.warn_rows.setContentsMargins(0, 0, 0, 0)
+        self.warn_rows.setSpacing(3)
+        self.warn_box.hide()
+        al.addWidget(self.warn_box)
         self.cup_fix_btn = QPushButton(tr("cup_fix"))
         self.cup_fix_btn.setObjectName("Primary")
         self.cup_fix_btn.setIcon(theme.icon("sparkle", theme.ON_ACCENT, 16))
@@ -3744,6 +3751,7 @@ class MainWindow(QMainWindow):
         for tile in (self.stat_time, self.stat_material, self.stat_weight, self.stat_cost):
             tile.set("—")
         self.warn_label.hide()
+        self.warn_box.hide()
         self.cup_fix_btn.hide()
         if had:
             self.status.setText(tr("dirty"))
@@ -3952,7 +3960,7 @@ class MainWindow(QMainWindow):
                 return f'<div style="color:{color}">{text}</div>'
             self.warn_label.setTextFormat(Qt.RichText)
             self.warn_label.setText("".join(line(w) for w in warnings))
-            self.warn_label.show()
+            self._show_check_rows(warnings, result)
         self.layer_slider.blockSignals(True)
         self.layer_slider.setRange(0, max(0, n - 1))
         self.layer_slider.setValue(n - 1)
@@ -4034,6 +4042,90 @@ class MainWindow(QMainWindow):
             qimg = QImage(img.tobytes(), img.width, img.height, img.width * 3, QImage.Format_RGB888).copy()
             pm = QPixmap.fromImage(qimg).scaled(self.mask_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.mask_label.setPixmap(pm)
+
+    def _check_fix(self, text: str, result):
+        """The action that fixes one print-check line, or None."""
+        cfg = result[2] if result and result[0] == "sla" else None
+        if text.startswith(("✓", "▸")):
+            return None
+        if cfg is not None:
+            job = result[1]
+            if job.islands and text == tr("check_islands").format(len(job.islands), self._layers_text(job.island_layers)):
+                return self.support_all_islands
+            if job.cups and text.startswith(tr("check_cups").split("{")[0]):
+                return self.fix_cups_now
+            if job.thin_layers and text.startswith(tr("check_thin").split("{")[0]):
+                return lambda: self._fix_setting("sla_thicken_thin", True)
+            if text == tr("note_no_drain"):
+                return lambda: self._fix_setting("drain_holes", 2)
+            if text == tr("note_too_thin"):
+                return lambda: (self.settings.set_value("hollow_infill", "none"), self._fix_setting("hollow_enable", False))
+        if "watertight" in text:
+            return self._repair_all
+        return None
+
+    @staticmethod
+    def _layers_text(idx) -> str:
+        idx = sorted(set(idx))
+        return ", ".join(str(i + 1) for i in idx[:6]) + ("…" if len(idx) > 6 else "")
+
+    def _show_check_rows(self, warnings, result):
+        while self.warn_rows.count():
+            item = self.warn_rows.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        self.check_fix_buttons = []
+        for w in warnings:
+            color = theme.SUCCESS if w.startswith("✓") else theme.TEXT_DIM if w.startswith("▸") else theme.WARNING
+            row = QWidget()
+            h = QHBoxLayout(row)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(6)
+            lab = QLabel(w if w.startswith(("✓", "▸")) else "⚠ " + w)
+            lab.setWordWrap(True)
+            lab.setStyleSheet(f"color: {color};")
+            h.addWidget(lab, 1)
+            fix = self._check_fix(w, result)
+            if fix is not None:
+                btn = QPushButton(tr("check_fix"))
+                btn.setObjectName("RowApply")
+                btn.setProperty("pending", "true")
+                btn.setCursor(Qt.PointingHandCursor)
+                btn.setToolTip(tr("check_fix_tip"))
+                btn.clicked.connect(lambda _c=False, f=fix: f())
+                h.addWidget(btn, 0, Qt.AlignTop)
+                self.check_fix_buttons.append((w, btn))
+            self.warn_rows.addWidget(row)
+        self.warn_box.show()
+
+    def _fix_setting(self, key, value):
+        """A fix that is a setting: change it, then slice again to check."""
+        self.settings.set_value(key, value)
+        self.status.setText(tr("check_fixing"))
+        QTimer.singleShot(400, self.slice)
+
+    def fix_cups_now(self):
+        """Print check > Fix next to the suction cups: vent holes, sliced again (more rounds if needed)."""
+        if self.result is None or self.result[0] != "sla":
+            return
+        job, cfg = self.result[1], self.result[2]
+        owners = self._cup_owners(job, cfg)
+        if not owners:
+            self._cup_no_vent_dialog(job)
+            return
+        self._push_undo()
+        for o, v, lift in owners:
+            for row in sla.vent_hole_rows(v, cfg, lift):
+                o.add_world_drain_hole(row[:3], row[3:], 0.0)
+        self._objects_changed(refresh_list=False)
+        self.status.setText(tr("cup_vents_added").format(len(owners)))
+        self._cup_fix_pending = len(owners)
+        QTimer.singleShot(400, self.slice)
+
+    def _repair_all(self):
+        self.select_all()
+        self.repair_selected()
+        QTimer.singleShot(400, self.slice)
 
     @staticmethod
     def _print_checks(job) -> list[str]:

@@ -1212,5 +1212,10 @@
 "This computer is not linked to your Google account yet. Open Remote control to link it?": "هذا الحاسوب غير مرتبط بحساب Google بعد. فتح التحكم عن بُعد لربطه؟",
 "Learning synced with {} other computers": "تمت مزامنة التعلّم مع {} حواسيب أخرى",
 "Sync failed: {}": "فشلت المزامنة: {}",
-"Learning stays on this computer; sharing between your computers goes only through your own Firebase, under your account.": "يبقى التعلّم على هذا الحاسوب؛ المشاركة بين حواسيبك تمر فقط عبر Firebase الخاص بك، تحت حسابك."
+"Learning stays on this computer; sharing between your computers goes only through your own Firebase, under your account.": "يبقى التعلّم على هذا الحاسوب؛ المشاركة بين حواسيبك تمر فقط عبر Firebase الخاص بك، تحت حسابك.",
+"Fix": "إصلاح",
+"Applies the fix and slices again to check": "يطبّق الإصلاح ويعيد التقطيع للتحقق",
+"Fixing and slicing again to check…": "جارٍ الإصلاح وإعادة التقطيع للتحقق…",
+"Thicken thin features (min 0.3 mm)": "تثخين الأجزاء الرفيعة (0.3 مم على الأقل)",
+"Parts narrower than 0.3 mm grow a little so they print; the rest of the model is unchanged": "الأجزاء الأرفع من 0.3 مم تُثخَّن قليلًا لتُطبع؛ بقية النموذج لا تتغير"
 }
