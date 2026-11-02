@@ -1201,5 +1201,16 @@
 "Layer up / down in the preview": "طبقة للأعلى / للأسفل في المعاينة",
 "Hide / show the left / right panel": "إخفاء / إظهار اللوحة اليسرى / اليمنى",
 "Cancel the active tool": "إلغاء الأداة النشطة",
-"<b>UniSlicer {}</b><br>Slicer for resin, filament and PolyJet<br>Dental labs · Prodentix<br><br>Everything stays on your computer.": "<b>UniSlicer {}</b><br>برنامج تقطيع للراتنج والخيوط وPolyJet<br>مختبرات الأسنان · Prodentix<br><br>كل البيانات تبقى على حاسوبك."
+"<b>UniSlicer {}</b><br>Slicer for resin, filament and PolyJet<br>Dental labs · Prodentix<br><br>Everything stays on your computer.": "<b>UniSlicer {}</b><br>برنامج تقطيع للراتنج والخيوط وPolyJet<br>مختبرات الأسنان · Prodentix<br><br>كل البيانات تبقى على حاسوبك.",
+"Share learning with all my computers (every 15 min)": "مشاركة التعلّم مع كل حواسيبي (كل 15 دقيقة)",
+"Through your Firebase project, under the Google account this computer is linked to in Remote control. Each computer uploads what it learned and takes in what the others learned": "عبر مشروع Firebase الخاص بك، تحت حساب Google المرتبط به هذا الحاسوب في التحكم عن بُعد. يرفع كل حاسوب ما تعلّمه ويأخذ ما تعلّمته الحواسيب الأخرى",
+"Sync now": "مزامنة الآن",
+"Sharing is off": "المشاركة متوقفة",
+"Not synced yet": "لم تتم المزامنة بعد",
+"Synced at {} · {} other computers": "تمت المزامنة في {} · {} حواسيب أخرى",
+"To share learning, link this computer to your Google account (Remote control)": "لمشاركة التعلّم، اربط هذا الحاسوب بحساب Google (التحكم عن بُعد)",
+"This computer is not linked to your Google account yet. Open Remote control to link it?": "هذا الحاسوب غير مرتبط بحساب Google بعد. فتح التحكم عن بُعد لربطه؟",
+"Learning synced with {} other computers": "تمت مزامنة التعلّم مع {} حواسيب أخرى",
+"Sync failed: {}": "فشلت المزامنة: {}",
+"Learning stays on this computer; sharing between your computers goes only through your own Firebase, under your account.": "يبقى التعلّم على هذا الحاسوب؛ المشاركة بين حواسيبك تمر فقط عبر Firebase الخاص بك، تحت حسابك."
 }

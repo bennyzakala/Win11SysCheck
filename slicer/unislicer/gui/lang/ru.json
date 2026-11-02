@@ -1201,5 +1201,16 @@
 "Layer up / down in the preview": "Слой вверх / вниз в предпросмотре",
 "Hide / show the left / right panel": "Скрыть / показать левую / правую панель",
 "Cancel the active tool": "Отменить активный инструмент",
-"<b>UniSlicer {}</b><br>Slicer for resin, filament and PolyJet<br>Dental labs · Prodentix<br><br>Everything stays on your computer.": "<b>UniSlicer {}</b><br>Слайсер для смолы, филамента и PolyJet<br>Зуботехнические лаборатории · Prodentix<br><br>Все данные остаются на вашем компьютере."
+"<b>UniSlicer {}</b><br>Slicer for resin, filament and PolyJet<br>Dental labs · Prodentix<br><br>Everything stays on your computer.": "<b>UniSlicer {}</b><br>Слайсер для смолы, филамента и PolyJet<br>Зуботехнические лаборатории · Prodentix<br><br>Все данные остаются на вашем компьютере.",
+"Share learning with all my computers (every 15 min)": "Делиться обучением со всеми моими компьютерами (каждые 15 мин)",
+"Through your Firebase project, under the Google account this computer is linked to in Remote control. Each computer uploads what it learned and takes in what the others learned": "Через ваш проект Firebase, под аккаунтом Google, к которому привязан этот компьютер в удалённом управлении. Каждый компьютер отправляет то, чему научился, и получает то, чему научились другие",
+"Sync now": "Синхронизировать",
+"Sharing is off": "Обмен выключен",
+"Not synced yet": "Ещё не синхронизировано",
+"Synced at {} · {} other computers": "Синхронизировано в {} · других компьютеров: {}",
+"To share learning, link this computer to your Google account (Remote control)": "Чтобы делиться обучением, привяжите компьютер к аккаунту Google (удалённое управление)",
+"This computer is not linked to your Google account yet. Open Remote control to link it?": "Этот компьютер ещё не привязан к аккаунту Google. Открыть удалённое управление?",
+"Learning synced with {} other computers": "Обучение синхронизировано с другими компьютерами: {}",
+"Sync failed: {}": "Ошибка синхронизации: {}",
+"Learning stays on this computer; sharing between your computers goes only through your own Firebase, under your account.": "Обучение хранится на этом компьютере; обмен между вашими компьютерами идёт только через ваш Firebase, под вашим аккаунтом."
 }

@@ -444,6 +444,30 @@ class Agent:
         fb.stream(f"agents/{fb.uid}/commands", self._on_commands, self._session)
         status.join(5.0)
 
+    # ---- shared learning
+    def sync_learning(self, snapshot_text: str) -> list[dict]:
+        """Upload this computer's learning (JSON text) under the owner's account and return the other linked
+        computers' snapshots (dicts, newest first). Only while linked to a Google account."""
+        fb, owner = self.fb, self.st.get("owner")
+        if fb is None or not owner or self.state != "linked":
+            raise RemoteError("not_linked")
+        base = f"teams/{owner}/learning"
+        fb.put(f"{base}/{fb.uid}", {"data": snapshot_text, "at": SERVER_TIME, "name": self.name})
+        rows = fb.get(base) or {}
+        out = []
+        for uid, row in (rows.items() if isinstance(rows, dict) else []):
+            if uid == fb.uid or not isinstance(row, dict) or not isinstance(row.get("data"), str):
+                continue
+            try:
+                data = json.loads(row["data"])
+            except ValueError:
+                continue
+            if isinstance(data, dict):
+                data["_from"] = {"uid": uid, "name": str(row.get("name", "")), "at": row.get("at", 0)}
+                out.append(data)
+        out.sort(key=lambda d: -float(d["_from"].get("at") or 0))
+        return out
+
     # ---- printers
     def publish_status(self):
         fb = self.fb

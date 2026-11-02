@@ -258,6 +258,7 @@ class Assistant:
         if not self.enabled or not template:
             return False
         lay = self.data["layout"]
+        template = dict(template, taught_at=time.time())       # the newest taught layout wins when computers share
         lay["taught"] = template
         lay["taught_count"] = int(lay.get("taught_count", 0)) + 1
         self.save()

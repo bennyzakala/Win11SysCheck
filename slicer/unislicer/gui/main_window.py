@@ -863,6 +863,8 @@ class MainWindow(QMainWindow):
         self.assistant_panel.resetRequested.connect(self._on_learning_reset)
         self.assistant_panel.learnLayoutRequested.connect(self.learn_layout_now)
         self.assistant_panel.exportRequested.connect(self.export_learning)
+        self.assistant_panel.shareToggled.connect(self._on_share_toggled)
+        self.assistant_panel.syncRequested.connect(lambda: self.sync_learning(manual=True))
         self.assistant_panel.importRequested.connect(self.import_learning)
         self.assistant_panel.autoRepairToggled.connect(self._on_auto_repair_toggled)
         self.assistant_panel.closeRequested.connect(lambda: self.assistant_wrap.hide())
@@ -973,6 +975,12 @@ class MainWindow(QMainWindow):
         self.remote = RemoteController(parent=self)
         self.remote.commandDone.connect(self._remote_command_done)
         QTimer.singleShot(1500, self.remote.start_if_enabled)
+        # shared learning between the user's computers: every 15 minutes (and once soon after start)
+        self._learn_sync_timer = QTimer(self)
+        self._learn_sync_timer.setInterval(15 * 60 * 1000)
+        self._learn_sync_timer.timeout.connect(lambda: self.sync_learning(manual=False))
+        self._learn_sync_task = None
+        QTimer.singleShot(0, self._init_learning_share)      # the assistant panel is built later
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setInterval(120000)          # autosave every 2 minutes while there are models
         self._autosave_timer.timeout.connect(self._autosave)
@@ -4505,6 +4513,90 @@ class MainWindow(QMainWindow):
         if QMessageBox.question(self, tr("assistant"), tr("learning_reset_q")) == QMessageBox.Yes:
             self.assistant.reset()
             self._refresh_suggestions()
+
+    # ------------------------------------------------------------ shared learning (all the user's computers)
+    def _init_learning_share(self):
+        share = self.store.value("learning_share", "true") == "true"
+        self.assistant_panel.share_box.blockSignals(True)
+        self.assistant_panel.share_box.setChecked(share)
+        self.assistant_panel.share_box.blockSignals(False)
+        if share:
+            self._learn_sync_timer.start()
+            QTimer.singleShot(90 * 1000, lambda: self.sync_learning(manual=False))
+        self._show_sync_status()
+
+    def _on_share_toggled(self, on: bool):
+        self.store.setValue("learning_share", "true" if on else "false")
+        if on:
+            self._learn_sync_timer.start()
+            self.sync_learning(manual=True)
+        else:
+            self._learn_sync_timer.stop()
+        self._show_sync_status()
+
+    def _show_sync_status(self, text: str | None = None):
+        if text is None:
+            last = self.store.value("learning_sync_last", "")
+            n = int(self.store.value("learning_sync_peers", 0) or 0)
+            if self.store.value("learning_share", "true") != "true":
+                text = tr("learn_sync_off")
+            elif last:
+                text = tr("learn_sync_last").format(last, n)
+            else:
+                text = tr("learn_sync_never")
+        self.assistant_panel.sync_status.setText(text)
+
+    def sync_learning(self, manual: bool = False):
+        """Upload what this computer's assistant learned and merge in what the user's other computers learned
+        (their Firebase project, under the Google account this computer is linked to)."""
+        from .. import learning_sync, remote
+        if self._learn_sync_task is not None and self._learn_sync_task.isRunning():
+            return
+        if not self.assistant.enabled:
+            if manual:
+                self._show_sync_status(tr("learn_layout_off"))
+            return
+        agent = getattr(self.remote, "agent", None)
+        if agent is None or not agent.running() or agent.state != "linked":
+            self._show_sync_status(tr("learn_sync_link"))
+            if manual and QMessageBox.question(self, tr("learn_share"), tr("learn_sync_link_q")) == QMessageBox.Yes:
+                self.remote_control()
+            return
+        text = learning_sync.snapshot(self.assistant.data)
+
+        def work(progress, cancelled):
+            return agent.sync_learning(text)
+
+        def done(others):
+            import time as _t
+            try:
+                seen = json.loads(self.store.value("learning_sync_seen", "{}") or "{}")
+            except ValueError:
+                seen = {}
+            new, seen = learning_sync.fresh(others, seen)
+            self.store.setValue("learning_sync_seen", json.dumps(seen))
+            merged = learning_sync.merge(self.assistant.data, [{k: v for k, v in o.items() if k != "_from"}
+                                                               for o in new])
+            for k in learning_sync.LOCAL_ONLY:
+                if k in self.assistant.data:
+                    merged[k] = self.assistant.data[k]
+            self.assistant.data = merged
+            self.assistant.save()
+            stamp = _t.strftime("%H:%M")
+            self.store.setValue("learning_sync_last", stamp)
+            self.store.setValue("learning_sync_peers", len(others))
+            self._show_sync_status()
+            self.assistant_panel.set_learning(self.assistant.enabled, self.assistant.summary())
+            if manual:
+                self.status.setText(tr("learn_sync_done").format(len(others)))
+
+        def failed(msg):
+            self._show_sync_status(tr("learn_sync_failed").format(remote.explain(msg) if msg else "?"))
+
+        self._learn_sync_task = Task(work, self)
+        self._learn_sync_task.succeeded.connect(done)
+        self._learn_sync_task.failed.connect(failed)
+        self._learn_sync_task.start()
 
     def export_learning(self):
         """Assistant › Export learning: everything it learned, as a file to take to another computer."""

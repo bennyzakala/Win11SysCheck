@@ -3365,3 +3365,97 @@ def test_file_edit_info_menu_bar_and_stylesheet_parses():
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_shared_learning_merge_and_sync(tmp_path):
+    """Learning shared between the user's computers: merging is stable when repeated (counts take the
+    largest, learned numbers are weighted averages, the newest taught layout wins), the agent uploads its
+    snapshot under the owner and returns the other computers', and local switches stay local."""
+    import copy, json
+    from unislicer import learning_sync, remote
+    from unislicer.assistant import Assistant
+    a = Assistant(str(tmp_path / "a")); b = Assistant(str(tmp_path / "b"))
+    a.data["orient"]["sla"] = {"weights": [1.0, 0.2, 0.0, 0.1], "examples": 8}
+    b.data["orient"]["sla"] = {"weights": [1.0, 0.6, 0.0, 0.3], "examples": 2}
+    a.data["supports"].update({"spacing_scale": 1.2, "sessions": 4}); b.data["supports"].update({"spacing_scale": 0.8, "sessions": 1})
+    a.data["overrides"] = {"sla_support_spacing=5.0": {"count": 3, "last": 10}}
+    b.data["overrides"] = {"sla_support_spacing=5.0": {"count": 1, "last": 20}, "sla_raft_type=\"hexagon\"": {"count": 2, "last": 5}}
+    a.teach_layout({"count": 2, "spacing": 3.0, "min_gap": 3.0, "margin": 2.0, "anchor": "center", "plate": [0, 0, 1, 1], "slots": []})
+    b.teach_layout({"count": 4, "spacing": 1.5, "min_gap": 1.5, "margin": 1.0, "anchor": "center", "plate": [0, 0, 1, 1], "slots": []})
+    a.data["enabled"] = True; b.data["dismissed"] = ["tree_supports"]
+    m = learning_sync.merge(a.data, [json.loads(learning_sync.snapshot(b.data))])
+    w = m["orient"]["sla"]["weights"][1]
+    assert 0.2 < w < 0.4 and m["orient"]["sla"]["examples"] == 8               # weighted towards the 8 examples
+    assert 0.8 < m["supports"]["spacing_scale"] < 1.2
+    assert m["overrides"]["sla_support_spacing=5.0"]["count"] == 3 and "sla_raft_type=\"hexagon\"" in m["overrides"]
+    assert m["layout"]["taught"]["count"] == 4                                  # b taught last
+    assert "dismissed" not in json.loads(learning_sync.snapshot(b.data))        # local tips stay local
+    again = learning_sync.merge(m, [json.loads(learning_sync.snapshot(m))])        # both sides synced: stable
+    assert again["overrides"] == m["overrides"] and abs(again["orient"]["sla"]["weights"][1] - w) < 1e-9
+    # a computer that stays off keeps an old snapshot: it is merged once, not every 15 minutes
+    stale = [{"x": 1, "_from": {"uid": "pc2", "at": 100}}]
+    first, seen = learning_sync.fresh(stale, {})
+    second, seen = learning_sync.fresh(stale, seen)
+    third, _ = learning_sync.fresh([{"x": 2, "_from": {"uid": "pc2", "at": 200}}], seen)
+    assert len(first) == 1 and second == [] and len(third) == 1
+    # the agent: upload under the owner, read the others
+    class FakeFB:
+        uid = "pc1"
+        def __init__(self): self.db = {"teams/owner/learning/pc2": {"data": learning_sync.snapshot(b.data), "at": 5, "name": "Lab 2"}}
+        def put(self, path, value): self.db[path] = value
+        def get(self, path): return {k.rsplit("/", 1)[1]: v for k, v in self.db.items() if k.startswith(path + "/")}
+    agent = remote.Agent({"apiKey": "x", "databaseURL": "https://x"}, str(tmp_path / "r"))
+    agent.fb, agent.state, agent.st = FakeFB(), "linked", {"owner": "owner"}
+    others = agent.sync_learning(learning_sync.snapshot(a.data))
+    assert "teams/owner/learning/pc1" in agent.fb.db and len(others) == 1 and others[0]["_from"]["name"] == "Lab 2"
+    agent.state = "pairing"
+    try:
+        agent.sync_learning("{}")
+        assert False, "must refuse when not linked"
+    except remote.RemoteError:
+        pass
+    rules = json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "remote_web", "database.rules.json")))
+    assert "teams" in rules["rules"]
+
+
+def test_window_syncs_learning_with_a_linked_computer():
+    import subprocess, sys, textwrap
+    code = textwrap.dedent("""
+        import os, time, json
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication, QMessageBox
+        app = QApplication([])
+        from unislicer import learning_sync
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        other = dict(w.assistant.data)
+        other = json.loads(learning_sync.snapshot(other))
+        other["overrides"] = {"sla_raft_type=\\"hexagon\\"": {"count": 5, "last": 1}}
+        other["_from"] = {"uid": "pc2", "name": "Lab 2", "at": 123}
+        sent = []
+        class FakeAgent:
+            state = "linked"
+            def running(self): return True
+            def sync_learning(self, text):
+                sent.append(text); return [dict(other)]
+        w.remote.agent = FakeAgent()
+        w.sync_learning(manual=True)
+        end = time.time() + 30
+        while (w._learn_sync_task is None or w._learn_sync_task.isRunning() or not sent) and time.time() < end:
+            app.processEvents(); time.sleep(0.02)
+        for _ in range(20):
+            app.processEvents(); time.sleep(0.01)
+        assert sent and json.loads(sent[0])
+        assert w.assistant.data["overrides"].get('sla_raft_type="hexagon"', {}).get("count") == 5, w.assistant.data["overrides"]
+        assert "1" in w.assistant_panel.sync_status.text() or "Lab" in w.status.text() or w.store.value("learning_sync_peers") in (1, "1")
+        # not linked: says so, does not crash
+        w.remote.agent = None
+        QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)
+        w.sync_learning(manual=True)
+        print("ok")
+    """)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

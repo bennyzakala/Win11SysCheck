@@ -31,6 +31,17 @@
         ".read": "auth != null && auth.uid == $uid",
         ".write": "auth != null && auth.uid == $uid"
       }
+    },
+    "teams": {
+      "$owner": {
+        "learning": {
+          ".read": "auth != null && (auth.uid == $owner || root.child('agents').child(auth.uid).child('owner').val() == $owner)",
+          "$agent": {
+            ".write": "auth != null && auth.uid == $agent && root.child('agents').child($agent).child('owner').val() == $owner",
+            ".validate": "newData.hasChildren(['data', 'at']) && newData.child('data').isString() && newData.child('data').val().length < 1600000 && newData.child('at').val() == now"
+          }
+        }
+      }
     }
   }
 }
