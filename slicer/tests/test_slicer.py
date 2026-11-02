@@ -3326,3 +3326,42 @@ def test_tiny_anatomy_pits_are_not_a_suction_cup():
     assert sla.find_cups([pits], sealed=[pits]) == []                       # 4 x 5 mm² = 20 mm² of pits
     cup = sla.as_multipolygon(box(0, 0, 4, 4))
     assert sla.find_cups([cup], sealed=[cup]) == [(0, 16.0)]                 # one real 16 mm² pocket
+
+
+def test_file_edit_info_menu_bar_and_stylesheet_parses():
+    """Classic File / Edit / Info menus run the same actions as the toolbar; the application stylesheet parses
+    even when the user folder has spaces / backslashes (a Windows profile like C:\\Users\\Benny Z)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent("""
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtCore import qInstallMessageHandler
+        msgs = []
+        qInstallMessageHandler(lambda t, c, m: msgs.append(m))
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui import theme
+        theme._write_assets = lambda: "C:\\\\Users\\\\Benny Z\\\\AppData\\\\Local\\\\UniSlicer\\\\assets"
+        theme.set_theme("prodentix"); theme.apply(app)
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        assert not [m for m in msgs if "parse" in m], msgs
+        menus = [a.menu() for a in w.main_menu.actions()]
+        assert len(menus) == 3
+        texts = [a.text() for m in menus for a in m.actions()]
+        assert not any("……" in t or "......" in t for t in texts), texts
+        w.add_mesh(primitives.box(10, 10, 5)); app.processEvents()
+        dup = next(a for a in menus[1].actions() if a.text().endswith("Ctrl+D"))
+        w.select_all(); dup.trigger(); app.processEvents()
+        assert len(w.objects) == 2
+        undo = next(a for a in menus[1].actions() if a.text().endswith("Ctrl+Z"))
+        undo.trigger(); app.processEvents()
+        assert len(w.objects) == 1
+        print("ok")
+    """)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

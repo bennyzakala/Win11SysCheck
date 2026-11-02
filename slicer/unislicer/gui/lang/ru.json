@@ -1191,5 +1191,15 @@
 "Export anyway": "Всё равно экспортировать",
 "No spot for an automatic vent: the cavity is closed on every side. Tilt the models 30° (the cavity drains as it rises out of the vat), auto-orient, or show the layer and add a drain hole by hand.": "Нет места для автоматического отверстия: полость закрыта со всех сторон. Наклоните модели на 30° (полость опустеет при подъёме из ванны), используйте автоориентацию или откройте слой и добавьте дренажное отверстие вручную.",
 "Vent holes added and the suction cup is gone: ready to export": "Вентиляционные отверстия добавлены, присоски нет: можно экспортировать",
-"Vent holes added, but {} suction cups remain: use Fix suction cup again or tilt the model": "Отверстия добавлены, но осталось присосок: {}. Снова нажмите «Исправить присоску» или наклоните модель"
+"Vent holes added, but {} suction cups remain: use Fix suction cup again or tilt the model": "Отверстия добавлены, но осталось присосок: {}. Снова нажмите «Исправить присоску» или наклоните модель",
+"Edit": "Правка",
+"Info": "Справка",
+"Exit": "Выход",
+"Keyboard shortcuts": "Сочетания клавиш",
+"Download the latest version": "Скачать последнюю версию",
+"About UniSlicer": "О программе UniSlicer",
+"Layer up / down in the preview": "Слой вверх / вниз в предпросмотре",
+"Hide / show the left / right panel": "Скрыть / показать левую / правую панель",
+"Cancel the active tool": "Отменить активный инструмент",
+"<b>UniSlicer {}</b><br>Slicer for resin, filament and PolyJet<br>Dental labs · Prodentix<br><br>Everything stays on your computer.": "<b>UniSlicer {}</b><br>Слайсер для смолы, филамента и PolyJet<br>Зуботехнические лаборатории · Prodentix<br><br>Все данные остаются на вашем компьютере."
 }

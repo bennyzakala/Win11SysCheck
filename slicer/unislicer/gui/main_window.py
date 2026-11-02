@@ -6,7 +6,7 @@ import os
 
 import numpy as np
 from PySide6.QtCore import QItemSelectionModel, QSettings, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap
+from PySide6.QtGui import QAction, QIcon, QImage, QKeySequence, QPixmap
 from PySide6.QtWidgets import (QApplication, QDialog, QCheckBox, QDoubleSpinBox, QFileDialog, QInputDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QListWidget, QListWidgetItem, QScrollArea, QMainWindow, QMenu, QMessageBox, QProgressBar,
                                QPushButton, QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget)
@@ -122,6 +122,7 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+        self._build_menu_bar()
         root.addWidget(self._build_top_bar())
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
@@ -201,6 +202,109 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self._compact_top_bar()
+
+    def _build_menu_bar(self):
+        """Classic File / Edit / Info menus above the toolbar (every action is also on the toolbar or a key).
+        Keys are shown as hints only: the window's own shortcuts already handle them, and giving the menu the
+        same keys would make Qt treat them as ambiguous and fire neither."""
+        bar = self.menuBar()
+        bar.setObjectName("MainMenu")
+
+        def add(menu, text, fn, keys="", icon=None):
+            text = text.replace("……", "…").replace("…...", "…").replace("...…", "…").replace("......", "...")
+            act = menu.addAction(theme.icon(icon) if icon else QIcon(), text + (f"\t{keys}" if keys else ""))
+            act.triggered.connect(lambda _c=False: fn())
+            return act
+
+        f = bar.addMenu(tr("menu_file"))
+        add(f, tr("open"), lambda: self._act("open", "menu", self.open_files), "Ctrl+O", "open")
+        add(f, tr("open_project"), self.open_project, "", "open")
+        recent = f.addMenu(theme.icon("clock"), tr("recent_files"))
+        recent.aboutToShow.connect(lambda m=recent: self._fill_recent_into(m))
+        add(f, tr("save_project"), lambda: self._act("save_project", "menu", self.save_project), "Ctrl+S", "save")
+        f.addSeparator()
+        add(f, tr("slice"), lambda: self._act("slice", "menu", self.slice_or_cancel), "Ctrl+R", "layers")
+        add(f, tr("export_print"), lambda: self._act("export", "menu", self.export), "Ctrl+E", "download")
+        add(f, tr("export_as") + "…", lambda: self.export(ask=True), "", "download")
+        add(f, tr("export_stl"), self.export_stl, "", "download")
+        add(f, tr("report_save") + "…", lambda: self.save_job_report(), "", "download")
+        f.addSeparator()
+        add(f, tr("export_library_open"), self.open_export_library, "", "open")
+        add(f, tr("export_library_choose") + "…", self.choose_export_library, "", "settings")
+        f.addSeparator()
+        add(f, tr("net_title") + "…", self.network_printers, "", "wifi")
+        add(f, tr("queue_title") + "…", self.queue_dialog, "", "layers")
+        f.addSeparator()
+        add(f, tr("menu_exit"), self.close, "Alt+F4", "x")
+
+        e = bar.addMenu(tr("menu_edit"))
+        add(e, tr("undo"), lambda: self._act("undo", "menu", self.undo), "Ctrl+Z", "undo")
+        add(e, tr("redo"), self.redo, "Ctrl+Y", "redo")
+        e.addSeparator()
+        add(e, tr("select_all"), self.select_all, "Ctrl+A")
+        add(e, tr("duplicate"), lambda: self._act("duplicate", "menu", self.duplicate_selected), "Ctrl+D", "copy")
+        add(e, tr("multiply") + "…", self.multiply_selected, "", "copy")
+        add(e, tr("delete"), self.delete_selected, "Del", "trash")
+        e.addSeparator()
+        add(e, tr("layout_quick"), lambda: self._act("arrange", "menu", self.arrange_objects), "A", "arrange")
+        add(e, tr("auto_layout") + "…", lambda: self.auto_layout(), "Shift+A", "settings")
+        self._fill_align_menu(e.addMenu(theme.icon("align"), tr("align_menu")))
+        add(e, tr("center"), self.center_selected, "", "center")
+        add(e, tr("move_to") + "…", self.move_to_dialog, "", "move")
+        add(e, tr("scale_to") + "…", self.scale_dialog, "", "fit")
+        add(e, tr("rename"), self.rename_selected, "", "code")
+        e.addSeparator()
+        add(e, tr("model_settings") + "…", self.model_settings_dialog, "", "settings")
+        add(e, tr("texture_title") + "…", self.texture_dialog, "", "grid")
+        add(e, tr("void_title") + "…", self.void_body_dialog, "", "drop")
+        add(e, tr("cut_height"), self.cut_selected, "", "square")
+        add(e, tr("split_parts"), self.split_selected, "", "grid")
+        add(e, tr("merge_models"), self.merge_selected, "", "copy")
+        add(e, tr("repair_mesh"), self.repair_selected, "", "settings")
+        e.addSeparator()
+        add(e, tr("hide_models"), self.hide_selected, "", "x")
+        add(e, tr("show_all_models"), self.show_all_models)
+
+        i = bar.addMenu(tr("menu_info"))
+        add(i, tr("assistant"), self._toggle_assistant, "", "sparkle")
+        add(i, tr("estimate_title") + "…", self.estimate_dialog, "", "coin")
+        add(i, tr("menu_shortcuts") + "…", self.shortcuts_dialog, "", "code")
+        i.addSeparator()
+        add(i, tr("menu_updates"), self.open_updates_page, "", "download")
+        add(i, tr("menu_about") + "…", self.about_dialog, "", "info")
+        self.main_menu = bar
+
+    def _fill_recent_into(self, menu):
+        """File > Recent: the same list as More > Recent files."""
+        menu.clear()
+        keep, self.recent_menu = self.recent_menu, menu
+        try:
+            self._fill_recent()
+        finally:
+            self.recent_menu = keep
+
+    SHORTCUTS = (("Ctrl+O", "open"), ("Ctrl+S", "save_project"), ("Ctrl+R", "slice"), ("Ctrl+E", "export_print"),
+                 ("Ctrl+Z", "undo"), ("Ctrl+Y", "redo"), ("Ctrl+A", "select_all"), ("Ctrl+D", "duplicate"),
+                 ("Del", "delete"), ("A", "layout_quick"), ("Shift+A", "auto_layout"), ("M", "tool_move"),
+                 ("R", "tool_rotate"), ("F", "tool_face"), ("H", "tool_hole"), ("D", "tool_measure"),
+                 ("S", "sup_add"), ("Shift+S", "sup_remove"), ("↑ / ↓", "menu_layer_step"),
+                 ("Ctrl+[ / Ctrl+]", "menu_panels"), ("Esc", "menu_cancel_tool"))
+
+    def shortcuts_dialog(self):
+        rows = "".join(f"<tr><td style='padding:3px 14px 3px 0'><b>{k}</b></td><td>{tr(v) if v in i18n.STRINGS else v}</td></tr>"
+                       for k, v in self.SHORTCUTS)
+        QMessageBox.information(self, tr("menu_shortcuts"), f"<table>{rows}</table>")
+
+    UPDATES_URL = "https://github.com/bennyzakala/Win11SysCheck/releases/download/unislicer-latest/UniSlicer-Setup.exe"
+
+    def open_updates_page(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl(self.UPDATES_URL))
+
+    def about_dialog(self):
+        from .. import __version__
+        QMessageBox.about(self, tr("menu_about"), tr("about_text").format(__version__))
 
     def _build_top_bar(self):
         self._top_tools = []

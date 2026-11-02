@@ -1191,5 +1191,15 @@
 "Export anyway": "تصدير على أي حال",
 "No spot for an automatic vent: the cavity is closed on every side. Tilt the models 30° (the cavity drains as it rises out of the vat), auto-orient, or show the layer and add a drain hole by hand.": "لا يوجد مكان لثقب تهوية تلقائي: التجويف مغلق من كل الجهات. أمِل النماذج 30° (يُفرَّغ التجويف عند ارتفاعه من الحوض)، أو استخدم التوجيه التلقائي، أو اعرض الطبقة وأضف ثقب تصريف يدويًا.",
 "Vent holes added and the suction cup is gone: ready to export": "أُضيفت ثقوب التهوية وزال كوب الشفط: جاهز للتصدير",
-"Vent holes added, but {} suction cups remain: use Fix suction cup again or tilt the model": "أُضيفت ثقوب التهوية لكن بقيت {} أكواب شفط: استخدم «إصلاح كوب الشفط» مجددًا أو أمِل النموذج"
+"Vent holes added, but {} suction cups remain: use Fix suction cup again or tilt the model": "أُضيفت ثقوب التهوية لكن بقيت {} أكواب شفط: استخدم «إصلاح كوب الشفط» مجددًا أو أمِل النموذج",
+"Edit": "تحرير",
+"Info": "معلومات",
+"Exit": "خروج",
+"Keyboard shortcuts": "اختصارات لوحة المفاتيح",
+"Download the latest version": "تنزيل أحدث إصدار",
+"About UniSlicer": "حول UniSlicer",
+"Layer up / down in the preview": "طبقة للأعلى / للأسفل في المعاينة",
+"Hide / show the left / right panel": "إخفاء / إظهار اللوحة اليسرى / اليمنى",
+"Cancel the active tool": "إلغاء الأداة النشطة",
+"<b>UniSlicer {}</b><br>Slicer for resin, filament and PolyJet<br>Dental labs · Prodentix<br><br>Everything stays on your computer.": "<b>UniSlicer {}</b><br>برنامج تقطيع للراتنج والخيوط وPolyJet<br>مختبرات الأسنان · Prodentix<br><br>كل البيانات تبقى على حاسوبك."
 }

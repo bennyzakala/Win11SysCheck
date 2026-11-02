@@ -1,6 +1,8 @@
 """Colours, stylesheet and icons for the GUI."""
 from __future__ import annotations
 
+import re
+
 import os
 import sys
 import tempfile
@@ -227,6 +229,10 @@ QProgressBar {{ background: {SURFACE_3}; border: none; border-radius: 4px; heigh
 QProgressBar::chunk {{ background: {ACCENT}; border-radius: 4px; }}
 QStatusBar {{ background: {SURFACE}; border-top: 1px solid {BORDER}; color: {TEXT_DIM}; }}
 QStatusBar QLabel {{ color: {TEXT_DIM}; padding: 0 6px; }}
+QMenuBar#MainMenu {{ background: {SURFACE}; color: {TEXT}; border-bottom: 1px solid {BORDER}; padding: 1px 6px; }}
+QMenuBar#MainMenu::item {{ background: transparent; padding: 4px 12px; border-radius: 6px; }}
+QMenuBar#MainMenu::item:selected {{ background: {SURFACE_3}; }}
+QMenuBar#MainMenu::item:pressed {{ background: {ACCENT}; color: {ON_ACCENT}; }}
 QMenu {{ background: {SURFACE_2}; border: 1px solid {BORDER}; border-radius: 8px; padding: 6px; }}
 QMenu::item {{ padding: 7px 22px; border-radius: 6px; }}
 QMenu::item:selected {{ background: {ACCENT}; color: {ON_ACCENT}; }}
@@ -291,7 +297,10 @@ def apply(app) -> None:
     assets = _write_assets()
     sheet = stylesheet()
     if assets:
-        sheet = sheet.replace("@ASSETS@/", f"{assets}/{CURRENT}_")
+        # quoted, with forward slashes: a Windows profile path with spaces or backslashes (C:\\Users\\Benny Z\\...)
+        # made the whole application stylesheet fail to parse
+        base = str(assets).replace("\\", "/").replace('"', '\\"')
+        sheet = re.sub(r"url\(@ASSETS@/([^)]+)\)", lambda m: f'url("{base}/{CURRENT}_{m.group(1)}")', sheet)
     else:  # plain checkboxes and combo arrows rather than failing to start
         sheet = "\n".join(line for line in sheet.splitlines() if "@ASSETS@" not in line)
     app.setStyleSheet(sheet)
