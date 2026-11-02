@@ -72,6 +72,54 @@ def _segments_at(tris: np.ndarray, normals: np.ndarray, z: float):
     return seg
 
 
+def _chain_fast(keys: np.ndarray, segments: np.ndarray):
+    """Vectorised linking for the usual clean layer: every end point is the start of exactly one other
+    segment (closed, consistently oriented loops). Returns the loops, or None to use the general path."""
+    n = len(segments)
+    flat = keys.reshape(-1, 2)
+    one = (flat[:, 0] - flat[:, 0].min()) * (int(flat[:, 1].max() - flat[:, 1].min()) + 1) + (flat[:, 1] - flat[:, 1].min())
+    _, ids = np.unique(one, return_inverse=True)
+    ids = ids.reshape(n, 2)
+    keep = ids[:, 0] != ids[:, 1]                     # zero-length pieces (the plane grazes a vertex)
+    if not keep.all():
+        ids, segments = ids[keep], segments[keep]
+        n = len(segments)
+        if n == 0:
+            return []
+    start, end = ids[:, 0], ids[:, 1]
+    m = int(ids.max()) + 1
+    owner = np.full(m, -1, dtype=np.int64)
+    owner[start] = np.arange(n)
+    if np.bincount(start, minlength=m).max() != 1 or np.bincount(end, minlength=m).max() != 1:
+        return None
+    nxt = owner[end]
+    if np.any(nxt < 0):
+        return None
+    # loop label = smallest segment index in the loop (pointer doubling: the window doubles each round)
+    label = np.arange(n)
+    jump = nxt.copy()
+    while True:
+        label = np.minimum(label, label[jump])
+        if np.all(label[nxt] == label):
+            break
+        jump = jump[jump]
+    # position in its loop: steps from the loop's first segment (list ranking with the loop cut there)
+    root = label
+    is_root = np.arange(n) == root
+    succ = np.where(is_root[nxt], -1, nxt)            # the segment before the root ends the list
+    rank = np.where(succ >= 0, 1, 0).astype(np.int64)
+    ptr = succ.copy()
+    while np.any(ptr >= 0):
+        ok = ptr >= 0
+        rank[ok] += rank[ptr[ok]]
+        ptr[ok] = ptr[ptr[ok]]
+    order = np.lexsort((-rank, root))                 # each loop from its first segment onwards
+    labs = root[order]
+    cuts = np.flatnonzero(np.diff(labs)) + 1
+    pts = segments[order, 0]
+    return [(p, len(p)) for p in np.split(pts, cuts)]
+
+
 def _chain(segments: np.ndarray, report: dict | None = None, raw: list | None = None):
     """Link segments into loops. Yields (points (n,2), orientation_vote).
     ``report["messy"]`` is set when the layer has open contours or non-manifold junctions."""
@@ -79,6 +127,11 @@ def _chain(segments: np.ndarray, report: dict | None = None, raw: list | None = 
     if n == 0:
         return []
     keys = np.round(segments * KEY_SCALE).astype(np.int64)
+    fast = _chain_fast(keys, segments)
+    if fast is not None:
+        if raw is not None:
+            raw.extend((np.vstack([p, p[:1]]), True) for p, _ in fast)
+        return fast
     kp = list(zip(keys[:, 0, 0].tolist(), keys[:, 0, 1].tolist()))
     kq = list(zip(keys[:, 1, 0].tolist(), keys[:, 1, 1].tolist()))
     adjacency: dict = {}
@@ -291,7 +344,12 @@ def _slice_sorted(tris: np.ndarray, normals: np.ndarray, z_planes: list[float], 
         # a broken layer (holes, non-manifold edges): fill by winding / crossing parity instead of stitching
         geom = even_odd_geometry(_oriented_segments(raw)) if report.get("messy") else loops_to_geometry(loops)
         if resolution > 0 and not geom.is_empty:
-            geom = as_multipolygon(geom.simplify(resolution, preserve_topology=True))
+            # plain Douglas-Peucker is ~10x faster than the topology-preserving one; the rare invalid result
+            # (a ring touching itself) is repaired
+            simple = geom.simplify(resolution, preserve_topology=False)
+            if not simple.is_valid:
+                simple = shapely.make_valid(simple)
+            geom = as_multipolygon(simple)
         out.append(geom)
         if progress and (li % 5 == 0 or li == len(z_planes) - 1):
             progress((li + 1) / len(z_planes))

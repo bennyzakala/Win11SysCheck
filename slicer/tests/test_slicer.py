@@ -3811,3 +3811,20 @@ def test_fast_ray_picking_matches_brute_force():
             hits += 1
             assert b[1] == a[1] and abs(a[0] - b[0]) < 1e-9
     assert hits > 50
+
+
+def test_island_pillars_fix_islands_without_supports():
+    """A part that starts in mid-air on a model printed straight on the plate (no supports): the fix puts a
+    thin pillar under it, after which no island is left."""
+    from unislicer.mesh import Mesh
+    base = primitives.box(10, 10, 2)
+    top = primitives.box(4, 4, 1)
+    tv = np.asarray(top.vertices) + [0, 0, 3]                  # floats 1 mm above the base
+    v = np.vstack([base.vertices, tv])
+    f = np.vstack([base.faces, np.asarray(top.faces) + len(base.vertices)])
+    m = placed(Mesh(v, f, "floating")).world_mesh()
+    over = {"support_enable": False, "hollow_enable": False}
+    job = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", over))
+    assert job.islands and job.island_pillars == 0
+    job = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", dict(over, sla_island_pillars=True)))
+    assert not job.islands and job.island_pillars >= 1

@@ -33,6 +33,7 @@ class SlaJob:
     cups: list[tuple[int, float]] = field(default_factory=list)       # (layer index, sealed area mm2)
     cup_vents: list[dict] = field(default_factory=list)              # where a vent breaks each cup
     thin_layers: list[int] = field(default_factory=list)
+    island_pillars: int = 0
     volume_ml: float = 0.0
     saved_ml: float = 0.0              # resin saved by hollowing
     time_s: float = 0.0
@@ -190,14 +191,21 @@ def _erode_chunk(layers: list, wall: float) -> list:
     return [as_multipolygon(g.buffer(-wall)) if not g.is_empty else EMPTY for g in layers]
 
 
-def _thin_chunk(layers: list, r: float) -> list:
+def _thin_chunk(layers: list, r: float, min_area: float = 0.0) -> list:
     out = []
     for g in layers:
         if g.is_empty:
             out.append(EMPTY)
             continue
-        opened = g.buffer(-r).buffer(r).buffer(0.01)
-        out.append(as_multipolygon(g.difference(opened)))
+        # a coarser arc (4 segments a quarter) is plenty to tell what a disc of radius r fits through,
+        # and makes the buffers several times faster
+        opened = g.buffer(-r, quad_segs=4).buffer(r, quad_segs=4)
+        # the thin part is at most area(g) - area(opening): when that is below the area that counts, skip the
+        # costly difference (most layers lose only rounding slivers at their corners)
+        if g.area - opened.area < min_area:
+            out.append(EMPTY)
+            continue
+        out.append(as_multipolygon(g.difference(opened.buffer(0.01, quad_segs=4))))
     return out
 
 
@@ -208,12 +216,18 @@ def _thicken_chunk(layers: list, r: float) -> list:
         if g.is_empty:
             out.append(g)
             continue
-        thin = g.difference(g.buffer(-r).buffer(r).buffer(0.01))
+        opened = g.buffer(-r, quad_segs=4).buffer(r, quad_segs=4)
+        if g.area - opened.area < 0.02:     # at most rounding slivers: nothing worth growing (and cheap to tell)
+            out.append(g)
+            continue
+        thin = g.difference(opened.buffer(0.01, quad_segs=4))
         if thin.is_empty or thin.area < 1e-4:
             out.append(g)
             continue
-        # square corners: rounded tips left slivers that still read as thin
-        out.append(as_multipolygon(g.union(thin.buffer(r, join_style="mitre", mitre_limit=2.0))))
+        # round growth a bit past r: a thin part becomes at least 2·1.25·r wide everywhere, so a disc of
+        # radius r fits in every part of it and the thin check (an opening with r) keeps all of it
+        # (square corners and a growth of exactly r left spikes and slivers that still read as thin)
+        out.append(as_multipolygon(g.union(thin.buffer(r * 1.25, quad_segs=8))))
     return out
 
 
@@ -471,10 +485,11 @@ def _spread_points(area, count: int) -> list[tuple[float, float]]:
 
 
 # ----------------------------------------------------------------- islands
-def find_islands(layers: list[MultiPolygon], min_area: float = 0.01) -> list[tuple[int, object]]:
-    """Regions that start in mid-air: not connected to anything on the layer below."""
+def find_islands(layers: list[MultiPolygon], min_area: float = 0.01, only=None) -> list[tuple[int, object]]:
+    """Regions that start in mid-air: not connected to anything on the layer below.
+    ``only``: check just these layer indices."""
     out = []
-    for i in range(1, len(layers)):
+    for i in (range(1, len(layers)) if only is None else sorted(k for k in only if 0 < k < len(layers))):
         prev = layers[i - 1]
         if layers[i].is_empty:
             continue
@@ -483,6 +498,43 @@ def find_islands(layers: list[MultiPolygon], min_area: float = 0.01) -> list[tup
             if poly.area >= min_area and not prev.intersects(poly):
                 out.append((i, poly))
     return out
+
+
+PILLAR_RADIUS = 0.4
+
+
+def _add_disk(layer, disk):
+    """``layer`` ∪ ``disk``, merging only with the parts the disk touches (much cheaper on a big layer)."""
+    parts = polygons_of(layer)
+    touch = [p for p in parts if p.intersects(disk)]
+    if not touch:
+        return MultiPolygon(parts + [disk])
+    rest = [p for p in parts if not any(p is t for t in touch)]
+    return MultiPolygon(rest + polygons_of(shapely.union_all(touch + [disk])))
+
+
+def island_pillars(layers: list, radius: float = PILLAR_RADIUS, rounds: int = 3) -> tuple[list, int]:
+    """A thin round pillar under every island, from the island down to the first layer that is solid at that
+    spot (or the plate). Returns the new layers and how many pillars were added."""
+    layers = list(layers)
+    added = 0
+    check = None                             # first round: every layer; then only what the pillars touched
+    for _ in range(rounds):                  # a pillar can leave a smaller piece of the island in the air
+        islands = find_islands(layers, only=check)
+        if not islands:
+            break
+        check = set()
+        for i, poly in islands:
+            p = poly.representative_point()
+            disk = p.buffer(radius, quad_segs=8)
+            j = i - 1
+            check.update((i, i + 1))
+            while j >= 0 and not layers[j].contains(p):
+                layers[j] = _add_disk(layers[j], disk)
+                check.update((j, j + 1))
+                j -= 1
+            added += 1
+    return layers, added
 
 
 def hole_meshes(holes, cfg: Config, lift: float = 0.0) -> list[Mesh]:
@@ -526,31 +578,68 @@ def _shrink_compensate(mesh: Mesh, cfg: Config) -> Mesh:
 
 
 # ------------------------------------------------------------ validation
+def _cavity_cells_chunk(pairs: list) -> list:
+    """Per (layer, layer below): the enclosed empty cells of the layer, and what of each cell is not over the
+    solid of the layer below. Independent per layer, so it runs on all cores (``_sealed_layers``)."""
+    out = []
+    for g, below in pairs:
+        polys = polygons_of(g)
+        holes = [Polygon(h) for p in polys for h in p.interiors]
+        if not holes:
+            out.append(None)
+            continue
+        hole_area = shapely.union_all(holes)
+        # the enclosed space is the holes minus any part standing inside them (a polygon nested in a hole);
+        # subtracting only those is far cheaper than subtracting the whole layer
+        shapely.prepare(hole_area)
+        inner = [p for p in polys if hole_area.contains(p.representative_point())]
+        space = hole_area.difference(shapely.union_all(inner)) if inner else hole_area
+        cells = np.array(polygons_of(space), dtype=object)
+        if len(cells) == 0:
+            out.append(None)
+            continue
+        bx = shapely.bounds(cells)
+        if below.is_empty:
+            rest = cells
+        else:
+            # each cell against only the piece of the layer below under its own bounding box
+            near = np.array([shapely.clip_by_rect(below, b[0] - 0.1, b[1] - 0.1, b[2] + 0.1, b[3] + 0.1) for b in bx],
+                            dtype=object)
+            rest = shapely.difference(cells, near)
+        out.append((cells, rest, bx))
+    return out
+
+
 def _sealed_layers(layers: list[MultiPolygon]) -> list[MultiPolygon]:
-    """Per layer, the empty space that is enclosed by walls and sealed on the build-plate side."""
+    """Per layer, the empty space that is enclosed by walls and sealed on the build-plate side.
+
+    A cavity is sealed only if all of it sits on solid or on a cavity that is itself sealed; any opening
+    (e.g. a drain or vent hole) vents the whole cavity. The allowance only absorbs numeric noise, so even
+    a 1 mm vent in a large cavity counts as an opening."""
+    per = _per_layer(_cavity_cells_chunk, [(g, layers[i - 1] if i else EMPTY) for i, g in enumerate(layers)])
     out = []
     sealed = EMPTY
-    for i, g in enumerate(layers):
-        holes = [Polygon(h) for p in polygons_of(g) for h in p.interiors]
-        if not holes:
+    for i, item in enumerate(per):
+        if item is None:
             sealed = EMPTY
             out.append(EMPTY)
             continue
-        space = shapely.union_all(holes).difference(g)
-        below = layers[i - 1] if i else EMPTY
-        floor = shapely.union_all([below, sealed]) if not sealed.is_empty else below
-        # a cavity is sealed only if all of it sits on solid or on a cavity that is itself sealed;
-        # any opening (e.g. a drain or vent hole) vents the whole cavity. The allowance only absorbs
-        # numeric noise, so even a 1 mm vent in a large cavity counts as an opening.
-        cells = np.array(polygons_of(space), dtype=object)
-        if floor.is_empty or len(cells) == 0:
-            keep = []
+        cells, rest, bx = item
+        if i == 0 and sealed.is_empty:
+            keep = []                           # nothing under the first layer but the plate
         else:
-            shapely.prepare(floor)
-            # one vectorised call for all cells (a honeycomb infill has hundreds of them per layer)
-            open_area = shapely.area(shapely.difference(cells, floor))
+            if not sealed.is_empty:             # the only step that depends on the layer below's result
+                # what is left usually lies right over the sealed cavity below (their outlines are the same
+                # edge of the layer below): a quick "covers" settles those without an area difference
+                shapely.prepare(sealed)
+                todo = np.flatnonzero(~(shapely.is_empty(rest) | shapely.covers(sealed, rest)))
+                rest = np.where(shapely.is_empty(rest), rest, shapely.Polygon())
+                if len(todo):
+                    near = np.array([shapely.clip_by_rect(sealed, *(bx[k, :2] - 0.1), *(bx[k, 2:] + 0.1)) for k in todo],
+                                    dtype=object)
+                    rest[todo] = shapely.difference(per[i][1][todo], near)
             limit = np.minimum(0.01 * shapely.area(cells), 0.3) + 1e-6
-            keep = list(cells[open_area < limit])
+            keep = list(cells[shapely.area(rest) < limit])
         sealed = as_multipolygon(shapely.union_all(keep)) if keep else EMPTY
         out.append(sealed)
     return out
@@ -680,7 +769,7 @@ def find_thin(layers: list[MultiPolygon], min_width: float = 0.3, min_area: floa
     Only regions that stay thin through ``persist`` mm of height count (a real thin wall or fin), so the
     small slivers at the tips of tilted parts are not reported."""
     r = min_width / 2
-    thin = _per_layer(_thin_chunk, layers, r)
+    thin = _per_layer(_thin_chunk, layers, r, min_area)
     k = max(1, int(round(persist / layer_height / 2)))
     lasting = _window_intersection(thin, k)
     return [i for i, t in enumerate(lasting) if t.area > min_area]
@@ -802,6 +891,9 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         sup_layers = slice_meshes(support_meshes, planes, cfg["resolution"],
                                   progress=lambda f: report("slice", split + f * (1 - split)), cancelled=cancelled)
         layers = _per_layer(_union_chunk, list(zip(layers, sup_layers)))
+    pillars = 0
+    if cfg["sla_island_pillars"] and not jetting:
+        layers, pillars = island_pillars(layers)
     foot = cfg["bottom_xy_compensation"]
     if foot > 0:
         for i in range(min(int(cfg["bottom_layers"]), len(layers))):
@@ -820,6 +912,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     if (varied or any(r[3] for r in ranges)) and cfg["sla_format"] in ("sl1", "png_zip"):
         job.warnings.append(UNIFORM_FORMAT_NOTE)
     job.thin_layers = thin
+    job.island_pillars = pillars
     job.volume_ml = sum(g.area * h for g, h in zip(layers, job.layer_thickness)) / 1000.0
     job.saved_ml = saved
     job.weight_g = job.volume_ml * cfg["resin_density"]

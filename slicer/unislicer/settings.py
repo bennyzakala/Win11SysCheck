@@ -267,6 +267,10 @@ SCHEMA: list[Setting] = [
     S("sla_thicken_thin", "bool", False, "hollow", "sla", "עבה חלקים דקים (מינימום 0.3 מ״מ)", "Thicken thin features (min 0.3 mm)",
       tip_he="חלקים צרים מ-0.3 מ״מ מתעבים מעט כדי שיודפסו; שאר המודל לא משתנה",
       tip_en="Parts narrower than 0.3 mm grow a little so they print; the rest of the model is unchanged"),
+    S("sla_island_pillars", "bool", False, "hollow", "sla", "עמודון קטן מתחת לכל אי", "Small pillar under every island",
+      tip_he="אזור שמתחיל באוויר מקבל עמודון דק (0.8 מ״מ) עד המודל שמתחתיו או עד הפלטה, גם כשהמודל מודפס בלי תמיכות",
+      tip_en="A region that starts in mid-air gets a thin (0.8 mm) pillar down to the model below or the plate, "
+             "also when the model prints without supports"),
     S("hollow_enable", "bool", False, "hollow", "sla", "חלול את המודל", "Hollow the model",
       tip_he="חוסך שרף ומפחית כוחות יניקה. מומלץ להוסיף חורי ניקוז", tip_en="Saves resin and reduces suction; add drain holes"),
     S("hollow_wall", "float", 2.0, "hollow", "sla", "עובי דופן", "Wall thickness", "mm", 0.5, 20, 0.1),

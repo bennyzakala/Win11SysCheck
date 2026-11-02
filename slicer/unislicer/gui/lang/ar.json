@@ -1235,5 +1235,9 @@
 "Resin mode: Stable or Fast. Sets exposure and motion from the maker's table for this printer and layer height": "وضع الراتنج: مستقر أو سريع. يضبط التعريض والحركة من جدول الشركة المصنعة لهذه الطابعة وسماكة الطبقة",
 "This resin has no maker's table for this printer, so the mode has no effect": "لا يوجد لهذا الراتنج جدول من الشركة المصنعة لهذه الطابعة، لذلك لا تأثير للوضع",
 "Drag to move the bar. Double-click puts it back next to the model": "اسحب لتحريك الشريط. النقر المزدوج يعيده بجوار النموذج",
-"Print time and material of the sliced plate. Full details: Info › Estimate": "وقت الطباعة وكمية المادة للوحة المقطّعة. التفاصيل الكاملة: Info › التقدير"
+"Print time and material of the sliced plate. Full details: Info › Estimate": "وقت الطباعة وكمية المادة للوحة المقطّعة. التفاصيل الكاملة: Info › التقدير",
+"✓ {} thin pillars added under islands": "✓ تمت إضافة {} أعمدة رفيعة أسفل الجزر",
+"A thin pillar goes under every island. Slicing again to check": "سيُضاف عمود رفيع أسفل كل جزيرة. إعادة التقطيع للتحقق",
+"Small pillar under every island": "عمود صغير أسفل كل جزيرة",
+"A region that starts in mid-air gets a thin (0.8 mm) pillar down to the model below or the plate, also when the model prints without supports": "المنطقة التي تبدأ في الهواء تحصل على عمود رفيع (0.8 مم) حتى النموذج أسفلها أو اللوح، حتى عند الطباعة بدون دعامات"
 }

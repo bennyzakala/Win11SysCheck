@@ -4054,6 +4054,8 @@ class MainWindow(QMainWindow):
             warnings = self._print_checks(job) + warnings
             if job.saved_ml > 0:
                 warnings.insert(0, tr("saved_resin").format(job.saved_ml))
+            if job.island_pillars:
+                warnings.insert(0, tr("pillars_added").format(job.island_pillars))
             self._islands = {}
             for i, poly in job.islands:
                 self._islands.setdefault(i, []).append(poly)
@@ -4161,7 +4163,7 @@ class MainWindow(QMainWindow):
         if cfg is not None:
             job = result[1]
             if job.islands and text == tr("check_islands").format(len(job.islands), self._layers_text(job.island_layers)):
-                return self.support_all_islands
+                return self.fix_islands
             if job.cups and text.startswith(tr("check_cups").split("{")[0]):
                 return self.fix_cups_now
             if job.thin_layers and text.startswith(tr("check_thin").split("{")[0]):
@@ -4256,6 +4258,19 @@ class MainWindow(QMainWindow):
                 self._fix_slice_pending = False
                 self.slice()
             QTimer.singleShot(400, go)
+
+    def fix_islands(self):
+        """Print check > Fix next to the islands. With supports: a support at every island. Without supports
+        (a model straight on the plate), or where no support can reach: a thin pillar under each island."""
+        cfg = self.settings.config()
+        added = 0
+        if cfg["support_enable"]:
+            before = sum(len(o.support_points) for o in self.objects if o.support_points is not None)
+            self.support_all_islands()
+            added = sum(len(o.support_points) for o in self.objects if o.support_points is not None) - before
+        if added <= 0:
+            self.settings.set_value("sla_island_pillars", True)
+            self.status.setText(tr("pillars_on"))
 
     def _fix_setting(self, key, value):
         """A fix that is a setting: change it (the caller slices again to check)."""

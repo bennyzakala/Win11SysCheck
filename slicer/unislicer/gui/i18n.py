@@ -316,6 +316,8 @@ STRINGS = {
     "next_island": ("עבור לאי הבא (אזור שמתחיל באוויר)", "Go to the next island (a region that starts in mid-air)"),
     "island": ("אי לא נתמך", "unsupported island"),
     "saved_resin": ("✓ החלילה חסכה {:.1f} מ\"ל שרף", "✓ Hollowing saved {:.1f} ml of resin"),
+    "pillars_added": ("✓ נוספו {} עמודונים דקים מתחת לאיים", "✓ {} thin pillars added under islands"),
+    "pillars_on": ("עמודון דק יתווסף מתחת לכל אי. פורס שוב לבדיקה", "A thin pillar goes under every island. Slicing again to check"),
     "stage_hollow": ("חלילת המודל", "Hollowing"),
     "resin_library": ("ספריית שרפים", "Resin library"),
     "filament_library": ("ספריית פילמנטים", "Filament library"),
