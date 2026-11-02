@@ -1217,5 +1217,11 @@
 "Applies the fix and slices again to check": "Применяет исправление и нарезает заново для проверки",
 "Fixing and slicing again to check…": "Исправление и повторная нарезка для проверки…",
 "Thicken thin features (min 0.3 mm)": "Утолщать тонкие элементы (мин. 0,3 мм)",
-"Parts narrower than 0.3 mm grow a little so they print; the rest of the model is unchanged": "Детали тоньше 0,3 мм немного утолщаются, чтобы напечататься; остальная модель не меняется"
+"Parts narrower than 0.3 mm grow a little so they print; the rest of the model is unchanged": "Детали тоньше 0,3 мм немного утолщаются, чтобы напечататься; остальная модель не меняется",
+"Thickness of each layer in mm: 0.025 = 25 microns, 0.05 = 50 microns, 0.1 = 100 microns": "Толщина каждого слоя в мм: 0,025 = 25 мкм, 0,05 = 50 мкм, 0,1 = 100 мкм",
+"µm": "мкм",
+"Fast (100 µm)": "Быстро (100 мкм)",
+"Normal (50 µm)": "Обычно (50 мкм)",
+"Fine (32 µm)": "Тонко (32 мкм)",
+"Detail (25 µm)": "Детально (25 мкм)"
 }

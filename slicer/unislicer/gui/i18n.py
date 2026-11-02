@@ -203,6 +203,7 @@ STRINGS = {
     "check_fix": ("תקן", "Fix"),
     "check_fix_tip": ("מבצע את התיקון וחותך מחדש לבדיקה", "Applies the fix and slices again to check"),
     "check_fixing": ("מתקן וחותך מחדש לבדיקה…", "Fixing and slicing again to check…"),
+    "micron_unit": ("מיקרון", "µm"),
     "export_as": ("ייצוא קובץ הדפסה למיקום אחר", "Export print file as"),
     "export_library_open": ("פתח את ספריית ההדפסות", "Open the prints folder"),
     "export_library_choose": ("בחר ספריית הדפסות", "Choose the prints folder"),

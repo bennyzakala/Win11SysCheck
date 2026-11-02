@@ -1217,5 +1217,11 @@
 "Applies the fix and slices again to check": "يطبّق الإصلاح ويعيد التقطيع للتحقق",
 "Fixing and slicing again to check…": "جارٍ الإصلاح وإعادة التقطيع للتحقق…",
 "Thicken thin features (min 0.3 mm)": "تثخين الأجزاء الرفيعة (0.3 مم على الأقل)",
-"Parts narrower than 0.3 mm grow a little so they print; the rest of the model is unchanged": "الأجزاء الأرفع من 0.3 مم تُثخَّن قليلًا لتُطبع؛ بقية النموذج لا تتغير"
+"Parts narrower than 0.3 mm grow a little so they print; the rest of the model is unchanged": "الأجزاء الأرفع من 0.3 مم تُثخَّن قليلًا لتُطبع؛ بقية النموذج لا تتغير",
+"Thickness of each layer in mm: 0.025 = 25 microns, 0.05 = 50 microns, 0.1 = 100 microns": "سُمك كل طبقة بالمم: 0.025 = 25 ميكرون، 0.05 = 50 ميكرون، 0.1 = 100 ميكرون",
+"µm": "ميكرون",
+"Fast (100 µm)": "سريع (100 ميكرون)",
+"Normal (50 µm)": "عادي (50 ميكرون)",
+"Fine (32 µm)": "دقيق (32 ميكرون)",
+"Detail (25 µm)": "تفصيلي (25 ميكرون)"
 }

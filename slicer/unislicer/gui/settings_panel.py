@@ -98,6 +98,9 @@ class Section(QFrame):
         self.body_layout.addWidget(widget)
 
 
+MICRON_KEYS = {"sla_layer_height", "sla_layer_min", "sla_layer_max"}     # edited in µm, stored in mm
+
+
 class SettingRow(QWidget):
     """One setting: label, reset, (Apply) and its editor.
 
@@ -181,6 +184,8 @@ class SettingRow(QWidget):
             return w.toPlainText() if hasattr(w, "toPlainText") else w.text()
         if hasattr(w, "interpretText"):
             w.interpretText()                      # a number typed but not yet confirmed counts
+        if self.setting.key in MICRON_KEYS:
+            return round(w.value() / 1000.0, 4)
         return int(w.value()) if kind == "int" else float(w.value())
 
     def apply(self):
@@ -209,6 +214,8 @@ class SettingRow(QWidget):
                     w.setPlainText(str(value))
                 else:
                     w.setText(str(value))
+            elif self.setting.key in MICRON_KEYS:
+                w.setValue(int(round(float(value) * 1000)))
             elif self.setting.kind == "int":
                 w.setValue(int(value))
             else:
@@ -246,6 +253,21 @@ class SettingRow(QWidget):
             w.setFixedWidth(150)
             w.editingFinished.connect(lambda: self._edited(w.text()))
             w.returnPressed.connect(lambda: self.apply() if self.staged else None)
+            return w
+        if s.key in MICRON_KEYS:                    # layer thickness: shown in microns (32 µm, not 0.032 mm)
+            w = NoWheelInt()
+            w.setFocusPolicy(Qt.StrongFocus)
+            w.setRange(int(round((s.minimum or 0.005) * 1000)), int(round((s.maximum or 0.3) * 1000)))
+            w.setSingleStep(1)
+            w.setValue(int(round(float(value) * 1000)))
+            w.setSuffix(" " + tr("micron_unit"))
+            w.setKeyboardTracking(False)
+            w.setFixedWidth(118)
+            w.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            w.setButtonSymbols(QSpinBox.NoButtons)
+            w.valueChanged.connect(lambda v: self._edited(round(v / 1000.0, 4)))
+            if self.staged:
+                w.lineEdit().returnPressed.connect(lambda: QTimer.singleShot(0, self.apply))
             return w
         if s.kind == "int":
             w = NoWheelInt()
@@ -673,6 +695,9 @@ class SettingsPanel(QWidget):
                 return self.printer_id in prof.get("printers", [])
             ordered = sorted(available.items(), key=lambda kv: (not linked(kv[1]), kv[1].get("vendor", "Generic") != "Generic",
                                                                 kv[1].get("vendor", ""), profiles.display_name(kv[1])))
+            if kind == "qualities":            # by layer thickness, thickest first: 100, 50, 32, 25 µm
+                ordered = sorted(available.items(), key=lambda kv: -float((kv[1].get("values") or {}).get(
+                    "sla_layer_height" if tech == "sla" else "layer_height", 0) or 0))
             last_group = None
             for pid, p in ordered:
                 if p.get("printers_only") and not linked(p):     # e.g. Phrozen DS resins: only on their printers

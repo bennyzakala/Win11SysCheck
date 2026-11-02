@@ -52,8 +52,8 @@
   }
  },
  "sla_fast": {
-  "name_he": "מהיר (0.10)",
-  "name_en": "Fast (0.10)",
+  "name_he": "מהיר (100 מיקרון)",
+  "name_en": "Fast (100 µm)",
   "technology": "sla",
   "values": {
    "sla_layer_height": 0.1
@@ -65,8 +65,8 @@
   ]
  },
  "sla_normal": {
-  "name_he": "רגיל (0.05)",
-  "name_en": "Normal (0.05)",
+  "name_he": "רגיל (50 מיקרון)",
+  "name_en": "Normal (50 µm)",
   "technology": "sla",
   "values": {
    "sla_layer_height": 0.05
@@ -77,9 +77,22 @@
    "laser"
   ]
  },
+ "sla_fine32": {
+  "name_he": "עדין (32 מיקרון)",
+  "name_en": "Fine (32 µm)",
+  "technology": "sla",
+  "values": {
+   "sla_layer_height": 0.032
+  },
+  "processes": [
+   "lcd",
+   "dlp",
+   "laser"
+  ]
+ },
  "sla_detail": {
-  "name_he": "פרטני (0.025)",
-  "name_en": "Detail (0.025)",
+  "name_he": "פרטני (25 מיקרון)",
+  "name_en": "Detail (25 µm)",
   "technology": "sla",
   "values": {
    "sla_layer_height": 0.025

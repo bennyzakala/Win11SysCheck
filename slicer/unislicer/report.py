@@ -27,7 +27,7 @@ def build_html(est: PlateEstimate, cfg, printer_name: str, material_name: str, j
         f"<tr><td>{e(r.name)}</td><td>{r.model_ml:.2f}</td><td>{r.support_ml:.2f}</td><td>{r.total_ml:.2f}</td>"
         f"<td>{r.weight_g:.1f}</td><td>{currency}{r.cost:.2f}</td><td>{r.height:.1f}</td></tr>" for r in est.rows)
     if est.technology == "sla":
-        settings = [("Layer height", f"{cfg['sla_layer_height']:.3f} mm"), ("Exposure", f"{cfg['exposure_time']:.2f} s"),
+        settings = [("Layer height", f"{cfg['sla_layer_height'] * 1000:.0f} µm"), ("Exposure", f"{cfg['exposure_time']:.2f} s"),
                     ("Bottom layers", f"{cfg['bottom_layers']} × {cfg['bottom_exposure_time']:.1f} s"),
                     ("Supports", "on" if cfg["support_enable"] else "off"), ("Raft", cfg["sla_raft_type"]),
                     ("Hollow", "on" if cfg["hollow_enable"] or cfg["hollow_infill"] != "none" else "off")]

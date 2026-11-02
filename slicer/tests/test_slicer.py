@@ -3517,3 +3517,29 @@ def test_print_check_rows_have_fix_buttons():
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_layer_height_editor_shows_25_microns():
+    """Layer thickness is shown and typed in microns (100 / 50 / 32 / 25 µm) and stored in mm."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent("""
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.settings import SCHEMA_BY_KEY
+        from unislicer.gui.settings_panel import SettingRow
+        from unislicer import profiles
+        cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, "sla_detail", {})
+        row = SettingRow(SCHEMA_BY_KEY["sla_layer_height"], cfg["sla_layer_height"], False, cfg)
+        assert row.editor.value() == 25 and "µm" in row.editor.suffix() or "מיקרון" in row.editor.suffix(), row.editor.value()
+        assert abs(row.editor_value() - 0.025) < 1e-9                    # stored in mm
+        row.editor.setValue(32)
+        assert abs(row.editor_value() - 0.032) < 1e-9
+        cfg32 = profiles.build_config("phrozen_sonic_ls_plus", "phrozen_ds_phrozen_dental_washable_dental_model", "sla_fine32", {})
+        assert abs(cfg32["sla_layer_height"] - 0.032) < 1e-9 and cfg32["exposure_time"] == 0.8   # 30 µm Phrozen row
+        print("ok")
+    """)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
