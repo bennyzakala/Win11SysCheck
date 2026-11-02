@@ -3382,6 +3382,7 @@ def test_shared_learning_merge_and_sync(tmp_path):
     b.data["overrides"] = {"sla_support_spacing=5.0": {"count": 1, "last": 20}, "sla_raft_type=\"hexagon\"": {"count": 2, "last": 5}}
     a.teach_layout({"count": 2, "spacing": 3.0, "min_gap": 3.0, "margin": 2.0, "anchor": "center", "plate": [0, 0, 1, 1], "slots": []})
     b.teach_layout({"count": 4, "spacing": 1.5, "min_gap": 1.5, "margin": 1.0, "anchor": "center", "plate": [0, 0, 1, 1], "slots": []})
+    b.data["layout"]["taught"]["taught_at"] = a.data["layout"]["taught"]["taught_at"] + 60   # Windows' clock is coarse
     a.data["enabled"] = True; b.data["dismissed"] = ["tree_supports"]
     m = learning_sync.merge(a.data, [json.loads(learning_sync.snapshot(b.data))])
     w = m["orient"]["sla"]["weights"][1]
