@@ -3948,6 +3948,44 @@ class MainWindow(QMainWindow):
                 out.append((best[0], v, best[1]))
         return out
 
+    CUP_BLOCK_AREA = 20.0          # mm²: a sealed cavity this big tears layers apart (delamination)
+
+    def _confirm_cups(self) -> bool:
+        """Before a resin plate leaves UniSlicer: a big suction cup (a cavity sealed on the plate side, e.g. a
+        hollow / honeycomb model with a closed floor) pulls a vacuum on every peel and tears the print apart.
+        Offer the fix (vent holes) instead of letting it go out with only a line in the print check."""
+        if self.result is None or self.result[0] != "sla":
+            return True
+        job, cfg = self.result[1], self.result[2]
+        big = [a for _i, a in job.cups if a >= self.CUP_BLOCK_AREA]
+        if not big:
+            return True
+        layers = [i for i, a in job.cups if a >= self.CUP_BLOCK_AREA]
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle(tr("cup_block_title"))
+        box.setText(tr("cup_block_text").format(min(layers) + 1, max(layers) + 1, max(big)))
+        fix = box.addButton(tr("cup_block_fix"), QMessageBox.AcceptRole)
+        anyway = box.addButton(tr("cup_block_anyway"), QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(fix)
+        box.exec()
+        if box.clickedButton() is anyway:
+            return True
+        if box.clickedButton() is fix:
+            owners = self._cup_owners(job, cfg)
+            if owners:
+                self._push_undo()
+                for o, v, lift in owners:
+                    for row in sla.vent_hole_rows(v, cfg, lift):
+                        o.add_world_drain_hole(row[:3], row[3:], 0.0)
+                self._objects_changed(refresh_list=False)
+                self.status.setText(tr("cup_vents_added").format(len(owners)))
+                QTimer.singleShot(400, self.slice)
+            else:
+                self.fix_suction_cups()
+        return False
+
     def fix_suction_cups(self):
         """Fix menu for the suction-cup warning: vents, drain holes, orientation, tilt, or show the layer."""
         if self.result is None or self.result[0] != "sla":
@@ -4639,6 +4677,8 @@ class MainWindow(QMainWindow):
         from .. import export_library
         if self.result is None or (self.task is not None and self.task.isRunning()):
             return
+        if not self._confirm_cups():
+            return
         name = export_library.safe_name((self.objects[0].name if self.objects else "print") or "print")
         ext = self._export_ext()
         if ask:
@@ -4711,6 +4751,8 @@ class MainWindow(QMainWindow):
         from .. import export_library, print_queue
         if self.result is None or (self.task is not None and self.task.isRunning()):
             QMessageBox.information(self, tr("queue_title"), tr("queue_slice_first"))
+            return
+        if not self._confirm_cups():
             return
         name = export_library.safe_name((self.objects[0].name if self.objects else "print") or "print")
         try:

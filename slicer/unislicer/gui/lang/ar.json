@@ -1184,5 +1184,9 @@
 "Top surfaces": "الأسطح العلوية",
 "The texture changes the model itself (Undo puts it back). The flat base stays smooth. Large models take a few seconds.": "يغيّر النسيج النموذج نفسه (التراجع يعيده). تبقى القاعدة المسطحة ملساء. تستغرق النماذج الكبيرة بضع ثوانٍ.",
 "Apply texture": "تطبيق النسيج",
-"Texture applied to {} models ({:,} triangles)": "طُبّق النسيج على {} نماذج ({:,} مثلث)"
+"Texture applied to {} models ({:,} triangles)": "طُبّق النسيج على {} نماذج ({:,} مثلث)",
+"Suction cup: the print may tear apart": "كوب شفط: قد تتمزق الطباعة",
+"Layers {}–{} hold a closed cavity (up to {:.0f} mm²) sealed towards the plate. Every lift pulls a vacuum in it that tears layers apart (cracks, a torn floor, a model split in the middle) and pulls hard on the plate.\n\nAdd automatic vent holes and slice again.": "في الطبقات {}–{} تجويف مغلق (حتى {:.0f} مم²) محكم من جهة المنصة. كل رفعة تُحدث فراغًا يمزّق الطبقات (تشققات، قاع ممزق، انفصال النموذج) ويشد المنصة بقوة.\n\nأضف ثقوب تهوية تلقائية وقطّع من جديد.",
+"Add vent holes and slice again": "إضافة ثقوب تهوية والتقطيع من جديد",
+"Export anyway": "تصدير على أي حال"
 }

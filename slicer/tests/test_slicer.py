@@ -3249,3 +3249,22 @@ def test_printer_screen_preview_is_a_clear_3d_picture(tmp_path):
     path = sla.export(job2, sl1, str(tmp_path / "a.sl1"))
     names = zipfile.ZipFile(path).namelist()
     assert "thumbnail/thumbnail400x400.png" in names and "thumbnail/thumbnail800x480.png" in names
+
+
+def test_closed_honeycomb_cavity_is_a_suction_cup_and_a_vent_clears_it():
+    """A hollow model with honeycomb infill and a closed floor (no drain holes) printed on supports is one big
+    suction cup - it tore real prints apart (split layers, a torn floor). The automatic vent clears it."""
+    from unislicer import primitives, profiles, sla
+    from unislicer.scene import SceneObject
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", "phrozen_ds_phrozen_dental_washable_dental_model", None,
+                                {"support_enable": True, "hollow_enable": True, "hollow_mode": "inner",
+                                 "hollow_infill": "hive", "drain_holes": 0, "sla_layer_height": 0.1})
+    o = SceneObject.from_mesh(primitives.box(40, 30, 15)); o.x, o.y = 90, 60
+    job = sla.prepare([o.world_mesh()], cfg)
+    assert job.cups and max(a for _i, a in job.cups) > 500 and job.cup_vents
+    lift = cfg["sla_elevation"] + cfg["sla_raft_thickness"]
+    for v in job.cup_vents:
+        for row in sla.vent_hole_rows(v, cfg, lift):
+            o.add_world_drain_hole(row[:3], row[3:], 0.0)
+    job2 = sla.prepare([o.world_mesh()], cfg, holes=[o.world_drain_holes(0.0)])
+    assert not job2.cups
