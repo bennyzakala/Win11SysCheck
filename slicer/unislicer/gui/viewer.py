@@ -796,14 +796,16 @@ class Viewer(QOpenGLWidget):
                     own = obj["color"]                 # its material / dental shade
                     color = tuple(0.75 * a + 0.25 * b for a, b in zip(own, theme.MODEL_SELECTED)) \
                         if uid in self.selection else own
+                lit = uid if state not in ("collision", "outside") and not preview else None
+                color = self._hover_lit(lit, color)
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 self._set_model(p, obj["matrix"])
                 regions = self._region_buffers(obj) if state not in ("collision", "outside") else None
                 if regions and not (self.interacting and len(obj["mesh"].faces) > self.LOD_FACES):
                     sel = uid in self.selection
                     for buf, rgb in regions:          # e.g. a denture: gingiva and every tooth in its shade
-                        c = color if rgb is None else (tuple(0.75 * a + 0.25 * b for a, b in zip(rgb, theme.MODEL_SELECTED))
-                                                       if sel else rgb)
+                        c = color if rgb is None else self._hover_lit(lit, (
+                            tuple(0.75 * a + 0.25 * b for a, b in zip(rgb, theme.MODEL_SELECTED)) if sel else rgb))
                         GL.glUniform3f(self._u(p, "uColor"), *c)
                         buf.draw(GL.GL_TRIANGLES)
                 else:
@@ -1295,8 +1297,22 @@ class Viewer(QOpenGLWidget):
                 uid = self.pick(self._hover_pos)
             except Exception:
                 uid = None
-        self._hover_uid = uid
+        self._set_hover_uid(uid)
         self.objectHovered.emit(uid)
+
+    HOVER_LIGHT = 0.4                            # the model under the cursor is drawn this much closer to white
+
+    def _set_hover_uid(self, uid):
+        if uid != self._hover_uid:
+            self._hover_uid = uid
+            self.update()                         # repaint: the model under the cursor turns brighter
+
+    def _hover_lit(self, uid, color):
+        """``color`` brightened when ``uid`` is the model under the cursor."""
+        if uid is None or uid != self._hover_uid:
+            return color
+        k = self.HOVER_LIGHT
+        return tuple(c + (1.0 - c) * k for c in color)
 
     def mouseMoveEvent(self, e):
         pos = e.position()
@@ -1304,6 +1320,7 @@ class Viewer(QOpenGLWidget):
             self.begin_interaction()
             if self.hover_label.isVisible():
                 self.hover_label.hide()
+            self._set_hover_uid(None)
         else:                                   # resting cursor: look up the model under it shortly after
             self._hover_pos = pos
             if self.hover_label.isVisible() and self._hover_uid is not None:
@@ -1400,6 +1417,7 @@ class Viewer(QOpenGLWidget):
         self._hover_pos = None
         self._hover_timer.stop()
         self.hover_label.hide()
+        self._set_hover_uid(None)
         if self._band is not None and not (QApplication.mouseButtons() & Qt.LeftButton):
             self._end_band()
         super().leaveEvent(e)

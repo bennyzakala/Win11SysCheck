@@ -3573,12 +3573,16 @@ def test_hovering_a_model_shows_its_name_and_size_see_through():
         sx, sy, sz = o.world_size()
         assert v.hover_label.isVisible() and "Tooth_37.stl" in t and f"{sx:.2f} × {sy:.2f} × {sz:.2f} mm" in t, t
         assert "rgba(20,22,28,0.55)" in v.hover_label.styleSheet()          # see-through
+        base = (0.8, 0.8, 0.83)                                             # the model under the cursor is brighter
+        lit = v._hover_lit(o.uid, base)
+        assert v._hover_uid == o.uid and all(b < l <= 1.0 for b, l in zip(base, lit))
+        assert v._hover_lit("other", base) == base
         v.pick = lambda pos, *a, **k: None
         QTest.mouseMove(v, QPoint(320, 310))
         end = time.time() + 3
         while v.hover_label.isVisible() and time.time() < end:
             app.processEvents(); time.sleep(0.02)
-        assert not v.hover_label.isVisible()
+        assert not v.hover_label.isVisible() and v._hover_lit(o.uid, base) == base
         print("ok")
     """)
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
