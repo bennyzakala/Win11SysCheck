@@ -1093,7 +1093,13 @@ class MainWindow(QMainWindow):
         self.progress_label.hide()
         al.addWidget(self.progress_label)
         btns = QHBoxLayout()
-        self.slice_btn = QPushButton(theme.icon("layers", "#ffffff", 18), "  " + tr("slice"))
+        # print time and material of the sliced plate, just above Slice (a full row: the buttons need the width)
+        self.slice_info = QLabel("")
+        self.slice_info.setObjectName("SliceInfo")
+        self.slice_info.setToolTip(tr("slice_info_tip"))
+        self.slice_info.hide()
+        al.addWidget(self.slice_info, 0, Qt.AlignLeading)
+        self.slice_btn = QPushButton(theme.icon("layers", "#ffffff", 18), " " + tr("slice"))
         self.slice_btn.setObjectName("Primary")
         self.slice_btn.setIconSize(QSize(18, 18))
         self.slice_btn.setCursor(Qt.PointingHandCursor)
@@ -1110,15 +1116,10 @@ class MainWindow(QMainWindow):
         self.send_btn.setCursor(Qt.PointingHandCursor)
         self.send_btn.setEnabled(False)
         self.send_btn.clicked.connect(lambda: self._act("send", "button", self.send_to_printer))
-        # print time and material of the sliced plate, next to Slice
-        self.slice_info = QLabel("")
-        self.slice_info.setObjectName("SliceInfo")
-        self.slice_info.setAlignment(Qt.AlignCenter)
-        self.slice_info.setToolTip(tr("slice_info_tip"))
-        self.slice_info.hide()
+        btns.setSpacing(6)
         btns.addWidget(self.slice_btn, 1)
-        btns.addWidget(self.slice_info)
         btns.addWidget(self.export_btn, 1)
+        self.export_btn.setMinimumWidth(self.export_btn.sizeHint().width())
         btns.addWidget(self.send_btn)
         al.addLayout(btns)
         lay.addWidget(action)
@@ -2658,7 +2659,7 @@ class MainWindow(QMainWindow):
         if "h" in t:                               # hours: the seconds are noise
             t = " ".join(p for p in t.split() if not p.endswith("s"))
         m = self.stat_material.value.text()
-        label.setText(f"⏱ {t}" + (f"\n{m}" if m and m != "—" else ""))
+        label.setText(f"⏱  {t}" + (f"   ·   {m}" if m and m != "—" else ""))
         label.show()
 
     def _edit_bar_place(self):
@@ -3743,6 +3744,7 @@ class MainWindow(QMainWindow):
         self._plate = rect
         self.stat_material.set("—", tr("stat_resin") if tech == "sla" else tr("stat_filament"))
         self.export_btn.setText("  " + (tr("export_sla") if tech == "sla" else tr("export_gcode")))
+        self.export_btn.setMinimumWidth(self.export_btn.sizeHint().width())   # never clip "Export print file"
         self._update_overhang()
         self._objects_changed(refresh_list=False)
 
@@ -3974,7 +3976,7 @@ class MainWindow(QMainWindow):
     def _on_task_finished(self):
         self.progress.hide()
         self.progress_label.hide()
-        self.slice_btn.setText("  " + tr("slice"))
+        self.slice_btn.setText(" " + tr("slice"))
         self.slice_btn.setIcon(theme.icon("layers", "#ffffff", 18))
         self.export_btn.setEnabled(self.result is not None)
         self.send_btn.setEnabled(self.result is not None)
