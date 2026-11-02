@@ -929,9 +929,11 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
                       volume_ml=job.volume_ml, weight_g=job.weight_g, cost=job.cost, print_time_s=job.time_s,
                       progress=lambda f: progress(0.9 + 0.1 * f) if progress else None)
         if fmt == "ctb":
-            ctb.write(path, rle, n, cfg, preview_layers=job.layers, **common)
+            ctb.write(path, rle, n, cfg, preview_layers=job.layers, preview_models=job.models,
+                      preview_supports=job.supports, **common)
         else:
-            goo.write(path, rle, n, cfg, preview=ctb.make_preview(job.layers, cfg, (290, 290)), **common)
+            goo.write(path, rle, n, cfg, preview=ctb.make_preview(job.layers, cfg, (290, 290), job.models, job.supports),
+                      **common)
         return path
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as zf:
         # layer images are drawn and PNG-encoded on all cores; the zip is written here in order
@@ -948,12 +950,17 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
         if fmt == "sl1":
             zf.writestr("config.ini", _sl1_config(job, cfg, safe, bottom))
             zf.writestr("prusaslicer.ini", _sl1_printer_ini(job, cfg))
+            from .ctb import make_preview
+            for size in ((400, 400), (800, 480)):           # what the SL1 / SL1S screen and PrusaLink show
+                buf = io.BytesIO()
+                make_preview(job.layers, cfg, size, job.models, job.supports).save(buf, "PNG")
+                zf.writestr(f"thumbnail/thumbnail{size[0]}x{size[1]}.png", buf.getvalue())
         elif fmt == "zip":
             from .ctb import make_preview
             zf.writestr("run.gcode", _chitu_zip_gcode(job, cfg, safe, bottom))
             for name, size in (("preview.png", (400, 300)), ("preview_cropping.png", (200, 125))):
                 buf = io.BytesIO()
-                make_preview(job.layers, cfg, size).save(buf, "PNG")
+                make_preview(job.layers, cfg, size, job.models, job.supports).save(buf, "PNG")
                 zf.writestr(name, buf.getvalue())
         else:
             keys = ("exposure_time", "bottom_exposure_time", "bottom_layers", "transition_layers", "light_pwm",

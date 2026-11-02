@@ -124,7 +124,7 @@ def test_sla_export(tmp_path):
     with zipfile.ZipFile(path) as zf:
         names = zf.namelist()
         assert "config.ini" in names
-        assert sum(n.endswith(".png") for n in names) == job.layer_count
+        assert sum(n.endswith(".png") and not n.startswith("thumbnail/") for n in names) == job.layer_count
         assert "numFast = %d" % job.layer_count in zf.read("config.ini").decode()
 
 
@@ -3223,3 +3223,29 @@ def test_every_bundled_profile_is_sane():
                         bad.append(f"{where}: {k}={v[k]}")
     assert rows > 3000
     assert not bad, bad[:20]
+
+
+def test_printer_screen_preview_is_a_clear_3d_picture(tmp_path):
+    """The picture on the printer's screen (PRZ / GOO / CTB / SL1) is a shaded 3D view of the models and
+    supports that fills the frame, not a small flat silhouette of the whole plate."""
+    import zipfile
+    import numpy as np
+    from PIL import Image
+    from unislicer import ctb, primitives, profiles, sla
+    from unislicer.scene import SceneObject
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", "phrozen_ds_phrozen_dental_washable_dental_model", None,
+                                {"support_enable": True})
+    o = SceneObject.from_mesh(primitives.sphere(10)); o.x, o.y = 90, 60
+    job = sla.prepare([o.world_mesh()], cfg)
+    img = np.asarray(ctb.make_preview(job.layers, cfg, (290, 290), job.models, job.supports))
+    lit = np.any(np.abs(img.astype(int) - ctb.PREVIEW_BG) > 12, axis=2)
+    ys, xs = np.nonzero(lit)
+    assert (xs.max() - xs.min()) > 0.5 * 290                    # fills the frame
+    assert len(np.unique(img.reshape(-1, 3), axis=0)) > 200     # shaded, not a flat colour
+    flat = np.asarray(ctb._top_view(job.layers, cfg, (290, 290)))
+    assert lit.mean() > 2 * np.any(np.abs(flat.astype(int) - ctb.PREVIEW_BG) > 12, axis=2).mean()
+    sl1 = profiles.build_config("prusa_sl1s", None, None, {"support_enable": False})
+    job2 = sla.prepare([o.world_mesh()], sl1)
+    path = sla.export(job2, sl1, str(tmp_path / "a.sl1"))
+    names = zipfile.ZipFile(path).namelist()
+    assert "thumbnail/thumbnail400x400.png" in names and "thumbnail/thumbnail800x480.png" in names

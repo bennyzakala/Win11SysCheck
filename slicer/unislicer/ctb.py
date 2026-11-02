@@ -152,8 +152,43 @@ def encode_preview(img: Image.Image) -> bytes:
     return bytes(out)
 
 
-def make_preview(layers, cfg: Config, size: tuple[int, int]) -> Image.Image:
-    """Top view of the print (union of all layers) for the printer's screen."""
+def make_preview(layers, cfg: Config, size: tuple[int, int], models=None, supports=None) -> Image.Image:
+    """The picture the printer shows: a shaded 3D view of the models (and supports), filling the frame.
+    Falls back to a top view of the layers when there are no meshes."""
+    if models:
+        try:
+            return render_preview(models, supports, size)
+        except Exception:
+            pass
+    return _top_view(layers, cfg, size)
+
+
+PREVIEW_BG = (24, 26, 32)
+
+
+def render_preview(models, supports, size: tuple[int, int]) -> Image.Image:
+    """Shaded view from the front and above, cropped to the parts, on the dark screen background. Big scans
+    are drawn from a lighter copy (the screen is a few hundred pixels wide), so it stays quick."""
+    from .thumbnail import render
+    meshes, colours = [], []
+    budget = max(15000, 240000 // max(1, len(models)))
+    for m in models:
+        if len(m.faces):
+            meshes.append(m.decimated(budget))
+            colours.append((0.86, 0.88, 0.94))
+    if supports is not None and len(supports.faces):
+        meshes.append(supports.decimated(120000))
+        colours.append((0.50, 0.56, 0.68))
+    if not meshes:
+        raise ValueError("nothing to draw")
+    img = render(meshes, colours, size[0], size[1], supersample=3)
+    out = Image.new("RGB", size, PREVIEW_BG)
+    out.paste(img, mask=img.split()[3])
+    return out
+
+
+def _top_view(layers, cfg: Config, size: tuple[int, int]) -> Image.Image:
+    """Top view of the print (union of all layers)."""
     from .slicing import polygons_of
     w, h = size
     img = Image.new("RGB", size, (24, 26, 32))
@@ -174,7 +209,8 @@ def make_preview(layers, cfg: Config, size: tuple[int, int]) -> Image.Image:
 # ------------------------------------------------------------------ write
 def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, cfg: Config, *,
           layer_height: float, exposures: list[float], volume_ml: float, weight_g: float, cost: float,
-          print_time_s: float, layer_z: list[float] | None = None, preview_layers, machine_name: str = "UniSlicer", encrypt: bool = True,
+          print_time_s: float, layer_z: list[float] | None = None, preview_layers, preview_models=None,
+          preview_supports=None, machine_name: str = "UniSlicer", encrypt: bool = True,
           progress: Callable[[float], None] | None = None) -> None:
     """Write a CTB v4 file. ``layer_rle`` yields (index, RLE bytes from :func:`encode_layer`) in order."""
     bottom = min(int(cfg["bottom_layers"]), layer_count)
@@ -193,7 +229,7 @@ def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, c
         offsets = {}
         for key, size in (("large", (400, 300)), ("small", (200, 125))):
             offsets[key] = fh.tell()
-            data = encode_preview(make_preview(preview_layers, cfg, size))
+            data = encode_preview(make_preview(preview_layers, cfg, size, preview_models, preview_supports))
             fh.write(PREVIEW.pack(size[0], size[1], fh.tell() + PREVIEW.size, len(data), 0, 0, 0, 0))
             fh.write(data)
 
