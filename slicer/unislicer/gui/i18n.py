@@ -99,6 +99,7 @@ STRINGS = {
     "estimate_copied": ("הטבלה הועתקה", "Table copied"),
     "report_save": ("שמור דו״ח עבודה (PDF)", "Save job report (PDF)"),
     "report_auto": ("שמור דו״ח עבודה עם כל ייצוא", "Save a job report with each export"),
+    "project_auto": ("שמור קובץ פרויקט עם כל ייצוא", "Save a project file with each export"),
     "report_saved": ("הדו״ח נשמר: {}", "Report saved: {}"),
     "report_failed": ("לא ניתן לשמור את הדו״ח: {}", "Could not save the report: {}"),
     "void_title": ("חלל / אינסרט במודל", "Insert / void body"),

@@ -393,6 +393,10 @@ class MainWindow(QMainWindow):
         self.report_auto_act.setCheckable(True)
         self.report_auto_act.setChecked(self.store.value("export_report", "true") == "true")
         self.report_auto_act.toggled.connect(lambda on: self.store.setValue("export_report", "true" if on else "false"))
+        self.project_auto_act = mm.addAction(tr("project_auto"))
+        self.project_auto_act.setCheckable(True)
+        self.project_auto_act.setChecked(self.store.value("export_project", "true") == "true")
+        self.project_auto_act.toggled.connect(lambda on: self.store.setValue("export_project", "true" if on else "false"))
         mm.addSeparator()
         mm.addAction(theme.icon("download"), tr("export_as") + "…", lambda: self.export(ask=True))
         mm.addAction(theme.icon("open"), tr("export_library_open"), self.open_export_library)
@@ -5025,14 +5029,19 @@ class MainWindow(QMainWindow):
         return path
 
     def _report_with_export(self, print_path: str):
-        """After an export: the job report beside the print file (More › Save job report with each export)."""
-        if self.store.value("export_report", "true") != "true":
-            return
+        """After an export: the job report and the project file beside the print file
+        (More › Save job report / project file with each export)."""
         base = os.path.splitext(print_path)[0]
-        try:
-            self.write_job_report(base + " - report.pdf", file_path=print_path)
-        except Exception:
-            pass
+        if self.store.value("export_report", "true") == "true":
+            try:
+                self.write_job_report(base + " - report.pdf", file_path=print_path)
+            except Exception:
+                pass
+        if self.store.value("export_project", "true") == "true":
+            try:                              # the plate as a project: open it later to change and export again
+                project.save(base + project.EXTENSION, self.objects, self.settings.state())
+            except Exception:
+                pass
 
     def export_library(self) -> str:
         """The central folder every print file is exported to (chosen in More › Export folder)."""

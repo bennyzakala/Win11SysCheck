@@ -1230,5 +1230,6 @@
 "Default": "الافتراضي",
 "Put this resin profile back on its original settings": "إعادة ملف الراتنج إلى إعداداته الأصلية",
 "Put \"{}\" back on its original settings? Your changes to this resin's settings will be dropped.": "هل تريد إعادة «{}» إلى إعداداته الأصلية؟ سيتم حذف تغييراتك على إعدادات هذا الراتنج.",
-"\"{}\" is already on its original settings.": "«{}» يستخدم إعداداته الأصلية بالفعل."
+"\"{}\" is already on its original settings.": "«{}» يستخدم إعداداته الأصلية بالفعل.",
+"Save a project file with each export": "حفظ ملف مشروع مع كل تصدير"
 }

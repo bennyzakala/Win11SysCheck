@@ -3017,6 +3017,10 @@ def test_job_report_pdf_is_written_beside_the_export(tmp_path):
         w.export()
         pdf = os.path.join({lib!r}, "part", "part - report.pdf")
         assert os.path.isfile(pdf) and open(pdf, "rb").read(5) == b"%PDF-", os.listdir(os.path.join({lib!r}, "part"))
+        from unislicer import project
+        proj = os.path.join({lib!r}, "part", "part" + project.EXTENSION)
+        objs, state = project.load(proj)                 # the plate is saved as a project beside the print file
+        assert [o.name for o in objs] == ["part"] and state["printer"] == "creality_ender3v2"
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
