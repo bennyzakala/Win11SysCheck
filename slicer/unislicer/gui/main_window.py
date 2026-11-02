@@ -630,6 +630,7 @@ class MainWindow(QMainWindow):
         self.viewer.boxSelected.connect(self._on_box_select)
         self.viewer.contextRequested.connect(self._show_context_menu)
         self.viewer.objectDragged.connect(self._on_drag)
+        self.viewer.objectHovered.connect(self._on_hover_object)
         self.viewer.objectDragFinished.connect(self._on_drag_finished)
         self.viewer.surfacePicked.connect(self._on_support_add)
         self.viewer.rotateStarted.connect(self._on_rotate_start)
@@ -3245,6 +3246,15 @@ class MainWindow(QMainWindow):
         if uids:
             self.status.setText(tr("group_selected").format(len(self.selected_objects()),
                                                            sum(o.volume for o in self.selected_objects()) / 1000))
+
+    def _on_hover_object(self, uid):
+        """Mouse resting on a model: its name and size (W × D × H mm) in a see-through label."""
+        o = next((x for x in self.objects if x.uid == uid), None) if uid is not None else None
+        if o is None:
+            self.viewer.show_hover(None)
+            return
+        w, d, h = o.world_size()
+        self.viewer.show_hover(f"{o.name or 'model'}\n{w:.2f} × {d:.2f} × {h:.2f} mm")
 
     def _on_drag(self, uid, dx, dy):
         group = self.selected_objects()

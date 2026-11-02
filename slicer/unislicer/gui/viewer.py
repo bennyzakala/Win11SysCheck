@@ -284,6 +284,7 @@ class Viewer(QOpenGLWidget):
     boxSelected = Signal(object, bool)        # uids inside a Shift/Ctrl-dragged rectangle, additive
     contextRequested = Signal(object, object)  # uid under a right click (or None), global position
     objectDragged = Signal(object, float, float)
+    objectHovered = Signal(object)                 # uid under a resting cursor (None when it leaves the models)
     objectDragFinished = Signal(object)
     glFailed = Signal(str)
     surfacePicked = Signal(object, object)     # uid, world point (support "add" mode)
@@ -332,6 +333,19 @@ class Viewer(QOpenGLWidget):
             " border-radius: 7px; padding: 4px 9px; font-weight: 700; font-size: 13px; }")
         self.measure_label.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.measure_label.hide()
+        # the model under a resting cursor: name and size in a see-through label next to it
+        self.hover_label = QLabel(self)
+        self.hover_label.setStyleSheet(
+            "QLabel { background: rgba(20,22,28,0.55); color: rgba(255,255,255,0.95); border: 1px solid rgba(255,255,255,0.25);"
+            " border-radius: 7px; padding: 4px 9px; font-size: 12px; }")
+        self.hover_label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.hover_label.hide()
+        self._hover_pos = None
+        self._hover_uid = None
+        self._hover_timer = QTimer(self)
+        self._hover_timer.setSingleShot(True)
+        self._hover_timer.setInterval(120)
+        self._hover_timer.timeout.connect(self._hover_check)
         self._rot = None                         # active ring drag: (uid, axis, start angle, last degrees)
         self._hover_axis = None
         self._gizmo_cache = None
@@ -1260,10 +1274,41 @@ class Viewer(QOpenGLWidget):
                 band.show()
                 self._band = (e.position(), band)
 
+    def show_hover(self, text: str | None):
+        """Show (or hide, with None) the see-through name / size label next to the cursor."""
+        if not text or self._hover_pos is None:
+            self.hover_label.hide()
+            return
+        self.hover_label.setText(text)
+        self.hover_label.adjustSize()
+        x = int(min(self._hover_pos.x() + 16, self.width() - self.hover_label.width() - 4))
+        y = int(max(4, self._hover_pos.y() - self.hover_label.height() - 10))
+        self.hover_label.move(x, y)
+        self.hover_label.show()
+        self.hover_label.raise_()
+
+    def _hover_check(self):
+        if self._hover_pos is None or self.mode != self.MODE_PREPARE or self.pick_mode or self.tool == "measure":
+            uid = None
+        else:
+            try:
+                uid = self.pick(self._hover_pos)
+            except Exception:
+                uid = None
+        self._hover_uid = uid
+        self.objectHovered.emit(uid)
+
     def mouseMoveEvent(self, e):
         pos = e.position()
         if e.buttons():
             self.begin_interaction()
+            if self.hover_label.isVisible():
+                self.hover_label.hide()
+        else:                                   # resting cursor: look up the model under it shortly after
+            self._hover_pos = pos
+            if self.hover_label.isVisible() and self._hover_uid is not None:
+                self.show_hover(self.hover_label.text())      # follow the cursor
+            self._hover_timer.start()
         dx, dy = pos.x() - self._last.x(), pos.y() - self._last.y()
         self._last = pos
         if self._rot is not None and e.buttons() & Qt.LeftButton:
@@ -1352,6 +1397,9 @@ class Viewer(QOpenGLWidget):
         super().focusOutEvent(e)
 
     def leaveEvent(self, e):
+        self._hover_pos = None
+        self._hover_timer.stop()
+        self.hover_label.hide()
         if self._band is not None and not (QApplication.mouseButtons() & Qt.LeftButton):
             self._end_band()
         super().leaveEvent(e)

@@ -3543,3 +3543,41 @@ def test_layer_height_editor_shows_25_microns():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_hovering_a_model_shows_its_name_and_size_see_through():
+    import subprocess, sys, textwrap
+    code = textwrap.dedent("""
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import QPoint
+        from PySide6.QtTest import QTest
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        o = w.add_mesh(primitives.box(10.4, 11.02, 18.21)); o.name = "Tooth_37.stl"
+        v = w.viewer
+        v.pick = lambda pos, *a, **k: o.uid
+        QTest.mouseMove(v, QPoint(300, 300))
+        end = time.time() + 3
+        while not v.hover_label.isVisible() and time.time() < end:
+            app.processEvents(); time.sleep(0.02)
+        t = v.hover_label.text()
+        sx, sy, sz = o.world_size()
+        assert v.hover_label.isVisible() and "Tooth_37.stl" in t and f"{sx:.2f} × {sy:.2f} × {sz:.2f} mm" in t, t
+        assert "rgba(20,22,28,0.55)" in v.hover_label.styleSheet()          # see-through
+        v.pick = lambda pos, *a, **k: None
+        QTest.mouseMove(v, QPoint(320, 310))
+        end = time.time() + 3
+        while v.hover_label.isVisible() and time.time() < end:
+            app.processEvents(); time.sleep(0.02)
+        assert not v.hover_label.isVisible()
+        print("ok")
+    """)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
