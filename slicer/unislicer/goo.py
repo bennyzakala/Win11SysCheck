@@ -14,7 +14,7 @@ import numpy as np
 from PIL import Image
 
 from . import __version__
-from .settings import Config
+from .settings import Config, cfg_tsmc
 from .sla_timing import layer_light_off, layer_pwm, layer_rests
 
 VERSION = b"V3.0"
@@ -119,7 +119,7 @@ def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, c
           progress: Callable[[float], None] | None = None) -> None:
     """Write a GOO file. ``layer_rle`` yields (index, bytes from :func:`encode_layer`) in order."""
     bottom = min(int(cfg["bottom_layers"]), layer_count)
-    tsmc = bool(cfg["tsmc_enable"])
+    tsmc = cfg_tsmc(cfg)
 
     def motion(is_bottom: bool):
         lift = cfg["bottom_lift_height"] if is_bottom else cfg["lift_height"]

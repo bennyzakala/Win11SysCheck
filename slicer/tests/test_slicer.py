@@ -3171,3 +3171,17 @@ def test_texture_from_the_window_and_undo():
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_empty_two_stage_motion_is_not_sent_to_the_printer():
+    """Phrozen DS Slicer profiles keep TwoStage on with an empty second stage (all 0). That must not reach
+    the print file as a two-stage move (0 mm at the minimum 5 mm/min speed)."""
+    from unislicer import profiles
+    from unislicer.settings import cfg_tsmc
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", "phrozen_ds_phrozen_dental_washable_dental_model", None, {})
+    assert not cfg["tsmc_enable"] and not cfg_tsmc(cfg)
+    assert cfg["exposure_time"] == 1.0 and cfg["bottom_exposure_time"] == 35.0      # Phrozen's own values
+    on = cfg.copy().update({"tsmc_enable": True, "lift_height_2": 0.0, "retract_height_2": 0.0})
+    assert not cfg_tsmc(on)
+    real = cfg.copy().update({"tsmc_enable": True, "lift_height_2": 3.0, "lift_speed_2": 200.0})
+    assert cfg_tsmc(real)

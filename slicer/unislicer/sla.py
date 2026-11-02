@@ -16,7 +16,7 @@ from shapely.geometry import Point, Polygon
 
 from . import __version__
 from .mesh import Mesh
-from .settings import Config
+from .settings import Config, cfg_tsmc
 from .sla_supports import build_supports
 from .sla_timing import layer_light_off, layer_rests
 from .slicing import EMPTY, MultiPolygon, as_multipolygon, polygons_of, slice_meshes
@@ -74,7 +74,7 @@ def layer_motion_time(i: int, cfg: Config) -> float:
     lift = cfg["bottom_lift_height"] if bottom else cfg["lift_height"]
     lift_speed = (cfg["bottom_lift_speed"] if bottom else cfg["lift_speed"]) / 60.0
     retract_speed = (cfg["bottom_retract_speed"] if bottom else cfg["retract_speed"]) / 60.0
-    if cfg["tsmc_enable"]:
+    if cfg_tsmc(cfg):
         lift2 = cfg["lift_height_2"]
         up = lift / lift_speed + lift2 / (cfg["lift_speed_2"] / 60.0)
         slow = min(cfg["retract_height_2"], lift + lift2)

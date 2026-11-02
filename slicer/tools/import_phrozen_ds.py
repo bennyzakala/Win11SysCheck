@@ -75,9 +75,14 @@ def exposure_values(ed, thickness: float) -> dict:
         "tsmc_enable": bool(int(_f(ed, "TwoStage"))),
     }
     if v["tsmc_enable"]:
-        v.update({"lift_height_2": _f(ed, "liftSecondDistInputFile"), "lift_speed_2": _f(ed, "liftSecondSpeedInputFile"),
+        second = {"lift_height_2": _f(ed, "liftSecondDistInputFile"), "lift_speed_2": _f(ed, "liftSecondSpeedInputFile"),
                   "retract_height_2": _f(ed, "retractSecondDistInputFile"),
-                  "retract_speed_2": _f(ed, "retractSecondSpeedInputFile")})
+                  "retract_speed_2": _f(ed, "retractSecondSpeedInputFile")}
+        # DS Slicer leaves TwoStage on with an empty second stage (all 0): that is no second stage at all
+        if second["lift_height_2"] > 0 or second["retract_height_2"] > 0:
+            v.update(second)
+        else:
+            v["tsmc_enable"] = False
     cs = ed.find("CompensateSize/Default")
     if cs is not None:
         out, base = _f(cs, "CompensateSizeOut"), _f(cs, "CompensateSizeOutBase")

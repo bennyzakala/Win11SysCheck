@@ -491,3 +491,9 @@ class Config:
     def line_width(self) -> float:
         w = float(self.values["line_width"])
         return w if w > 0 else float(self.values["nozzle_diameter"]) * 1.05
+
+
+def cfg_tsmc(cfg) -> bool:
+    """Two-stage motion is on only with a second stage that does something (a distance > 0); an empty
+    second stage (all 0, as some vendor profiles store it) would send 0-length / minimum-speed moves."""
+    return bool(cfg["tsmc_enable"]) and (float(cfg["lift_height_2"]) > 0 or float(cfg["retract_height_2"]) > 0)

@@ -14,7 +14,7 @@ from typing import Callable, Iterable
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .settings import Config
+from .settings import Config, cfg_tsmc
 from .sla_timing import layer_light_off, layer_pwm, layer_rests
 
 MAGIC_CTB_V4 = 0x12FD0106
@@ -180,7 +180,7 @@ def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, c
     bottom = min(int(cfg["bottom_layers"]), layer_count)
     seed = random.randint(0xFF, 0x7FFFFFFF) if encrypt else 0
     name = machine_name.encode("utf-8")
-    tsmc = bool(cfg["tsmc_enable"])
+    tsmc = cfg_tsmc(cfg)
     lift2 = cfg["lift_height_2"] if tsmc else 0.0
     speed2 = cfg["lift_speed_2"] if tsmc else cfg["lift_speed"]
     ret2 = cfg["retract_height_2"] if tsmc else 0.0
