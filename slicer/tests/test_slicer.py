@@ -3828,3 +3828,78 @@ def test_island_pillars_fix_islands_without_supports():
     assert job.islands and job.island_pillars == 0
     job = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", dict(over, sla_island_pillars=True)))
     assert not job.islands and job.island_pillars >= 1
+
+
+def test_claude_assistant_proposals_and_errors():
+    """Claude's proposed changes become typed, range-checked proposals; the tool loop answers each call; nothing is
+    applied by Claude itself. A fake client stands in for the API."""
+    from types import SimpleNamespace as NS
+    from unislicer import claude_agent
+
+    calls = []
+
+    class FakeMessages:
+        def __init__(self, responses):
+            self.responses = list(responses)
+
+        def create(self, **kw):
+            calls.append(kw)
+            return self.responses.pop(0)
+
+    tool = NS(type="tool_use", id="tu_1", name="propose_settings", input={"changes": [
+        {"key": "bottom_exposure_time", "value": "25", "reason": "stronger first layers"},
+        {"key": "bottom_layers", "value": "4", "reason": "fewer burn-in layers"},
+        {"key": "not_a_key", "value": "1", "reason": "x"},
+        {"key": "exposure_time", "value": "-3", "reason": "out of range"}]})
+    first = NS(content=[NS(type="text", text="The plate grip is too strong."), tool], stop_reason="tool_use")
+    second = NS(content=[NS(type="text", text="Apply them and slice again.")], stop_reason="end_turn")
+    client = NS(beta=NS(messages=FakeMessages([first, second])))
+    a = claude_agent.ClaudeAssistant(client=client)
+    reply = a.ask("stuck to plate", "Current plate:\n- technology: sla")
+    assert not reply.error and "too strong" in reply.text and "slice again" in reply.text
+    assert [(p.key, p.value) for p in reply.proposals] == [("bottom_exposure_time", 25.0), ("bottom_layers", 4)]
+    assert calls[0]["model"] == "claude-opus-5-5" and calls[0]["tools"][0]["strict"] is True
+    assert calls[0]["fallbacks"] == "default" and "server-side-fallback-2026-07-01" in calls[0]["betas"]
+    # history: question, answer with the tool call, the tool result, the final answer (append-only)
+    roles = [m["role"] for m in a.messages]
+    assert roles == ["user", "assistant", "user", "assistant"]
+    result = a.messages[2]["content"][0]
+    assert result["type"] == "tool_result" and result["tool_use_id"] == "tu_1" and "not_a_key" in result["content"]
+    assert claude_agent.convert_value("support_enable", "true") is True
+    assert claude_agent.convert_value("exposure_mode", "fast") == "fast" and claude_agent.convert_value("exposure_mode", "x") is None
+
+    refused = NS(content=[], stop_reason="refusal")
+    b = claude_agent.ClaudeAssistant(client=NS(beta=NS(messages=FakeMessages([refused]))))
+    assert b.ask("q").error == "refusal"
+
+
+def test_claude_dialog_context_and_apply(tmp_path):
+    import subprocess, sys, textwrap
+    code = textwrap.dedent("""
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.claude_agent import Proposal
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.settings.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        o = w.add_mesh(primitives.box(10, 10, 5)); o.name = "crown"
+        ctx = w.claude_context()
+        assert "Current plate:" in ctx and "technology: sla" in ctx and "crown " in ctx and "x5.0 mm" in ctx, ctx
+        assert "bottom_exposure_time=" in ctx and "not sliced yet" in ctx
+        dlg = w.claude_dialog()
+        assert dlg.isVisible() and dlg.key_row.isVisible()          # no key yet: asks for one
+        dlg._show_proposals([Proposal("bottom_exposure_time", 25.0, "grip")])
+        btn = [dlg.proposals.itemAt(i).widget() for i in range(dlg.proposals.count())][1]
+        btn.click(); app.processEvents()
+        assert w.settings.config()["bottom_exposure_time"] == 25.0 and not btn.isEnabled()
+        print("ok")
+    """)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path)
+    env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+    env.update(HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

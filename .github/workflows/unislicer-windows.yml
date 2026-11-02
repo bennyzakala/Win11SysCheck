@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install numpy shapely Pillow PySide6-Essentials PyOpenGL pyinstaller pytest
+          pip install numpy shapely Pillow PySide6-Essentials PyOpenGL "anthropic>=2.4,<3" pyinstaller pytest
 
       - name: Run tests
         run: python -m pytest -q
@@ -45,7 +45,7 @@ jobs:
             --add-data "unislicer/gui/lang;unislicer/gui/lang" `
             --add-data "unislicer/remote_config.json;unislicer" `
             --hidden-import PySide6.QtNetwork `
-            --collect-submodules OpenGL @extra run_unislicer.py
+            --collect-submodules OpenGL --collect-submodules anthropic @extra run_unislicer.py
           if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed' }
           Get-ChildItem -Recurse dist\UniSlicer -Filter opengl32sw.dll | ForEach-Object { "bundled: $($_.FullName)" }
 

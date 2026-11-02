@@ -315,6 +315,7 @@ class MainWindow(QMainWindow):
 
         i = bar.addMenu(tr("menu_info"))
         add(i, tr("assistant"), self._toggle_assistant, "", "sparkle")
+        add(i, tr("claude_title") + "…", self.claude_dialog, "", "sparkle")
         add(i, tr("estimate_title") + "…", self.estimate_dialog, "", "coin")
         add(i, tr("menu_shortcuts") + "…", self.shortcuts_dialog, "", "code")
         i.addSeparator()
@@ -921,6 +922,7 @@ class MainWindow(QMainWindow):
         self.assistant_panel.importRequested.connect(self.import_learning)
         self.assistant_panel.autoRepairToggled.connect(self._on_auto_repair_toggled)
         self.assistant_panel.closeRequested.connect(lambda: self.assistant_wrap.hide())
+        self.assistant_panel.claudeRequested.connect(self.claude_dialog)
         awrap = QWidget()
         awrap.setObjectName("Overlay")
         awl = QVBoxLayout(awrap)
@@ -4182,6 +4184,7 @@ class MainWindow(QMainWindow):
         return ", ".join(str(i + 1) for i in idx[:6]) + ("…" if len(idx) > 6 else "")
 
     def _show_check_rows(self, warnings, result):
+        self._check_texts = list(warnings)           # what Claude sees as the print check
         while self.warn_rows.count():
             item = self.warn_rows.takeAt(0)
             if item.widget() is not None:
@@ -4258,6 +4261,63 @@ class MainWindow(QMainWindow):
                 self._fix_slice_pending = False
                 self.slice()
             QTimer.singleShot(400, go)
+
+    # ================================================================ Claude
+    def claude_dialog(self):
+        """Ask Claude about the plate; its proposed setting changes are buttons the user applies."""
+        from .claude_dialog import ClaudeDialog
+        dlg = getattr(self, "_claude_dialog", None)
+        if dlg is None:
+            dlg = ClaudeDialog(self.claude_context, self._apply_claude_change, self)
+            self._claude_dialog = dlg
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+        return dlg
+
+    CLAUDE_KEYS = {"sla": ("sla_layer_height", "exposure_mode", "exposure_time", "bottom_exposure_time", "bottom_layers",
+                           "transition_layers", "lift_height", "lift_speed", "retract_speed", "wait_before_exposure",
+                           "support_enable", "hollow_enable", "hollow_wall", "drain_holes", "sla_thicken_thin",
+                           "sla_island_pillars", "shrink_xy", "bottom_xy_compensation"),
+                   "fdm": ("layer_height", "nozzle_temp", "bed_temp", "infill_density", "wall_count", "print_speed",
+                           "support_enable", "adhesion_type")}
+
+    def claude_context(self) -> str:
+        """The "Current plate" summary sent with each question (no files, no model geometry)."""
+        from ..claude_agent import plate_context
+        from ..settings import SCHEMA
+        cfg = self.settings.config()
+        tech = self.settings.technology
+        clean = lambda combo: combo.currentText().replace("★", "").strip() if combo is not None else ""
+        state = {"technology": tech,
+                 "printer": clean(getattr(self.settings, "printer_combo", None)),
+                 "material": clean(getattr(self.settings, "material_combo", None)),
+                 "quality": clean(getattr(self.settings, "quality_combo", None)),
+                 "changed": {k: v for k, v in self.settings.overrides.items()},
+                 "key_values": {k: cfg[k] for k in self.CLAUDE_KEYS.get(tech, ()) if k in cfg.values}}
+        models = []
+        for o in self.objects:
+            if o.role == "cutter":
+                continue
+            w, d, h = o.world_size()
+            models.append(f"{o.name or 'model'} {w:.1f}x{d:.1f}x{h:.1f} mm"
+                          + (", supports" if o.support_points is not None and len(o.support_points) else ""))
+        state["models"] = models[:30]
+        if self.result is not None:
+            state["checks"] = [c for c in getattr(self, "_check_texts", []) if c][:20]
+            t, m = self.stat_time.value.text(), self.stat_material.value.text()
+            if t and t != "—":
+                state["estimate"] = f"{t}, {m}"
+        else:
+            state["checks"] = ["(not sliced yet)"]
+        state["known_keys"] = sorted(s.key for s in SCHEMA if s.tech in (tech, "both") and s.key != "technology"
+                                     and s.key not in state["key_values"])
+        return plate_context(state)
+
+    def _apply_claude_change(self, key, value):
+        self.settings.set_value(key, value)
+        self.settings.changed.emit()
+        self.status.setText(tr("claude_applied").format(key, value))
 
     def fix_islands(self):
         """Print check > Fix next to the islands. With supports: a support at every island. Without supports
