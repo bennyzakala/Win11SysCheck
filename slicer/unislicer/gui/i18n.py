@@ -205,6 +205,8 @@ STRINGS = {
     "check_fixing": ("מתקן וחותך מחדש לבדיקה…", "Fixing and slicing again to check…"),
     "micron_unit": ("מיקרון", "µm"),
     "collision_short": ("{} מודלים נוגעים זה בזה", "{} models touch each other"),
+    "check_fix_all": ("תקן הכל", "Fix all"),
+    "check_fix_all_tip": ("מבצע את כל התיקונים ברשימה וחותך פעם אחת לבדיקה", "Applies every fix in the list and slices once to check"),
     "export_as": ("ייצוא קובץ הדפסה למיקום אחר", "Export print file as"),
     "export_library_open": ("פתח את ספריית ההדפסות", "Open the prints folder"),
     "export_library_choose": ("בחר ספריית הדפסות", "Choose the prints folder"),

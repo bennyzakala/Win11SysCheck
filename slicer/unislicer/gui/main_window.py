@@ -1030,12 +1030,12 @@ class MainWindow(QMainWindow):
         self.warn_rows.setSpacing(3)
         self.warn_box.hide()
         al.addWidget(self.warn_box)
-        self.cup_fix_btn = QPushButton(tr("cup_fix"))
+        self.cup_fix_btn = QPushButton(tr("check_fix_all"))          # "Fix all" problems of the print check
         self.cup_fix_btn.setObjectName("Primary")
         self.cup_fix_btn.setIcon(theme.icon("sparkle", theme.ON_ACCENT, 16))
-        self.cup_fix_btn.setToolTip(tr("cup_fix_tip"))
+        self.cup_fix_btn.setToolTip(tr("check_fix_all_tip"))
         self.cup_fix_btn.setCursor(Qt.PointingHandCursor)
-        self.cup_fix_btn.clicked.connect(self.fix_suction_cups)
+        self.cup_fix_btn.clicked.connect(self.fix_all_checks)
         self.cup_fix_btn.hide()
         al.addWidget(self.cup_fix_btn)
         self.progress = QProgressBar()
@@ -1152,10 +1152,11 @@ class MainWindow(QMainWindow):
 
     def support_all_islands(self):
         """Add one support at every island found by the last slice (PreForm's "support all minima")."""
-        if self.result is None or self.result[0] != "sla" or not self.result[1].islands:
+        res = self.result or getattr(self, "_fix_result", None)
+        if res is None or res[0] != "sla" or not res[1].islands:
             self.status.setText(tr("islands_none"))
             return
-        job = self.result[1]
+        job = res[1]
         pts = sla_supports.island_points(job.layers, job.layer_z, job.islands)
         cfg = self.settings.config()
         lift = self._lift(cfg)
@@ -3761,8 +3762,9 @@ class MainWindow(QMainWindow):
         for tile in (self.stat_time, self.stat_material, self.stat_weight, self.stat_cost):
             tile.set("—")
         self.warn_label.hide()
-        self.warn_box.hide()
-        self.cup_fix_btn.hide()
+        if not getattr(self, "_keep_checks", False):    # a Fix keeps the list: only the fixed line goes
+            self.warn_box.hide()
+            self.cup_fix_btn.hide()
         if had:
             self.status.setText(tr("dirty"))
         if self.viewer.mode == "preview":
@@ -3959,7 +3961,7 @@ class MainWindow(QMainWindow):
                 self._islands.setdefault(i, []).append(poly)
             self.island_btn.setVisible(bool(self._islands))
             self.island_fix_btn.setVisible(bool(self._islands))
-        self.cup_fix_btn.setVisible(result[0] == "sla" and bool(result[1].cups))
+        self._keep_checks = False
         self.result_cfg = cfg
         if warnings:
             import html
@@ -4085,6 +4087,7 @@ class MainWindow(QMainWindow):
             if item.widget() is not None:
                 item.widget().deleteLater()
         self.check_fix_buttons = []
+        self._check_fixes = []
         for w in warnings:
             color = theme.SUCCESS if w.startswith("✓") else theme.TEXT_DIM if w.startswith("▸") else theme.WARNING
             row = QWidget()
@@ -4102,23 +4105,70 @@ class MainWindow(QMainWindow):
                 btn.setProperty("pending", "true")
                 btn.setCursor(Qt.PointingHandCursor)
                 btn.setToolTip(tr("check_fix_tip"))
-                btn.clicked.connect(lambda _c=False, f=fix: f())
+                btn.clicked.connect(lambda _c=False, f=fix, r=row: self._run_fix(f, r))
                 h.addWidget(btn, 0, Qt.AlignTop)
                 self.check_fix_buttons.append((w, btn))
+                self._check_fixes.append((fix, row))
             self.warn_rows.addWidget(row)
         self.warn_box.show()
+        self.cup_fix_btn.setVisible(len(self._check_fixes) > 1)
+
+    def _run_fix(self, fix, row):
+        """One Fix button: the check list stays, that line goes, the others stay until the new slice."""
+        self._keep_checks = True
+        self._fix_result = self.result
+        row.hide()
+        self._check_fixes = [(f, r) for f, r in self._check_fixes if r is not row]
+        self.cup_fix_btn.setVisible(len(self._check_fixes) > 1)
+        try:
+            fix()
+        finally:
+            self._after_fix()
+
+    def fix_all_checks(self):
+        """'Fix all': every problem of the print check, then one slice to check them."""
+        fixes = list(getattr(self, "_check_fixes", []))
+        if not fixes:
+            return
+        self._keep_checks = True
+        self._fix_result = self.result
+        self._batch_fix = True
+        try:
+            for fix, row in fixes:
+                row.hide()
+                try:
+                    fix()
+                except Exception as exc:            # one fix failing must not stop the others
+                    self.status.setText(str(exc))
+        finally:
+            self._batch_fix = False
+        self._check_fixes = []
+        self.cup_fix_btn.hide()
+        self._after_fix()
+
+    def _after_fix(self):
+        """Slice again once (not once per fix) so the check shows what is left."""
+        if getattr(self, "_batch_fix", False):
+            return
+        self.status.setText(tr("check_fixing"))
+        if not getattr(self, "_fix_slice_pending", False):
+            self._fix_slice_pending = True
+
+            def go():
+                self._fix_slice_pending = False
+                self.slice()
+            QTimer.singleShot(400, go)
 
     def _fix_setting(self, key, value):
-        """A fix that is a setting: change it, then slice again to check."""
+        """A fix that is a setting: change it (the caller slices again to check)."""
         self.settings.set_value(key, value)
-        self.status.setText(tr("check_fixing"))
-        QTimer.singleShot(400, self.slice)
 
     def fix_cups_now(self):
         """Print check > Fix next to the suction cups: vent holes, sliced again (more rounds if needed)."""
-        if self.result is None or self.result[0] != "sla":
+        res = self.result or getattr(self, "_fix_result", None)
+        if res is None or res[0] != "sla":
             return
-        job, cfg = self.result[1], self.result[2]
+        job, cfg = res[1], res[2]
         owners = self._cup_owners(job, cfg)
         if not owners:
             self._cup_no_vent_dialog(job)
@@ -4130,12 +4180,10 @@ class MainWindow(QMainWindow):
         self._objects_changed(refresh_list=False)
         self.status.setText(tr("cup_vents_added").format(len(owners)))
         self._cup_fix_pending = len(owners)
-        QTimer.singleShot(400, self.slice)
 
     def _repair_all(self):
         self.select_all()
         self.repair_selected()
-        QTimer.singleShot(400, self.slice)
 
     @staticmethod
     def _print_checks(job) -> list[str]:

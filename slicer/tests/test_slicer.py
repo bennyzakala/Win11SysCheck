@@ -3582,3 +3582,61 @@ def test_hovering_a_model_shows_its_name_and_size_see_through():
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_fix_keeps_the_check_list_and_fix_all_slices_once():
+    import subprocess, sys, textwrap
+    code = textwrap.dedent("""
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from shapely.geometry import box
+        from unislicer import mesh_tools
+        from unislicer.mesh import Mesh
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus"); app.processEvents()
+        w.settings.set_value("support_enable", False)
+        w.settings.set_value("hollow_enable", True); w.settings.set_value("drain_holes", 0)
+        part = Mesh.merge([mesh_tools.extrude(box(0, 0, 20, 20), 0, 12), mesh_tools.extrude(box(20, 8, 30, 8.2), 0, 12)], "p")
+        o = w.add_mesh(part); o.direct = True
+        def run_slice():
+            settle = time.time() + 1.0
+            while time.time() < settle:
+                app.processEvents(); time.sleep(0.01)
+            w.slice()
+            end = time.time() + 120
+            while (w.result is None or (w.task is not None and w.task.isRunning())) and time.time() < end:
+                app.processEvents(); time.sleep(0.01)
+        run_slice()
+        n = len(w.check_fix_buttons)
+        assert n >= 2, [t for t, _ in w.check_fix_buttons]
+        assert not w.cup_fix_btn.isHidden()                  # "Fix all" shown when there is more than one
+        slices = []
+        real_slice = w.slice
+        w.slice = lambda: slices.append(1)
+        thin_btn = next(b for t, b in w.check_fix_buttons if "0.3" in t)
+        thin_btn.click(); app.processEvents()
+        assert not w.warn_box.isHidden()                     # the list stays
+        assert thin_btn.parentWidget().isHidden()            # only the fixed line goes
+        others = [b for t, b in w.check_fix_buttons if b is not thin_btn]
+        assert all(not b.parentWidget().isHidden() for b in others)
+        end = time.time() + 3
+        while not slices and time.time() < end:
+            app.processEvents(); time.sleep(0.02)
+        assert len(slices) == 1
+        slices.clear()
+        w.fix_all_checks(); app.processEvents()
+        end = time.time() + 3
+        while time.time() < end:
+            app.processEvents(); time.sleep(0.02)
+        assert len(slices) == 1                               # several fixes, one slice
+        assert w.settings.config()["drain_holes"] == 2 and w.settings.config()["sla_thicken_thin"]
+        print("ok")
+    """)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

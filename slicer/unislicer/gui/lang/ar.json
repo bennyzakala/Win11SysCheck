@@ -1224,5 +1224,7 @@
 "Normal (50 µm)": "عادي (50 ميكرون)",
 "Fine (32 µm)": "دقيق (32 ميكرون)",
 "Detail (25 µm)": "تفصيلي (25 ميكرون)",
-"{} models touch each other": "{} نماذج تتلامس"
+"{} models touch each other": "{} نماذج تتلامس",
+"Fix all": "إصلاح الكل",
+"Applies every fix in the list and slices once to check": "يطبّق كل الإصلاحات في القائمة ويقطّع مرة واحدة للتحقق"
 }

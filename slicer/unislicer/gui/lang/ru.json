@@ -1224,5 +1224,7 @@
 "Normal (50 µm)": "Обычно (50 мкм)",
 "Fine (32 µm)": "Тонко (32 мкм)",
 "Detail (25 µm)": "Детально (25 мкм)",
-"{} models touch each other": "Моделей касаются друг друга: {}"
+"{} models touch each other": "Моделей касаются друг друга: {}",
+"Fix all": "Исправить всё",
+"Applies every fix in the list and slices once to check": "Применяет все исправления из списка и нарезает один раз для проверки"
 }
