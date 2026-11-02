@@ -546,7 +546,14 @@ def find_cups(layers: list[MultiPolygon], min_area: float = 10.0, sealed: list |
     Each peel pulls a vacuum in such a cavity. Returns (layer, area mm2) for layers where one is open
     towards the vat. A drain hole through a wall or the floor breaks the seal and clears the warning."""
     sealed = sealed if sealed is not None else _sealed_layers(layers)
-    return [(i, s.area) for i, s in enumerate(sealed) if s.area >= min_area]
+    out = []
+    for i, s in enumerate(sealed):
+        # only real pockets count: dozens of tiny pits (e.g. the fissures of a scanned tooth, a few mm² each)
+        # pull no meaningful vacuum, but added up per layer they looked like a big cup
+        area = sum(c.area for c in polygons_of(s) if c.area >= min_area)
+        if area >= min_area:
+            out.append((i, area))
+    return out
 
 
 def cup_vents(layers: list[MultiPolygon], layer_z: list[float], min_area: float = 10.0, radius: float = 1.5,

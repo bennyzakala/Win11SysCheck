@@ -3768,9 +3768,23 @@ class MainWindow(QMainWindow):
         self.result = result
         pending = self.__dict__.pop("_cup_fix_pending", 0)
         if pending and result[0] == "sla":
-            left = [a for _i, a in result[1].cups if a >= self.CUP_BLOCK_AREA]
-            QTimer.singleShot(0, lambda: self.status.setText(
-                tr("cup_fixed") if not left else tr("cup_still").format(len(left))))
+            job, cfg = result[1], result[2]
+            left = [a for _i, a in job.cups if a >= self.CUP_BLOCK_AREA]
+            rounds = self.__dict__.get("_cup_fix_round", 1)
+            owners = self._cup_owners(job, cfg) if left else []
+            if left and owners and rounds < 3:
+                # a vent can uncover the next pocket up: vent that one too and slice again (at most 3 rounds)
+                for o, v, lift in owners:
+                    for row in sla.vent_hole_rows(v, cfg, lift):
+                        o.add_world_drain_hole(row[:3], row[3:], 0.0)
+                self._cup_fix_pending = len(owners)
+                self._cup_fix_round = rounds + 1
+                self._objects_changed(refresh_list=False)
+                QTimer.singleShot(400, self.slice)
+            else:
+                self.__dict__.pop("_cup_fix_round", None)
+                QTimer.singleShot(0, lambda: self.status.setText(
+                    tr("cup_fixed") if not left else tr("cup_still").format(len(left))))
         warnings = []
         if result[0] == "fdm":
             _, plan, text, stats, verts, cfg = result

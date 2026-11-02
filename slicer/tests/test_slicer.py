@@ -3315,3 +3315,14 @@ def test_vent_found_for_a_narrow_slot_cup():
     cut = sla.slice_meshes(sla.hole_meshes([sla.vent_hole_rows(vents[0], cfg)], cfg, 0.0), z, 0.05)
     drilled = [g.difference(c) if not c.is_empty else g for g, c in zip(layers, cut)]
     assert not sla.find_cups(drilled)
+
+
+def test_tiny_anatomy_pits_are_not_a_suction_cup():
+    """Many small sealed pits in one layer (tooth fissures, ~5 mm² each) pull no real vacuum; added up they
+    used to look like one 20 mm² cup, which the vent tool could never clear on real dental scans."""
+    from shapely.geometry import box
+    from unislicer import sla
+    pits = sla.as_multipolygon(box(0, 0, 2, 2.5).union(box(5, 0, 7, 2.5)).union(box(10, 0, 12, 2.5)).union(box(15, 0, 17, 2.5)))
+    assert sla.find_cups([pits], sealed=[pits]) == []                       # 4 x 5 mm² = 20 mm² of pits
+    cup = sla.as_multipolygon(box(0, 0, 4, 4))
+    assert sla.find_cups([cup], sealed=[cup]) == [(0, 16.0)]                 # one real 16 mm² pocket
