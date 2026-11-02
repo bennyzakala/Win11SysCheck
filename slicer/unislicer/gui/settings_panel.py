@@ -394,6 +394,13 @@ class SettingsPanel(QWidget):
                 row.addWidget(self.profile_menu_btn)
             cl.addLayout(row)
             cl.addWidget(combo)
+            if key == "quality":
+                # resin mode (Stable / Fast) right under the quality: picks the maker's exposure and motion row
+                self.mode_combo = self._profile_combo()
+                for opt in SCHEMA_BY_KEY["exposure_mode"].options:
+                    self.mode_combo.addItem(option_label(opt), opt[0])
+                self.mode_combo.currentIndexChanged.connect(self._on_mode)
+                cl.addWidget(self.mode_combo)
             if key == "printer":
                 # build plate of the chosen printer (full plate or a smaller/other plate size)
                 prow = QHBoxLayout()
@@ -444,6 +451,7 @@ class SettingsPanel(QWidget):
         self._default_plate()
         self.rebuild()
         self.changed.connect(self._update_material_default)
+        self.changed.connect(self._refresh_mode_combo)
         self._update_material_default()
 
     # -------------------------------------------------------------- profiles
@@ -557,7 +565,33 @@ class SettingsPanel(QWidget):
             self.printer_combo.setCurrentIndex(idx)
         return True
 
+    def _on_mode(self, index):
+        if self._building or index < 0:
+            return
+        mode = self.mode_combo.itemData(index)
+        if mode and mode != self.config()["exposure_mode"]:
+            self.set_value("exposure_mode", mode)
+            self.rebuild()
+            self.changed.emit()
+
+    def _refresh_mode_combo(self):
+        combo = getattr(self, "mode_combo", None)
+        if combo is None:
+            return
+        sla = self.technology == "sla"
+        combo.setVisible(sla)
+        if not sla:
+            return
+        table = (profiles.load("materials").get(self.material_id or "", {}).get("layer_table", {}).get(self.printer_id))
+        combo.setEnabled(bool(table))
+        combo.setToolTip(tr("mode_tip") if table else tr("mode_no_table"))
+        combo.blockSignals(True)
+        i = combo.findData(self.config()["exposure_mode"])
+        combo.setCurrentIndex(max(0, i))
+        combo.blockSignals(False)
+
     def _refresh_filament_panel(self):
+        self._refresh_mode_combo()
         panel = getattr(self, "filament_panel", None)
         if panel is not None:
             fdm = self.technology == "fdm"

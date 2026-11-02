@@ -1231,5 +1231,7 @@
 "Put this resin profile back on its original settings": "Вернуть профилю смолы исходные настройки",
 "Put \"{}\" back on its original settings? Your changes to this resin's settings will be dropped.": "Вернуть «{}» исходные настройки? Ваши изменения настроек этой смолы будут удалены.",
 "\"{}\" is already on its original settings.": "«{}» уже использует исходные настройки.",
-"Save a project file with each export": "Сохранять файл проекта при каждом экспорте"
+"Save a project file with each export": "Сохранять файл проекта при каждом экспорте",
+"Resin mode: Stable or Fast. Sets exposure and motion from the maker's table for this printer and layer height": "Режим смолы: стабильный или быстрый. Задаёт экспозицию и движение по таблице производителя для этого принтера и толщины слоя",
+"This resin has no maker's table for this printer, so the mode has no effect": "Для этой смолы нет таблицы производителя для этого принтера, поэтому режим ни на что не влияет"
 }

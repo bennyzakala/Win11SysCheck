@@ -1231,5 +1231,7 @@
 "Put this resin profile back on its original settings": "إعادة ملف الراتنج إلى إعداداته الأصلية",
 "Put \"{}\" back on its original settings? Your changes to this resin's settings will be dropped.": "هل تريد إعادة «{}» إلى إعداداته الأصلية؟ سيتم حذف تغييراتك على إعدادات هذا الراتنج.",
 "\"{}\" is already on its original settings.": "«{}» يستخدم إعداداته الأصلية بالفعل.",
-"Save a project file with each export": "حفظ ملف مشروع مع كل تصدير"
+"Save a project file with each export": "حفظ ملف مشروع مع كل تصدير",
+"Resin mode: Stable or Fast. Sets exposure and motion from the maker's table for this printer and layer height": "وضع الراتنج: مستقر أو سريع. يضبط التعريض والحركة من جدول الشركة المصنعة لهذه الطابعة وسماكة الطبقة",
+"This resin has no maker's table for this printer, so the mode has no effect": "لا يوجد لهذا الراتنج جدول من الشركة المصنعة لهذه الطابعة، لذلك لا تأثير للوضع"
 }

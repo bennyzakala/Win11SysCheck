@@ -3683,6 +3683,14 @@ def test_resin_default_button_restores_original(tmp_path, monkeypatch):
         assert p.config()["exposure_time"] == {orig!r} and "exposure_time" not in p.overrides
         assert p.config()["bottom_exposure_time"] != 40.0 and p.overrides.get("infill_density") == 33
         assert p.material_changed_keys() == [] and not p.material_default_btn.property("pending")
+        # Stable / Fast under the quality picks the maker's row
+        assert p.mode_combo.isEnabled() and p.mode_combo.currentData() == "stable"
+        stable_lift = p.config()["lift_speed"]
+        p.mode_combo.setCurrentIndex(p.mode_combo.findData("fast"))
+        assert p.config()["exposure_mode"] == "fast" and p.config()["lift_speed"] > stable_lift
+        p.set_value("exposure_mode", "stable"); p.changed.emit()
+        assert p.mode_combo.currentData() == "stable"
+        assert p.select_printer("elegoo_mars3") and not p.mode_combo.isEnabled()   # no maker's table there
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
