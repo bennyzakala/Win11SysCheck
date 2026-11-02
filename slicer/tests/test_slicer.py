@@ -3185,3 +3185,41 @@ def test_empty_two_stage_motion_is_not_sent_to_the_printer():
     assert not cfg_tsmc(on)
     real = cfg.copy().update({"tsmc_enable": True, "lift_height_2": 3.0, "lift_speed_2": 200.0})
     assert cfg_tsmc(real)
+
+
+def test_every_bundled_profile_is_sane():
+    """Every printer / resin / quality profile (and every row of a resin's layer table): no empty two-stage
+    motion, no value outside the setting's range (it would be clamped silently), no unknown option,
+    exposure and motion values that make sense."""
+    from unislicer import profiles
+    from unislicer.settings import SCHEMA_BY_KEY
+    bad = []
+    rows = 0
+    for kind in profiles.KINDS:
+        for pid, prof in profiles.load(kind).items():
+            tables = [(f"{kind}/{pid}", prof.get("values", {}))]
+            for printer, table in (prof.get("layer_table") or {}).items():
+                for th, modes in table.items():
+                    tables += [(f"{kind}/{pid}[{printer} {th} {m}]", v) for m, v in modes.items()]
+            for where, v in tables:
+                rows += 1
+                if v.get("tsmc_enable") and not (float(v.get("lift_height_2", 4.0)) > 0 or float(v.get("retract_height_2", 2.0)) > 0):
+                    bad.append(f"{where}: empty two-stage motion")
+                for k, x in v.items():
+                    s = SCHEMA_BY_KEY.get(k)
+                    if s is None:
+                        continue
+                    if s.kind in ("float", "int"):
+                        if (s.minimum is not None and float(x) < s.minimum - 1e-9) or (s.maximum is not None and float(x) > s.maximum + 1e-9):
+                            bad.append(f"{where}: {k}={x} outside {s.minimum}..{s.maximum}")
+                    elif s.kind == "enum" and s.options and x not in [o[0] for o in s.options]:
+                        bad.append(f"{where}: {k}={x!r} is not an option")
+                if "exposure_time" in v and float(v["exposure_time"]) <= 0:
+                    bad.append(f"{where}: no exposure")
+                if "bottom_exposure_time" in v and "exposure_time" in v and float(v["bottom_exposure_time"]) < float(v["exposure_time"]):
+                    bad.append(f"{where}: bottom exposure below normal")
+                for k in ("lift_speed", "retract_speed", "bottom_lift_speed", "bottom_retract_speed", "lift_height", "bottom_lift_height"):
+                    if k in v and float(v[k]) <= 0:
+                        bad.append(f"{where}: {k}={v[k]}")
+    assert rows > 3000
+    assert not bad, bad[:20]
