@@ -591,10 +591,23 @@ class Viewer(QOpenGLWidget):
 
     @staticmethod
     def _world_box(obj) -> np.ndarray:
-        b = obj["mesh"].bounds
-        corners = np.array([[x, y, z] for x in b[:, 0] for y in b[:, 1] for z in b[:, 2]])
-        w = corners @ obj["matrix"][:3, :3].T + obj["matrix"][:3, 3]
-        return np.array([w.min(axis=0), w.max(axis=0)])
+        """The model's exact box as it stands now: from its turned vertices, not the turned corners of its
+        unturned box (which stick out far past a tilted model). Cached until it turns or scales, so
+        dragging only shifts it."""
+        m = obj["matrix"]
+        lin = np.ascontiguousarray(m[:3, :3])
+        key = (id(obj["mesh"]), lin.tobytes())
+        hit = obj.get("_tight_box")
+        if hit is None or hit[0] != key:
+            v = np.asarray(obj["mesh"].vertices, dtype=np.float64)
+            if len(v) == 0:
+                box = np.zeros((2, 3))
+            else:
+                r = v @ lin.T
+                box = np.array([r.min(axis=0), r.max(axis=0)])
+            hit = (key, box)
+            obj["_tight_box"] = hit
+        return hit[1] + m[:3, 3]
 
     def fit_objects(self):
         if not self.objects:
@@ -1003,7 +1016,7 @@ class Viewer(QOpenGLWidget):
 
     def _draw_selection_box(self, mvp, uid, primary: bool = True):
         box = self._world_box(self.objects[uid])
-        pad = 0.6
+        pad = 0.15                      # just off the surface, so the lines are not hidden inside it
         lo, hi = box[0] - pad, box[1] + pad
         c = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])], dtype=np.float32)
         edges = [(0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7), (0, 4), (1, 5), (2, 6), (3, 7)]

@@ -3268,3 +3268,27 @@ def test_closed_honeycomb_cavity_is_a_suction_cup_and_a_vent_clears_it():
             o.add_world_drain_hole(row[:3], row[3:], 0.0)
     job2 = sla.prepare([o.world_mesh()], cfg, holes=[o.world_drain_holes(0.0)])
     assert not job2.cups
+
+
+def test_selection_box_hugs_a_turned_model():
+    """The orange selection box is the model's exact extent as it stands (tilted / turned models included),
+    not the turned corners of its unturned box."""
+    import numpy as np
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from unislicer import primitives
+    from unislicer.gui.viewer import Viewer
+    from unislicer.scene import SceneObject
+    o = SceneObject.from_mesh(primitives.sphere(10, 24, 48))
+    o.rotation = np.array([30.0, 20.0, 45.0])
+    o.x, o.y = 50, 50
+    m = o.world_matrix()
+    obj = {"mesh": o.mesh, "matrix": m}
+    box = Viewer._world_box(obj)
+    true = o.mesh.transform(m).bounds
+    assert np.allclose(box, true, atol=1e-9)
+    old_corners = np.array([[x, y, z] for x in o.mesh.bounds[:, 0] for y in o.mesh.bounds[:, 1]
+                            for z in o.mesh.bounds[:, 2]]) @ m[:3, :3].T + m[:3, 3]
+    assert (old_corners.max(axis=0) - old_corners.min(axis=0)).max() > (true[1] - true[0]).max() + 3   # the old box was loose
+    m2 = m.copy(); m2[:3, 3] += [5, 0, 0]
+    obj["matrix"] = m2
+    assert np.allclose(Viewer._world_box(obj), true + [5, 0, 0])          # moving reuses the cached box
