@@ -181,6 +181,24 @@ def _compile(vs: str, fs: str, gs: str | None = None) -> int:
     return prog
 
 
+
+def _pick_data(mesh: Mesh):
+    """Per-mesh arrays for fast ray picking (cached on the mesh; meshes are replaced, not edited in place)."""
+    key = (id(mesh.vertices), id(mesh.faces), len(mesh.faces))
+    cached = getattr(mesh, "_pick_cache", None)
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    t = mesh.triangles
+    v0 = np.ascontiguousarray(t[:, 0])
+    e1, e2 = t[:, 1] - v0, t[:, 2] - v0
+    centre = t.mean(axis=1)
+    radius = np.linalg.norm(t - centre[:, None, :], axis=2).max(axis=1)
+    # padded so float32 rounding never drops a triangle the ray really hits
+    radius2 = (radius + 1e-6) ** 2 + 1e-6
+    data = (v0, e1, e2, centre, radius2)
+    mesh._pick_cache = (key, data)
+    return data
+
 class _Buffer:
     """A VAO + VBO holding interleaved float32 attributes."""
 
@@ -344,7 +362,7 @@ class Viewer(QOpenGLWidget):
         self._hover_uid = None
         self._hover_timer = QTimer(self)
         self._hover_timer.setSingleShot(True)
-        self._hover_timer.setInterval(120)
+        self._hover_timer.setInterval(25)
         self._hover_timer.timeout.connect(self._hover_check)
         self._rot = None                         # active ring drag: (uid, axis, start angle, last degrees)
         self._hover_axis = None
@@ -1065,7 +1083,6 @@ class Viewer(QOpenGLWidget):
 
     @staticmethod
     def _ray_mesh(origin, direction, mesh: Mesh):
-        t = mesh.triangles
         lo, hi = mesh.bounds
         # slab test against the bounding box first
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -1075,12 +1092,23 @@ class Viewer(QOpenGLWidget):
         tmax = np.nanmin(np.maximum(t0, t1))
         if tmax < max(tmin, 0):
             return None
-        e1, e2 = t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]
+        v0, e1, e2, centre, radius2 = _pick_data(mesh)
+        # only triangles whose bounding sphere the ray passes through (a few hundred of a jaw's 300k)
+        n = float(np.linalg.norm(direction))
+        if n < 1e-15:
+            return None
+        d = direction / n
+        w = centre - origin
+        along = w @ d
+        near = np.flatnonzero(np.einsum("ij,ij->i", w, w) - along * along <= radius2)
+        if len(near) == 0:
+            return None
+        v0, e1, e2 = v0[near], e1[near], e2[near]
         p = np.cross(direction, e2)
         det = np.einsum("ij,ij->i", e1, p)
         ok = np.abs(det) > 1e-12
         inv_det = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0)
-        s = origin - t[:, 0]
+        s = origin - v0
         u = np.einsum("ij,ij->i", s, p) * inv_det
         q = np.cross(s, e1)
         v = (q @ direction) * inv_det
@@ -1090,7 +1118,7 @@ class Viewer(QOpenGLWidget):
             return None
         idx = np.flatnonzero(hit)
         k = idx[np.argmin(dist[idx])]
-        return float(dist[k]), int(k)
+        return float(dist[k]), int(near[k])
 
     def pick(self, pos: QPointF):
         """The object under the cursor: its surface, its supports, or failing that its bounding box
