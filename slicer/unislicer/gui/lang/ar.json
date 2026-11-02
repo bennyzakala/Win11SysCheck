@@ -1234,5 +1234,6 @@
 "Save a project file with each export": "حفظ ملف مشروع مع كل تصدير",
 "Resin mode: Stable or Fast. Sets exposure and motion from the maker's table for this printer and layer height": "وضع الراتنج: مستقر أو سريع. يضبط التعريض والحركة من جدول الشركة المصنعة لهذه الطابعة وسماكة الطبقة",
 "This resin has no maker's table for this printer, so the mode has no effect": "لا يوجد لهذا الراتنج جدول من الشركة المصنعة لهذه الطابعة، لذلك لا تأثير للوضع",
-"Drag to move the bar. Double-click puts it back next to the model": "اسحب لتحريك الشريط. النقر المزدوج يعيده بجوار النموذج"
+"Drag to move the bar. Double-click puts it back next to the model": "اسحب لتحريك الشريط. النقر المزدوج يعيده بجوار النموذج",
+"Print time and material of the sliced plate. Full details: Info › Estimate": "وقت الطباعة وكمية المادة للوحة المقطّعة. التفاصيل الكاملة: Info › التقدير"
 }

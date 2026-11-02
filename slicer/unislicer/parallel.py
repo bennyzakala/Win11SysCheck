@@ -4,12 +4,14 @@ from __future__ import annotations
 import multiprocessing
 import os
 import sys
+import threading
 from concurrent.futures import Future, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from typing import Callable, Iterable, Sequence
 
 _pool: ProcessPoolExecutor | None = None
 _disabled = False   # set when the pool cannot start (then everything runs in-process)
+_lock = threading.Lock()
 
 
 def workers() -> int:
@@ -28,17 +30,15 @@ def pool() -> ProcessPoolExecutor | None:
     global _pool
     if workers() < 2 or _disabled:
         return None
-    if _pool is None:
-        # "spawn" everywhere: forking a process that runs Qt threads is unsafe
-        _pool = ProcessPoolExecutor(max_workers=workers(), mp_context=multiprocessing.get_context("spawn"))
-    return _pool
+    with _lock:
+        if _pool is None:
+            # "spawn" everywhere: forking a process that runs Qt threads is unsafe
+            _pool = ProcessPoolExecutor(max_workers=workers(), mp_context=multiprocessing.get_context("spawn"))
+        return _pool
 
 
 def shutdown() -> None:
-    global _pool
-    if _pool is not None:
-        _pool.shutdown(wait=False, cancel_futures=True)
-        _pool = None
+    _discard()
 
 
 def chunk_ranges(n: int, min_chunk: int, max_chunks: int) -> list[tuple[int, int]]:
@@ -50,16 +50,35 @@ def chunk_ranges(n: int, min_chunk: int, max_chunks: int) -> list[tuple[int, int
 
 def run_chunks(fn: Callable, args: Sequence[tuple], progress: Callable[[float], None] | None = None,
                cancelled: Callable[[], bool] | None = None, weights: Iterable[float] | None = None) -> list:
-    """Run ``fn(*a)`` for each tuple in ``args``, in parallel when possible; results keep the input order."""
-    try:
-        return _run(fn, args, progress, cancelled, weights)
-    except BrokenProcessPool as exc:
-        # e.g. a worker could not start: never fail the job because of the pool
-        global _disabled
-        _disabled = True
-        shutdown()
-        print(f"process pool unavailable ({exc}); continuing on one core", file=sys.stderr)
-        return _run(fn, args, progress, cancelled, weights)
+    """Run ``fn(*a)`` for each tuple in ``args``, in parallel when possible; results keep the input order.
+    A pool that broke (a worker died) or was shut down is replaced once; after that the work runs on one core,
+    so a job never fails because of the pool."""
+    global _disabled
+    for attempt in range(2):
+        try:
+            return _run(fn, args, progress, cancelled, weights)
+        except (BrokenProcessPool, RuntimeError) as exc:
+            # a broken pool also marks itself shut down, so a submit racing it raises
+            # RuntimeError("cannot schedule new futures after shutdown")
+            if isinstance(exc, RuntimeError) and not isinstance(exc, BrokenProcessPool) and "shutdown" not in str(exc):
+                raise
+            _discard()
+            print(f"process pool lost ({exc}); " + ("restarting it" if attempt == 0 else "continuing on one core"),
+                  file=sys.stderr)
+    _disabled = True
+    return _run(fn, args, progress, cancelled, weights)
+
+
+def _discard() -> None:
+    """Drop the current pool (the next use starts a fresh one)."""
+    global _pool
+    with _lock:
+        old, _pool = _pool, None
+    if old is not None:
+        try:
+            old.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
 
 
 def _run(fn, args, progress, cancelled, weights) -> list:

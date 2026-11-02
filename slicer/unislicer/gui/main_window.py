@@ -119,10 +119,14 @@ class StatTile(QFrame):
         col.addWidget(self.caption)
         lay.addLayout(col, 1)
 
+    on_set = None                                 # called after every change (the summary next to Slice)
+
     def set(self, value: str, caption: str | None = None):
         self.value.setText(value)
         if caption:
             self.caption.setText(caption)
+        if self.on_set is not None:
+            self.on_set()
 
 
 class MainWindow(QMainWindow):
@@ -1057,6 +1061,7 @@ class MainWindow(QMainWindow):
         self.stat_cost = StatTile("coin", tr("stat_cost"), action)
         for tile in (self.stat_time, self.stat_material, self.stat_weight, self.stat_cost):
             tile.hide()
+            tile.on_set = self._update_slice_info
         self.warn_label = QLabel("")             # kept as the plain text of the checks (not shown)
         self.warn_label.setObjectName("Warning")
         self.warn_label.setWordWrap(True)
@@ -1105,7 +1110,14 @@ class MainWindow(QMainWindow):
         self.send_btn.setCursor(Qt.PointingHandCursor)
         self.send_btn.setEnabled(False)
         self.send_btn.clicked.connect(lambda: self._act("send", "button", self.send_to_printer))
+        # print time and material of the sliced plate, next to Slice
+        self.slice_info = QLabel("")
+        self.slice_info.setObjectName("SliceInfo")
+        self.slice_info.setAlignment(Qt.AlignCenter)
+        self.slice_info.setToolTip(tr("slice_info_tip"))
+        self.slice_info.hide()
         btns.addWidget(self.slice_btn, 1)
+        btns.addWidget(self.slice_info)
         btns.addWidget(self.export_btn, 1)
         btns.addWidget(self.send_btn)
         al.addLayout(btns)
@@ -2634,6 +2646,20 @@ class MainWindow(QMainWindow):
         menu.addAction(theme.icon("compass"), tr("auto_orient"), self.auto_orient_selected)
         menu.addAction(theme.icon("flat"), tr("lay_flat"), self.lay_flat)
         menu.addAction(theme.icon("reset"), tr("reset_transform"), self.reset_transform)
+
+    def _update_slice_info(self):
+        label = getattr(self, "slice_info", None)
+        if label is None:
+            return
+        t = self.stat_time.value.text()
+        if not t or t == "—":
+            label.hide()
+            return
+        if "h" in t:                               # hours: the seconds are noise
+            t = " ".join(p for p in t.split() if not p.endswith("s"))
+        m = self.stat_material.value.text()
+        label.setText(f"⏱ {t}" + (f"\n{m}" if m and m != "—" else ""))
+        label.show()
 
     def _edit_bar_place(self):
         """Where the user dragged the edit bar to (None: it opens next to the clicked model)."""

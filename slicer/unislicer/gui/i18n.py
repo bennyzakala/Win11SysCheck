@@ -220,6 +220,8 @@ STRINGS = {
     "apply_setting_tip": ("שומר את ההגדרה הזו בלבד ומבצע אותה על המודל (תמיכות, Raft, סידור, חיתוך)", "Save only this setting and carry it out on the model (supports, raft, layout, slice)"),
     "reset_all": ("אפס את כל השינויים", "Reset all changes"),
     "material_default": ("ברירת מחדל", "Default"),
+    "slice_info_tip": ("זמן ההדפסה וכמות החומר של הפלטה שנפרסה. הפירוט המלא: Info › הערכת זמן וחומר",
+                       "Print time and material of the sliced plate. Full details: Info › Estimate"),
     "bar_drag_tip": ("גרור כדי להזיז את הסרגל. לחיצה כפולה מחזירה אותו ליד המודל",
                      "Drag to move the bar. Double-click puts it back next to the model"),
     "mode_tip": ("מצב השרף: יציב או מהיר. קובע את זמני החשיפה ומהירויות התנועה מטבלת היצרן לפי המדפסת ועובי השכבה",

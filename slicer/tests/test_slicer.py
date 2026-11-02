@@ -151,6 +151,26 @@ def test_all_profiles_build():
             profiles.build_config(**{kind[:-1] if kind != "qualities" else "quality": pid})
 
 
+def _square(x):
+    return x * x
+
+
+def test_parallel_survives_a_pool_that_was_shut_down(monkeypatch):
+    """A worker crash marks the pool shut down: the next job gets a fresh pool instead of
+    'cannot schedule new futures after shutdown' (seen on Windows while slicing)."""
+    from unislicer import parallel
+    monkeypatch.setenv("UNISLICER_WORKERS", "2")
+    monkeypatch.setattr(parallel, "_disabled", False)
+    try:
+        dead = parallel.pool()
+        dead.shutdown(wait=True)                 # what the executor does to itself when a worker dies
+        assert parallel.pool() is dead
+        assert parallel.run_chunks(_square, [(i,) for i in range(6)]) == [i * i for i in range(6)]
+        assert parallel.pool() is not dead and not parallel._disabled
+    finally:
+        parallel.shutdown()
+
+
 def test_parallel_matches_serial(monkeypatch):
     from unislicer import parallel
     w = placed(primitives.sphere(20, 120, 240)).world_mesh()
@@ -3014,6 +3034,8 @@ def test_job_report_pdf_is_written_beside_the_export(tmp_path):
         end = time.time() + 120
         while (w.result is None or (w.task is not None and w.task.isRunning())) and time.time() < end:
             app.processEvents(); time.sleep(0.01)
+        info = w.slice_info.text()                       # print time and material next to Slice
+        assert w.slice_info.isVisibleTo(w) and info.startswith("⏱ ") and " m" in info, info
         w.export()
         pdf = os.path.join({lib!r}, "part", "part - report.pdf")
         assert os.path.isfile(pdf) and open(pdf, "rb").read(5) == b"%PDF-", os.listdir(os.path.join({lib!r}, "part"))
