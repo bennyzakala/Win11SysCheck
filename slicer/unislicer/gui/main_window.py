@@ -3766,6 +3766,11 @@ class MainWindow(QMainWindow):
 
     def _on_sliced(self, result):
         self.result = result
+        pending = self.__dict__.pop("_cup_fix_pending", 0)
+        if pending and result[0] == "sla":
+            left = [a for _i, a in result[1].cups if a >= self.CUP_BLOCK_AREA]
+            QTimer.singleShot(0, lambda: self.status.setText(
+                tr("cup_fixed") if not left else tr("cup_still").format(len(left))))
         warnings = []
         if result[0] == "fdm":
             _, plan, text, stats, verts, cfg = result
@@ -3981,10 +3986,44 @@ class MainWindow(QMainWindow):
                         o.add_world_drain_hole(row[:3], row[3:], 0.0)
                 self._objects_changed(refresh_list=False)
                 self.status.setText(tr("cup_vents_added").format(len(owners)))
+                self._cup_fix_pending = len(owners)
                 QTimer.singleShot(400, self.slice)
             else:
-                self.fix_suction_cups()
+                self._cup_no_vent_dialog(job)
         return False
+
+    def _cup_no_vent_dialog(self, job):
+        """No spot for an automatic vent (the cavity is boxed in on every side): say so and offer what works."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle(tr("cup_block_title"))
+        box.setText(tr("cup_novent_text"))
+        tilt = box.addButton(tr("cup_fix_tilt"), QMessageBox.AcceptRole)
+        orient_b = box.addButton(tr("cup_fix_orient"), QMessageBox.ActionRole)
+        show = box.addButton(tr("cup_fix_show"), QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        targets = [o for o in self.objects if o.role != "cutter"]
+        if box.clickedButton() is show:
+            self.set_mode("preview", slice_if_needed=False)
+            self.layer_slider.setValue(job.cups[0][0])
+        elif box.clickedButton() is tilt:
+            self._push_undo()
+            a = np.radians(30.0)
+            rot = np.array([[1.0, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]])
+            for o in targets:
+                o.apply_world_rotation(rot)
+                self._drop_supports(o)
+            self._objects_changed()
+            self.status.setText(tr("cup_tilted"))
+        elif box.clickedButton() is orient_b:
+            from .viewer import SEL_ADD
+            if targets:
+                self._select_uid(targets[0].uid)
+                for o in targets[1:]:
+                    self._select_uid(o.uid, SEL_ADD)
+                self.auto_orient_selected()
+                self.status.setText(tr("cup_reoriented"))
 
     def fix_suction_cups(self):
         """Fix menu for the suction-cup warning: vents, drain holes, orientation, tilt, or show the layer."""

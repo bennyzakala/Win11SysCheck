@@ -1188,5 +1188,8 @@
 "Suction cup: the print may tear apart": "كوب شفط: قد تتمزق الطباعة",
 "Layers {}–{} hold a closed cavity (up to {:.0f} mm²) sealed towards the plate. Every lift pulls a vacuum in it that tears layers apart (cracks, a torn floor, a model split in the middle) and pulls hard on the plate.\n\nAdd automatic vent holes and slice again.": "في الطبقات {}–{} تجويف مغلق (حتى {:.0f} مم²) محكم من جهة المنصة. كل رفعة تُحدث فراغًا يمزّق الطبقات (تشققات، قاع ممزق، انفصال النموذج) ويشد المنصة بقوة.\n\nأضف ثقوب تهوية تلقائية وقطّع من جديد.",
 "Add vent holes and slice again": "إضافة ثقوب تهوية والتقطيع من جديد",
-"Export anyway": "تصدير على أي حال"
+"Export anyway": "تصدير على أي حال",
+"No spot for an automatic vent: the cavity is closed on every side. Tilt the models 30° (the cavity drains as it rises out of the vat), auto-orient, or show the layer and add a drain hole by hand.": "لا يوجد مكان لثقب تهوية تلقائي: التجويف مغلق من كل الجهات. أمِل النماذج 30° (يُفرَّغ التجويف عند ارتفاعه من الحوض)، أو استخدم التوجيه التلقائي، أو اعرض الطبقة وأضف ثقب تصريف يدويًا.",
+"Vent holes added and the suction cup is gone: ready to export": "أُضيفت ثقوب التهوية وزال كوب الشفط: جاهز للتصدير",
+"Vent holes added, but {} suction cups remain: use Fix suction cup again or tilt the model": "أُضيفت ثقوب التهوية لكن بقيت {} أكواب شفط: استخدم «إصلاح كوب الشفط» مجددًا أو أمِل النموذج"
 }

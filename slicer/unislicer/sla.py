@@ -574,7 +574,9 @@ def cup_vents(layers: list[MultiPolygon], layer_z: list[float], min_area: float 
             if inner.is_empty:
                 inner = c.buffer(-radius * 0.5)
                 if inner.is_empty:
-                    continue
+                    # a narrow slot (e.g. between a base bar and the arch): the hole is wider than the slot,
+                    # which still lets air in - drill it on the slot's middle line
+                    inner = c
             spots = [polylabel(p, 0.1) for p in polygons_of(as_multipolygon(inner))]
             x0, y0, x1, y1 = inner.bounds
             for gx in np.linspace(x0, x1, 5)[1:-1]:          # more tries, in case a support sits under the first

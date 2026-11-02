@@ -1188,5 +1188,8 @@
 "Suction cup: the print may tear apart": "Присоска: печать может разорваться",
 "Layers {}–{} hold a closed cavity (up to {:.0f} mm²) sealed towards the plate. Every lift pulls a vacuum in it that tears layers apart (cracks, a torn floor, a model split in the middle) and pulls hard on the plate.\n\nAdd automatic vent holes and slice again.": "В слоях {}–{} есть замкнутая полость (до {:.0f} мм²), закрытая со стороны платформы. При каждом подъёме в ней возникает вакуум, который разрывает слои (трещины, оторванное дно, расслоение модели) и сильно тянет платформу.\n\nДобавьте автоматические вентиляционные отверстия и нарежьте заново.",
 "Add vent holes and slice again": "Добавить вентиляционные отверстия и нарезать заново",
-"Export anyway": "Всё равно экспортировать"
+"Export anyway": "Всё равно экспортировать",
+"No spot for an automatic vent: the cavity is closed on every side. Tilt the models 30° (the cavity drains as it rises out of the vat), auto-orient, or show the layer and add a drain hole by hand.": "Нет места для автоматического отверстия: полость закрыта со всех сторон. Наклоните модели на 30° (полость опустеет при подъёме из ванны), используйте автоориентацию или откройте слой и добавьте дренажное отверстие вручную.",
+"Vent holes added and the suction cup is gone: ready to export": "Вентиляционные отверстия добавлены, присоски нет: можно экспортировать",
+"Vent holes added, but {} suction cups remain: use Fix suction cup again or tilt the model": "Отверстия добавлены, но осталось присосок: {}. Снова нажмите «Исправить присоску» или наклоните модель"
 }

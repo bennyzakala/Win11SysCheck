@@ -3292,3 +3292,26 @@ def test_selection_box_hugs_a_turned_model():
     m2 = m.copy(); m2[:3, 3] += [5, 0, 0]
     obj["matrix"] = m2
     assert np.allclose(Viewer._world_box(obj), true + [5, 0, 0])          # moving reuses the cached box
+
+
+def test_vent_found_for_a_narrow_slot_cup():
+    """A narrow sealed slot (e.g. between a base bar and the arch, ~2 mm wide) is narrower than the vent hole:
+    no vent was found, so 'Add vent holes and slice again' did nothing. The vent now goes on the slot's
+    middle line and clears the cup."""
+    from shapely.geometry import box
+    from unislicer import mesh_tools, profiles, sla
+    from unislicer.mesh import Mesh
+    lift = 3.0
+    outer = box(0, 0, 20, 8)
+    slot = box(2, 3, 18, 4.2)                                 # 16 x 1.2 mm = 19 mm², narrower than the hole
+    part = Mesh.merge([mesh_tools.extrude(outer, lift, lift + 2),
+                       mesh_tools.extrude(outer.difference(slot), lift + 2, lift + 10)], "bar")
+    z = [0.05 + 0.1 * i for i in range(int((lift + 10) / 0.1))]
+    layers = sla.slice_meshes([part], z, 0.05)
+    assert sla.find_cups(layers)
+    vents = sla.cup_vents(layers, z, radius=1.5)
+    assert len(vents) == 1
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"drain_hole_diameter": 3.0})
+    cut = sla.slice_meshes(sla.hole_meshes([sla.vent_hole_rows(vents[0], cfg)], cfg, 0.0), z, 0.05)
+    drilled = [g.difference(c) if not c.is_empty else g for g, c in zip(layers, cut)]
+    assert not sla.find_cups(drilled)
