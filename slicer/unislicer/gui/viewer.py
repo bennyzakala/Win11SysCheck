@@ -183,21 +183,52 @@ def _compile(vs: str, fs: str, gs: str | None = None) -> int:
 
 
 def _pick_data(mesh: Mesh):
-    """Per-mesh arrays for fast ray picking (cached on the mesh; meshes are replaced, not edited in place)."""
+    """Per-mesh arrays for fast ray picking, cached on the mesh (meshes are replaced, not edited in place).
+    Triangles are sorted along a Morton curve and grouped in small clusters with a bounding sphere each:
+    a ray tests the ~1000 clusters, then only the triangles of the clusters it passes through."""
     key = (id(mesh.vertices), id(mesh.faces), len(mesh.faces))
     cached = getattr(mesh, "_pick_cache", None)
     if cached is not None and cached[0] == key:
         return cached[1]
     t = mesh.triangles
+    centre = t.mean(axis=1)
+    if len(t):
+        lo, hi = centre.min(axis=0), centre.max(axis=0)
+        q = ((centre - lo) / np.maximum(hi - lo, 1e-9) * 1023).astype(np.uint64)
+        code = np.zeros(len(t), dtype=np.uint64)
+        for bit in range(10):                      # interleave x, y, z bits
+            for axis in range(3):
+                code |= ((q[:, axis] >> np.uint64(bit)) & np.uint64(1)) << np.uint64(3 * bit + axis)
+        order = np.argsort(code, kind="stable")
+    else:
+        order = np.zeros(0, dtype=np.int64)
+    t, centre = t[order], centre[order]
     v0 = np.ascontiguousarray(t[:, 0])
     e1, e2 = t[:, 1] - v0, t[:, 2] - v0
-    centre = t.mean(axis=1)
-    radius = np.linalg.norm(t - centre[:, None, :], axis=2).max(axis=1)
-    # padded so float32 rounding never drops a triangle the ray really hits
-    radius2 = (radius + 1e-6) ** 2 + 1e-6
-    data = (v0, e1, e2, centre, radius2)
+    radius = np.linalg.norm(t - centre[:, None, :], axis=2).max(axis=1) + 1e-6
+    size = _PICK_CLUSTER
+    starts = np.arange(0, len(t), size)
+    if len(t):
+        c_centre = np.add.reduceat(centre, starts, axis=0) / np.diff(np.append(starts, len(t)))[:, None]
+        member = np.repeat(np.arange(len(starts)), np.diff(np.append(starts, len(t))))
+        reach = np.linalg.norm(centre - c_centre[member], axis=1) + radius
+        c_radius = np.maximum.reduceat(reach, starts)
+    else:
+        c_centre, c_radius = np.zeros((0, 3)), np.zeros(0)
+    data = (v0, e1, e2, centre, radius * radius + 1e-9, order, starts, c_centre, c_radius * c_radius + 1e-9,
+            mesh.bounds)
     mesh._pick_cache = (key, data)
     return data
+
+
+_PICK_CLUSTER = 128
+
+
+def _ray_near(origin, d, centre, radius2):
+    """Indices of the spheres (centre, radius²) that the line origin + s·d (d unit length) passes through."""
+    w = centre - origin
+    along = w @ d
+    return np.flatnonzero(np.einsum("ij,ij->i", w, w) - along * along <= radius2)
 
 class _Buffer:
     """A VAO + VBO holding interleaved float32 attributes."""
@@ -362,7 +393,7 @@ class Viewer(QOpenGLWidget):
         self._hover_uid = None
         self._hover_timer = QTimer(self)
         self._hover_timer.setSingleShot(True)
-        self._hover_timer.setInterval(25)
+        self._hover_timer.setInterval(30)
         self._hover_timer.timeout.connect(self._hover_check)
         self._rot = None                         # active ring drag: (uid, axis, start angle, last degrees)
         self._hover_axis = None
@@ -1083,7 +1114,7 @@ class Viewer(QOpenGLWidget):
 
     @staticmethod
     def _ray_mesh(origin, direction, mesh: Mesh):
-        lo, hi = mesh.bounds
+        v0, e1, e2, centre, radius2, order, starts, c_centre, c_radius2, (lo, hi) = _pick_data(mesh)
         # slab test against the bounding box first
         with np.errstate(divide="ignore", invalid="ignore"):
             inv = 1.0 / direction
@@ -1092,15 +1123,18 @@ class Viewer(QOpenGLWidget):
         tmax = np.nanmin(np.maximum(t0, t1))
         if tmax < max(tmin, 0):
             return None
-        v0, e1, e2, centre, radius2 = _pick_data(mesh)
-        # only triangles whose bounding sphere the ray passes through (a few hundred of a jaw's 300k)
         n = float(np.linalg.norm(direction))
         if n < 1e-15:
             return None
         d = direction / n
-        w = centre - origin
-        along = w @ d
-        near = np.flatnonzero(np.einsum("ij,ij->i", w, w) - along * along <= radius2)
+        clusters = _ray_near(origin, d, c_centre, c_radius2)
+        if len(clusters) == 0:
+            return None
+        ends = np.minimum(starts[clusters] + _PICK_CLUSTER, len(v0))
+        first = starts[clusters]
+        counts = ends - first
+        cand = np.repeat(first - np.cumsum(counts) + counts, counts) + np.arange(int(counts.sum()))
+        near = cand[_ray_near(origin, d, centre[cand], radius2[cand])]
         if len(near) == 0:
             return None
         v0, e1, e2 = v0[near], e1[near], e2[near]
@@ -1118,7 +1152,7 @@ class Viewer(QOpenGLWidget):
             return None
         idx = np.flatnonzero(hit)
         k = idx[np.argmin(dist[idx])]
-        return float(dist[k]), int(near[k])
+        return float(dist[k]), int(order[near[k]])
 
     def pick(self, pos: QPointF):
         """The object under the cursor: its surface, its supports, or failing that its bounding box
@@ -1353,7 +1387,8 @@ class Viewer(QOpenGLWidget):
             self._hover_pos = pos
             if self.hover_label.isVisible() and self._hover_uid is not None:
                 self.show_hover(self.hover_label.text())      # follow the cursor
-            self._hover_timer.start()
+            if not self._hover_timer.isActive():     # checks keep running while the cursor moves
+                self._hover_timer.start()
         dx, dy = pos.x() - self._last.x(), pos.y() - self._last.y()
         self._last = pos
         if self._rot is not None and e.buttons() & Qt.LeftButton:

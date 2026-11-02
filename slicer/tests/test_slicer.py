@@ -3771,3 +3771,43 @@ def test_floating_edit_bar_can_be_dragged_and_stays_there(tmp_path):
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_fast_ray_picking_matches_brute_force():
+    """Hover / click picking tests only the triangle clusters the ray passes; same hit as testing every triangle."""
+    import os as _os
+    _os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from unislicer.gui.viewer import Viewer
+    m = placed(primitives.sphere(15, 64, 128), 80, 60).world_mesh()
+
+    def brute(o, d):
+        t = m.triangles
+        e1, e2 = t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]
+        p = np.cross(d, e2)
+        det = np.einsum("ij,ij->i", e1, p)
+        ok = np.abs(det) > 1e-12
+        inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0)
+        s = o - t[:, 0]
+        u = np.einsum("ij,ij->i", s, p) * inv
+        q = np.cross(s, e1)
+        v = (q @ d) * inv
+        dist = np.einsum("ij,ij->i", e2, q) * inv
+        hit = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (dist > 0)
+        if not hit.any():
+            return None
+        i = np.flatnonzero(hit)
+        k = i[np.argmin(dist[i])]
+        return float(dist[k]), int(k)
+
+    lo, hi = m.bounds
+    rng = np.random.default_rng(5)
+    hits = 0
+    for _ in range(150):
+        target = lo + (hi - lo) * rng.random(3)
+        o = target + rng.normal(size=3) * 120
+        a, b = brute(o, target - o), Viewer._ray_mesh(o, target - o, m)
+        assert (a is None) == (b is None)
+        if a:
+            hits += 1
+            assert b[1] == a[1] and abs(a[0] - b[0]) < 1e-9
+    assert hits > 50
