@@ -62,8 +62,8 @@ def _spin(lo, hi, step, decimals, suffix="", width=72) -> QDoubleSpinBox:
 
 
 class StatTile(QFrame):
-    def __init__(self, icon_name: str, caption: str):
-        super().__init__()
+    def __init__(self, icon_name: str, caption: str, parent=None):
+        super().__init__(parent)
         self.setStyleSheet(f"QFrame {{ background: {theme.SURFACE_2}; border-radius: 10px; }}")
         lay = QHBoxLayout(self)
         lay.setContentsMargins(10, 8, 10, 8)
@@ -1011,17 +1011,14 @@ class MainWindow(QMainWindow):
         al = QVBoxLayout(action)
         al.setContentsMargins(14, 14, 14, 14)
         al.setSpacing(10)
-        stats = QGridLayout()
-        stats.setSpacing(8)
-        self.stat_time = StatTile("clock", tr("stat_time"))
-        self.stat_material = StatTile("spool", tr("stat_filament"))
-        self.stat_weight = StatTile("weight", tr("stat_weight"))
-        self.stat_cost = StatTile("coin", tr("stat_cost"))
-        stats.addWidget(self.stat_time, 0, 0)
-        stats.addWidget(self.stat_material, 0, 1)
-        stats.addWidget(self.stat_weight, 1, 0)
-        stats.addWidget(self.stat_cost, 1, 1)
-        al.addLayout(stats)
+        # time / resin / weight / cost are kept up to date but not shown in the panel (more room for the settings);
+        # they are in the job report PDF of every export and in the estimate window
+        self.stat_time = StatTile("clock", tr("stat_time"), action)
+        self.stat_material = StatTile("spool", tr("stat_filament"), action)
+        self.stat_weight = StatTile("weight", tr("stat_weight"), action)
+        self.stat_cost = StatTile("coin", tr("stat_cost"), action)
+        for tile in (self.stat_time, self.stat_material, self.stat_weight, self.stat_cost):
+            tile.hide()
         self.warn_label = QLabel("")             # kept as the plain text of the checks (not shown)
         self.warn_label.setObjectName("Warning")
         self.warn_label.setWordWrap(True)
