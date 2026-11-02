@@ -901,25 +901,25 @@ class MainWindow(QMainWindow):
         self.collision_wrap = QWidget()
         self.collision_wrap.setObjectName("Overlay")
         cwl0 = QHBoxLayout(self.collision_wrap)
-        cwl0.setContentsMargins(0, 72, 0, 0)
+        cwl0.setContentsMargins(0, 6, 0, 0)               # at the very top: never over the plate
         banner = QFrame()
-        banner.setStyleSheet(f"QFrame {{ background: {theme.DANGER}; border-radius: 10px; }} QLabel {{ color: white; font-weight: 600; }}")
+        banner.setStyleSheet(f"QFrame {{ background: {theme.DANGER}; border-radius: 8px; }} QLabel {{ color: white; font-weight: 600; font-size: 12px; }}")
         bl = QHBoxLayout(banner)
-        bl.setContentsMargins(14, 8, 8, 8)
+        bl.setContentsMargins(10, 3, 3, 3)
+        bl.setSpacing(8)
         self.collision_label = QLabel("")
-        # the model names can be long: wrap and stay inside the 3D view instead of widening the window
-        self.collision_label.setWordWrap(True)
-        self.collision_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.collision_label.setMinimumWidth(0)
-        bl.addWidget(self.collision_label, 1)
+        # short text (how many models touch); the names are in the tooltip, so the box stays small
+        self.collision_label.setWordWrap(False)
+        bl.addWidget(self.collision_label)
         fix = QPushButton(tr("auto_layout"))
-        fix.setStyleSheet("QPushButton { background: white; color: black; border: none; border-radius: 7px; padding: 5px 12px; font-weight: 600; }")
+        fix.setStyleSheet("QPushButton { background: white; color: black; border: none; border-radius: 6px; padding: 3px 10px; font-weight: 600; font-size: 12px; }")
         fix.setCursor(Qt.PointingHandCursor)
         fix.clicked.connect(lambda: self.auto_layout(scope="all", dialog=False))
         bl.addWidget(fix)
         cwl0.addWidget(banner)
         self.collision_banner = banner
-        self.collision_wrap.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
+        banner.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+        self.collision_wrap.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
         grid.addWidget(self.collision_wrap, 0, 0, Qt.AlignTop | Qt.AlignHCenter)
         self.collision_wrap.hide()
 
@@ -3791,7 +3791,7 @@ class MainWindow(QMainWindow):
             return
         self._check_collisions()
         if getattr(self, "_collision_pairs", None):
-            ans = QMessageBox.warning(self, tr("collision_title"), self.collision_label.text() + "\n\n" + tr("collision_slice_q"),
+            ans = QMessageBox.warning(self, tr("collision_title"), getattr(self, "_collision_text", self.collision_label.text()) + "\n\n" + tr("collision_slice_q"),
                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if ans != QMessageBox.Yes:
                 return
@@ -4439,11 +4439,12 @@ class MainWindow(QMainWindow):
             def short(n):
                 return n if len(n) <= 28 else n[:12] + "…" + n[-14:]
             text = ", ".join(f"{short(names[a])} ↔ {short(names[b])}" for a, b in pairs[:3]) + ("…" if len(pairs) > 3 else "")
-            self.collision_label.setText("⚠ " + tr("collision_warning").format(text))
-            self.collision_label.setToolTip("\n".join(f"{names[a]} ↔ {names[b]}" for a, b in pairs))
-            width = max(320, int(self.viewer.width() * 0.8))
-            self.collision_banner.setMaximumWidth(width)
-            self.collision_label.setMaximumWidth(width - 140)
+            self._collision_text = "⚠ " + tr("collision_warning").format(text)
+            self.collision_label.setText("⚠ " + tr("collision_short").format(len(colliding)))
+            tip = "\n".join(f"{names[a]} ↔ {names[b]}" for a, b in pairs)
+            self.collision_label.setToolTip(tip)
+            self.collision_banner.setToolTip(tip)
+            self.collision_wrap.adjustSize()
             self.collision_wrap.show()
             self.collision_wrap.raise_()
         else:
