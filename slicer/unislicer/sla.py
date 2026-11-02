@@ -164,20 +164,43 @@ def adaptive_layers(meshes: list[Mesh], top: float, cfg: Config) -> list[tuple[f
 # --------------------------------------------------------------- hollowing
 def _window_intersection(items: list, k: int) -> list:
     """For each i, the intersection of items[i-k..i+k] (empty near the ends), in O(n) operations
-    using the van Herk / Gil-Werman prefix/suffix trick."""
+    using the van Herk / Gil-Werman prefix/suffix trick. Blocks are independent, so both passes run on
+    all cores."""
     n = len(items)
     m = 2 * k + 1
     out = [EMPTY] * n
     if n < m:
         return out
-    prefix, suffix = [None] * n, [None] * n
-    for j in range(n):
-        prefix[j] = items[j] if j % m == 0 else _and(prefix[j - 1], items[j])
-    for j in range(n - 1, -1, -1):
-        suffix[j] = items[j] if (j % m == m - 1 or j == n - 1) else _and(suffix[j + 1], items[j])
-    for i in range(k, n - k):
-        out[i] = _and(suffix[i - k], prefix[i + k])
+    from . import parallel
+    blocks = [(a, min(n, a + m)) for a in range(0, n, m)]
+    per = max(1, len(blocks) // (parallel.workers() * 2))
+    groups = [blocks[g:g + per] for g in range(0, len(blocks), per)]
+    parts = parallel.run_chunks(_prefix_suffix_chunk, [([items[a:b] for a, b in grp],) for grp in groups],
+                                weights=[sum(b - a for a, b in grp) for grp in groups])
+    prefix, suffix = [], []
+    for part in parts:
+        for pre, suf in part:
+            prefix += pre
+            suffix += suf
+    pairs = [(suffix[i - k], prefix[i + k]) for i in range(k, n - k)]
+    out[k:n - k] = _per_layer(_and_chunk, pairs)
     return out
+
+
+def _prefix_suffix_chunk(blocks: list) -> list:
+    out = []
+    for block in blocks:
+        pre, suf = list(block), list(block)
+        for j in range(1, len(block)):
+            pre[j] = _and(pre[j - 1], block[j])
+        for j in range(len(block) - 2, -1, -1):
+            suf[j] = _and(suf[j + 1], block[j])
+        out.append((pre, suf))
+    return out
+
+
+def _and_chunk(pairs: list) -> list:
+    return [_and(a, b) for a, b in pairs]
 
 
 def _and(a, b):
@@ -189,6 +212,11 @@ def _and(a, b):
 # ------------------------------------------------------------ per-layer work spread over the CPU cores
 def _erode_chunk(layers: list, wall: float) -> list:
     return [as_multipolygon(g.buffer(-wall)) if not g.is_empty else EMPTY for g in layers]
+
+
+def _clean_chunk(layers: list) -> list:
+    """Drop slivers thinner than 0.02 mm (numeric leftovers of the window intersection)."""
+    return [as_multipolygon(c.buffer(-0.01).buffer(0.01)) if not c.is_empty else c for c in layers]
 
 
 def _thin_chunk(layers: list, r: float, min_area: float = 0.0) -> list:
@@ -310,7 +338,7 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list 
     k = max(1, int(math.ceil(wall / lh)))
     eroded = _per_layer(_erode_chunk, layers, wall)
     cavity = _window_intersection(eroded, k)
-    cavity = [as_multipolygon(c.buffer(-0.01).buffer(0.01)) if not c.is_empty else c for c in cavity]
+    cavity = _per_layer(_clean_chunk, cavity)
     saved = sum(c.area for c in cavity) * lh / 1000.0
     # a model that is already hollow (e.g. a dental model exported as a shell): its own cavity takes the infill
     existing = covered_voids(layers) if cfg["hollow_infill"] != "none" else [EMPTY] * len(layers)
@@ -330,7 +358,7 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list 
         for i in range(first):
             if not eroded[i].is_empty:
                 cavity[i] = eroded[i]
-    out = [g.difference(c) if not c.is_empty else g for g, c in zip(layers, cavity)]
+    out = _per_layer(_minus_chunk, list(zip(layers, cavity)))
     infill_space = [as_multipolygon(c.union(v)) if not v.is_empty else c for c, v in zip(cavity, existing)]
     pattern = _infill_pattern(infill_space, cfg)
     if pattern is not None:
@@ -610,13 +638,51 @@ def _cavity_cells_chunk(pairs: list) -> list:
     return out
 
 
-def _sealed_layers(layers: list[MultiPolygon]) -> list[MultiPolygon]:
+def _post_chunk(items: list, first: bool, thicken: bool, r_thin: float, min_area: float) -> list:
+    """Everything done per layer once a group is sliced and hollowed, in one pass per chunk (one trip to the
+    worker processes instead of four): thicken thin parts, the shell (no honeycomb infill), its thin part,
+    and its enclosed cells for the suction-cup check. ``items`` are (layer, infill) and, unless ``first``,
+    start with the layer just below the chunk (the cells need the shell under them)."""
+    out, prev_shell = [], EMPTY
+    for k, (g, fill) in enumerate(items):
+        has_fill = fill is not None and not fill.is_empty and not g.is_empty
+        shell = as_multipolygon(g.difference(fill)) if has_fill else g
+        if thicken:
+            shell = _thicken_chunk([shell], 0.15)[0]
+            g = as_multipolygon(shell.union(fill)) if has_fill else shell
+        if k == 0 and not first:
+            prev_shell = shell                   # context only
+            continue
+        thin = _thin_chunk([shell], r_thin, min_area)[0]
+        cells = _cavity_cells_chunk([(shell, prev_shell)])[0]
+        out.append((g, shell, thin, cells))
+        prev_shell = shell
+    return out
+
+
+def _post_process(layers: list, infill: list | None, thicken: bool, min_width: float = 0.3,
+                  min_area: float = 0.05) -> list:
+    """``_post_chunk`` over all layers on all cores; returns one (layer, shell, thin, cells) per layer."""
+    from . import parallel
+    n = len(layers)
+    if n == 0:
+        return []
+    fills = infill if infill and len(infill) == n else [None] * n
+    items = list(zip(layers, fills))
+    ranges = parallel.chunk_ranges(n, 16, parallel.workers() * 2)
+    args = [(items[max(0, a - 1):b], a == 0, thicken, min_width / 2, min_area) for a, b in ranges]
+    parts = parallel.run_chunks(_post_chunk, args, weights=[b - a for a, b in ranges])
+    return [x for part in parts for x in part]
+
+
+def _sealed_layers(layers: list[MultiPolygon], per: list | None = None) -> list[MultiPolygon]:
     """Per layer, the empty space that is enclosed by walls and sealed on the build-plate side.
 
     A cavity is sealed only if all of it sits on solid or on a cavity that is itself sealed; any opening
     (e.g. a drain or vent hole) vents the whole cavity. The allowance only absorbs numeric noise, so even
     a 1 mm vent in a large cavity counts as an opening."""
-    per = _per_layer(_cavity_cells_chunk, [(g, layers[i - 1] if i else EMPTY) for i, g in enumerate(layers)])
+    if per is None:
+        per = _per_layer(_cavity_cells_chunk, [(g, layers[i - 1] if i else EMPTY) for i, g in enumerate(layers)])
     out = []
     sealed = EMPTY
     for i, item in enumerate(per):
@@ -769,7 +835,11 @@ def find_thin(layers: list[MultiPolygon], min_width: float = 0.3, min_area: floa
     Only regions that stay thin through ``persist`` mm of height count (a real thin wall or fin), so the
     small slivers at the tips of tilted parts are not reported."""
     r = min_width / 2
-    thin = _per_layer(_thin_chunk, layers, r, min_area)
+    return _lasting_thin(_per_layer(_thin_chunk, layers, r, min_area), min_area, layer_height, persist)
+
+
+def _lasting_thin(thin: list, min_area: float = 0.05, layer_height: float = 0.05, persist: float = 0.5) -> list[int]:
+    """Layers whose thin part (from ``_thin_chunk``) stays thin through ``persist`` mm of height."""
     k = max(1, int(round(persist / layer_height / 2)))
     lasting = _window_intersection(thin, k)
     return [i for i, t in enumerate(lasting) if t.area > min_area]
@@ -875,18 +945,13 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         cut_layers = slice_meshes(cutter_meshes, planes, cfg["resolution"])
         layers = [as_multipolygon(g.difference(c)) if not c.is_empty and not g.is_empty else g
                   for g, c in zip(layers, cut_layers)]
-    if cfg["sla_thicken_thin"]:
-        if hollowing and infill:              # thicken the model, never the honeycomb walls inside it
-            shell_only = _per_layer(_minus_chunk, list(zip(layers, infill)))
-            thick = _per_layer(_thicken_chunk, shell_only, 0.15)
-            layers = _per_layer(_union_chunk, list(zip(thick, infill)))
-        else:
-            layers = _per_layer(_thicken_chunk, layers, 0.15)
-    # thin features of the model itself: the internal infill walls are thin on purpose and sit inside
-    shell = layers
-    if hollowing and infill:
-        shell = _per_layer(_minus_chunk, list(zip(layers, infill)))
-    thin = find_thin(shell, layer_height=lh)
+    # one pass on all cores: thicken thin parts (the model, never the honeycomb walls inside it), the shell
+    # without that infill (its walls are thin on purpose), the shell's thin parts and its enclosed cells
+    post = _post_process(layers, infill if hollowing else None, bool(cfg["sla_thicken_thin"]))
+    layers = [x[0] for x in post]
+    shell = [x[1] for x in post]
+    thin = _lasting_thin([x[2] for x in post], layer_height=lh)
+    shell_cells = [x[3] for x in post]
     if support_meshes:
         sup_layers = slice_meshes(support_meshes, planes, cfg["resolution"],
                                   progress=lambda f: report("slice", split + f * (1 - split)), cancelled=cancelled)
@@ -929,7 +994,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     # suction cups are cavities of the model itself: look at the shell (no supports, no honeycomb infill,
     # whose hundreds of cells per layer made this the slowest step)
     cup_layers = shell if len(shell) == len(layers) else layers
-    sealed = _sealed_layers(cup_layers)
+    sealed = _sealed_layers(cup_layers, shell_cells if len(shell_cells) == len(cup_layers) else None)
     job.cups = find_cups(cup_layers, sealed=sealed)
     if job.cups:
         job.cup_vents = cup_vents(cup_layers, job.layer_z, radius=max(0.5, cfg["drain_hole_diameter"] / 2), sealed=sealed)
