@@ -177,10 +177,10 @@ class ClaudeAssistant:
                         note += " Not shown (unknown key or invalid value): " + ", ".join(rejected)
                     results.append({"type": "tool_result", "tool_use_id": call.id, "content": note})
                 self.messages.append({"role": "user", "content": results})
-        except anthropic.AuthenticationError:
-            reply.error = "auth"
-        except anthropic.PermissionDeniedError:
-            reply.error = "permission"
+        except anthropic.AuthenticationError as exc:
+            reply.error = "auth" + (f": {_api_message(exc)}" if _api_message(exc) else "")
+        except anthropic.PermissionDeniedError as exc:
+            reply.error = "permission" + (f": {_api_message(exc)}" if _api_message(exc) else "")
         except anthropic.RateLimitError:
             reply.error = "rate"
         except anthropic.APIStatusError as exc:

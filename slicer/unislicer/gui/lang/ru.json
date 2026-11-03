@@ -1273,5 +1273,6 @@
 "Cavity pillar spacing": "Шаг опор в полости",
 "Cavity pillar diameter": "Диаметр опор в полости",
 "Pillars also under outside overhangs": "Опоры также под внешними нависаниями",
-"With the cavity pillars: parts of the model that stick out and hang in the air also get pillars, from the plate or from the model below them": "Вместе с опорами в полости: выступающие части модели, висящие в воздухе, тоже получают опоры — от платформы или от модели под ними"
+"With the cavity pillars: parts of the model that stick out and hang in the air also get pillars, from the plate or from the model below them": "Вместе с опорами в полости: выступающие части модели, висящие в воздухе, тоже получают опоры — от платформы или от модели под ними",
+"This is a shortened key (as the key list shows it). The full key is shown only once, in the window after Create Key – create a new key and copy it from there": "Это сокращённый ключ (как в списке ключей). Полный ключ показывается один раз, в окне после Create Key – создайте новый ключ и скопируйте его оттуда"
 }

@@ -1273,5 +1273,6 @@
 "Cavity pillar spacing": "تباعد أعمدة التجويف",
 "Cavity pillar diameter": "قطر عمود التجويف",
 "Pillars also under outside overhangs": "أعمدة أيضًا تحت البروزات الخارجية",
-"With the cavity pillars: parts of the model that stick out and hang in the air also get pillars, from the plate or from the model below them": "مع أعمدة التجويف: الأجزاء البارزة من النموذج المعلقة في الهواء تحصل أيضًا على أعمدة، من اللوح أو من النموذج تحتها"
+"With the cavity pillars: parts of the model that stick out and hang in the air also get pillars, from the plate or from the model below them": "مع أعمدة التجويف: الأجزاء البارزة من النموذج المعلقة في الهواء تحصل أيضًا على أعمدة، من اللوح أو من النموذج تحتها",
+"This is a shortened key (as the key list shows it). The full key is shown only once, in the window after Create Key – create a new key and copy it from there": "هذا مفتاح مختصر (كما يظهر في قائمة المفاتيح). يظهر المفتاح الكامل مرة واحدة فقط في النافذة بعد Create Key – أنشئ مفتاحًا جديدًا وانسخه من هناك"
 }

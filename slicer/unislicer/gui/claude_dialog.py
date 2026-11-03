@@ -102,6 +102,10 @@ class ClaudeDialog(QDialog):
         key = self.key_edit.text().strip()
         if not key:
             return
+        if "..." in key or "…" in key or len(key) < 40:
+            # the key list in the console shows only a shortened key; the full one appears once, when created
+            self._add("note", tr("claude_key_short"))
+            return
         QSettings("UniSlicer", "UniSlicer").setValue(KEY_SETTING, key)
         self.key_edit.clear()
         from ..claude_agent import ClaudeAssistant
@@ -165,8 +169,10 @@ class ClaudeDialog(QDialog):
             self._add("note", tr("claude_err_other").format(failure))
             return
         if reply.error:
-            code = reply.error.split(":")[0]
+            code, _, detail = reply.error.partition(":")
             msg = tr(ERRORS[code]) if code in ERRORS else tr("claude_err_other").format(reply.error)
+            if code in ERRORS and detail.strip():
+                msg += "\n(Anthropic: " + detail.strip() + ")"      # the server's own words
             self._add("note", msg)
             if code == "auth":
                 self._show_key(True)
