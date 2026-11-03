@@ -48,14 +48,17 @@ def layer_heights(max_z: float, layer_height: float, first_layer_height: float) 
     return layers
 
 
-def _segments_at(tris: np.ndarray, normals: np.ndarray, z: float):
-    """Intersection segments of triangles (k,3,3) with the plane at height z."""
+def _segments_at(tris: np.ndarray, normals: np.ndarray, z: float, groups: np.ndarray | None = None):
+    """Intersection segments of triangles (k,3,3) with the plane at height z. With ``groups`` (a piece number
+    per triangle) also returns the piece of every segment."""
     above = tris[:, :, 2] >= z
     count = above.sum(axis=1)
     keep = (count == 1) | (count == 2)
     tris, normals, above = tris[keep], normals[keep], above[keep]
+    if groups is not None:
+        groups = groups[keep]
     if len(tris) == 0:
-        return np.zeros((0, 2, 2))
+        return np.zeros((0, 2, 2)) if groups is None else (np.zeros((0, 2, 2)), np.zeros(0, dtype=np.int64))
     a = tris
     b = np.roll(tris, -1, axis=1)
     ab_above = np.roll(above, -1, axis=1)
@@ -69,7 +72,7 @@ def _segments_at(tris: np.ndarray, normals: np.ndarray, z: float):
     d = seg[:, 1] - seg[:, 0]
     wrong = (d[:, 1] * normals[:, 0] - d[:, 0] * normals[:, 1]) < 0
     seg[wrong] = seg[wrong][:, ::-1]
-    return seg
+    return seg if groups is None else (seg, groups)
 
 
 def _chain_fast(keys: np.ndarray, segments: np.ndarray):
@@ -120,13 +123,17 @@ def _chain_fast(keys: np.ndarray, segments: np.ndarray):
     return [(p, len(p)) for p in np.split(pts, cuts)]
 
 
-def _chain(segments: np.ndarray, report: dict | None = None, raw: list | None = None):
+def _chain(segments: np.ndarray, report: dict | None = None, raw: list | None = None, groups=None):
     """Link segments into loops. Yields (points (n,2), orientation_vote).
-    ``report["messy"]`` is set when the layer has open contours or non-manifold junctions."""
+    ``report["messy"]`` is set when the layer has open contours or non-manifold junctions.
+    ``groups``: a piece number per segment; segments of different pieces are never linked (supports are many
+    closed pieces touching each other: linked separately, each closes on its own)."""
     n = len(segments)
     if n == 0:
         return []
     keys = np.round(segments * KEY_SCALE).astype(np.int64)
+    if groups is not None:
+        keys[:, :, 0] += np.asarray(groups, dtype=np.int64)[:, None] * 1_000_000_000
     fast = _chain_fast(keys, segments)
     if fast is not None:
         if raw is not None:
@@ -291,19 +298,24 @@ def _signed_area(p: np.ndarray) -> float:
 
 def loops_to_geometry(loops) -> MultiPolygon:
     """Combine oriented loops (outer = CCW, hole = CW) into polygons, honoring nesting."""
-    items = []
+    pts_list, signs, areas = [], [], []
     for pts, vote in loops:
         if len(pts) < 3:
             continue
         area = _signed_area(pts)
         if abs(area) < 1e-6:
             continue
-        sign = np.sign(area) * (1 if vote >= 0 else -1)
-        poly = shapely.make_valid(Polygon(pts))
-        poly = shapely.union_all(polygons_of(poly))
-        if poly.is_empty:
-            continue
-        items.append((abs(area), sign, poly))
+        pts_list.append(pts)
+        signs.append(np.sign(area) * (1 if vote >= 0 else -1))
+        areas.append(abs(area))
+    if not pts_list:
+        return EMPTY
+    # build every loop's polygon in one go; only the invalid ones (self-touching) need repair
+    polys = np.array([Polygon(p) for p in pts_list], dtype=object)
+    bad = ~shapely.is_valid(polys)
+    if bad.any():
+        polys[bad] = [shapely.union_all(polygons_of(shapely.make_valid(p))) for p in polys[bad]]
+    items = [(a, sg, p) for a, sg, p in zip(areas, signs, polys) if not p.is_empty]
     if not items:
         return EMPTY
     items.sort(key=lambda it: -it[0])
@@ -323,7 +335,7 @@ def loops_to_geometry(loops) -> MultiPolygon:
 
 
 def _slice_sorted(tris: np.ndarray, normals: np.ndarray, z_planes: list[float], resolution: float,
-                  progress=None, cancelled=None) -> list[MultiPolygon]:
+                  progress=None, cancelled=None, groups=None) -> list[MultiPolygon]:
     """Slice triangles already sorted by their lowest z."""
     zmin = tris[:, :, 2].min(axis=1)
     zmax = tris[:, :, 2].max(axis=1)
@@ -338,9 +350,13 @@ def _slice_sorted(tris: np.ndarray, normals: np.ndarray, z_planes: list[float], 
         # a plane passing exactly through vertices creates degenerate contours: nudge it
         while len(local) and np.any(np.abs(local[:, :, 2] - zc) < 1e-7):
             zc += 1e-5
-        seg = _segments_at(local, normals[idx], zc)
         report, raw = {}, []
-        loops = _chain(seg, report, raw)
+        if groups is None:
+            seg = _segments_at(local, normals[idx], zc)
+            loops = _chain(seg, report, raw)
+        else:
+            seg, seg_groups = _segments_at(local, normals[idx], zc, groups[idx])
+            loops = _chain(seg, report, raw, seg_groups)
         # a broken layer (holes, non-manifold edges): fill by winding / crossing parity instead of stitching
         geom = even_odd_geometry(_oriented_segments(raw)) if report.get("messy") else loops_to_geometry(loops)
         if resolution > 0 and not geom.is_empty:
@@ -356,15 +372,16 @@ def _slice_sorted(tris: np.ndarray, normals: np.ndarray, z_planes: list[float], 
     return out
 
 
-def _slice_chunk(tris: np.ndarray, normals: np.ndarray, z_planes: list[float], resolution: float):
+def _slice_chunk(tris: np.ndarray, normals: np.ndarray, z_planes: list[float], resolution: float, groups=None):
     """Process-pool entry point."""
-    return _slice_sorted(tris, normals, z_planes, resolution)
+    return _slice_sorted(tris, normals, z_planes, resolution, groups=groups)
 
 
 def slice_mesh(mesh: Mesh, z_planes: Iterable[float], resolution: float = 0.01,
                progress: Callable[[float], None] | None = None,
-               cancelled: Callable[[], bool] | None = None) -> list[MultiPolygon]:
-    """Cross-sections of ``mesh`` at each height in ``z_planes`` (uses all CPU cores for big jobs)."""
+               cancelled: Callable[[], bool] | None = None, groups: np.ndarray | None = None) -> list[MultiPolygon]:
+    """Cross-sections of ``mesh`` at each height in ``z_planes`` (uses all CPU cores for big jobs).
+    ``groups``: a piece number per face (see ``_chain``)."""
     from . import parallel
 
     z_planes = list(z_planes)
@@ -376,15 +393,17 @@ def slice_mesh(mesh: Mesh, z_planes: Iterable[float], resolution: float = 0.01,
     zmax = tris[:, :, 2].max(axis=1)
     order = np.argsort(zmin)
     tris, normals, zmin, zmax = tris[order], normals[order], zmin[order], zmax[order]
+    if groups is not None:
+        groups = np.asarray(groups)[order]
     n_workers = parallel.workers()
     if n_workers < 2 or len(z_planes) < 40 or len(z_planes) * len(tris) < 2_000_000:
-        return _slice_sorted(tris, normals, z_planes, resolution, progress, cancelled)
+        return _slice_sorted(tris, normals, z_planes, resolution, progress, cancelled, groups)
     # each chunk only receives the triangles that reach its height range
     args, weights = [], []
     for a, b in parallel.chunk_ranges(len(z_planes), 8, n_workers * 4):
         lo, hi = z_planes[a] - 1e-4, z_planes[b - 1] + 1e-4
         sel = np.nonzero((zmax >= lo) & (zmin <= hi))[0]
-        args.append((tris[sel], normals[sel], z_planes[a:b], resolution))
+        args.append((tris[sel], normals[sel], z_planes[a:b], resolution, None if groups is None else groups[sel]))
         weights.append(len(sel) * (b - a))
     parts = parallel.run_chunks(_slice_chunk, args, progress, cancelled, weights)
     return [g for part in parts for g in part]

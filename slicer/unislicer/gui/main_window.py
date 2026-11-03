@@ -4409,8 +4409,11 @@ class MainWindow(QMainWindow):
             before = sum(len(o.support_points) for o in self.objects if o.support_points is not None)
             self.support_all_islands()
             added = sum(len(o.support_points) for o in self.objects if o.support_points is not None) - before
-        if added <= 0:
+        # pillars are the safety net: they only go under islands the supports did not reach, so one slice
+        # after the fix clears them all (no second round of Fix)
+        if not cfg["sla_island_pillars"]:
             self.settings.set_value("sla_island_pillars", True)
+        if added <= 0:
             self.status.setText(tr("pillars_on"))
 
     def _fix_setting(self, key, value):

@@ -141,39 +141,135 @@ def shell_labels(mesh: Mesh) -> np.ndarray:
     return labels.ravel()
 
 
+def shell_count(mesh: Mesh) -> int:
+    """How many separate shells (parts that share no vertices) the mesh has."""
+    f = mesh.faces
+    if len(f) == 0:
+        return 0
+    return len(np.unique(_vertex_components(max(len(mesh.vertices), int(f.max()) + 1), f)[f[:, 0]]))
+
+
 def split_parts(mesh: Mesh) -> list[Mesh]:
     """Separate shells that share no vertices."""
     f = mesh.faces
-    parent = np.arange(len(mesh.vertices))
-
-    def find(i):
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-    for a, b in np.vstack([f[:, [0, 1]], f[:, [1, 2]]]):
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
-    roots = np.array([find(i) for i in range(len(parent))])
-    face_root = roots[f[:, 0]]
+    if len(f) == 0:
+        return []
+    face_root = _vertex_components(max(len(mesh.vertices), int(f.max()) + 1), f)[f[:, 0]]
+    order = np.argsort(face_root, kind="stable")
+    cuts = np.flatnonzero(np.diff(face_root[order])) + 1
     out = []
-    for k, r in enumerate(np.unique(face_root)):
-        out.append(Mesh.from_triangles(mesh.triangles[face_root == r], f"{mesh.name} ({k + 1})"))
+    for k, idx in enumerate(np.split(order, cuts)):
+        sub = f[idx]
+        used, inv = np.unique(sub, return_inverse=True)       # keep only this shell's vertices
+        out.append(Mesh(mesh.vertices[used], inv.reshape(-1, 3), f"{mesh.name} ({k + 1})"))
     out.sort(key=lambda m: -len(m.faces))
     return out
 
 
 # ----------------------------------------------------------------- repair
+def _vertex_components(n_vertices: int, f: np.ndarray) -> np.ndarray:
+    """Connected-component label per vertex (min-label propagation with pointer jumping, all in numpy)."""
+    lab = np.arange(n_vertices)
+    a = np.concatenate([f[:, 0], f[:, 1], f[:, 2]])
+    b = np.concatenate([f[:, 1], f[:, 2], f[:, 0]])
+    for _ in range(10000):
+        m = np.minimum(lab[a], lab[b])
+        new = lab.copy()
+        np.minimum.at(new, a, m)
+        np.minimum.at(new, b, m)
+        new = new[new]                       # pointer jumping: follow labels to their own labels
+        new = new[new]
+        if np.array_equal(new, lab):
+            break
+        lab = new
+    return lab
+
+
+def _repair_fast(v: np.ndarray, f: np.ndarray, report: dict, fill_holes: bool, name: str):
+    """``repair`` for the usual case, vectorised: every edge shared by at most two faces that already wind
+    consistently (a scan with holes). Returns None when the mesh needs the general repair."""
+    if len(f) == 0:
+        return None
+    n = int(max(int(f.max()) + 1, len(v)))
+    u = np.concatenate([f[:, 0], f[:, 1], f[:, 2]]).astype(np.int64)
+    w = np.concatenate([f[:, 1], f[:, 2], f[:, 0]]).astype(np.int64)
+    # sort-based checks (much faster than np.unique on a few hundred thousand keys)
+    directed = np.sort(u * n + w)
+    if np.any(directed[1:] == directed[:-1]):
+        return None                          # two faces run along an edge the same way: inconsistent winding
+    lo, hi = np.minimum(u, w), np.maximum(u, w)
+    und = np.sort(lo * n + hi)
+    if len(und) > 2 and np.any(und[2:] == und[:-2]):
+        return None                          # non-manifold edges
+    # each closed shell should have positive volume (normals outward)
+    lab = _vertex_components(n, f)
+    face_lab = lab[f[:, 0]]
+    t = v[f]
+    vol = np.einsum("ij,ij->i", t[:, 0], np.cross(t[:, 1], t[:, 2]))
+    per = np.bincount(face_lab, weights=vol, minlength=n)
+    flip = per[face_lab] < 0
+    f = np.where(flip[:, None], f[:, ::-1], f)
+    report["flipped"] = int(flip.sum())
+    if not fill_holes:
+        out = Mesh(v, f, name)
+        out.remove_degenerate()
+        return out
+    # fill holes: boundary edges (whose reverse is missing) form loops; close each with a fan
+    u = np.concatenate([f[:, 0], f[:, 1], f[:, 2]]).astype(np.int64)
+    w = np.concatenate([f[:, 1], f[:, 2], f[:, 0]]).astype(np.int64)
+    fwd = np.sort(u * n + w)
+    rev = w * n + u
+    pos = np.minimum(np.searchsorted(fwd, rev), len(fwd) - 1)
+    open_ = fwd[pos] != rev
+    nxt: dict = {}
+    for a, b in zip(u[open_].tolist(), w[open_].tolist()):
+        nxt.setdefault(b, []).append(a)      # walk the hole opposite to the faces around it
+    new_faces, extra = [], []
+    used: set = set()
+    for start in list(nxt):
+        if start in used:
+            continue
+        loop, cur = [], start
+        while cur not in used and cur in nxt and nxt[cur]:
+            used.add(cur)
+            loop.append(cur)
+            cur = nxt[cur][0]
+        if len(loop) >= 3 and cur == start:
+            centre = len(v) + len(extra)
+            extra.append(v[loop].mean(axis=0))
+            for k in range(len(loop)):
+                new_faces.append([loop[k], loop[(k + 1) % len(loop)], centre])
+            report["holes_filled"] += 1
+    if new_faces:
+        f = np.vstack([f, np.array(new_faces)])
+        v = np.vstack([v, np.array(extra)])
+    out = Mesh(v, f, name)
+    out.remove_degenerate()
+    return out
+
+
 def repair(mesh: Mesh, fill_holes: bool = True) -> tuple[Mesh, dict]:
     """Remove duplicate/degenerate faces, make the winding consistent and outward, fill holes."""
     report = {"duplicates": 0, "flipped": 0, "holes_filled": 0}
     f = mesh.faces.copy()
     key = np.sort(f, axis=1)
-    _, keep = np.unique(key, axis=0, return_index=True)
+    nv = int(f.max()) + 1 if len(f) else 1
+    if nv ** 3 < 2 ** 62:
+        # one integer per face, then sort: far faster than np.unique(axis=0)
+        k1 = (key[:, 0].astype(np.int64) * nv + key[:, 1]) * nv + key[:, 2]
+        order = np.argsort(k1, kind="stable")
+        ks = k1[order]
+        first = np.ones(len(ks), dtype=bool)
+        first[1:] = ks[1:] != ks[:-1]
+        keep = order[first]
+    else:
+        _, keep = np.unique(key, axis=0, return_index=True)
     report["duplicates"] = len(f) - len(keep)
     f = f[np.sort(keep)]
     v = mesh.vertices
+    fast = _repair_fast(v, f, report, fill_holes, mesh.name)
+    if fast is not None:
+        return fast, report
 
     # consistent winding: neighbours across an edge must traverse it in opposite directions
     edges = {}
@@ -260,14 +356,21 @@ def analyze(mesh: Mesh) -> dict:
         return {"faces": 0, "open_edges": 0, "nonmanifold_edges": 0, "degenerate": 0, "duplicates": 0,
                 "shells": 0, "watertight": False}
     e = np.sort(f[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2), axis=1)
-    keys = e[:, 0] * (int(e.max()) + 1) + e[:, 1]
-    _, counts = np.unique(keys, return_counts=True)
+    keys = np.sort(e[:, 0].astype(np.int64) * (int(e.max()) + 1) + e[:, 1])
+    starts = np.flatnonzero(np.r_[True, keys[1:] != keys[:-1]])     # sort + run lengths: faster than unique
+    counts = np.diff(np.r_[starts, len(keys)])
     t = mesh.triangles
     area = 0.5 * np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
     degenerate = int(((f[:, 0] == f[:, 1]) | (f[:, 1] == f[:, 2]) | (f[:, 0] == f[:, 2]) | (area < 1e-10)).sum())
-    duplicates = len(f) - len(np.unique(np.sort(f, axis=1), axis=0))
+    fs = np.sort(f, axis=1).astype(np.int64)
+    nv = int(fs.max()) + 1
+    if nv ** 3 < 2 ** 62:
+        fk = np.sort((fs[:, 0] * nv + fs[:, 1]) * nv + fs[:, 2])
+        duplicates = int(np.count_nonzero(fk[1:] == fk[:-1]))
+    else:
+        duplicates = len(f) - len(np.unique(fs, axis=0))
     return {"faces": len(f), "open_edges": int((counts == 1).sum()), "nonmanifold_edges": int((counts > 2).sum()),
-            "degenerate": degenerate, "duplicates": duplicates, "shells": len(split_parts(mesh)),
+            "degenerate": degenerate, "duplicates": duplicates, "shells": shell_count(mesh),
             "watertight": bool(np.all(counts == 2))}
 
 

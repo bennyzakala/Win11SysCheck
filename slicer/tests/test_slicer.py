@@ -3978,3 +3978,24 @@ def test_resin_cache_and_incremental_fix_match_a_full_slice():
     assert fixed.thin_layers == ref.thin_layers and len(fixed.islands) == len(ref.islands)
     assert max(a.symmetric_difference(b).area for a, b in zip(fixed.layers, ref.layers)) < 1e-6
     assert fixed.cups == ref.cups and abs(fixed.volume_ml - ref.volume_ml) < 1e-9
+
+
+def test_support_pieces_slice_as_their_union_and_fast_repair():
+    """Supports are many closed pieces that overlap and touch: each piece is linked on its own and the layer is
+    their union (the old fallback left holes where pieces overlapped). The vectorised repair fills holes and
+    turns an inside-out shell the right way."""
+    from unislicer import mesh_tools
+    from unislicer.mesh import Mesh
+    a, b = primitives.box(10, 10, 10), primitives.box(10, 10, 10)
+    bv = np.asarray(b.vertices) + [5, 5, 0]                         # overlaps a by a quarter
+    m = Mesh(np.vstack([a.vertices, bv]), np.vstack([a.faces, np.asarray(b.faces) + len(a.vertices)]), "s")
+    lo = float(m.bounds[0][2])
+    layers = sla._slice_pieces(m, [lo + 2.0, lo + 5.0], 0.01)
+    assert all(abs(g.area - 175.0) < 1e-6 for g in layers), [g.area for g in layers]
+    s = primitives.sphere(10, 32, 64)
+    keep = np.ones(len(s.faces), bool)
+    keep[[len(keep) // 4, len(keep) // 2, 3 * len(keep) // 4]] = False   # three separate holes
+    holed = Mesh(s.vertices, np.asarray(s.faces)[keep][:, ::-1], "inside-out")
+    fixed, rep = mesh_tools.repair(holed)
+    assert fixed.is_watertight() and rep["holes_filled"] == 3 and rep["flipped"] == len(holed.faces)
+    assert fixed.volume() > 0 and mesh_tools.analyze(fixed)["watertight"] and mesh_tools.shell_count(m) == 2

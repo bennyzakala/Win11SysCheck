@@ -957,6 +957,75 @@ def _cached_slice(meshes: list, planes: list, resolution: float, **kw) -> list:
     return list(hit)
 
 
+def _mesh_components(mesh: Mesh) -> list[tuple[str, np.ndarray, float, float]]:
+    """(content key, triangles, zmin, zmax) of every separate piece of a mesh (supports are many pieces)."""
+    import hashlib
+    from .mesh_tools import _vertex_components
+    f = mesh.faces
+    if len(f) == 0:
+        return []
+    lab = _vertex_components(len(mesh.vertices), f)[f[:, 0]]
+    order = np.argsort(lab, kind="stable")
+    cuts = np.flatnonzero(np.diff(lab[order])) + 1
+    tris = mesh.vertices[f]
+    out = []
+    for idx in np.split(order, cuts):
+        t = np.ascontiguousarray(tris[idx])
+        key = hashlib.blake2b(t.tobytes(), digest_size=16).hexdigest()
+        out.append((key, t, float(t[:, :, 2].min()), float(t[:, :, 2].max())))
+    return out
+
+
+def _slice_pieces(mesh: Mesh, planes: list, resolution: float, **kw) -> list:
+    """Slice a mesh made of many closed pieces (supports): each piece's contours are linked on their own, then
+    merged, which avoids the slow fallback for touching pieces."""
+    from .mesh_tools import _vertex_components
+    from .slicing import slice_mesh
+    if len(mesh.faces) == 0:
+        return [EMPTY] * len(planes)
+    groups = _vertex_components(len(mesh.vertices), mesh.faces)[mesh.faces[:, 0]]
+    return slice_mesh(mesh, planes, resolution, groups=groups, **kw)
+
+
+def _slice_supports(mesh: Mesh, planes: list, resolution: float, **kw) -> list:
+    """Support layers, incrementally: after a fix adds a few supports, only the new pieces are sliced and
+    merged into the cached layers; layers at the height of a piece that went away (e.g. a raft that grew)
+    are sliced again in full. Falls back to a full slice when most of the supports changed."""
+    pk = ("supports", tuple(round(p, 6) for p in planes), resolution)
+    comps = _mesh_components(mesh)
+    keys = {c[0]: c for c in comps}
+    prev = _cache_get(pk)
+    if prev is not None and set(prev["keys"]) == set(keys):
+        return list(prev["layers"])
+    if prev is None or len(set(keys) - set(prev["keys"])) > 0.5 * max(1, len(keys)):
+        layers = _slice_pieces(mesh, planes, resolution, **kw)
+    else:
+        added = [keys[k] for k in keys if k not in prev["keys"]]
+        removed = [prev["keys"][k] for k in prev["keys"] if k not in keys]
+        layers = list(prev["layers"])
+        z = np.asarray(planes)
+        full = np.zeros(len(planes), dtype=bool)
+        for _, z0, z1 in removed:
+            full |= (z >= z0 - 1e-6) & (z <= z1 + 1e-6)
+        idx = np.flatnonzero(full)
+        if len(idx):                          # where something went away, slice everything there again
+            redo = _slice_pieces(mesh, [planes[i] for i in idx], resolution)
+            for i, g in zip(idx, redo):
+                layers[i] = g
+        if added:
+            tris = np.concatenate([c[1] for c in added])
+            z0, z1 = min(c[2] for c in added), max(c[3] for c in added)
+            sel = [i for i in range(len(planes)) if not full[i] and z0 - 1e-6 <= planes[i] <= z1 + 1e-6]
+            if sel:
+                add_mesh = Mesh.from_triangles(tris, "added supports")
+                add = slice_meshes([add_mesh], [planes[i] for i in sel], resolution)
+                for i, g in zip(sel, add):
+                    if not g.is_empty:
+                        layers[i] = as_multipolygon(layers[i].union(g)) if not layers[i].is_empty else g
+    _cache_put(pk, {"keys": {k: (k, c[2], c[3]) for k, c in keys.items()}, "layers": list(layers)})
+    return layers
+
+
 # ----------------------------------------------------------------- prepare
 def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
@@ -996,7 +1065,15 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             manual = support_points[i] if support_points and i < len(support_points) else None
             if manual is not None:
                 manual = np.asarray(manual, dtype=np.float64).reshape(-1, 3) + [0, 0, lift]
-            s, p = build_supports(m, cfgs[i], manual, label=meshes[i].name if cfg["sla_raft_label"] else "")
+            label = meshes[i].name if cfg["sla_raft_label"] else ""
+            skey = ("supports-build", mesh_key(m), None if manual is None else np.ascontiguousarray(manual).tobytes(),
+                    label, tuple(sorted((k, v) for k, v in cfgs[i].values.items()
+                                        if k.startswith(("sla_", "support")))))
+            hit = _cache_get(skey)
+            if hit is None:
+                hit = build_supports(m, cfgs[i], manual, label=label)
+                _cache_put(skey, hit)
+            s, p = hit
             parts.append(s)
             points += list(p)
         supports = Mesh.merge(parts, "Supports")
@@ -1101,8 +1178,9 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     thin = _lasting_thin([x[2] for x in post], layer_height=lh)
     shell_cells = [x[3] for x in post]
     if support_meshes:
-        sup_layers = _cached_slice(support_meshes, planes, cfg["resolution"],
-                                   progress=lambda f: report("slice", split + f * (1 - split)), cancelled=cancelled)
+        sup_layers = _slice_supports(support_meshes[0] if len(support_meshes) == 1 else Mesh.merge(support_meshes),
+                                     planes, cfg["resolution"],
+                                     progress=lambda f: report("slice", split + f * (1 - split)), cancelled=cancelled)
         layers = _per_layer(_union_chunk, list(zip(layers, sup_layers)))
     pillars, left = 0, None
     if cfg["sla_island_pillars"] and not jetting:
