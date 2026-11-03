@@ -4448,7 +4448,6 @@ def test_formlabs_dialog_connects_finds_and_sends(tmp_path):
             if parallel._pool is not None:           # worker processes would hold the output pipe open
                 parallel._pool.shutdown(wait=True, cancel_futures=True)
             print("STATUS", seen.get("status"), flush=True)
-            os._exit(0)
         ''')
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), FAKE_PORT=str(srv.port),
