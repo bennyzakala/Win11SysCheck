@@ -4089,3 +4089,20 @@ def test_ctrl_click_unmarks_only_that_model():
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_view_does_not_flip_near_the_bottom_or_top_view():
+    """Orbiting down to the bottom view (or up to the top view) never turns the plate over: the plate's
+    X axis stays pointing right on screen and its front edge moves smoothly, with no 180-degree jump."""
+    from unislicer.gui.viewer import Camera
+    c = Camera(); c.target = np.zeros(3)
+    last = None
+    for p in np.linspace(-89.9, 89.9, 361):
+        c.yaw, c.pitch = -90.0, float(p)
+        v = c.view()
+        right = (v @ np.array([10.0, 0, 0, 1]))[:2]
+        front = (v @ np.array([0, -10.0, 0, 1]))[:2]
+        assert right[0] > 9.9 and abs(right[1]) < 1e-6, (p, right)
+        if last is not None:
+            assert abs(front[1] - last) < 0.2, (p, front, last)
+        last = front[1]

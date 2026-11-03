@@ -320,7 +320,10 @@ class Camera:
         return self.target + self.distance * np.array([math.cos(p) * math.cos(y), math.cos(p) * math.sin(y), math.sin(p)])
 
     def view(self) -> np.ndarray:
-        up = np.array([0.0, 0.0, 1.0]) if abs(self.pitch) < 89.5 else np.array([0.0, 1.0, 0.0])
+        # screen-up is the direction the eye moves when the pitch grows: always at right angles to the view and
+        # continuous through the top and bottom views (a fixed +Y there turned the plate upside down from below)
+        y, p = math.radians(self.yaw), math.radians(self.pitch)
+        up = np.array([-math.sin(p) * math.cos(y), -math.sin(p) * math.sin(y), math.cos(p)])
         return _look_at(self.eye(), self.target.astype(np.float64), up)
 
     def projection(self, aspect: float) -> np.ndarray:
