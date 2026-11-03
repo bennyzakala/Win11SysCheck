@@ -4440,7 +4440,9 @@ def test_formlabs_dialog_connects_finds_and_sends(tmp_path):
                 return 0
             FormlabsDialog.exec = exec_
             w.send_to_formlabs()
-            print("STATUS", seen.get("status"))
+            w._stop_preslice()                       # as on quit: no background slice left running
+            print("STATUS", seen.get("status"), flush=True)
+            os._exit(0)                              # skip Qt's teardown of the threads (as the real quit does)
         ''')
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), FAKE_PORT=str(srv.port),
