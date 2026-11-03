@@ -461,6 +461,7 @@ class MainWindow(QMainWindow):
         mm.addAction(theme.icon("open"), tr("export_library_open"), self.open_export_library)
         mm.addAction(theme.icon("settings"), tr("export_library_choose") + "…", self.choose_export_library)
         mm.addAction(theme.icon("wifi"), tr("net_title") + "…", self.network_printers)
+        mm.addAction(theme.icon("wifi"), tr("fl_menu"), self.send_to_formlabs)
         mm.addAction(theme.icon("layers"), tr("queue_title") + "…", self.queue_dialog)
         mm.addAction(theme.icon("wifi"), tr("remote_title") + "…", self.remote_control)
         mm.addAction(theme.icon("layers"), tr("fil_title") + "…", self.filaments_dialog)
@@ -5430,6 +5431,34 @@ class MainWindow(QMainWindow):
         self._apply_printer()
         self._refresh_objects(select=objects[0].uid if objects else None)
         self.viewer.fit_objects()
+
+    def send_to_formlabs(self):
+        """Send the plate (or the selected models) to a Formlabs printer through PreFormServer."""
+        from .. import formlabs
+        from .formlabs_dialog import FormlabsDialog
+        if not [o for o in self.objects if o.role != "cutter"]:
+            self.status.setText(tr("fl_nothing"))
+            return
+        if getattr(self, "_formlabs", None) is None:
+            self._formlabs = formlabs.Client(port=int(self.store.value("formlabs_port", formlabs.DEFAULT_PORT)))
+            QApplication.instance().aboutToQuit.connect(self._formlabs.stop)
+
+        def meshes(mode):
+            chosen = [o for o in (self.selected_objects() or self.objects) if o.role != "cutter"]
+            cfg = self.settings.config()
+            out = []
+            for o in chosen:
+                m = o.world_mesh()
+                if mode == "none" and cfg["technology"] == "sla" and cfg["support_enable"] and not o.direct:
+                    lift = self._lift(cfg)
+                    m = m.translated([0, 0, lift])
+                    sup, _ = sla_supports.build_supports(m, cfg, o.world_support_points(lift))
+                    m = Mesh.merge([m, sup], o.name)
+                out.append((o.name or "model", m))
+            return out
+
+        name = os.path.splitext(self.objects[0].name or "UniSlicer")[0]
+        FormlabsDialog(self.store, meshes, name, self._formlabs, self).exec()
 
     def export_stl(self, selection_only: bool = False):
         if not self.objects:

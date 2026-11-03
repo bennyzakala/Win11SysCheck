@@ -4242,3 +4242,211 @@ def test_resin_is_split_into_model_supports_and_raft():
     assert abs(job.model_ml - plain.volume_ml) < 0.05 * plain.volume_ml
     assert 0 < job.raft_ml < job.volume_ml - job.model_ml
     assert plain.raft_ml == 0 and abs(plain.model_ml - plain.volume_ml) < 1e-9
+
+
+class _FakePreFormServer:
+    """A stand-in for Formlabs' PreFormServer (Local API 0.9.x): scenes, async operations, devices, print."""
+
+    def __init__(self):
+        import http.server, threading, uuid
+        self.calls, self.ops, self.scenes, self.printed = [], {}, {}, []
+        fake = self
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _reply(self, code, body=None, headers=None):
+                data = json.dumps(body).encode() if body is not None else b""
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                for k, v in (headers or {}).items():
+                    self.send_header(k, v)
+                self.end_headers()
+                self.wfile.write(data)
+
+            def _handle(self, method):
+                n = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(n)) if n else None
+                path, _, query = self.path.partition("?")
+                fake.calls.append((method, path, body))
+                code, result = fake.route(method, path, body)
+                if "async=true" in query and code == 200:
+                    op = str(uuid.uuid4())
+                    fake.ops[op] = result
+                    return self._reply(202, {"operationId": op, "operationUrl": f"/operations/{op}/"},
+                                       {"Location": f"/operations/{op}/"})
+                self._reply(code, result)
+
+            def do_GET(self):
+                self._handle("GET")
+
+            def do_POST(self):
+                self._handle("POST")
+
+            def do_DELETE(self):
+                self._handle("DELETE")
+
+        self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.port = self.httpd.server_address[1]
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def route(self, method, path, body):
+        if path == "/":
+            return 200, {"version": "0.9.30"}
+        if path.startswith("/operations/"):
+            op = path.split("/")[2]
+            res = self.ops.pop(op)
+            if isinstance(res, dict) and "error" in res:
+                return 200, {"id": op, "status": "FAILED", "progress": 1.0, "result": res}
+            return 200, {"id": op, "status": "SUCCEEDED", "progress": 1.0, "result": res}
+        if path == "/list-materials/":
+            ss = {"machine_type": "FORM-4-0", "material_code": "FLGPGR05", "print_setting": "DEFAULT",
+                  "layer_thickness_mm": 0.1}
+            return 200, {"printer_types": [{"label": "Form 4", "supported_product_names": ["Form 4", "Form 4B"],
+                                            "supported_machine_type_ids": ["FORM-4-0"],
+                                            "materials": [{"label": "Grey V5", "description": "",
+                                                           "material_settings": [{"label": "0.1mm", "scene_settings": ss}]}]}]}
+        if path == "/scene/" and method == "POST":
+            if set(body) - {"machine_type", "material_code", "print_setting", "layer_thickness_mm"}:
+                return 400, {"error": {"code": "BAD_REQUEST", "message": "extra keys"}}
+            sid = f"scene{len(self.scenes) + 1}"
+            self.scenes[sid] = {"settings": body, "models": []}
+            return 200, {"id": sid, "models": [], "scene_settings": body}
+        parts = path.strip("/").split("/")
+        if parts[0] == "scene" and len(parts) >= 2:
+            sc = self.scenes.get(parts[1])
+            if sc is None:
+                return 404, {"error": {"code": "SCENE_NOT_FOUND", "message": "no scene"}}
+            if len(parts) == 2 and method == "DELETE":
+                return 200, {}
+            what = parts[2]
+            if what == "import-model":
+                if not os.path.isabs(body["file"]) or not os.path.isfile(body["file"]):
+                    return 400, {"error": {"code": "FILE_NOT_FOUND", "message": body["file"]}}
+                sc["models"].append(body["file"])
+                return 200, {"id": f"m{len(sc['models'])}"}
+            if what in ("auto-orient", "auto-support", "auto-layout", "save-form"):
+                sc[what] = body
+                if what == "save-form":
+                    open(body["file"], "wb").write(b"FORM")
+                return 200, {}
+            if what == "print-validation":
+                return 200, {"per_model_results": {"m1": {"cups": 1, "unsupported_minima": 0, "undersupported": False}}}
+            if what == "estimate-print-time":
+                return 200, {"total_print_time_s": 3600.0}
+            if what == "print":
+                if body["printer"] not in ("Form4-Lucky-Fox", "192.168.7.20"):
+                    return 200, {"error": {"code": "PRINTER_IP_NOT_FOUND", "message": "printer not found"}}
+                self.printed.append(body)
+                return 200, {"job_id": "job-1"}
+        if path == "/discover-devices/":
+            return 200, {"count": 1, "devices": []}
+        if path == "/devices/":
+            return 200, {"count": 1, "devices": [{"id": "Form4-Lucky-Fox", "product_name": "Form 4B", "status": "IDLE",
+                                                  "is_connected": True, "connection_type": "ETHERNET",
+                                                  "ip_address": "192.168.7.20", "firmware_version": "1.9",
+                                                  "ready_to_print_now": True, "tank_material_code": "FLGPGR05"}]}
+        return 404, {"error": {"code": "NOT_FOUND", "message": path}}
+
+    def close(self):
+        self.httpd.shutdown()
+
+
+def test_formlabs_send_through_preformserver(tmp_path):
+    """The Formlabs client runs the Local API flow: new scene with the chosen material, import each model
+    (absolute path), PreForm's supports, layout keeping our orientation, printability check and time,
+    then print to the printer (or save a .form). Errors come back with Formlabs' code."""
+    import json as _json
+    globals()["json"] = _json
+    from unislicer import formlabs
+    from unislicer.mesh import save_stl
+    srv = _FakePreFormServer()
+    try:
+        c = formlabs.Client(port=srv.port)
+        assert c.running() and c.version() == "0.9.30"
+        types = c.materials()
+        assert types[0]["label"] == "Form 4" and types[0]["materials"][0]["settings"][0]["scene_settings"]["machine_type"] == "FORM-4-0"
+        devs = c.discover(1)
+        assert devs[0]["id"] == "Form4-Lucky-Fox"
+        assert formlabs.match_printer_type(types, devs[0]["product_name"]) == 0
+        stl = str(tmp_path / "a.stl")
+        save_stl(primitives.box(10, 10, 5), stl)
+        steps = []
+        r = c.send([stl], types[0]["materials"][0]["settings"][0]["scene_settings"], "192.168.7.20", "Case 7",
+                   supports="auto", print_now=False, progress=lambda s, f: steps.append(s))
+        assert r["job_id"] == "job-1" and r["print_time_s"] == 3600.0
+        assert formlabs.validation_problems(r["validation"]) == {"cups": 1, "unsupported_minima": 0, "undersupported": 0}
+        assert srv.printed == [{"printer": "192.168.7.20", "job_name": "Case 7", "print_now": False}]
+        sc = srv.scenes["scene1"]
+        assert sc["models"] == [os.path.abspath(stl)] and sc["auto-layout"]["lock_rotation"] is True
+        assert "auto-support" in sc and "auto-orient" not in sc
+        assert steps[0] == "scene" and steps[-1] == "done" and "print" in steps
+        assert ("DELETE", "/scene/scene1/", None) in srv.calls       # the scene is cleaned up
+        # UniSlicer's own supports: no PreForm supports; save a .form without printing
+        form = str(tmp_path / "job.form")
+        r = c.send([stl], types[0]["materials"][0]["settings"][0]["scene_settings"], "", "x", supports="none",
+                   save_form=form)
+        assert os.path.isfile(form) and r["job_id"] == "" and "auto-support" not in srv.scenes["scene2"]
+        try:
+            c.send([stl], types[0]["materials"][0]["settings"][0]["scene_settings"], "10.0.0.9", "x")
+            raise AssertionError("expected a failure")
+        except formlabs.FormlabsError as e:
+            assert e.code == "PRINTER_IP_NOT_FOUND"
+        dead = formlabs.Client(port=1)
+        assert not dead.running()
+        try:
+            dead.start("")
+            raise AssertionError("expected a failure")
+        except formlabs.FormlabsError as e:
+            assert e.code == "NOT_INSTALLED"
+    finally:
+        srv.close()
+
+
+def test_formlabs_dialog_connects_finds_and_sends(tmp_path):
+    import json as _json, subprocess, sys, textwrap
+    globals()["json"] = _json
+    srv = _FakePreFormServer()
+    try:
+        code = textwrap.dedent('''
+            import os, time
+            os.environ["QT_QPA_PLATFORM"] = "offscreen"
+            from PySide6.QtWidgets import QApplication
+            app = QApplication([])
+            from unislicer import primitives
+            from unislicer.gui.main_window import MainWindow
+            from unislicer.gui.formlabs_dialog import FormlabsDialog
+            from unislicer import formlabs
+            w = MainWindow(); app.processEvents()
+            w.store.setValue("formlabs_port", int(os.environ["FAKE_PORT"]))
+            o = w.add_mesh(primitives.box(10, 10, 5)); app.processEvents()
+            seen = {}
+            def exec_(self):
+                def wait():
+                    end = time.time() + 20
+                    while self.task is not None and self.task.isRunning() and time.time() < end:
+                        app.processEvents(); time.sleep(0.02)
+                    app.processEvents()
+                self._connect(); wait()
+                assert self.ptype.currentText() == "Form 4" and self.material.currentText() == "Grey V5", self.status.text()
+                self._find(); wait()
+                assert self.printer.count() == 1 and "Form4-Lucky-Fox" in self.printer.currentText()
+                assert self._printer_id() == "192.168.7.20"
+                self.queue.setChecked(True)
+                self._send(); wait()
+                seen["status"] = self.status.text()
+                return 0
+            FormlabsDialog.exec = exec_
+            w.send_to_formlabs()
+            print("STATUS", seen.get("status"))
+        ''')
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), FAKE_PORT=str(srv.port))
+        r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+        assert r.returncode == 0 and "STATUS" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+        assert srv.printed and srv.printed[0]["printer"] == "192.168.7.20" and srv.printed[0]["print_now"] is False
+        assert "192.168.7.20" in r.stdout
+    finally:
+        srv.close()
