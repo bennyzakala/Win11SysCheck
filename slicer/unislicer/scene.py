@@ -42,6 +42,9 @@ class SceneObject:
     # resin: areas automatic supports must not touch (e.g. a splint's biting surface): (N, 4) centre + radius,
     # in the mesh's own coordinates
     keepout: np.ndarray = field(default_factory=lambda: np.zeros((0, 4)))
+    # resin: text labels on the model's surface, in the mesh's own coordinates:
+    # [{"text": str, "point": [x, y, z], "normal": [x, y, z], "height": mm, "depth": mm, "engrave": bool, "width": mm}]
+    labels: list = field(default_factory=list)
     uid: int = field(default_factory=lambda: next(_ids))
 
     @classmethod
@@ -163,6 +166,41 @@ class SceneObject:
         k = abs(float(np.linalg.det(m[:3, :3]))) ** (1.0 / 3.0) or 1.0
         self.keepout = np.vstack([self.keepout, np.r_[c, radius / k][None, :]])
 
+    def add_world_label(self, text: str, point, normal, height: float, depth: float, engrave: bool,
+                        width: float = 0.0, lift: float = 0.0) -> None:
+        m = self.world_matrix()
+        inv = np.linalg.inv(m[:3, :3])
+        p = (np.asarray(point, dtype=float) - [0, 0, lift] - m[:3, 3]) @ inv.T
+        n = np.asarray(normal, dtype=float) @ m[:3, :3]
+        n /= np.linalg.norm(n) or 1.0
+        self.labels.append({"text": str(text), "point": p.tolist(), "normal": n.tolist(), "height": float(height),
+                            "depth": float(depth), "engrave": bool(engrave), "width": float(width)})
+
+    def world_labels(self, lift: float = 0.0) -> list[tuple[np.ndarray, np.ndarray, dict]]:
+        """(point, outward normal, label) of each label in bed coordinates."""
+        out = []
+        if not self.labels:
+            return out
+        m = self.world_matrix()
+        inv_t = np.linalg.inv(m[:3, :3])
+        for lab in self.labels:
+            p = np.asarray(lab["point"], dtype=float) @ m[:3, :3].T + m[:3, 3] + [0, 0, lift]
+            n = np.asarray(lab["normal"], dtype=float) @ inv_t
+            out.append((p, n / (np.linalg.norm(n) or 1.0), lab))
+        return out
+
+    def world_label_meshes(self, lift: float = 0.0) -> tuple[Mesh | None, Mesh | None]:
+        """(embossed text, engraved text) in bed coordinates; the text keeps its size when the model turns."""
+        from .mesh_tools import label_mesh
+        raised, cut = [], []
+        for p, n, lab in self.world_labels(lift):
+            try:
+                mesh = label_mesh(lab["text"], p, n, lab["height"], lab["depth"], lab["engrave"], lab.get("width", 0.0))
+            except ValueError:
+                continue
+            (cut if lab["engrave"] else raised).append(mesh)
+        return (Mesh.merge(raised, "Labels") if raised else None, Mesh.merge(cut, "Labels") if cut else None)
+
     def world_drain_holes(self, lift: float = 0.0) -> np.ndarray:
         """Drain holes in bed coordinates as (N, 6) point + unit normal."""
         if len(self.drain_holes) == 0:
@@ -188,7 +226,8 @@ class SceneObject:
                 self.drain_holes.copy(), self.role, self.z, self.direct, self.material,
                 [dict(r) for r in self.regions], self.filament, [dict(p) for p in self.filament_parts],
                 self.mesh,                    # repairs / cuts replace the mesh object: undo puts it back
-                self.fill_cavity, self.locked, dict(self.settings), self.keepout.copy())
+                self.fill_cavity, self.locked, dict(self.settings), self.keepout.copy(),
+                [dict(lab) for lab in self.labels])
 
     def restore(self, state: tuple) -> None:
         (self.x, self.y, rot, scale, base, mirror, sp, holes, self.role, self.z, self.direct, self.material,
@@ -204,6 +243,8 @@ class SceneObject:
             self.settings = dict(state[18])
         if len(state) > 19:
             self.keepout = np.array(state[19], dtype=float).reshape(-1, 4)
+        if len(state) > 20:
+            self.labels = [dict(lab) for lab in state[20]]
         self.regions = [dict(r) for r in regions]
         self.drain_holes = holes.copy()
         self.rotation, self.scale, self.base_rotation, self.mirror = rot.copy(), scale.copy(), base.copy(), mirror.copy()
@@ -225,7 +266,7 @@ class SceneObject:
                            self.base_rotation.copy(), self.mirror.copy(), sp, self.drain_holes.copy(), self.role, self.z,
                            self.direct, self.material, [dict(r) for r in self.regions], self.filament,
                            [dict(p) for p in self.filament_parts], self.fill_cavity, False, dict(self.settings),
-                           self.keepout.copy())
+                           self.keepout.copy(), [dict(lab) for lab in self.labels])
 
 
 def plate_rect(cfg) -> tuple[float, float, float, float]:

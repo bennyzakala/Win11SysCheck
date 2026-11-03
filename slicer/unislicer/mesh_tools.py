@@ -74,6 +74,94 @@ def text_mesh(text: str, height: float = 8.0, depth: float = 1.5, font_family: s
     return extrude(polys, 0.0, depth, f"Text: {text}")
 
 
+_TEXT_CACHE: dict = {}
+
+
+def label_mesh(text: str, point, normal, height: float, depth: float, engrave: bool, width: float = 0.0) -> Mesh:
+    """``text`` standing on the surface at ``point`` facing out along ``normal``, readable from outside with its
+    letters upright (towards +Z, or +Y on a horizontal face). Embossed text rises ``depth`` out of the surface;
+    engraved text (a cutter) goes ``depth`` in. Either reaches 0.3 mm past the surface so it joins cleanly.
+    ``width`` > 0 shrinks a long text to fit."""
+    key = (text, round(height, 4))
+    flat = _TEXT_CACHE.get(key)
+    if flat is None:
+        flat = text_mesh(text, height, 1.0)
+        if len(_TEXT_CACHE) > 64:
+            _TEXT_CACHE.clear()
+        _TEXT_CACHE[key] = flat
+    v = flat.vertices.astype(np.float64).copy()
+    w, h = float(v[:, 0].max()), float(v[:, 1].max())
+    k = min(1.0, width / w) if width > 0 and w > 0 else 1.0
+    x, y = (v[:, 0] - w / 2) * k, (v[:, 1] - h / 2) * k
+    z0, z1 = (-depth, 0.3) if engrave else (-0.3, depth)
+    z = z0 + v[:, 2] * (z1 - z0)
+    n = np.asarray(normal, dtype=np.float64)
+    n = n / (np.linalg.norm(n) or 1.0)
+    ref = np.array([0.0, 0.0, 1.0]) if abs(n[2]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    up = ref - n * (ref @ n)
+    up /= np.linalg.norm(up)
+    right = np.cross(up, n)
+    out = np.asarray(point, dtype=np.float64) + np.outer(x, right) + np.outer(y, up) + np.outer(z, n)
+    return Mesh(out, flat.faces.copy(), f"Label: {text}")
+
+
+def label_spot(mesh: Mesh) -> tuple[np.ndarray, np.ndarray, float, float] | None:
+    """Where a label fits on a model by itself: the biggest flat, near-vertical side in the lower part of the
+    model (on a dental model, the side of its base). Returns (point on the surface, outward normal, free width,
+    free height), or None."""
+    t = mesh.triangles.astype(np.float64)
+    if len(t) == 0:
+        return None
+    cr = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+    area = 0.5 * np.linalg.norm(cr, axis=1)
+    nrm = cr / np.maximum(2 * area, 1e-12)[:, None]
+    c = t.mean(axis=1)
+    lo, hi = mesh.bounds
+    side = (np.abs(nrm[:, 2]) < 0.3) & (area > 0) & (c[:, 2] <= lo[2] + 0.6 * (hi[2] - lo[2]))
+    if not side.any():
+        side = (np.abs(nrm[:, 2]) < 0.5) & (area > 0)
+    # outer walls only: near the edge of the model's outline and facing out of it (not the inside of a
+    # horseshoe-shaped arch)
+    hull = shapely.MultiPoint(mesh.vertices[:, :2]).convex_hull
+    if hull.geom_type == "Polygon" and side.any():
+        idx = np.flatnonzero(side)
+        edge = shapely.distance(shapely.points(c[idx, :2]), hull.exterior)
+        out = ~shapely.contains_xy(hull, c[idx, 0] + nrm[idx, 0] * 3.0, c[idx, 1] + nrm[idx, 1] * 3.0)
+        keep = idx[(edge < 2.5) & out]
+        side = np.zeros(len(t), dtype=bool)
+        side[keep] = True
+    if not side.any():
+        return None
+    ang = np.arctan2(nrm[:, 1], nrm[:, 0])
+    bins = ((ang + np.pi) / (2 * np.pi) * 12).astype(int) % 12
+    totals = np.bincount(bins[side], weights=area[side], minlength=12)
+    b = int(np.argmax(totals))
+    pick = side & (bins == b)
+    wa = area[pick]
+    n = (nrm[pick] * wa[:, None]).sum(axis=0)
+    n[2] = 0.0
+    n /= np.linalg.norm(n) or 1.0
+    # the flattest, best-aligned stretch: upright faces of that side close to the dominant normal
+    good = pick & (nrm @ n > 0.9) & (np.abs(nrm[:, 2]) < 0.15)
+    if not good.any():
+        good = pick
+    verts = t[good].reshape(-1, 3)
+    up = np.array([0.0, 0.0, 1.0])
+    right = np.cross(up, n)
+    depth = verts @ n
+    # only the part that stays flat: within 0.3 mm of the label's plane (a curved wall falls away from it)
+    plane = float(np.percentile(depth, 75))
+    flat = np.abs(depth - plane) < 0.3
+    if flat.sum() >= 3:
+        verts = verts[flat]
+    along, height = verts @ right, verts[:, 2]
+    a0, a1 = np.percentile(along, [3, 97])
+    z0, z1 = np.percentile(height, [3, 97])
+    span_x, span_z = float(a1 - a0), float(z1 - z0)
+    surface = right * (a0 + a1) / 2 + up * (z0 + z1) / 2 + n * plane
+    return surface, n, span_x, span_z
+
+
 # -------------------------------------------------------------------- cut
 def cut_mesh(mesh: Mesh, z: float) -> tuple[Mesh, Mesh]:
     """Split a closed mesh at height ``z`` into (below, above), both closed with a flat cap."""

@@ -703,6 +703,7 @@ class MainWindow(QMainWindow):
         self.viewer.facePicked.connect(self._on_face_picked)
         self.viewer.holePicked.connect(self._on_hole_picked)
         self.viewer.keepoutPicked.connect(self._on_keepout_picked)
+        self.viewer.labelPicked.connect(self._on_label_picked)
         self.viewer.measured.connect(self._on_measured)
         self.viewer.previewObjectClicked.connect(self._on_preview_click)
         self.viewer.rayPicked.connect(self._on_support_remove)
@@ -761,8 +762,22 @@ class MainWindow(QMainWindow):
         self.section_label = QLabel("")
         self.section_label.setObjectName("Faint")
         self.section_label.hide()
+        from PySide6.QtWidgets import QComboBox
+        self.section_axis = QComboBox()
+        self.section_axis.addItems(["Z", "X", "Y"])
+        self.section_axis.setToolTip(tr("section_axis_tip"))
+        self.section_axis.hide()
+        self.section_flip = QToolButton()
+        self.section_flip.setText("⇄")
+        self.section_flip.setCheckable(True)
+        self.section_flip.setToolTip(tr("section_flip_tip"))
+        self.section_flip.hide()
+        tl.addWidget(self.section_axis)
+        tl.addWidget(self.section_flip)
         tl.addWidget(self.section_slider)
         tl.addWidget(self.section_label)
+        self.section_axis.currentIndexChanged.connect(lambda _i: self._on_section(self.section_slider.value()))
+        self.section_flip.toggled.connect(lambda _on: self._on_section(self.section_slider.value()))
         self.section_btn.toggled.connect(self._toggle_section)
         self.section_slider.valueChanged.connect(self._on_section)
         wrap = QWidget()
@@ -782,7 +797,8 @@ class MainWindow(QMainWindow):
         pl.setSpacing(2)
         self.tool_buttons = {}
         for name, icon_name, key in (("move", "move", "M"), ("rotate", "rotate3d", "R"), ("face", "face", "F"),
-                                     ("hole", "drop", "H"), ("keepout", "shield", "K"), ("measure", "ruler", "D")):
+                                     ("hole", "drop", "H"), ("keepout", "shield", "K"), ("label", "code", "L"),
+                                     ("measure", "ruler", "D")):
             b = QToolButton()
             b.setIcon(theme.icon(icon_name, theme.TEXT, 20))
             b.setIconSize(QSize(20, 20))
@@ -1167,6 +1183,7 @@ class MainWindow(QMainWindow):
                         (QKeySequence("M"), lambda: self.set_tool("move")), (QKeySequence("R"), lambda: self.set_tool("rotate")),
                         (QKeySequence("F"), lambda: self.set_tool("face")), (QKeySequence("H"), lambda: self.set_tool("hole")),
                         (QKeySequence("K"), lambda: self.set_tool("keepout")),
+                        (QKeySequence("L"), lambda: self.set_tool("label")),
                         (QKeySequence("D"), lambda: self.set_tool("measure"))):
             act = QAction(self)
             act.setShortcut(seq)
@@ -1178,18 +1195,34 @@ class MainWindow(QMainWindow):
     def _toggle_section(self, on: bool):
         self.section_slider.setVisible(on)
         self.section_label.setVisible(on)
+        self.section_axis.setVisible(on)
+        self.section_flip.setVisible(on)
         if not on:
             self.viewer.section_z = 1e9
+            self.viewer.section_axis, self.viewer.section_sign = 2, 1.0
             self.viewer.update()
         else:
             self._on_section(self.section_slider.value())
 
     def _on_section(self, value):
         """Clipping view (as Asiga Composer's clipping tool): cut every model at a height to look inside."""
-        top = max((o.world_bounds()[1, 2] + (self._lift() if self._shows_supports(o) else 0) for o in self.objects), default=1.0)
-        z = top * value / 1000.0
-        self.viewer.section_z = z if value < 1000 else 1e9
-        self.section_label.setText(f"Z {z:.2f} mm")
+        axis = {"Z": 2, "X": 0, "Y": 1}[self.section_axis.currentText()]
+        flip = self.section_flip.isChecked()
+        if axis == 2:
+            lo = 0.0
+            hi = max((o.world_bounds()[1, 2] + (self._lift() if self._shows_supports(o) else 0) for o in self.objects),
+                     default=1.0)
+        else:
+            boxes = [o.world_bounds() for o in self.objects] or [np.array([[0, 0, 0], [1, 1, 1]], dtype=float)]
+            lo, hi = min(b[0, axis] for b in boxes), max(b[1, axis] for b in boxes)
+        t = value / 1000.0
+        pos = lo + (hi - lo) * (1.0 - t if flip else t)
+        full = value >= 1000
+        self.viewer.section_axis = axis
+        self.viewer.section_sign = -1.0 if flip else 1.0
+        # keep what is below / before the cut; flipped: what is above / past it (the shader tests sign * pos > clip)
+        self.viewer.section_z = 1e9 if full else (-pos if flip else pos)
+        self.section_label.setText(f"{'ZXY'[[2, 0, 1].index(axis)]} {pos:.2f} mm")
         self.viewer.update()
 
     def _show_unsupported(self):
@@ -2089,7 +2122,7 @@ class MainWindow(QMainWindow):
         for n, b in self.tool_buttons.items():
             b.setChecked(n == name)
         self.viewer.tool = name
-        self.viewer.setCursor(Qt.CrossCursor if name in ("face", "hole", "keepout", "measure") else Qt.ArrowCursor)
+        self.viewer.setCursor(Qt.CrossCursor if name in ("face", "hole", "keepout", "label", "measure") else Qt.ArrowCursor)
         if name != "measure":
             self.viewer.measure_points = []
             self.viewer.measure_hover = None
@@ -2104,6 +2137,9 @@ class MainWindow(QMainWindow):
             self.status.setText(tr(hint))
         if name == "keepout":
             self.status.setText(tr("tool_keepout_hint").format(f"{self.KEEPOUT_DIAMETER:g}"))
+        if name == "label":
+            sel = self.selected()
+            self.status.setText(tr("tool_label_hint").format(self._label_text(sel) if sel else "{name}"))
         self.viewer.update()
 
     @staticmethod
@@ -2215,6 +2251,136 @@ class MainWindow(QMainWindow):
                                        lift)
         self._objects_changed(refresh_list=False)
         self.status.setText(tr("keepout_added").format(len(o.keepout)))
+
+    # ---------------------------------------------------------- labels
+    def _label_prefs(self) -> dict:
+        v = self.store.value
+        return {"template": str(v("label_template", "{name}")), "height": float(v("label_height", 4.0)),
+                "depth": float(v("label_depth", 0.6)), "engrave": str(v("label_engrave", "true")) == "true",
+                "max": int(v("label_max", 14))}
+
+    def _label_text(self, o, number: int = 1) -> str:
+        import datetime
+        import os as _os
+        prefs = self._label_prefs()
+        name = _os.path.splitext(o.name or "model")[0]
+        try:
+            text = prefs["template"].format(name=name, n=number, date=datetime.date.today().strftime("%d.%m.%y"))
+        except (KeyError, IndexError, ValueError):
+            text = prefs["template"]
+        return text.strip()[:max(1, prefs["max"])]
+
+    def _on_label_picked(self, uid, point, normal):
+        """Label tool: a click puts the label there, facing out of the surface; a click on a label removes it."""
+        o = next((x for x in self.objects if x.uid == uid), None)
+        if o is None:
+            return
+        prefs = self._label_prefs()
+        lift = self._lift() if self._shows_supports(o) else 0.0
+        self._push_undo()
+        for k, (p, _n, lab) in enumerate(o.world_labels(lift)):
+            if np.linalg.norm(p - np.asarray(point)) < max(2.0, lab["height"]):
+                del o.labels[k]
+                self._objects_changed(refresh_list=False)
+                self.status.setText(tr("label_removed"))
+                return
+        o.add_world_label(self._label_text(o, len(o.labels) + 1), point, normal, prefs["height"], prefs["depth"],
+                          prefs["engrave"], 0.0, lift)
+        self._objects_changed(refresh_list=False)
+
+    def auto_label(self, targets=None) -> int:
+        """Put a label on each model by itself: on the largest flat side of its lower part."""
+        from .. import mesh_tools
+        targets = targets if targets is not None else (self.selected_objects() or
+                                                       [o for o in self.objects if o.role != "cutter"])
+        prefs = self._label_prefs()
+        self._push_undo()
+        done, missed = 0, 0
+        for i, o in enumerate(targets):
+            if o.role == "cutter":
+                continue
+            world = o.world_mesh()
+            spot = mesh_tools.label_spot(world)
+            if spot is None or spot[3] < prefs["height"] * 0.6 or spot[2] < prefs["height"]:
+                missed += 1
+                continue
+            point, normal, width, height = spot
+            h = min(prefs["height"], height * 0.8)
+            o.add_world_label(self._label_text(o, i + 1), point, normal, h, prefs["depth"], prefs["engrave"],
+                              width * 0.85)
+            done += 1
+        self._objects_changed(refresh_list=False)
+        msg = tr("label_added").format(done)
+        if missed:
+            msg += " · " + tr("label_no_spot").format(missed)
+        self.status.setText(msg)
+        return done
+
+    def clear_labels(self):
+        targets = [o for o in (self.selected_objects() or self.objects) if o.labels]
+        if targets:
+            self._push_undo()
+            for o in targets:
+                o.labels = []
+            self._objects_changed(refresh_list=False)
+
+    def label_dialog(self):
+        """Labels: text (file name, case number, date...), size, engraved or embossed; label the selected models."""
+        from PySide6.QtWidgets import QComboBox, QDialogButtonBox, QFormLayout, QLineEdit, QSpinBox
+        prefs = self._label_prefs()
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("label_title"))
+        form = QFormLayout(dlg)
+        text = QLineEdit(prefs["template"])
+        text.setToolTip(tr("label_text_tip"))
+        tip = QLabel(tr("label_text_tip"))
+        tip.setObjectName("Faint")
+        height, depth = _spin(1, 30, 0.5, 1, " mm", 110), _spin(0.2, 5, 0.1, 2, " mm", 110)
+        height.setValue(prefs["height"])
+        depth.setValue(prefs["depth"])
+        most = QSpinBox()
+        most.setRange(1, 60)
+        most.setValue(prefs["max"])
+        mode = QComboBox()
+        mode.addItem(tr("label_engrave"), True)
+        mode.addItem(tr("label_emboss"), False)
+        mode.setCurrentIndex(0 if prefs["engrave"] else 1)
+        form.addRow(tr("label_text"), text)
+        form.addRow(tip)
+        form.addRow(tr("text_height"), height)
+        form.addRow(tr("text_depth"), depth)
+        form.addRow(tr("label_max"), most)
+        form.addRow(tr("text_mode"), mode)
+        note = QLabel(tr("label_auto_note"))
+        note.setObjectName("Faint")
+        note.setWordWrap(True)
+        form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        auto = buttons.addButton(tr("label_auto"), QDialogButtonBox.AcceptRole)
+        auto.setDefault(True)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        st = self.store.setValue
+        st("label_template", text.text().strip() or "{name}")
+        st("label_height", height.value())
+        st("label_depth", depth.value())
+        st("label_engrave", "true" if mode.currentData() else "false")
+        st("label_max", most.value())
+        self.auto_label()
+
+    def _label_preview(self, o: SceneObject, cfg):
+        """The label text, in the object's own coordinates."""
+        if not o.labels:
+            return None
+        lift = self._lift(cfg) if self._shows_supports(o) else 0.0
+        up, cut = o.world_label_meshes(lift)
+        parts = [m for m in (up, cut) if m is not None]
+        if not parts:
+            return None
+        return Mesh.merge(parts).transform(np.linalg.inv(self._display_matrix(o)))
 
     def clear_keepout(self):
         targets = [o for o in self._support_targets() if len(o.keepout)]
@@ -2572,6 +2738,7 @@ class MainWindow(QMainWindow):
             self.viewer.set_object_supports(o.uid, self._support_preview(o, cfg))
             self.viewer.set_object_holes(o.uid, self._hole_preview(o, cfg))
             self.viewer.set_object_keepout(o.uid, self._keepout_preview(o, cfg))
+            self.viewer.set_object_labels(o.uid, self._label_preview(o, cfg))
         sel = self.selected()
         self._update_support_info()
         self.viewer.set_selected(sel.uid if sel else None, [o.uid for o in self.selected_objects()])
@@ -2981,6 +3148,9 @@ class MainWindow(QMainWindow):
                 menu.addAction(theme.icon("x"), tr("sup_remove") + "\tShift+S", lambda: self._set_pick_mode("remove"))
                 menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
             menu.addAction(theme.icon("shield"), tr("tool_keepout") + "\tK", lambda: self.set_tool("keepout"))
+            menu.addAction(theme.icon("code"), tr("label_title") + "…", self.label_dialog)
+            if any(o.labels for o in self.selected_objects()):
+                menu.addAction(tr("label_clear"), self.clear_labels)
             if any(len(o.keepout) for o in self.selected_objects()):
                 menu.addAction(tr("keepout_clear"), self.clear_keepout)
                 menu.addAction(theme.icon("grid"), tr("raft_menu") + "…", self.raft_menu)
@@ -4095,6 +4265,7 @@ class MainWindow(QMainWindow):
         meshes = [o.world_mesh() for o in models]
         kw = dict(support_points=[o.world_support_points(0.0) for o in models], direct=[o.direct for o in models],
                   keepout=[o.world_keepout(0.0) for o in models],
+                  labels=[o.world_label_meshes(0.0) if o.labels else None for o in models],
                   holes=[o.world_drain_holes(0.0) for o in models],
                   cutters=[o.world_mesh() for o in self.objects if o.role == "cutter"],
                   materials=[dental_shades.face_shades(len(o.mesh.faces), o.material, o.regions) if o.regions
@@ -4302,6 +4473,11 @@ class MainWindow(QMainWindow):
                 self.stat_material.set(f"{job.volume_ml:.1f} + {job.support_ml:.1f} ml", tr("stat_model_support"))
             else:
                 self.stat_material.set(f"{job.volume_ml:.1f} ml", tr("stat_resin"))
+                split = tr("resin_split").format(f"{job.model_ml:.1f}", f"{max(0.0, job.volume_ml - job.model_ml):.1f}",
+                                                 f"{job.raft_ml:.1f}", len(job.support_points))
+                self.sup_info.setText(split)
+                if getattr(self, "slice_info", None) is not None:
+                    self.slice_info.setToolTip(split)
             self.stat_weight.set(f"{job.weight_g:.1f} g")
             self.stat_cost.set(f"₪{job.cost:.2f}")
             warnings = [tr(ENGINE_TEXT[w]) if w in ENGINE_TEXT else w for w in job.warnings]

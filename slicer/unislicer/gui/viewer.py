@@ -32,6 +32,8 @@ void main(){ vec4 w = uModel * vec4(aPos, 1.0); vNormal = uNormalMat * aNormal; 
 MESH_FS = """#version 330 core
 in vec3 vNormal; in vec3 vPos; out vec4 frag;
 uniform vec3 uColor; uniform vec3 uEye; uniform float uOverhang; uniform int uShowOverhang; uniform float uClipZ; uniform float uAlpha;
+// section view: cut along X (0), Y (1) or Z (2); uClipSign -1 keeps the other side
+uniform int uClipAxis; uniform float uClipSign;
 // plate bounds: the part of a model outside them is painted purple
 uniform int uBound; uniform vec4 uPlate; uniform vec2 uBedC; uniform float uRadius; uniform float uInner;
 uniform int uShape; uniform vec2 uSector; uniform float uMaxZ;
@@ -47,7 +49,7 @@ bool outsidePlate(vec3 p){
   return false;
 }
 void main(){
-  if (vPos.z > uClipZ) discard;
+  if (vPos[uClipAxis] * uClipSign > uClipZ) discard;
   if (uRaftCut == 1 && vPos.z < uRaftTop) discard;
   if (uRaftCut == 2 && vPos.z >= uRaftTop) discard;
   vec3 n = normalize(vNormal);
@@ -347,6 +349,7 @@ class Viewer(QOpenGLWidget):
     facePicked = Signal(object, object)        # uid, world normal of the clicked face
     holePicked = Signal(object, object, object)  # uid, world point, world normal (drain hole tool)
     keepoutPicked = Signal(object, object)       # uid, world point (support-free zone tool)
+    labelPicked = Signal(object, object, object)  # uid, world point, world normal (label tool)
     measured = Signal(object, object)            # first and second world point
     rayPicked = Signal(object, object)         # origin, direction (support "remove" mode)
     cameraChanged = Signal()                   # after every repaint (keeps the view cube in step)
@@ -367,6 +370,8 @@ class Viewer(QOpenGLWidget):
         self.highlight = None                    # (mesh in bed coordinates, buffer) of the support under the cursor
         self.warning = None                      # (mesh, buffer): overhangs no support reaches, drawn red
         self.section_z = 1e9                     # clipping height of the section view in the prepare mode
+        self.section_axis = 2                    # ... along X (0), Y (1) or Z (2)
+        self.section_sign = 1.0                  # 1: keep what is below / before the cut, -1: what is past it
         # while the view or a model moves, big meshes are drawn from a light copy; full detail returns
         # a moment after the movement stops
         from PySide6.QtCore import QTimer
@@ -525,7 +530,8 @@ class Viewer(QOpenGLWidget):
     def remove_object(self, uid):
         obj = self.objects.pop(uid, None)
         if obj:
-            for key in ("buffer", "sup_buffer", "hole_buffer", "keep_buffer", "buffer_lod", "sup_buffer_lod"):
+            for key in ("buffer", "sup_buffer", "hole_buffer", "keep_buffer", "label_buffer", "buffer_lod",
+                        "sup_buffer_lod"):
                 if obj.get(key):
                     self._trash(obj[key])
             for b in obj.get("region_buffers") or []:
@@ -550,6 +556,16 @@ class Viewer(QOpenGLWidget):
         if obj.get("keep_buffer"):
             self._trash(obj["keep_buffer"])
         obj["keepout"], obj["keep_buffer"] = mesh, None
+        self.update()
+
+    def set_object_labels(self, uid, mesh: Mesh | None):
+        """Label text in the object's own coordinates."""
+        obj = self.objects.get(uid)
+        if obj is None or (obj.get("labels") is mesh and (mesh is None or obj.get("label_buffer") is not None)):
+            return
+        if obj.get("label_buffer"):
+            self._trash(obj["label_buffer"])
+        obj["labels"], obj["label_buffer"] = mesh, None
         self.update()
 
     def set_object_supports(self, uid, mesh: Mesh | None):
@@ -770,6 +786,8 @@ class Viewer(QOpenGLWidget):
                 obj["hole_buffer"] = _Buffer(mesh_vertices(obj["holes"]), [3, 3])
             if obj.get("keepout") is not None and obj.get("keep_buffer") is None and len(obj["keepout"].faces):
                 obj["keep_buffer"] = _Buffer(mesh_vertices(obj["keepout"]), [3, 3])
+            if obj.get("labels") is not None and obj.get("label_buffer") is None and len(obj["labels"].faces):
+                obj["label_buffer"] = _Buffer(mesh_vertices(obj["labels"]), [3, 3])
         if self._extra_dirty:
             for b, _ in self._extra_buffers:
                 b.delete()
@@ -836,6 +854,8 @@ class Viewer(QOpenGLWidget):
         GL.glUniform3f(self._u(p, "uEye"), *eye)
         GL.glUniform1f(self._u(p, "uOverhang"), self.overhang_sin)
         GL.glUniform1f(self._u(p, "uClipZ"), clip)
+        GL.glUniform1i(self._u(p, "uClipAxis"), 2 if preview else int(self.section_axis))
+        GL.glUniform1f(self._u(p, "uClipSign"), 1.0 if preview else float(self.section_sign))
         GL.glUniform1f(self._u(p, "uAlpha"), 1.0)
         self._set_plate_bounds(p)
         see_raft = below and self.raft_top > 0.0 and self.technology == "sla"
@@ -881,6 +901,11 @@ class Viewer(QOpenGLWidget):
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
                     GL.glUniform3f(self._u(p, "uColor"), 1.0, 0.35, 0.42)
                     obj["hole_buffer"].draw(GL.GL_TRIANGLES)
+                    GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
+                if obj.get("label_buffer") is not None and not preview:
+                    GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
+                    GL.glUniform3f(self._u(p, "uColor"), 0.96, 0.96, 1.0)
+                    obj["label_buffer"].draw(GL.GL_TRIANGLES)
                     GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
                 if obj.get("keep_buffer") is not None and not preview:
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
@@ -1393,6 +1418,13 @@ class Viewer(QOpenGLWidget):
             if uid is not None:
                 _, normal = self.pick_face(e.position())
                 self.holePicked.emit(uid, point, normal)
+                self._picked = True
+            return
+        if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.tool == "label":
+            uid, point = self.pick_hit(e.position())
+            if uid is not None:
+                _, normal = self.pick_face(e.position())
+                self.labelPicked.emit(uid, point, normal)
                 self._picked = True
             return
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.tool == "keepout":

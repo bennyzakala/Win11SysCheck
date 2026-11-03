@@ -1261,5 +1261,22 @@
 "Click the areas of the model that must stay free of supports (zone diameter: {} mm)": "Щёлкните по областям модели, которые должны остаться без поддержек (диаметр зоны: {} мм)",
 "Support-free zone added ({} on this model). Generate supports again to apply it": "Зона без поддержек добавлена ({} на модели). Сгенерируйте поддержки заново, чтобы применить",
 "Support-free zone removed": "Зона без поддержек удалена",
-"Clear support-free zones": "Очистить зоны без поддержек"
+"Clear support-free zones": "Очистить зоны без поддержек",
+"Label": "Метка",
+"Click the model to emboss or engrave a label (file name / case number); click a label again to remove it": "Щёлкните по модели, чтобы выдавить или выгравировать метку (имя файла / номер случая); повторный щелчок удаляет её",
+"Click the spot on the model where the label \"{}\" goes": "Щёлкните место на модели, где будет метка «{}»",
+"Labels": "Метки",
+"{name} = model name, {n} = running number, {date} = today's date": "{name} = имя модели, {n} = порядковый номер, {date} = сегодняшняя дата",
+"Max characters": "Макс. символов",
+"Engrave (sunk in)": "Гравировка (вдавленная)",
+"Emboss (raised)": "Тиснение (выпуклое)",
+"Label the selected models automatically": "Автоматически пометить выбранные модели",
+"The label goes on the largest flat side in the lower part of the model (on a dental model, the side of its base). You can also press L and pick the spot yourself.": "Метка размещается на самой большой плоской боковой стороне в нижней части модели (у стоматологической модели — на боковой стороне основания). Можно также нажать L и выбрать место вручную.",
+"Remove labels": "Удалить метки",
+"Labels added to {} models": "Метки добавлены на {} моделей",
+"No room for a label on {} models: press L and pick a spot": "Нет места для метки на {} моделях: нажмите L и выберите место",
+"Label removed": "Метка удалена",
+"Resin: models {} ml · supports {} ml (raft {} ml of it) · {} touchpoints": "Смола: модели {} мл · поддержки {} мл (из них рафт {} мл) · {} точек касания",
+"Cut direction: along the height (Z) or across the plate (X / Y)": "Направление сечения: по высоте (Z) или поперёк платформы (X / Y)",
+"Flip which side of the cut is shown": "Показать другую сторону сечения"
 }

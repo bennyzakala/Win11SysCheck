@@ -47,6 +47,8 @@ class SlaJob:
     exposures: list[float] = field(default_factory=list)
     support_layers: list = field(default_factory=list)          # PolyJet gel support per layer
     support_ml: float = 0.0
+    model_ml: float = 0.0               # resin of the models alone (the rest of volume_ml is supports and raft)
+    raft_ml: float = 0.0                # resin of the raft (part of the supports)
     part_materials: list = field(default_factory=list)          # PolyJet material name per model ("" = default),
     #                                                             or a list with one name per face (shaded regions)
 
@@ -1148,7 +1150,7 @@ def _slice_supports(mesh: Mesh, planes: list, resolution: float, **kw) -> list:
 def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
             support_points: list[np.ndarray | None] | None = None, direct: list[bool] | None = None,
-            keepout: list[np.ndarray] | None = None,
+            keepout: list[np.ndarray] | None = None, labels: list | None = None,
             holes: list[np.ndarray | None] | None = None, cutters: list[Mesh] | None = None,
             materials: list[str] | None = None, filled: list[bool] | None = None,
             model_settings: list[dict | None] | None = None) -> SlaJob:
@@ -1312,14 +1314,28 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         flat = jetting or (cfg["support_enable"] and direct and i < len(direct) and direct[i])
         hole_tubes += hole_meshes([group], cfg, 0.0 if flat else lifted)
     cutter_meshes = hole_tubes + [c.translated([0, 0, lifted]) for c in (cutters or [])]
+    # labels: (embossed, engraved) text per model, raised with its model
+    raised_text = []
+    for i, pair in enumerate(labels or []):
+        if not pair:
+            continue
+        flat = jetting or (cfg["support_enable"] and direct and i < len(direct) and direct[i])
+        up, cut = pair
+        if cut is not None:
+            cutter_meshes.append(cut.translated([0, 0, 0.0 if flat else lifted]))
+        if up is not None:
+            raised_text.append(up.translated([0, 0, 0.0 if flat else lifted]))
     if cutter_meshes:
         cut_layers = _cached_slice(cutter_meshes, planes, cfg["resolution"])
         layers = [as_multipolygon(g.difference(c)) if not c.is_empty and not g.is_empty else g
                   for g, c in zip(layers, cut_layers)]
+    if raised_text:
+        text_layers = _cached_slice([Mesh.merge(raised_text)], planes, cfg["resolution"])
+        layers = [as_multipolygon(g.union(t)) if not t.is_empty else g for g, t in zip(layers, text_layers)]
     # one pass on all cores: thicken thin parts (the model, never the honeycomb walls inside it), the shell
     # without that infill (its walls are thin on purpose), the shell's thin parts and its enclosed cells
     post_key = None
-    if not cutter_meshes:
+    if not cutter_meshes and not raised_text:
         post_key = ("post", tuple(tuple(mesh_key(models[i]) for i in idx) for idx in groups.values()),
                     tuple(round(p, 6) for p in planes), cfg["resolution"], cfg["xy_compensation"], lh,
                     tuple(bool(filled and i < len(filled) and filled[i]) for i in range(len(models))),
@@ -1353,6 +1369,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     if support_job is not None:
         supports, points = support_job.result()
         support_meshes = [supports] if supports is not None and len(supports.faces) else []
+    model_areas = [g.area for g in layers]
     if support_meshes:
         sup_layers = _slice_supports(support_meshes[0] if len(support_meshes) == 1 else Mesh.merge(support_meshes),
                                      planes, cfg["resolution"],
@@ -1383,6 +1400,11 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     if pillar_segments:
         job.pillars = _pillar_mesh(pillar_segments, [z for z, _ in stack], [h for _, h in stack])
     job.volume_ml = sum(g.area * h for g, h in zip(layers, job.layer_thickness)) / 1000.0
+    job.model_ml = min(job.volume_ml, sum(a * h for a, h in zip(model_areas, job.layer_thickness)) / 1000.0)
+    if support_meshes and cfg["sla_raft_type"] != "none":
+        raft_top = cfg["sla_raft_thickness"] + 1e-6
+        job.raft_ml = sum(max(0.0, g.area - a) * h for g, a, z, h in
+                          zip(layers, model_areas, job.layer_z, job.layer_thickness) if z <= raft_top) / 1000.0
     job.saved_ml = saved
     job.weight_g = job.volume_ml * cfg["resin_density"]
     job.cost = job.volume_ml / 1000.0 * cfg["resin_cost"]

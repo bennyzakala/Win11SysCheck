@@ -4187,3 +4187,58 @@ def test_support_free_zones_keep_automatic_supports_away():
     sp = np.asarray(kept.support_points).reshape(-1, 3)
     assert 0 < len(sp) < len(full.support_points)
     assert np.all(np.linalg.norm(sp - (bottom[0, :3] + [0, 0, lift]), axis=1) > 6.0)
+
+
+def test_labels_are_engraved_or_embossed_in_the_slice():
+    """A label stands on the surface facing out, upright and readable; engraved text takes resin away from the
+    model's layers and embossed text adds it. label_spot finds the flat side of a model's base, and the
+    label follows the model, undo and the project file."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, tempfile
+        import numpy as np
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import mesh_tools, primitives, profiles, project, sla
+        from unislicer.scene import SceneObject
+        m = mesh_tools.label_mesh("AB12", [0, 0, 0], [1, 0, 0], 4.0, 0.6, engrave=True)
+        b = m.bounds
+        assert b[0, 0] < -0.55 and abs(b[1, 0] - 0.3) < 1e-6           # sunk 0.6 mm, 0.3 mm proud
+        assert 3.9 < b[1, 2] - b[0, 2] < 4.1 and b[1, 1] - b[0, 1] > 6   # upright, written along the side
+        box = SceneObject.from_mesh(primitives.box(30, 20, 12))
+        box.x, box.y = 60.0, 40.0
+        spot = mesh_tools.label_spot(box.world_mesh())
+        p, n, w, h = spot
+        assert abs(abs(n[0]) + abs(n[1]) - 1) < 1e-6 and abs(n[2]) < 1e-6 and w >= 19 and h >= 11
+        assert abs(abs(p[0] - 60) - 15) < 1e-6 or abs(abs(p[1] - 40) - 10) < 1e-6   # on a side wall
+        cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {"support_enable": False})
+        plain = sla.prepare([box.world_mesh()], cfg)
+        box.add_world_label("UNI", p, n, 6.0, 0.8, True, w * 0.8)
+        cut = sla.prepare([box.world_mesh()], cfg, labels=[box.world_label_meshes()])
+        emb = SceneObject.from_mesh(primitives.box(30, 20, 12)); emb.x, emb.y = 60.0, 40.0
+        emb.add_world_label("UNI", p, n, 6.0, 0.8, False, w * 0.8)
+        up = sla.prepare([emb.world_mesh()], cfg, labels=[emb.world_label_meshes()])
+        mid = len(plain.layers) // 2
+        a0, a1, a2 = plain.layers[mid].area, cut.layers[mid].area, up.layers[mid].area
+        assert a1 < a0 - 0.5 and a2 > a0 + 0.5, (a0, a1, a2)
+        st = box.state(); box.labels = []; box.restore(st)
+        assert len(box.labels) == 1 and len(box.duplicate().labels) == 1
+        path = os.path.join(tempfile.mkdtemp(), "l.usp")
+        project.save(path, [box], {})
+        assert project.load(path)[0][0].labels == box.labels
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_resin_is_split_into_model_supports_and_raft():
+    mesh = placed(primitives.sphere(10), 70, 45).world_mesh()
+    cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {"support_enable": True})
+    job = sla.prepare([mesh], cfg)
+    plain = sla.prepare([mesh], profiles.build_config("elegoo_mars3", None, "sla_fast", {"support_enable": False}))
+    assert abs(job.model_ml - plain.volume_ml) < 0.05 * plain.volume_ml
+    assert 0 < job.raft_ml < job.volume_ml - job.model_ml
+    assert plain.raft_ml == 0 and abs(plain.model_ml - plain.volume_ml) < 1e-9
