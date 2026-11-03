@@ -4122,3 +4122,26 @@ def test_export_works_in_any_state_after_slicing(tmp_path):
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_cavity_pillars_for_a_model_on_the_plate():
+    """A model printed straight on the plate (no supports, no raft) can get pillars only inside its cavity:
+    they stand on the plate and reach the ceiling; the model is not raised and gets nothing outside."""
+    from shapely.geometry import box as sbox
+    from unislicer import mesh_tools
+    from unislicer.mesh import Mesh
+    ring = sbox(0, 0, 30, 30).difference(sbox(3, 3, 27, 27))
+    shell = Mesh.merge([mesh_tools.extrude(ring, 0, 8), mesh_tools.extrude(sbox(0, 0, 30, 30), 8, 10)], "open base")
+    m = placed(shell).world_mesh()
+    base = {"support_enable": False, "hollow_enable": False}
+    plain = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", base))
+    pil = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast",
+                                                 dict(base, sla_cavity_pillars=True, sla_cavity_spacing=5.0)))
+    assert len(pil.layers) == len(plain.layers)                       # not raised
+    assert pil.layers[0].area > plain.layers[0].area                    # pillars start on the plate
+    lh = profiles.build_config("elegoo_mars3", None, "sla_fast")["sla_layer_height"]
+    k = int(6.0 / lh)                                                   # inside the cavity, under the ceiling
+    added = pil.layers[k].difference(plain.layers[k])
+    assert len(added.geoms) >= 9 if hasattr(added, "geoms") else added.area > 0
+    assert pil.layers[k].bounds == plain.layers[k].bounds               # nothing outside the model
+    assert not pil.islands and pil.supports is None

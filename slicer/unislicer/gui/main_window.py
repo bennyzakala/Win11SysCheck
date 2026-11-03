@@ -4111,6 +4111,8 @@ class MainWindow(QMainWindow):
         """Resin: warn before slicing parts that would print with no supports at all."""
         if cfg["technology"] != "sla" or cfg["sla_process"] == "polyjet":
             return True
+        if cfg["sla_cavity_pillars"]:          # on the plate with pillars in the cavity: chosen on purpose
+            return True
         bare = [o for o in models if not o.direct and (not cfg["support_enable"]
                 or (o.support_points is not None and len(o.support_points) == 0))]
         if not bare:

@@ -1267,5 +1267,9 @@
 "Close holes in models automatically on load": "Автоматически закрывать отверстия в моделях при загрузке",
 "Suggest drain / vent holes": "Предлагать дренажные / вентиляционные отверстия",
 "Off: the program does not look for suction cups and never offers to drill holes in the model": "Выкл.: программа не ищет присоски и не предлагает сверлить отверстия в модели",
-"exported the last slice (the plate changed since)": "экспортирована последняя нарезка (платформа с тех пор изменена)"
+"exported the last slice (the plate changed since)": "экспортирована последняя нарезка (платформа с тех пор изменена)",
+"Pillars inside the cavity (model on the plate)": "Опоры внутри полости (модель на платформе)",
+"A model printed straight on the plate (not raised, no raft): pillars only inside its cavity, from the plate or the inner floor up to the ceiling. Works on a cavity the model already has and on a hollowed one": "Модель печатается прямо на платформе (без подъёма и подложки): опоры только внутри её полости, от платформы или внутреннего дна до потолка. Работает для готовой полости и для полости после выдалбливания",
+"Cavity pillar spacing": "Шаг опор в полости",
+"Cavity pillar diameter": "Диаметр опор в полости"
 }

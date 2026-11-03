@@ -300,7 +300,7 @@ def _per_layer(fn, items: list, *extra) -> list:
     return [x for chunk in chunks for x in chunk]
 
 
-HOLLOW_KEYS = ("hollow_enable", "hollow_wall", "hollow_base_height", "hollow_mode", "hollow_infill",
+HOLLOW_KEYS = ("sla_cavity_pillars", "sla_cavity_spacing", "sla_cavity_diameter", "hollow_enable", "hollow_wall", "hollow_base_height", "hollow_mode", "hollow_infill",
                "hollow_infill_spacing", "hollow_infill_thickness", "drain_holes", "drain_hole_diameter",
                "drain_hole_depth", "sla_internal_supports", "sla_internal_spacing")
 
@@ -452,13 +452,15 @@ def _infill_pattern(cavity: list, cfg: Config):
     return walls, walls.difference(openings)
 
 
-def _internal_pillars(layers: list, cavity: list, cfg: Config) -> list:
-    """Pillars inside cavities; a pillar only starts on solid material or on its own pillar below."""
+def _internal_pillars(layers: list, cavity: list, cfg: Config, from_plate: bool = False,
+                      radius: float | None = None, spacing: float | None = None) -> list:
+    """Pillars inside cavities; a pillar only starts on solid material or on its own pillar below (with
+    ``from_plate``, also on the build plate: the bottom layer of a model printed straight on it)."""
     cav = [c for c in cavity if not c.is_empty]
     if not cav:
         return layers
-    r = cfg["sla_pillar_diameter"] / 2
-    sp = cfg["sla_internal_spacing"]
+    r = radius if radius is not None else cfg["sla_pillar_diameter"] / 2
+    sp = spacing if spacing is not None else cfg["sla_internal_spacing"]
     minx = min(c.bounds[0] for c in cav)
     miny = min(c.bounds[1] for c in cav)
     maxx = max(c.bounds[2] for c in cav)
@@ -468,6 +470,7 @@ def _internal_pillars(layers: list, cavity: list, cfg: Config) -> list:
     if px.size == 0:
         return layers
     circles = [Point(x, y).buffer(r, quad_segs=6) for x, y in zip(px, py)]
+    first_layer = next((i for i, g in enumerate(layers) if not g.is_empty), 0)
     active = np.zeros(px.size, dtype=bool)
     out = list(layers)
     for i, c in enumerate(cavity):
@@ -486,6 +489,8 @@ def _internal_pillars(layers: list, cavity: list, cfg: Config) -> list:
             on_solid = shapely.contains_xy(below, px, py)
         else:
             on_solid = np.zeros(px.size, dtype=bool)
+        if from_plate and i <= first_layer:
+            on_solid = np.ones(px.size, dtype=bool)          # standing on the build plate
         active = inside & (active | on_solid)
         if active.any():
             out[i] = as_multipolygon(out[i].union(shapely.union_all([circles[k] for k in np.flatnonzero(active)])))
@@ -1144,9 +1149,13 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     split = 0.85 if support_job is not None else 1.0
     # models with the same hollowing settings are sliced and hollowed together; a model with its own
     # hollowing / infill is done on its own and merged in
+    # models that stand on the plate (not raised onto supports): all of them without supports, else the
+    # ones marked "directly on the plate"
+    lifted_all = bool(cfg["support_enable"]) and not jetting
+    on_plate_all = [not lifted_all or bool(direct and i < len(direct) and direct[i]) for i in range(len(models))]
     groups: dict = {}
     for i in range(len(models)):
-        groups.setdefault(tuple(cfgs[i][k] for k in HOLLOW_KEYS), []).append(i)
+        groups.setdefault(tuple(cfgs[i][k] for k in HOLLOW_KEYS) + (on_plate_all[i],), []).append(i)
     layers = [EMPTY] * len(planes)
     infill: list = []
     saved = 0.0
@@ -1183,6 +1192,16 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             if g_infill:
                 infill = g_infill if not infill else [a.union(b) if not b.is_empty else a for a, b in zip(infill, g_infill)]
             hollowing = True
+        if gcfg["sla_cavity_pillars"] and on_plate_all[idx[0]] and gcfg["hollow_infill"] == "none" and not jetting:
+            # pillars only inside the model's cavity, from the plate / inner floor up to the ceiling
+            ckey = ("cavity-pillars", g_keys, tuple(round(p, 6) for p in planes), cfg["resolution"],
+                    tuple(gcfg[k] for k in HOLLOW_KEYS), cfg["xy_compensation"])
+            hit = _cache_get(ckey)
+            if hit is None:
+                hit = _internal_pillars(g_layers, covered_voids(g_layers), gcfg, from_plate=True,
+                                        radius=gcfg["sla_cavity_diameter"] / 2, spacing=gcfg["sla_cavity_spacing"])
+                _cache_put(ckey, hit)
+            g_layers = list(hit)
         layers = g_layers if len(groups) == 1 else _per_layer(_union_chunk, list(zip(layers, g_layers)))
     lifted = lift if cfg["support_enable"] and not jetting else 0.0
     hole_tubes = []

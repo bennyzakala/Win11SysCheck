@@ -1267,5 +1267,9 @@
 "Close holes in models automatically on load": "إغلاق ثقوب النماذج تلقائيًا عند التحميل",
 "Suggest drain / vent holes": "اقتراح ثقوب تصريف / تهوية",
 "Off: the program does not look for suction cups and never offers to drill holes in the model": "إيقاف: لا يبحث البرنامج عن أكواب الشفط ولا يقترح ثقب النموذج أبدًا",
-"exported the last slice (the plate changed since)": "تم تصدير آخر تقطيع (تغيّر اللوح منذ ذلك)"
+"exported the last slice (the plate changed since)": "تم تصدير آخر تقطيع (تغيّر اللوح منذ ذلك)",
+"Pillars inside the cavity (model on the plate)": "أعمدة داخل التجويف (النموذج على اللوح)",
+"A model printed straight on the plate (not raised, no raft): pillars only inside its cavity, from the plate or the inner floor up to the ceiling. Works on a cavity the model already has and on a hollowed one": "نموذج يُطبع مباشرة على اللوح (دون رفع ودون طوف): أعمدة داخل تجويفه فقط، من اللوح أو الأرضية الداخلية حتى السقف. يعمل على تجويف موجود في النموذج وعلى تجويف التفريغ",
+"Cavity pillar spacing": "تباعد أعمدة التجويف",
+"Cavity pillar diameter": "قطر عمود التجويف"
 }

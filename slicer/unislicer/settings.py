@@ -262,6 +262,14 @@ SCHEMA: list[Setting] = [
     S("sla_internal_supports", "bool", True, "support", "sla", "תמיכות פנימיות בחלל", "Internal supports in cavities",
       tip_he="עמודים בתוך מודל חלול שתומכים בתקרת החלל", tip_en="Pillars inside a hollowed model that hold up the cavity ceiling"),
     S("sla_internal_spacing", "float", 6.0, "support", "sla", "מרווח תמיכות פנימיות", "Internal support spacing", "mm", 2, 30, 0.5, advanced=True),
+    S("sla_cavity_pillars", "bool", False, "support", "sla", "עמודים בחלל הפנימי (מודל על הפלטה)",
+      "Pillars inside the cavity (model on the plate)",
+      tip_he="מודל שמודפס ישירות על הפלטה (בלי הגבהה ובלי רפסודה): עמודים רק בתוך החלל הפנימי, מהפלטה או מהרצפה "
+             "הפנימית עד התקרה. עובד על חלל שכבר קיים במודל ועל חלל של חלילה",
+      tip_en="A model printed straight on the plate (not raised, no raft): pillars only inside its cavity, from the "
+             "plate or the inner floor up to the ceiling. Works on a cavity the model already has and on a hollowed one"),
+    S("sla_cavity_spacing", "float", 5.0, "support", "sla", "מרווח בין העמודים בחלל", "Cavity pillar spacing", "mm", 1.5, 30, 0.5),
+    S("sla_cavity_diameter", "float", 1.2, "support", "sla", "קוטר עמוד בחלל", "Cavity pillar diameter", "mm", 0.4, 6, 0.1),
 
     # ------------------------------------------------------------- hollowing
     S("sla_thicken_thin", "bool", False, "hollow", "sla", "עבה חלקים דקים (מינימום 0.3 מ״מ)", "Thicken thin features (min 0.3 mm)",
