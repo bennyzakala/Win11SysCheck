@@ -1259,5 +1259,10 @@
 "Cannot reach Claude. Check the internet connection": "Нет связи с Claude. Проверьте подключение к интернету",
 "Claude did not answer this question. Try rephrasing it": "Claude не ответил на этот вопрос. Сформулируйте иначе",
 "Error: {}": "Ошибка: {}",
-"The API account has no credit. Add credit at console.anthropic.com (Plans & Billing) and try again": "На счёте API нет средств. Пополните баланс на console.anthropic.com (Plans & Billing) и повторите"
+"The API account has no credit. Add credit at console.anthropic.com (Plans & Billing) and try again": "На счёте API нет средств. Пополните баланс на console.anthropic.com (Plans & Billing) и повторите",
+"Closing holes in {} in the background…": "Закрываем отверстия в {} в фоне…",
+"✓ Holes in {} closed automatically (Ctrl+Z gives back the original)": "✓ Отверстия в {} закрыты автоматически (Ctrl+Z вернёт оригинал)",
+"Most holes in {} closed; some defects remain": "Большинство отверстий в {} закрыто; часть дефектов осталась",
+"The holes in {} could not be closed automatically": "Не удалось автоматически закрыть отверстия в {}",
+"Close holes in models automatically on load": "Автоматически закрывать отверстия в моделях при загрузке"
 }

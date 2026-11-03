@@ -972,11 +972,11 @@ def _closed_copy(mesh: Mesh) -> Mesh | None:
     key = ("closed", mesh_key(mesh))
     hit = _cache_get(key)
     if hit is None:
-        from .mesh_tools import repair
+        from .mesh_tools import make_watertight
         try:
-            fixed, _rep = repair(mesh)
+            fixed, _rep, ok = make_watertight(mesh)
             fixed.name = mesh.name
-            hit = (fixed if fixed.is_watertight() else False,)
+            hit = (fixed if ok else False,)
         except Exception:
             hit = (False,)
         _cache_put(key, hit)

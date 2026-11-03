@@ -541,3 +541,37 @@ def _repair_with_triangulated_holes(mesh: Mesh) -> tuple[Mesh, dict]:
     fixed, again = repair(res)
     rep["holes_filled"] = max(filled, again["holes_filled"])
     return fixed, rep
+
+
+def make_watertight(mesh: Mesh) -> tuple[Mesh, dict, bool]:
+    """Close a mesh as far as possible: the fast repair first (holes, winding); when that leaves it open, the
+    advanced repair (weld near vertices, inner double walls, non-manifold edges, holes by triangulation), then
+    the same with a coarser weld and without specks of scanner noise. Returns (mesh, report, watertight)."""
+    if mesh.is_watertight():
+        return mesh, {"steps": []}, True
+    steps = []
+    best = mesh
+    try:
+        fixed, rep = repair(mesh)
+        steps.append(("repair", rep))
+        best = fixed
+        if fixed.is_watertight():
+            return fixed, {"steps": steps}, True
+    except Exception:
+        pass
+    for weld, specks in ((1e-4, 0.0), (1e-3, 0.0005)):
+        try:
+            fixed, rep = repair_advanced(mesh, weld=weld, remove_shells_below=specks)
+        except Exception:
+            continue
+        steps.append(("advanced", {k: v for k, v in rep.items() if k not in ("before", "after")}))
+        best = fixed
+        if fixed.is_watertight():
+            return fixed, {"steps": steps}, True
+    return best, {"steps": steps}, False
+
+
+def watertight_job(vertices, faces, name: str = ""):
+    """Process-pool entry point: (vertices, faces, watertight) of the closed mesh."""
+    m, _rep, ok = make_watertight(Mesh(vertices, faces, name))
+    return m.vertices, m.faces, ok

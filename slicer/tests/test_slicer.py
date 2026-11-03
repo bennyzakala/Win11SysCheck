@@ -4015,3 +4015,52 @@ def test_open_mesh_is_closed_automatically_for_resin_slicing():
     ref = sla.prepare([solid], cfg)
     assert not any("watertight" in w for w in job.warnings)
     assert abs(job.volume_ml - ref.volume_ml) < 0.01 * ref.volume_ml
+
+
+def test_open_model_is_closed_in_the_background_on_load(tmp_path):
+    import subprocess, sys, textwrap
+    from unislicer.mesh import Mesh, save_stl
+    s = primitives.sphere(10, 32, 64)
+    keep = np.ones(len(s.faces), bool)
+    keep[[len(keep) // 3, 2 * len(keep) // 3]] = False
+    path = str(tmp_path / "holed.stl")
+    save_stl(Mesh(s.vertices, np.asarray(s.faces)[keep], "holed"), path)
+    code = textwrap.dedent(f'''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.load_files([{path!r}])
+        o = w.objects[0]
+        assert not o.mesh.is_watertight()
+        longest, end = 0.0, time.time() + 60
+        while not o.mesh.is_watertight() and time.time() < end:
+            t = time.time(); app.processEvents(); longest = max(longest, time.time() - t); time.sleep(0.01)
+        assert o.mesh.is_watertight(), w.status.text()
+        assert longest < 1.0, longest                      # the program stayed responsive meanwhile
+        w.undo(); app.processEvents()
+        assert not w.objects[0].mesh.is_watertight()      # Ctrl+Z gives back the file's mesh
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    os.makedirs(_home, exist_ok=True)
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_make_watertight_falls_back_to_the_advanced_repair():
+    """Holes that touch each other defeat the fast repair; the advanced repair still closes the model."""
+    from unislicer import mesh_tools
+    from unislicer.mesh import Mesh
+    s = primitives.sphere(10, 32, 64)
+    keep = np.ones(len(s.faces), bool)
+    keep[[3, 50, 200]] = False
+    holed = Mesh(s.vertices, np.asarray(s.faces)[keep], "touching holes")
+    assert not mesh_tools.repair(holed)[0].is_watertight()
+    fixed, rep, ok = mesh_tools.make_watertight(holed)
+    assert ok and fixed.is_watertight() and [k for k, _ in rep["steps"]][-1] == "advanced"
+    assert abs(fixed.volume() - s.volume()) < 0.02 * s.volume()

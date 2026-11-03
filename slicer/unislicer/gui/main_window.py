@@ -449,6 +449,10 @@ class MainWindow(QMainWindow):
         self.project_auto_act.setCheckable(True)
         self.project_auto_act.setChecked(self.store.value("export_project", "true") == "true")
         self.project_auto_act.toggled.connect(lambda on: self.store.setValue("export_project", "true" if on else "false"))
+        self.close_holes_act = mm.addAction(tr("auto_close_holes"))
+        self.close_holes_act.setCheckable(True)
+        self.close_holes_act.setChecked(self.store.value("auto_close_holes", "true") == "true")
+        self.close_holes_act.toggled.connect(lambda on: self.store.setValue("auto_close_holes", "true" if on else "false"))
         mm.addSeparator()
         mm.addAction(theme.icon("download"), tr("export_as") + "…", lambda: self.export(ask=True))
         mm.addAction(theme.icon("open"), tr("export_library_open"), self.open_export_library)
@@ -1332,6 +1336,7 @@ class MainWindow(QMainWindow):
             self.viewer.fit_objects()
         for o in loaded:                      # after arranging, so Ctrl+Z first undoes an automatic repair
             self._check_learned_repair(o)
+        self._auto_close_holes(loaded)
 
     # ================================================================ learned repairs
     def _file_source(self, path: str) -> str:
@@ -1371,6 +1376,62 @@ class MainWindow(QMainWindow):
         o.filament_parts = []
         self._drop_supports(o)
         return rep
+
+    # ---------------------------------------------------------------- automatic hole closing on load
+    def _auto_close_holes(self, objs):
+        """Models that load open (not watertight) are closed in the background, in a worker process so the
+        program stays responsive (fast repair, then the advanced one). Ctrl+Z gives back the file's mesh."""
+        if self.store.value("auto_close_holes", "true") != "true":
+            return
+        for o in objs:
+            try:
+                if o.role == "cutter" or o.mesh.is_watertight():
+                    continue
+            except Exception:
+                continue
+            self._start_close(o)
+
+    def _start_close(self, o):
+        from ..mesh import Mesh  # noqa: F401  (imported here: the worker returns raw arrays)
+        mesh = o.mesh
+
+        def work(progress, cancelled):
+            from .. import mesh_tools, parallel
+            ex = parallel.pool()
+            if ex is not None:
+                try:
+                    return ex.submit(mesh_tools.watertight_job, mesh.vertices, mesh.faces, mesh.name).result()
+                except Exception:
+                    pass
+            return mesh_tools.watertight_job(mesh.vertices, mesh.faces, mesh.name)
+
+        task = Task(work, self)
+        task.succeeded.connect(lambda res, o=o, mesh=mesh: self._on_closed(o, mesh, res))
+        if not hasattr(self, "_close_tasks"):
+            self._close_tasks = []
+        self._close_tasks.append(task)
+        task.finished.connect(lambda t=task: t in self._close_tasks and self._close_tasks.remove(t))
+        self.status.setText(tr("closing_holes").format(o.name or "model"))
+        task.start(QThread.LowPriority)
+
+    def _on_closed(self, o, original, res):
+        from ..mesh import Mesh
+        v, f, ok = res
+        if o not in self.objects or o.mesh is not original:
+            return                            # removed or changed meanwhile: leave it alone
+        if not ok and len(f) == len(original.faces):
+            self.status.setText(tr("holes_not_closed").format(o.name or "model"))
+            return
+        self._push_undo()
+        o.mesh = Mesh(v, f, original.name)
+        o.__dict__.pop("_bounds_cache", None)
+        o.regions = []
+        o.filament_parts = []
+        self._objects_changed()
+        self.status.setText(tr("holes_closed" if ok else "holes_partly_closed").format(o.name or "model"))
+
+    def _closing_holes(self) -> bool:
+        return any(t.isRunning() for t in getattr(self, "_close_tasks", []))
 
     def _check_learned_repair(self, o):
         """A model that loaded with problems like ones the user repaired before: repair it the same way
@@ -3966,6 +4027,9 @@ class MainWindow(QMainWindow):
         if self.result is not None or (self.task is not None and self.task.isRunning()) \
                 or (self._pre_task is not None and self._pre_task.isRunning()):
             return
+        if self._closing_holes():                    # the model is about to change: try again afterwards
+            self._schedule_preslice()
+            return
         try:
             cfg = self.settings.config()
             if cfg["technology"] != "sla" or cfg["sla_process"] == "polyjet":
@@ -4004,6 +4068,10 @@ class MainWindow(QMainWindow):
             if t is not None and t.isRunning():
                 t.cancel()
                 t.wait(15000)
+            for t in list(getattr(self, "_close_tasks", [])):
+                if t.isRunning():
+                    t.cancel()
+                    t.wait(15000)
         except RuntimeError:                         # Qt objects already deleted at exit
             pass
 
