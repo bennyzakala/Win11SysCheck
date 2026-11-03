@@ -10,6 +10,11 @@ on:
 permissions:
   contents: write
 
+# a newer push replaces a build still running for an older one
+concurrency:
+  group: unislicer-windows-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
@@ -27,10 +32,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install numpy shapely Pillow PySide6-Essentials PyOpenGL "anthropic>=2.4,<3" pyinstaller pytest
+          pip install numpy shapely Pillow PySide6-Essentials PyOpenGL "anthropic>=2.4,<3" pyinstaller pytest pytest-timeout
 
       - name: Run tests
-        run: python -m pytest -q
+        timeout-minutes: 30
+        # a test that hangs prints every thread's stack and fails instead of blocking the build
+        run: python -m pytest -q -v --timeout=300 --timeout-method=thread -o faulthandler_timeout=240
 
       - name: Build UniSlicer.exe
         run: |
