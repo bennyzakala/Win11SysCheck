@@ -4145,6 +4145,8 @@ def test_cavity_pillars_for_a_model_on_the_plate():
     assert len(added.geoms) >= 9 if hasattr(added, "geoms") else added.area > 0
     assert pil.layers[k].bounds == plain.layers[k].bounds               # nothing outside the model
     assert not pil.islands and pil.supports is None
+    assert pil.pillars is not None and len(pil.pillars.faces) and plain.pillars is None   # shown in the 3D preview
+    assert pil.pillars.bounds[0][2] <= 1e-6                           # they start on the plate
 
 
 def test_cavity_pillars_reach_the_plate_through_an_open_bottom():

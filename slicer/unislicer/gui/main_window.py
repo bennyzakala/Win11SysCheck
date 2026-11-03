@@ -4219,6 +4219,8 @@ class MainWindow(QMainWindow):
             extras = [(m, theme.MODEL_COLOR) for m in job.models]
             if job.supports is not None:
                 extras.append((job.supports, theme.SUPPORT_COLOR))
+            if getattr(job, "pillars", None) is not None:      # pillars inside the cavity / under overhangs
+                extras.append((job.pillars, theme.SUPPORT_COLOR))
             self.viewer.set_toolpaths(None, 0.4)
             self.viewer.set_extra_meshes(extras)
             n = job.layer_count

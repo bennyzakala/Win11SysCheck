@@ -34,6 +34,7 @@ class SlaJob:
     cup_vents: list[dict] = field(default_factory=list)              # where a vent breaks each cup
     thin_layers: list[int] = field(default_factory=list)
     island_pillars: int = 0
+    pillars: Mesh | None = None         # the cavity pillars as a mesh, for the 3D preview
     cups_checked: bool = False          # the suction-cup check ran (only with "Suggest drain / vent holes")
     volume_ml: float = 0.0
     saved_ml: float = 0.0              # resin saved by hollowing
@@ -332,6 +333,19 @@ def covered_voids(layers: list[MultiPolygon]) -> list[MultiPolygon]:
     return out
 
 
+def _pillar_mesh(segments: list, layer_z: list, layer_h: list) -> Mesh:
+    """Cylinders for the cavity pillars (x, y, radius, first layer, last layer), to show them in 3D."""
+    from .primitives import tube
+    parts = []
+    for x, y, r, a, b in segments:
+        if b < a or a >= len(layer_z):
+            continue
+        b = min(b, len(layer_z) - 1)
+        z0, z1 = layer_z[a] - layer_h[a], layer_z[b]
+        parts.append(tube([x, y, z0], [x, y, z1], r, r, 10))
+    return Mesh.merge(parts, "Cavity pillars") if parts else None
+
+
 def _overhang_points(under: list, cavity: list, r: float, spacing: float) -> list:
     """Pillar spots in the parts that hang in the air outside the cavity (often narrow strips the even grid
     misses): at least one in each, more in larger ones."""
@@ -494,7 +508,8 @@ def _infill_pattern(cavity: list, cfg: Config):
 
 
 def _internal_pillars(layers: list, cavity: list, cfg: Config, from_plate: bool = False,
-                      radius: float | None = None, spacing: float | None = None, extra_points=None) -> list:
+                      radius: float | None = None, spacing: float | None = None, extra_points=None,
+                      segments: list | None = None) -> list:
     """Pillars inside cavities; a pillar only starts on solid material or on its own pillar below. With
     ``from_plate`` (a model printed straight on the plate) a pillar may also stand on the build plate: where
     nothing of the model lies under that spot, it goes straight down to the plate."""
@@ -519,6 +534,7 @@ def _internal_pillars(layers: list, cavity: list, cfg: Config, from_plate: bool 
     active = np.zeros(px.size, dtype=bool)
     open_below = np.ones(px.size, dtype=bool)        # nothing of the model under this spot so far
     started = np.full(px.size, -1)                   # layer where a pillar standing on the plate begins
+    seg_start = np.full(px.size, -1)                 # for ``segments``: first layer of the running pillar
     out = list(layers)
     for i, c in enumerate(cavity):
         if not c.is_empty:
@@ -545,10 +561,20 @@ def _internal_pillars(layers: list, cavity: list, cfg: Config, from_plate: bool 
             active = inside & (active | on_solid)
             if active.any():
                 out[i] = as_multipolygon(out[i].union(shapely.union_all([circles[k] for k in np.flatnonzero(active)])))
+        if segments is not None:                     # where each pillar runs (for the 3D preview)
+            new = active & (seg_start < 0)
+            seg_start[new] = np.where(started[new] == i, first_layer, i)
+            done = (seg_start >= 0) & ~active
+            for k in np.flatnonzero(done):
+                segments.append((float(px[k]), float(py[k]), r, int(seg_start[k]), i - 1))
+            seg_start[done] = -1
         g = layers[i]
         if from_plate and not g.is_empty:
             shapely.prepare(g)
             open_below &= ~shapely.contains_xy(g, px, py)
+    if segments is not None:
+        for k in np.flatnonzero(seg_start >= 0):
+            segments.append((float(px[k]), float(py[k]), r, int(seg_start[k]), len(cavity) - 1))
     if from_plate:
         # the part of each plate-standing pillar under the cavity: from the plate up to where it started
         for i in range(first_layer, len(out)):
@@ -1209,6 +1235,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     split = 0.85 if support_job is not None else 1.0
     # models with the same hollowing settings are sliced and hollowed together; a model with its own
     # hollowing / infill is done on its own and merged in
+    pillar_segments: list = []          # (x, y, radius, first layer, last layer) of the cavity pillars
     # models that stand on the plate (not raised onto supports): all of them without supports, else the
     # ones marked "directly on the plate"
     lifted_all = bool(cfg["support_enable"]) and not jetting
@@ -1264,10 +1291,14 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
                 if gcfg["sla_cavity_outside"]:
                     room = under_model(g_layers)
                     extra = _overhang_points(room, cav, gcfg["sla_cavity_diameter"] / 2, gcfg["sla_cavity_spacing"])
-                hit = _internal_pillars(g_layers, room, gcfg, from_plate=True, extra_points=extra,
-                                        radius=gcfg["sla_cavity_diameter"] / 2, spacing=gcfg["sla_cavity_spacing"])
+                segs: list = []
+                out_layers = _internal_pillars(g_layers, room, gcfg, from_plate=True, extra_points=extra,
+                                               radius=gcfg["sla_cavity_diameter"] / 2, spacing=gcfg["sla_cavity_spacing"],
+                                               segments=segs)
+                hit = (out_layers, segs)
                 _cache_put(ckey, hit)
-            g_layers = list(hit)
+            g_layers = list(hit[0])
+            pillar_segments += hit[1]
         layers = g_layers if len(groups) == 1 else _per_layer(_union_chunk, list(zip(layers, g_layers)))
     lifted = lift if cfg["support_enable"] and not jetting else 0.0
     hole_tubes = []
@@ -1343,6 +1374,8 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         job.warnings.append(UNIFORM_FORMAT_NOTE)
     job.thin_layers = thin
     job.island_pillars = pillars
+    if pillar_segments:
+        job.pillars = _pillar_mesh(pillar_segments, [z for z, _ in stack], [h for _, h in stack])
     job.volume_ml = sum(g.area * h for g, h in zip(layers, job.layer_thickness)) / 1000.0
     job.saved_ml = saved
     job.weight_g = job.volume_ml * cfg["resin_density"]
