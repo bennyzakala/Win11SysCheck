@@ -1325,6 +1325,7 @@ class Viewer(QOpenGLWidget):
                 else:
                     self._click_select = uid       # a plain click (no drag) inside a group selects it alone
                 if mods and uid not in self.selection:
+                    self._picked = True            # handled: the release must not clear the whole selection
                     return                         # Ctrl/Shift-click removed it from the selection: nothing to drag
                 start = self._bed_point(e.position())
                 if start is not None:

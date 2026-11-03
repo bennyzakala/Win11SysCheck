@@ -4055,3 +4055,37 @@ def test_cavity_pillars_also_hold_up_outside_overhangs():
     off = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", dict(base, sla_cavity_outside=False)))
     on = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", dict(base, sla_cavity_outside=True)))
     assert on.layers[0].area > off.layers[0].area + 1                 # pillars under the ledge stand on the plate
+
+
+def test_ctrl_click_unmarks_only_that_model():
+    """Ctrl + left click on a selected model removes only that model from the selection; the release
+    of that click must not clear the other models' selection."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtTest import QTest
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        objs = [w.add_mesh(primitives.box(10, 10, 5)) for _ in range(3)]; app.processEvents()
+        w.select_all()
+        app.processEvents()
+        assert {o.uid for o in w.selected_objects()} == {o.uid for o in objs}
+        v = w.viewer
+        v.pick = lambda pos, *a, **k: objs[1].uid
+        QTest.mousePress(v, Qt.LeftButton, Qt.ControlModifier, QPoint(100, 100))
+        QTest.mouseRelease(v, Qt.LeftButton, Qt.ControlModifier, QPoint(100, 100))
+        app.processEvents()
+        left = {o.uid for o in w.selected_objects()}
+        assert left == {objs[0].uid, objs[2].uid}, left
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
