@@ -61,7 +61,9 @@ def find_server(saved: str = "") -> str:
 class Client:
     """A small Local API client (urllib)."""
 
-    def __init__(self, host: str = "localhost", port: int = DEFAULT_PORT, timeout: float = 620.0):
+    def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_PORT, timeout: float = 620.0):
+        # 127.0.0.1, not "localhost": Windows tries IPv6 (::1) first, and against a server listening on IPv4
+        # only every request would wait for that attempt to fail
         self.base = f"http://{host}:{int(port)}"
         self.timeout = timeout
         self.process: subprocess.Popen | None = None

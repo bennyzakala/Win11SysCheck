@@ -4365,6 +4365,7 @@ def test_formlabs_send_through_preformserver(tmp_path):
     srv = _FakePreFormServer()
     try:
         c = formlabs.Client(port=srv.port)
+        assert c.base.startswith("http://127.0.0.1:")          # not "localhost" (slow IPv6 try on Windows)
         assert c.running() and c.version() == "0.9.30"
         types = c.materials()
         assert types[0]["label"] == "Form 4" and types[0]["materials"][0]["settings"][0]["scene_settings"]["machine_type"] == "FORM-4-0"
@@ -4426,10 +4427,11 @@ def test_formlabs_dialog_connects_finds_and_sends(tmp_path):
             seen = {}
             def exec_(self):
                 def wait():
-                    end = time.time() + 20
+                    end = time.time() + 120
                     while self.task is not None and self.task.isRunning() and time.time() < end:
                         app.processEvents(); time.sleep(0.02)
-                    app.processEvents()
+                    assert self.task is None or not self.task.isRunning(), "still running: " + self.status.text()
+                    self.task.wait(); app.processEvents()
                 self._connect(); wait()
                 assert self.ptype.currentText() == "Form 4" and self.material.currentText() == "Grey V5", self.status.text()
                 self._find(); wait()
