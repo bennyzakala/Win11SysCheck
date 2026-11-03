@@ -454,8 +454,9 @@ def _infill_pattern(cavity: list, cfg: Config):
 
 def _internal_pillars(layers: list, cavity: list, cfg: Config, from_plate: bool = False,
                       radius: float | None = None, spacing: float | None = None) -> list:
-    """Pillars inside cavities; a pillar only starts on solid material or on its own pillar below (with
-    ``from_plate``, also on the build plate: the bottom layer of a model printed straight on it)."""
+    """Pillars inside cavities; a pillar only starts on solid material or on its own pillar below. With
+    ``from_plate`` (a model printed straight on the plate) a pillar may also stand on the build plate: where
+    nothing of the model lies under that spot, it goes straight down to the plate."""
     cav = [c for c in cavity if not c.is_empty]
     if not cav:
         return layers
@@ -472,30 +473,45 @@ def _internal_pillars(layers: list, cavity: list, cfg: Config, from_plate: bool 
     circles = [Point(x, y).buffer(r, quad_segs=6) for x, y in zip(px, py)]
     first_layer = next((i for i, g in enumerate(layers) if not g.is_empty), 0)
     active = np.zeros(px.size, dtype=bool)
+    open_below = np.ones(px.size, dtype=bool)        # nothing of the model under this spot so far
+    started = np.full(px.size, -1)                   # layer where a pillar standing on the plate begins
     out = list(layers)
     for i, c in enumerate(cavity):
-        if c.is_empty:
-            active[:] = False
-            continue
-        room = c.buffer(-r * 0.5)
+        if not c.is_empty:
+            room = c.buffer(-r * 0.5)
+        else:
+            room = EMPTY
         if room.is_empty:
             active[:] = False
-            continue
-        shapely.prepare(room)
-        inside = shapely.contains_xy(room, px, py)
-        below = out[i - 1] if i else EMPTY
-        if not below.is_empty:
-            shapely.prepare(below)
-            on_solid = shapely.contains_xy(below, px, py)
         else:
-            on_solid = np.zeros(px.size, dtype=bool)
-        if from_plate and i <= first_layer:
-            on_solid = np.ones(px.size, dtype=bool)          # standing on the build plate
-        active = inside & (active | on_solid)
-        if active.any():
-            out[i] = as_multipolygon(out[i].union(shapely.union_all([circles[k] for k in np.flatnonzero(active)])))
+            shapely.prepare(room)
+            inside = shapely.contains_xy(room, px, py)
+            below = out[i - 1] if i else EMPTY
+            if not below.is_empty:
+                shapely.prepare(below)
+                on_solid = shapely.contains_xy(below, px, py)
+            else:
+                on_solid = np.zeros(px.size, dtype=bool)
+            if from_plate:
+                if i <= first_layer:
+                    on_solid = np.ones(px.size, dtype=bool)     # standing on the build plate
+                plate = inside & ~active & open_below & ~on_solid
+                started[plate & (started < 0)] = i
+                on_solid = on_solid | plate
+            active = inside & (active | on_solid)
+            if active.any():
+                out[i] = as_multipolygon(out[i].union(shapely.union_all([circles[k] for k in np.flatnonzero(active)])))
+        g = layers[i]
+        if from_plate and not g.is_empty:
+            shapely.prepare(g)
+            open_below &= ~shapely.contains_xy(g, px, py)
+    if from_plate:
+        # the part of each plate-standing pillar under the cavity: from the plate up to where it started
+        for i in range(first_layer, len(out)):
+            k = np.flatnonzero(started > i)
+            if len(k):
+                out[i] = as_multipolygon(out[i].union(shapely.union_all([circles[j] for j in k])))
     return out
-
 
 def _spread_points(area, count: int) -> list[tuple[float, float]]:
     """Up to ``count`` points inside ``area``, spread far apart (farthest-point sampling)."""

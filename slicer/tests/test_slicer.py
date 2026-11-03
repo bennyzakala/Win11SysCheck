@@ -4145,3 +4145,21 @@ def test_cavity_pillars_for_a_model_on_the_plate():
     assert len(added.geoms) >= 9 if hasattr(added, "geoms") else added.area > 0
     assert pil.layers[k].bounds == plain.layers[k].bounds               # nothing outside the model
     assert not pil.islands and pil.supports is None
+
+
+def test_cavity_pillars_reach_the_plate_through_an_open_bottom():
+    """A cavity that is only closed higher up (the bottom of the walls is open, as on a scanned arch): the
+    pillars still go straight down to the plate where nothing of the model is under them."""
+    from shapely.geometry import box as sbox
+    from unislicer import mesh_tools
+    from unislicer.mesh import Mesh
+    ring = sbox(0, 0, 30, 30).difference(sbox(3, 3, 27, 27))
+    gap = sbox(0, 12, 3, 18)                                           # a doorway in the wall, 0..2 mm high
+    shell = Mesh.merge([mesh_tools.extrude(ring.difference(gap), 0, 2), mesh_tools.extrude(ring, 2, 8),
+                        mesh_tools.extrude(sbox(0, 0, 30, 30), 8, 10)], "arch")
+    m = placed(shell).world_mesh()
+    base = {"support_enable": False, "hollow_enable": False}
+    plain = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", base))
+    pil = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", dict(base, sla_cavity_pillars=True)))
+    assert pil.layers[0].area > plain.layers[0].area + 5               # pillars stand on the plate
+    assert not pil.islands
