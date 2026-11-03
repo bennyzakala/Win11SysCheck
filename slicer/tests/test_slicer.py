@@ -3999,3 +3999,19 @@ def test_support_pieces_slice_as_their_union_and_fast_repair():
     fixed, rep = mesh_tools.repair(holed)
     assert fixed.is_watertight() and rep["holes_filled"] == 3 and rep["flipped"] == len(holed.faces)
     assert fixed.volume() > 0 and mesh_tools.analyze(fixed)["watertight"] and mesh_tools.shell_count(m) == 2
+
+
+def test_open_mesh_is_closed_automatically_for_resin_slicing():
+    """A model with a few holes is closed on a copy for slicing: no warning, and the layers are full."""
+    from unislicer.mesh import Mesh
+    s = primitives.sphere(10, 32, 64)
+    keep = np.ones(len(s.faces), bool)
+    keep[[len(keep) // 3, 2 * len(keep) // 3]] = False
+    holed = placed(Mesh(s.vertices, np.asarray(s.faces)[keep], "holed")).world_mesh()
+    solid = placed(s).world_mesh()
+    assert not holed.is_watertight()
+    cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {"support_enable": False})
+    job = sla.prepare([holed], cfg)
+    ref = sla.prepare([solid], cfg)
+    assert not any("watertight" in w for w in job.warnings)
+    assert abs(job.volume_ml - ref.volume_ml) < 0.01 * ref.volume_ml

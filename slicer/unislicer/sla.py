@@ -957,6 +957,32 @@ def _cached_slice(meshes: list, planes: list, resolution: float, **kw) -> list:
     return list(hit)
 
 
+class _Done:
+    """A finished result with the ``.result()`` of a future."""
+
+    def __init__(self, value):
+        self._value = value
+
+    def result(self):
+        return self._value
+
+
+def _closed_copy(mesh: Mesh) -> Mesh | None:
+    """The mesh with its holes filled (cached), or None when the repair cannot make it watertight."""
+    key = ("closed", mesh_key(mesh))
+    hit = _cache_get(key)
+    if hit is None:
+        from .mesh_tools import repair
+        try:
+            fixed, _rep = repair(mesh)
+            fixed.name = mesh.name
+            hit = (fixed if fixed.is_watertight() else False,)
+        except Exception:
+            hit = (False,)
+        _cache_put(key, hit)
+    return hit[0] or None
+
+
 def _mesh_components(mesh: Mesh) -> list[tuple[str, np.ndarray, float, float]]:
     """(content key, triangles, zmin, zmax) of every separate piece of a mesh (supports are many pieces)."""
     import hashlib
@@ -1043,7 +1069,21 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
 
     if not meshes:
         raise ValueError("Nothing to slice")
-    warnings = [f"'{m.name}' is not watertight; check the layer preview." for m in meshes if not m.is_watertight()]
+    # a model with holes (open mesh) is closed on a copy for slicing: the layers come out right and slicing
+    # stays on the fast path; only a model that cannot be closed this way is reported
+    warnings = []
+    closed = []
+    for m in meshes:
+        if m.is_watertight():
+            closed.append(m)
+            continue
+        fixed = _closed_copy(m)
+        if fixed is not None:
+            closed.append(fixed)
+        else:
+            closed.append(m)
+            warnings.append(f"'{m.name}' is not watertight; check the layer preview.")
+    meshes = closed
     # each model may carry its own settings (supports, hollowing / infill) over the plate's
     cfgs = [cfg.copy().update(model_settings[i]) if model_settings and i < len(model_settings) and model_settings[i]
             else cfg for i in range(len(meshes))]
@@ -1057,9 +1097,13 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         # models marked "direct" stay on the plate without supports (e.g. flat-based dental models)
         on_plate = [bool(direct and i < len(direct) and direct[i]) for i in range(len(models))]
         models = [m if on_plate[i] else m.translated([0, 0, lift]) for i, m in enumerate(models)]
-        parts = []
+
+    def build_all_supports():
+        """Supports for every model (cached)."""
+        parts, pts = [], []
         for i, m in enumerate(models):
-            report("support", i / len(models))
+            if cancelled and cancelled():
+                raise InterruptedError
             if on_plate[i]:
                 continue
             manual = support_points[i] if support_points and i < len(support_points) else None
@@ -1073,13 +1117,19 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             if hit is None:
                 hit = build_supports(m, cfgs[i], manual, label=label)
                 _cache_put(skey, hit)
-            s, p = hit
-            parts.append(s)
-            points += list(p)
-        supports = Mesh.merge(parts, "Supports")
+            sm, sp = hit
+            parts.append(sm)
+            pts += list(sp)
+        return Mesh.merge(parts, "Supports"), pts
+
+    support_job = None
+    if cfg["support_enable"] and not jetting:
+        report("support", 0.0)
+        # built before slicing: in a thread next to the slicing it was no faster (both need the same CPU)
+        support_job = _Done(build_all_supports())
     lh = cfg["sla_layer_height"]
-    support_meshes = [supports] if supports is not None and len(supports.faces) else []
-    top = max(float(m.bounds[1, 2]) for m in models + support_meshes)
+    support_meshes = []
+    top = max(float(m.bounds[1, 2]) for m in models)
     ranges = parse_z_ranges(cfg["sla_z_ranges"])
     if cfg["sla_adaptive"]:
         stack = adaptive_layers(models, top, cfg)
@@ -1090,7 +1140,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         stack = [(round((k + 1) * lh, 5), lh) for k in range(n)]
     n = len(stack)
     planes = [z - h / 2 for z, h in stack]
-    split = 0.85 if support_meshes else 1.0
+    split = 0.85 if support_job is not None else 1.0
     # models with the same hollowing settings are sliced and hollowed together; a model with its own
     # hollowing / infill is done on its own and merged in
     groups: dict = {}
@@ -1177,6 +1227,9 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     shell = [x[1] for x in post]
     thin = _lasting_thin([x[2] for x in post], layer_height=lh)
     shell_cells = [x[3] for x in post]
+    if support_job is not None:
+        supports, points = support_job.result()
+        support_meshes = [supports] if supports is not None and len(supports.faces) else []
     if support_meshes:
         sup_layers = _slice_supports(support_meshes[0] if len(support_meshes) == 1 else Mesh.merge(support_meshes),
                                      planes, cfg["resolution"],
