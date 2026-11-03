@@ -296,11 +296,33 @@ def _signed_area(p: np.ndarray) -> float:
     return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
 
 
+def _clean_ring(pts) -> np.ndarray | None:
+    """The loop without repeated points (consecutive or the closing one); None when fewer than 3 are left
+    (a ring needs at least 3 distinct points, or GEOS refuses it)."""
+    pts = np.asarray(pts, dtype=np.float64)
+    if len(pts) < 3:
+        return None
+    keep = np.ones(len(pts), dtype=bool)
+    keep[1:] = np.any(pts[1:] != pts[:-1], axis=1)
+    pts = pts[keep]
+    while len(pts) > 1 and np.all(pts[0] == pts[-1]):
+        pts = pts[:-1]
+    return pts if len(pts) >= 3 else None
+
+
+def _safe_polygon(pts):
+    try:
+        return Polygon(pts)
+    except Exception:                       # a degenerate loop: leave it out rather than fail the layer
+        return Polygon()
+
+
 def loops_to_geometry(loops) -> MultiPolygon:
     """Combine oriented loops (outer = CCW, hole = CW) into polygons, honoring nesting."""
     pts_list, signs, areas = [], [], []
     for pts, vote in loops:
-        if len(pts) < 3:
+        pts = _clean_ring(pts)
+        if pts is None:
             continue
         area = _signed_area(pts)
         if abs(area) < 1e-6:
@@ -311,7 +333,7 @@ def loops_to_geometry(loops) -> MultiPolygon:
     if not pts_list:
         return EMPTY
     # build every loop's polygon in one go; only the invalid ones (self-touching) need repair
-    polys = np.array([Polygon(p) for p in pts_list], dtype=object)
+    polys = np.array([_safe_polygon(p) for p in pts_list], dtype=object)
     bad = ~shapely.is_valid(polys)
     if bad.any():
         polys[bad] = [shapely.union_all(polygons_of(shapely.make_valid(p))) for p in polys[bad]]
@@ -358,7 +380,13 @@ def _slice_sorted(tris: np.ndarray, normals: np.ndarray, z_planes: list[float], 
             seg, seg_groups = _segments_at(local, normals[idx], zc, groups[idx])
             loops = _chain(seg, report, raw, seg_groups)
         # a broken layer (holes, non-manifold edges): fill by winding / crossing parity instead of stitching
-        geom = even_odd_geometry(_oriented_segments(raw)) if report.get("messy") else loops_to_geometry(loops)
+        try:
+            geom = even_odd_geometry(_oriented_segments(raw)) if report.get("messy") else loops_to_geometry(loops)
+        except Exception:                   # never fail a whole slice on one odd layer: use the other path
+            try:
+                geom = even_odd_geometry(_oriented_segments(raw)) if not report.get("messy") else loops_to_geometry(loops)
+            except Exception:
+                geom = EMPTY
         if resolution > 0 and not geom.is_empty:
             # plain Douglas-Peucker is ~10x faster than the topology-preserving one; the rare invalid result
             # (a ring touching itself) is repaired
