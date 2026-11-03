@@ -122,12 +122,23 @@ def plate_context(state: dict) -> str:
     return "\n".join(lines)
 
 
+def _api_message(exc) -> str:
+    """The API's own error text (e.g. "Your credit balance is too low ...")."""
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict) and err.get("message"):
+            return str(err["message"])
+    return str(getattr(exc, "message", "") or "")
+
+
 class ClaudeAssistant:
     """One conversation with Claude. ``ask`` blocks (run it off the UI thread)."""
 
     def __init__(self, api_key: str = "", model: str = MODEL, client=None):
         self.model = model
         self.messages: list = []         # append-only: thinking blocks stay valid
+        self._level = 0
         self._client = client
         self._api_key = api_key
 
@@ -149,17 +160,7 @@ class ClaudeAssistant:
         try:
             client = self._get_client()
             for _ in range(MAX_TOOL_ROUNDS):
-                response = client.beta.messages.create(
-                    model=self.model,
-                    max_tokens=16000,
-                    system=SYSTEM,
-                    tools=[PROPOSE_TOOL],
-                    messages=self.messages,
-                    output_config={"effort": "medium"},
-                    # a request a safety classifier declines is re-run on Anthropic's recommended fallback model
-                    betas=["server-side-fallback-2026-07-01"],
-                    fallbacks="default",
-                )
+                response = self._create(client)
                 self.messages.append({"role": "assistant", "content": response.content})
                 if response.stop_reason == "refusal":
                     reply.error = "refusal"
@@ -183,7 +184,11 @@ class ClaudeAssistant:
         except anthropic.RateLimitError:
             reply.error = "rate"
         except anthropic.APIStatusError as exc:
-            reply.error = f"status:{exc.status_code}"
+            msg = _api_message(exc)
+            if "credit balance" in msg.lower():
+                reply.error = "credit"
+            else:
+                reply.error = f"status:{exc.status_code}: {msg}" if msg else f"status:{exc.status_code}"
         except anthropic.APIConnectionError:
             reply.error = "network"
         if reply.error and self.messages and self.messages[-1]["role"] == "user" \
@@ -191,6 +196,33 @@ class ClaudeAssistant:
             self.messages.pop()          # the question never got an answer: it can be asked again
         reply.text = "\n\n".join(texts)
         return reply
+
+    # request shapes, richest first: an account or model that rejects an optional feature (400) falls back to a
+    # simpler request, remembered for the rest of the conversation
+    _LEVELS = ("full", "no_fallback", "basic")
+
+    def _create(self, client):
+        import anthropic
+        while True:
+            level = self._LEVELS[self._level]
+            try:
+                if level == "full":
+                    # a request a safety classifier declines is re-run on Anthropic's recommended fallback model
+                    return client.beta.messages.create(
+                        model=self.model, max_tokens=16000, system=SYSTEM, tools=[PROPOSE_TOOL],
+                        messages=self.messages, output_config={"effort": "medium"},
+                        betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+                if level == "no_fallback":
+                    return client.messages.create(
+                        model=self.model, max_tokens=16000, system=SYSTEM, tools=[PROPOSE_TOOL],
+                        messages=self.messages, output_config={"effort": "medium"})
+                plain_tool = {k: v for k, v in PROPOSE_TOOL.items() if k != "strict"}
+                return client.messages.create(model=self.model, max_tokens=16000, system=SYSTEM,
+                                              tools=[plain_tool], messages=self.messages)
+            except anthropic.BadRequestError as exc:
+                if "credit balance" in _api_message(exc).lower() or self._level >= len(self._LEVELS) - 1:
+                    raise
+                self._level += 1
 
     @staticmethod
     def _take_proposals(call, reply: Reply) -> tuple[int, list[str]]:

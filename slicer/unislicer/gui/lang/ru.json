@@ -1258,5 +1258,6 @@
 "Too many requests right now. Try again in a minute": "Слишком много запросов. Повторите через минуту",
 "Cannot reach Claude. Check the internet connection": "Нет связи с Claude. Проверьте подключение к интернету",
 "Claude did not answer this question. Try rephrasing it": "Claude не ответил на этот вопрос. Сформулируйте иначе",
-"Error: {}": "Ошибка: {}"
+"Error: {}": "Ошибка: {}",
+"The API account has no credit. Add credit at console.anthropic.com (Plans & Billing) and try again": "На счёте API нет средств. Пополните баланс на console.anthropic.com (Plans & Billing) и повторите"
 }

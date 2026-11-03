@@ -241,6 +241,8 @@ STRINGS = {
     "claude_err_rate": ("יותר מדי בקשות כרגע. נסה שוב בעוד דקה", "Too many requests right now. Try again in a minute"),
     "claude_err_network": ("אין חיבור ל-Claude. בדוק את האינטרנט", "Cannot reach Claude. Check the internet connection"),
     "claude_err_refusal": ("Claude לא ענה על השאלה הזו. נסח אותה אחרת", "Claude did not answer this question. Try rephrasing it"),
+    "claude_err_credit": ("אין יתרה בחשבון ה-API. צריך להוסיף קרדיט ב-console.anthropic.com (Plans & Billing) ואז לנסות שוב",
+                          "The API account has no credit. Add credit at console.anthropic.com (Plans & Billing) and try again"),
     "claude_err_other": ("שגיאה: {}", "Error: {}"),
     "slice_info_tip": ("זמן ההדפסה וכמות החומר של הפלטה שנפרסה. הפירוט המלא: Info › הערכת זמן וחומר",
                        "Print time and material of the sliced plate. Full details: Info › Estimate"),

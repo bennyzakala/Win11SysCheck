@@ -15,7 +15,7 @@ from .worker import Task
 KEY_SETTING = "claude_api_key"
 
 ERRORS = {"auth": "claude_err_auth", "permission": "claude_err_auth", "rate": "claude_err_rate",
-          "network": "claude_err_network", "refusal": "claude_err_refusal"}
+          "network": "claude_err_network", "refusal": "claude_err_refusal", "credit": "claude_err_credit"}
 
 
 def stored_key() -> str:

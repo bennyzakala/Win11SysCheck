@@ -3903,3 +3903,52 @@ def test_claude_dialog_context_and_apply(tmp_path):
     env.update(HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_claude_retries_simpler_request_on_400_and_reports_credit():
+    """A 400 for an optional feature (e.g. fallbacks not enabled on the account) retries with a simpler request;
+    a 400 for an empty credit balance is reported as such. Runs against a local fake API server."""
+    import json as _json, threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    import anthropic
+    from unislicer.claude_agent import ClaudeAssistant
+    seen, plan = [], []
+    ok = {"id": "msg_1", "type": "message", "role": "assistant", "model": "claude-opus-5-5", "stop_reason": "end_turn",
+          "stop_sequence": None, "content": [{"type": "text", "text": "Lower the bottom exposure."}],
+          "usage": {"input_tokens": 5, "output_tokens": 5}}
+
+    class H(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = _json.loads(self.rfile.read(int(self.headers["content-length"])))
+            seen.append(body)
+            status, payload = plan.pop(0)
+            data = _json.dumps(payload).encode()
+            self.send_response(status)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *a):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        client = anthropic.Anthropic(api_key="sk-test", base_url=f"http://127.0.0.1:{srv.server_port}", max_retries=0)
+        bad = {"type": "error", "error": {"type": "invalid_request_error", "message": "fallbacks: not enabled"}}
+        plan[:] = [(400, bad), (200, ok)]
+        a = ClaudeAssistant(client=client)
+        r = a.ask("stuck to plate")
+        assert not r.error and "bottom exposure" in r.text
+        assert "fallbacks" in seen[0] and "fallbacks" not in seen[1] and seen[1]["tools"][0]["strict"] is True
+        plan[:] = [(200, ok)]
+        a.ask("again")                                   # the simpler request is remembered
+        assert "fallbacks" not in seen[2]
+        credit = {"type": "error", "error": {"type": "invalid_request_error",
+                                            "message": "Your credit balance is too low to access the Anthropic API."}}
+        plan[:] = [(400, credit)]
+        b = ClaudeAssistant(client=client)
+        assert b.ask("q").error == "credit" and b.messages == []
+    finally:
+        srv.shutdown()

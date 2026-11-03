@@ -1258,5 +1258,6 @@
 "Too many requests right now. Try again in a minute": "طلبات كثيرة جدًا الآن. حاول مرة أخرى بعد دقيقة",
 "Cannot reach Claude. Check the internet connection": "تعذر الوصول إلى Claude. تحقق من الاتصال بالإنترنت",
 "Claude did not answer this question. Try rephrasing it": "لم يجب Claude عن هذا السؤال. حاول صياغته بشكل آخر",
-"Error: {}": "خطأ: {}"
+"Error: {}": "خطأ: {}",
+"The API account has no credit. Add credit at console.anthropic.com (Plans & Billing) and try again": "لا يوجد رصيد في حساب API. أضف رصيدًا في console.anthropic.com (Plans & Billing) ثم حاول مرة أخرى"
 }
