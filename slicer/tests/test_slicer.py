@@ -4079,3 +4079,46 @@ def test_holes_are_never_suggested_by_default():
     job = sla.prepare([placed(primitives.box(20, 20, 20)).world_mesh()], cfg)
     assert job.cups == [] and not job.cups_checked and not job.cup_vents
     assert not any("drain" in w for w in job.warnings)
+
+
+def test_export_works_in_any_state_after_slicing(tmp_path):
+    """Once sliced, Export always works: after a change on the plate (the last slice is exported) and while
+    a new slice is running; a change never cancels an export."""
+    import subprocess, sys, textwrap
+    lib = str(tmp_path / "prints")
+    code = textwrap.dedent(f'''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("export_library", {lib!r}); w._reveal = lambda p: None
+        w._ask_print_feedback = lambda: None; w._confirm_supports = lambda *a, **k: True
+        w.settings.select_printer("elegoo_mars3"); w.settings.set_value("support_enable", False)
+        o = w.add_mesh(primitives.box(10, 10, 4)); o.name = "part"
+        def pump(t):
+            e = time.time() + t
+            while time.time() < e: app.processEvents(); time.sleep(0.01)
+        pump(1.0); w.slice()
+        e = time.time() + 120
+        while (w.result is None or (w.task is not None and w.task.isRunning())) and time.time() < e:
+            app.processEvents(); time.sleep(0.01)
+        o.x += 5; w._objects_changed(); app.processEvents()          # the plate changed after slicing
+        assert w.result is None and w.export_btn.isEnabled()
+        w.slice()                                                      # and a new slice is running
+        w.export()
+        e = time.time() + 120
+        while (any(t.isRunning() for t in getattr(w, "_export_tasks", [])) or not os.path.isdir({lib!r})) and time.time() < e:
+            app.processEvents(); time.sleep(0.02)
+        files = [f for _r, _d, fs in os.walk({lib!r}) for f in fs if f.endswith((".ctb", ".goo", ".sl1", ".prz", ".zip", ".pwmx", ".cbddlp"))]
+        assert files, list(os.walk({lib!r}))
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    os.makedirs(_home, exist_ok=True)
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

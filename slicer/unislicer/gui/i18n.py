@@ -220,6 +220,7 @@ STRINGS = {
     "apply_setting_tip": ("שומר את ההגדרה הזו בלבד ומבצע אותה על המודל (תמיכות, Raft, סידור, חיתוך)", "Save only this setting and carry it out on the model (supports, raft, layout, slice)"),
     "reset_all": ("אפס את כל השינויים", "Reset all changes"),
     "material_default": ("ברירת מחדל", "Default"),
+    "export_last_slice": ("יוצא החיתוך האחרון (הפלטה שונתה מאז)", "exported the last slice (the plate changed since)"),
     "closing_holes": ("סוגר חורים ב-{} ברקע…", "Closing holes in {} in the background…"),
     "holes_closed": ("✓ החורים ב-{} נסגרו אוטומטית (Ctrl+Z מחזיר את המקור)", "✓ Holes in {} closed automatically (Ctrl+Z gives back the original)"),
     "holes_partly_closed": ("רוב החורים ב-{} נסגרו; חלק מהפגמים נשארו", "Most holes in {} closed; some defects remain"),

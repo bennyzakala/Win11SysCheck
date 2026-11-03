@@ -1266,5 +1266,6 @@
 "The holes in {} could not be closed automatically": "تعذر إغلاق الثقوب في {} تلقائيًا",
 "Close holes in models automatically on load": "إغلاق ثقوب النماذج تلقائيًا عند التحميل",
 "Suggest drain / vent holes": "اقتراح ثقوب تصريف / تهوية",
-"Off: the program does not look for suction cups and never offers to drill holes in the model": "إيقاف: لا يبحث البرنامج عن أكواب الشفط ولا يقترح ثقب النموذج أبدًا"
+"Off: the program does not look for suction cups and never offers to drill holes in the model": "إيقاف: لا يبحث البرنامج عن أكواب الشفط ولا يقترح ثقب النموذج أبدًا",
+"exported the last slice (the plate changed since)": "تم تصدير آخر تقطيع (تغيّر اللوح منذ ذلك)"
 }

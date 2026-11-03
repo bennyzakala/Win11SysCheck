@@ -1266,5 +1266,6 @@
 "The holes in {} could not be closed automatically": "Не удалось автоматически закрыть отверстия в {}",
 "Close holes in models automatically on load": "Автоматически закрывать отверстия в моделях при загрузке",
 "Suggest drain / vent holes": "Предлагать дренажные / вентиляционные отверстия",
-"Off: the program does not look for suction cups and never offers to drill holes in the model": "Выкл.: программа не ищет присоски и не предлагает сверлить отверстия в модели"
+"Off: the program does not look for suction cups and never offers to drill holes in the model": "Выкл.: программа не ищет присоски и не предлагает сверлить отверстия в модели",
+"exported the last slice (the plate changed since)": "экспортирована последняя нарезка (платформа с тех пор изменена)"
 }

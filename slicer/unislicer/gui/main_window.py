@@ -3919,9 +3919,11 @@ class MainWindow(QMainWindow):
             self.task.cancel()
         self._schedule_preslice()
         had = self.result is not None
+        if self.result is not None:
+            self._last_result = self.result      # still exportable: "export" works in any state
         self.result = None
-        self.export_btn.setEnabled(False)
-        self.send_btn.setEnabled(False)
+        self.export_btn.setEnabled(self._exportable() is not None)
+        self.send_btn.setEnabled(self._exportable() is not None)
         self.viewer.set_toolpaths(None, 0.4)
         self.viewer.set_extra_meshes([])
         for tile in (self.stat_time, self.stat_material, self.stat_weight, self.stat_cost):
@@ -3994,6 +3996,33 @@ class MainWindow(QMainWindow):
             parallel.prewarm()
         except Exception:
             pass
+
+    def _exportable(self):
+        """What Export / Send / Queue use: the current slice, else the last one (the plate changed since)."""
+        if self.result is not None:
+            return self.result
+        return getattr(self, "_last_result", None)
+
+    def _bg_export(self, fn, on_done, busy_text):
+        """Run an export on its own thread: it is never cancelled by a change on the plate or by slicing, and
+        the program stays usable meanwhile (progress in the status line)."""
+        stale = self.result is None
+        task = Task(fn, self)
+        task.progress.connect(lambda _stage, f: self.status.setText(f"{busy_text} {int(f * 100)}%"))
+
+        def done(p):
+            on_done(p)
+            if stale:
+                self.status.setText(self.status.text() + "  ·  " + tr("export_last_slice"))
+        task.succeeded.connect(done)
+        task.failed.connect(lambda msg: msg and QMessageBox.critical(self, tr("export_error"), msg))
+        if not hasattr(self, "_export_tasks"):
+            self._export_tasks = []
+        self._export_tasks.append(task)
+        task.finished.connect(lambda t=task: t in self._export_tasks and self._export_tasks.remove(t))
+        self.status.setText(busy_text)
+        task.start()
+        return task
 
     def _sla_inputs(self, models):
         """The model meshes and keyword arguments ``sla.prepare`` gets for these models."""
@@ -4068,6 +4097,9 @@ class MainWindow(QMainWindow):
             if t is not None and t.isRunning():
                 t.cancel()
                 t.wait(15000)
+            for t in list(getattr(self, "_export_tasks", [])):
+                if t.isRunning():
+                    t.wait(60000)                    # an export is never cut short
             for t in list(getattr(self, "_close_tasks", [])):
                 if t.isRunning():
                     t.cancel()
@@ -4119,8 +4151,8 @@ class MainWindow(QMainWindow):
         self.progress_label.show()
         self.slice_btn.setText("  " + tr("cancel"))
         self.slice_btn.setIcon(theme.icon("x", "#ffffff", 18))
-        self.export_btn.setEnabled(False)
-        self.send_btn.setEnabled(False)
+        self.export_btn.setEnabled(self._exportable() is not None)
+        self.send_btn.setEnabled(self._exportable() is not None)
         self.task.start()
 
     def _on_progress(self, stage, fraction):
@@ -4135,8 +4167,8 @@ class MainWindow(QMainWindow):
         self.progress_label.hide()
         self.slice_btn.setText(" " + tr("slice"))
         self.slice_btn.setIcon(theme.icon("layers", "#ffffff", 18))
-        self.export_btn.setEnabled(self.result is not None)
-        self.send_btn.setEnabled(self.result is not None)
+        self.export_btn.setEnabled(self._exportable() is not None)
+        self.send_btn.setEnabled(self._exportable() is not None)
 
     def _on_failed(self, message):
         if message:
@@ -5396,16 +5428,18 @@ class MainWindow(QMainWindow):
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _export_ext(self) -> str:
-        if self.result[0] == "fdm":
+        res = self._exportable()
+        if res[0] == "fdm":
             return ".gcode"
         return {"sl1": ".sl1", "ctb": ".ctb", "goo": ".goo", "prz": ".prz", "slc": ".slc", "cli": ".cli",
-                "3mf": ".3mf"}.get(self.result[2]["sla_format"], ".zip")
+                "3mf": ".3mf"}.get(res[2]["sla_format"], ".zip")
 
     def export(self, ask: bool = False):
         """Export Print File: saved straight into the central library, in a folder named after the file
         (<library>/<name>/<name>.<ext>), no dialog. ``ask`` (More › Export as…) picks the place by hand."""
         from .. import export_library
-        if self.result is None or (self.task is not None and self.task.isRunning()):
+        res = self._exportable()
+        if res is None:
             return
         if not self._confirm_cups():
             return
@@ -5425,10 +5459,10 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, tr("export_error"), str(exc))
                 return
         self.last_export_path = path
-        if self.result[0] == "fdm":
+        if res[0] == "fdm":
             try:
                 with open(path, "w", encoding="utf-8") as fh:
-                    fh.write(self.result[2])
+                    fh.write(res[2])
             except OSError as exc:
                 QMessageBox.critical(self, tr("export_error"), str(exc))
                 return
@@ -5437,8 +5471,8 @@ class MainWindow(QMainWindow):
             self._reveal(path)
             self._ask_print_feedback()
         else:
-            job, cfg = self.result[1], self.result[2]
-            result = self.result
+            job, cfg = res[1], res[2]
+            result = res
             base = os.path.splitext(os.path.basename(path))[0]
 
             def work(progress, cancelled):
@@ -5450,8 +5484,8 @@ class MainWindow(QMainWindow):
                 self._reveal(p if isinstance(p, str) and p else path)
                 self._ask_print_feedback()
 
-            self._start_task(work, done, tr("exporting"))
-            self.result = result
+            self._bg_export(work, done, tr("exporting"))
+            res = result
 
     # ================================================================ remote control
     def remote_control(self):
@@ -5479,7 +5513,8 @@ class MainWindow(QMainWindow):
     def add_plate_to_queue(self, printer_id: str, dialog=None):
         """Save the sliced plate into the prints folder and put it at the end of that printer's queue."""
         from .. import export_library, print_queue
-        if self.result is None or (self.task is not None and self.task.isRunning()):
+        res = self._exportable()
+        if res is None:
             QMessageBox.information(self, tr("queue_title"), tr("queue_slice_first"))
             return
         if not self._confirm_cups():
@@ -5492,7 +5527,7 @@ class MainWindow(QMainWindow):
             return
         est = self.plate_estimate()
         unit = "ml" if est.technology == "sla" else "cm³"
-        result = self.result
+        result = res
 
         def finish(p):
             queue = dialog.queue if dialog is not None else print_queue.Queue()
@@ -5513,9 +5548,9 @@ class MainWindow(QMainWindow):
             return
         job, cfg = result[1], result[2]
         base = os.path.splitext(os.path.basename(path))[0]
-        self._start_task(lambda progress, cancelled: sla.export(job, cfg, path, base, lambda f: progress("export", f), cancelled),
+        self._bg_export(lambda progress, cancelled: sla.export(job, cfg, path, base, lambda f: progress("export", f), cancelled),
                          lambda p: finish(p if isinstance(p, str) and p else path), tr("exporting"))
-        self.result = result
+        res = result
 
     # ================================================================ network printers
     def network_printers(self):
@@ -5528,7 +5563,8 @@ class MainWindow(QMainWindow):
 
         from .. import network
         from .network_dialog import NetworkDialog, SendDialog, lang
-        if self.result is None or (self.task is not None and self.task.isRunning()):
+        res = self._exportable()
+        if res is None:
             return
         while True:
             items = network.load_printers()
@@ -5539,11 +5575,11 @@ class MainWindow(QMainWindow):
                 if not items:
                     return
             base = (self.objects[0].name if self.objects else "print") or "print"
-            if self.result[0] == "fdm":
+            if res[0] == "fdm":
                 ext = ".gcode"
             else:
                 ext = {"sl1": ".sl1", "ctb": ".ctb", "goo": ".goo", "prz": ".prz", "slc": ".slc", "cli": ".cli",
-                       "3mf": ".3mf"}.get(self.result[2]["sla_format"], ".zip")
+                       "3mf": ".3mf"}.get(res[2]["sla_format"], ".zip")
             dlg = SendDialog(items, self.settings.printer_id, base + ext, True, self)
             r = dlg.exec()
             if r == 2:                                   # "Manage printers…"
@@ -5556,7 +5592,7 @@ class MainWindow(QMainWindow):
         name = dlg.name.text().strip() or base + ext
         if not name.lower().endswith(ext):
             name += ext
-        result = self.result
+        result = res
         folder = tempfile.mkdtemp(prefix="unislicer_send_")
         path = os.path.join(folder, name)
 
@@ -5588,8 +5624,8 @@ class MainWindow(QMainWindow):
                 self.status.setText(tr("net_send_failed"))
                 QMessageBox.warning(self, tr("net_send_failed"), text)
 
-        self._start_task(work, done, tr("net_sending").format(target.name))
-        self.result = result
+        self._bg_export(work, done, tr("net_sending").format(target.name))
+        res = result
 
     # ================================================================ events
     def dragEnterEvent(self, e):
