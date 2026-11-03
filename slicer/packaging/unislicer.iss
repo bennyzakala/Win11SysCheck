@@ -48,6 +48,9 @@ Root: HKCU; Subkey: "Software\UniSlicer\UniSlicer"; ValueType: string; ValueName
 Root: HKCU; Subkey: "Software\UniSlicer\UniSlicer"; ValueType: string; ValueName: "language"; ValueData: "ar"; Languages: arabic
 #endif
 
+; the "Ask Claude" window was removed: delete an API key an earlier version saved on this computer
+Root: HKCU; Subkey: "Software\UniSlicer\UniSlicer"; ValueType: none; ValueName: "claude_api_key"; Flags: deletevalue
+
 ; "Open with UniSlicer" for model files (does not take over the default program)
 Root: HKCU; Subkey: "Software\Classes\UniSlicer.Model"; ValueType: string; ValueName: ""; ValueData: "3D model (UniSlicer)"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\UniSlicer.Model\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\UniSlicer.exe,0"
@@ -74,55 +77,3 @@ Name: "{autodesktop}\UniSlicer"; Filename: "{app}\UniSlicer.exe"; Tasks: desktop
 
 [Run]
 Filename: "{app}\UniSlicer.exe"; Description: "{cm:LaunchProgram,UniSlicer}"; Flags: nowait postinstall skipifsilent runasoriginaluser
-
-[CustomMessages]
-english.ClaudeKeyTitle=Claude assistant
-english.ClaudeKeyDesc=Optional: your Anthropic API key for the "Ask Claude" window
-english.ClaudeKeyInfo=Paste your API key from console.anthropic.com. It is saved on this computer only (not in the installer file) and sent only to Anthropic. Leave it empty to keep the current key or to add one later in UniSlicer.
-english.ClaudeKeyPrompt=API key (sk-ant-...):
-hebrew.ClaudeKeyTitle=העוזר Claude
-hebrew.ClaudeKeyDesc=לא חובה: מפתח ה-API שלך מ-Anthropic לחלון "שאל את Claude"
-hebrew.ClaudeKeyInfo=הדבק את מפתח ה-API מ-console.anthropic.com. המפתח נשמר רק במחשב הזה (לא בקובץ ההתקנה) ונשלח רק ל-Anthropic. השאר ריק כדי לשמור את המפתח הקיים או להוסיף אותו מאוחר יותר בתוכנה.
-hebrew.ClaudeKeyPrompt=מפתח API (sk-ant-...):
-russian.ClaudeKeyTitle=Помощник Claude
-russian.ClaudeKeyDesc=Необязательно: ваш ключ API Anthropic для окна «Спросить Claude»
-russian.ClaudeKeyInfo=Вставьте ключ API с console.anthropic.com. Он сохраняется только на этом компьютере (не в файле установщика) и отправляется только в Anthropic. Оставьте пустым, чтобы сохранить текущий ключ или добавить его позже в UniSlicer.
-russian.ClaudeKeyPrompt=Ключ API (sk-ant-...):
-#ifdef HaveArabic
-arabic.ClaudeKeyTitle=المساعد Claude
-arabic.ClaudeKeyDesc=اختياري: مفتاح Anthropic API الخاص بك لنافذة «اسأل Claude»
-arabic.ClaudeKeyInfo=الصق مفتاح API من console.anthropic.com. يُحفظ على هذا الحاسوب فقط (ليس في ملف التثبيت) ويُرسل إلى Anthropic فقط. اتركه فارغًا للإبقاء على المفتاح الحالي أو لإضافته لاحقًا في UniSlicer.
-arabic.ClaudeKeyPrompt=مفتاح API (sk-ant-...):
-#endif
-
-[Code]
-var
-  ClaudeKeyPage: TInputQueryWizardPage;
-
-procedure InitializeWizard;
-begin
-  { optional page: the user's own Anthropic API key, written to this computer's settings only }
-  ClaudeKeyPage := CreateInputQueryPage(wpSelectTasks, CustomMessage('ClaudeKeyTitle'),
-    CustomMessage('ClaudeKeyDesc'), CustomMessage('ClaudeKeyInfo'));
-  ClaudeKeyPage.Add(CustomMessage('ClaudeKeyPrompt'), True);
-end;
-
-function ClaudeKey: String;
-begin
-  { /CLAUDEKEY=... on the command line (silent installs on lab computers), else the page }
-  Result := Trim(ExpandConstant('{param:CLAUDEKEY|}'));
-  if (Result = '') and (ClaudeKeyPage <> nil) then
-    Result := Trim(ClaudeKeyPage.Values[0]);
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  Key: String;
-begin
-  if CurStep = ssPostInstall then
-  begin
-    Key := ClaudeKey;
-    if Key <> '' then
-      RegWriteStringValue(HKEY_CURRENT_USER, 'Software\UniSlicer\UniSlicer', 'claude_api_key', Key);
-  end;
-end;

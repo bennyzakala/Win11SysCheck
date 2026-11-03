@@ -49,7 +49,6 @@ class AssistantPanel(QFrame):
     shareToggled = Signal(bool)
     syncRequested = Signal()
     closeRequested = Signal()
-    claudeRequested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -67,13 +66,6 @@ class AssistantPanel(QFrame):
         t = QLabel(tr("assistant"))
         t.setStyleSheet("font-weight: 700; font-size: 14px;")
         head.addWidget(t, 1)
-        # Claude: answers questions about the plate and proposes setting changes
-        claude = QPushButton(theme.icon("sparkle", "#ffffff", 14), " Claude")
-        claude.setObjectName("Primary")
-        claude.setToolTip(tr("claude_tip"))
-        claude.setCursor(Qt.PointingHandCursor)
-        claude.clicked.connect(self.claudeRequested.emit)
-        head.addWidget(claude)
         close = QToolButton()
         close.setIcon(theme.icon("x", theme.TEXT_DIM, 16))
         close.clicked.connect(self.closeRequested.emit)
