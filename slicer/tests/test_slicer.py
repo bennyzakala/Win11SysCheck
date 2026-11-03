@@ -3952,3 +3952,29 @@ def test_claude_retries_simpler_request_on_400_and_reports_credit():
         assert b.ask("q").error == "credit" and b.messages == []
     finally:
         srv.shutdown()
+
+
+def test_resin_cache_and_incremental_fix_match_a_full_slice():
+    """Slicing again reuses cached contours / hollowing / checks; switching on the fixes (thicken, pillars)
+    recomputes only what they change. The result must equal a slice computed from scratch."""
+    from shapely.geometry import box as sbox
+    from unislicer import mesh_tools
+    from unislicer.mesh import Mesh
+    part = Mesh.merge([mesh_tools.extrude(sbox(0, 0, 20, 20), 0, 12),
+                       mesh_tools.extrude(sbox(20, 8, 30, 8.2), 0, 12),       # a thin fin
+                       mesh_tools.extrude(sbox(5, 5, 9, 9), 13, 14)], "p")    # floats above: an island
+    m = placed(part).world_mesh()
+    over = {"support_enable": False, "hollow_enable": True, "drain_holes": 0}
+    cfg = lambda **k: profiles.build_config("elegoo_mars3", None, "sla_fast", dict(over, **k))
+    sla.clear_cache()
+    first = sla.prepare([m], cfg())
+    assert first.thin_layers and first.islands
+    again = sla.prepare([m], cfg())                                       # all cached
+    assert [g.area for g in again.layers] == [g.area for g in first.layers]
+    fixed = sla.prepare([m], cfg(sla_thicken_thin=True, sla_island_pillars=True))   # incremental
+    sla.clear_cache()
+    ref = sla.prepare([m], cfg(sla_thicken_thin=True, sla_island_pillars=True))     # from scratch
+    assert not fixed.thin_layers and not fixed.islands
+    assert fixed.thin_layers == ref.thin_layers and len(fixed.islands) == len(ref.islands)
+    assert max(a.symmetric_difference(b).area for a, b in zip(fixed.layers, ref.layers)) < 1e-6
+    assert fixed.cups == ref.cups and abs(fixed.volume_ml - ref.volume_ml) < 1e-9

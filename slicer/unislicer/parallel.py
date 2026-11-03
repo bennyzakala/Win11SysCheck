@@ -115,3 +115,15 @@ def _run(fn, args, progress, cancelled, weights) -> list:
             f.cancel()
         raise
     return results
+
+
+def _noop(i):
+    from . import sla, slicing  # noqa: F401  (load numpy / shapely / the slicer in each worker now)
+    return i
+
+
+def prewarm() -> None:
+    """Start every worker process now (each imports the slicer once), so the first real job does not wait."""
+    n = workers()
+    if n >= 2 and not _disabled:
+        run_chunks(_noop, [(i,) for i in range(n)])

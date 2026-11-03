@@ -5,7 +5,7 @@ import json
 import os
 
 import numpy as np
-from PySide6.QtCore import QItemSelectionModel, QSettings, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QItemSelectionModel, QSettings, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon, QImage, QKeySequence, QPixmap
 from PySide6.QtWidgets import (QApplication, QDialog, QCheckBox, QDoubleSpinBox, QFileDialog, QInputDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QListWidget, QListWidgetItem, QScrollArea, QMainWindow, QMenu, QMessageBox, QProgressBar,
@@ -148,6 +148,9 @@ class MainWindow(QMainWindow):
         self.result = None          # ("fdm", plan, text, stats) | ("sla", job, cfg)
         self.result_cfg = None
         self.task: Task | None = None
+        self._pre_task: Task | None = None           # background pre-slice (fills the slicer cache)
+        # start the worker processes early, in the background: the first slice should not wait for them
+        QTimer.singleShot(1500, lambda: __import__("threading").Thread(target=self._prewarm_pool, daemon=True).start())
         self._syncing = False
         self._undo: list = []
         self._redo: list = []
@@ -3853,6 +3856,7 @@ class MainWindow(QMainWindow):
     def _invalidate(self):
         if self.task is not None and self.task.isRunning():
             self.task.cancel()
+        self._schedule_preslice()
         had = self.result is not None
         self.result = None
         self.export_btn.setEnabled(False)
@@ -3899,21 +3903,17 @@ class MainWindow(QMainWindow):
                 return
         cfg = self.settings.config()
         self._learn_from_scene(cfg)
-        meshes = [o.world_mesh() for o in models]
-        cutters = [o.world_mesh() for o in self.objects if o.role == "cutter"]
-        manual = [o.world_support_points(0.0) for o in models]
-        direct = [o.direct for o in models]
-        materials = [dental_shades.face_shades(len(o.mesh.faces), o.material, o.regions) if o.regions else o.material
-                     for o in models]
-        holes = [o.world_drain_holes(0.0) for o in models]
-        filled = [o.fill_cavity for o in models]
-        own = [dict(o.settings) or None for o in models]
+        meshes, kw = self._sla_inputs(models)
+        cutters = kw["cutters"]
         name = self.objects[0].name or "print"
+        pre = self._pre_task if self._pre_task is not None and self._pre_task.isRunning() else None
 
         def work(progress, cancelled):
             if cfg["technology"] == "sla":
-                job = sla.prepare(meshes, cfg, progress, cancelled, support_points=manual, direct=direct, holes=holes, cutters=cutters,
-                                  materials=materials, filled=filled, model_settings=own)
+                if pre is not None:          # the background pre-slice of this same plate: let it finish (cached)
+                    progress("slice", 0.0)
+                    pre.wait()
+                job = sla.prepare(meshes, cfg, progress, cancelled, **kw)
                 return ("sla", job, cfg)
             parts = [mt for o in models for mt in o.print_meshes()]
             fdm_meshes, tools = [m for m, _t in parts], [t for _m, t in parts]
@@ -3925,6 +3925,87 @@ class MainWindow(QMainWindow):
             return ("fdm", plan, text, stats, verts, cfg)
 
         self._start_task(work, self._on_sliced, tr("slicing"))
+
+    @staticmethod
+    def _prewarm_pool():
+        try:
+            from .. import parallel
+            parallel.prewarm()
+        except Exception:
+            pass
+
+    def _sla_inputs(self, models):
+        """The model meshes and keyword arguments ``sla.prepare`` gets for these models."""
+        meshes = [o.world_mesh() for o in models]
+        kw = dict(support_points=[o.world_support_points(0.0) for o in models], direct=[o.direct for o in models],
+                  holes=[o.world_drain_holes(0.0) for o in models],
+                  cutters=[o.world_mesh() for o in self.objects if o.role == "cutter"],
+                  materials=[dental_shades.face_shades(len(o.mesh.faces), o.material, o.regions) if o.regions
+                             else o.material for o in models],
+                  filled=[o.fill_cavity for o in models], model_settings=[dict(o.settings) or None for o in models])
+        return meshes, kw
+
+    # ---------------------------------------------------------------- background pre-slice
+    PRESLICE_DELAY_MS = 2000
+
+    def _schedule_preslice(self):
+        """Resin: once the plate has been left alone for a moment, slice and hollow it in the background. The
+        results only fill the slicer's cache, so pressing Slice afterwards takes a fraction of the time."""
+        if getattr(self, "_pre_task", None) is not None and self._pre_task.isRunning():
+            self._pre_task.cancel()                  # the plate changed: that work is for an old plate
+        timer = getattr(self, "_preslice_timer", None)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self._preslice)
+            self._preslice_timer = timer
+        if self.store.value("preslice", "true") == "true":
+            timer.start(self.PRESLICE_DELAY_MS)
+
+    def _preslice(self):
+        if self.result is not None or (self.task is not None and self.task.isRunning()) \
+                or (self._pre_task is not None and self._pre_task.isRunning()):
+            return
+        try:
+            cfg = self.settings.config()
+            if cfg["technology"] != "sla" or cfg["sla_process"] == "polyjet":
+                return
+            models = [o for o in self.objects if o.role != "cutter"]
+            if not models or out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg),
+                                           region=plate_region(cfg)):
+                return
+            meshes, kw = self._sla_inputs(models)
+        except Exception:
+            return
+
+        def work(progress, cancelled):
+            sla.prepare(meshes, cfg, None, cancelled, **kw)
+            return None
+
+        self._pre_task = Task(work, self)
+        if not getattr(self, "_preslice_atexit", False):
+            # the program may end while it runs (a Qt thread still running at exit aborts the process)
+            import atexit
+            import weakref
+            ref = weakref.ref(self)
+            atexit.register(lambda: ref() is not None and ref()._stop_preslice())
+            app = QApplication.instance()
+            if app is not None:
+                app.aboutToQuit.connect(self._stop_preslice)
+            self._preslice_atexit = True
+        self._pre_task.start(QThread.LowPriority)
+
+    def _stop_preslice(self):
+        timer = getattr(self, "_preslice_timer", None)
+        try:
+            if timer is not None:
+                timer.stop()
+            t = self._pre_task
+            if t is not None and t.isRunning():
+                t.cancel()
+                t.wait(15000)
+        except RuntimeError:                         # Qt objects already deleted at exit
+            pass
 
     def _confirm_supports(self, cfg, models) -> bool:
         """Resin: warn before slicing parts that would print with no supports at all."""
@@ -5459,6 +5540,7 @@ class MainWindow(QMainWindow):
             self.task.cancel()
             self.task.wait(3000)
         # background helpers must finish before the window goes away (a running thread would crash)
+        self._stop_preslice()
         for t in (getattr(self, "_autosave_task", None), getattr(self, "_orient_task", None)):
             if t is not None and t.isRunning():
                 t.wait(5000)

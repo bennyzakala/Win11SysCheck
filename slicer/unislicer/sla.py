@@ -237,7 +237,7 @@ def _thin_chunk(layers: list, r: float, min_area: float = 0.0) -> list:
     return out
 
 
-def _thicken_chunk(layers: list, r: float) -> list:
+def _thicken_chunk(layers: list, r: float, min_area: float = 0.05) -> list:
     """Grow only the parts narrower than 2r (they would not form) by r/2 on each side; the rest is untouched."""
     out = []
     for g in layers:
@@ -245,7 +245,9 @@ def _thicken_chunk(layers: list, r: float) -> list:
             out.append(g)
             continue
         opened = g.buffer(-r, quad_segs=4).buffer(r, quad_segs=4)
-        if g.area - opened.area < 0.02:     # at most rounding slivers: nothing worth growing (and cheap to tell)
+        # less than the thin check counts (same gate as _thin_chunk): nothing worth growing, and a layer the
+        # thin check found clean is never changed here (the fix can then redo only the thin layers)
+        if g.area - opened.area < min_area:
             out.append(g)
             continue
         thin = g.difference(opened.buffer(0.01, quad_segs=4))
@@ -541,9 +543,9 @@ def _add_disk(layer, disk):
     return MultiPolygon(rest + polygons_of(shapely.union_all(touch + [disk])))
 
 
-def island_pillars(layers: list, radius: float = PILLAR_RADIUS, rounds: int = 3) -> tuple[list, int]:
+def island_pillars(layers: list, radius: float = PILLAR_RADIUS, rounds: int = 3) -> tuple[list, int, list]:
     """A thin round pillar under every island, from the island down to the first layer that is solid at that
-    spot (or the plate). Returns the new layers and how many pillars were added."""
+    spot (or the plate). Returns the new layers, how many pillars were added and any island still left."""
     layers = list(layers)
     added = 0
     check = None                             # first round: every layer; then only what the pillars touched
@@ -562,7 +564,9 @@ def island_pillars(layers: list, radius: float = PILLAR_RADIUS, rounds: int = 3)
                 check.update((j, j + 1))
                 j -= 1
             added += 1
-    return layers, added
+    else:
+        islands = find_islands(layers, only=check)
+    return layers, added, islands
 
 
 def hole_meshes(holes, cfg: Config, lift: float = 0.0) -> list[Mesh]:
@@ -606,6 +610,13 @@ def _shrink_compensate(mesh: Mesh, cfg: Config) -> Mesh:
 
 
 # ------------------------------------------------------------ validation
+def _same(a, b) -> bool:
+    """Cheap equality for two results of the same computation (area and bounds)."""
+    if a.is_empty or b.is_empty:
+        return a.is_empty and b.is_empty
+    return abs(a.area - b.area) < 1e-9 and np.allclose(a.bounds, b.bounds, atol=1e-9)
+
+
 def _cavity_cells_chunk(pairs: list) -> list:
     """Per (layer, layer below): the enclosed empty cells of the layer, and what of each cell is not over the
     solid of the layer below. Independent per layer, so it runs on all cores (``_sealed_layers``)."""
@@ -644,11 +655,13 @@ def _post_chunk(items: list, first: bool, thicken: bool, r_thin: float, min_area
     and its enclosed cells for the suction-cup check. ``items`` are (layer, infill) and, unless ``first``,
     start with the layer just below the chunk (the cells need the shell under them)."""
     out, prev_shell = [], EMPTY
-    for k, (g, fill) in enumerate(items):
+    for k, item in enumerate(items):
+        g, fill = item[0], item[1]
+        grow = thicken if len(item) < 3 else (thicken and item[2])
         has_fill = fill is not None and not fill.is_empty and not g.is_empty
         shell = as_multipolygon(g.difference(fill)) if has_fill else g
-        if thicken:
-            shell = _thicken_chunk([shell], 0.15)[0]
+        if grow:
+            shell = _thicken_chunk([shell], r_thin, min_area)[0]
             g = as_multipolygon(shell.union(fill)) if has_fill else shell
         if k == 0 and not first:
             prev_shell = shell                   # context only
@@ -675,7 +688,36 @@ def _post_process(layers: list, infill: list | None, thicken: bool, min_width: f
     return [x for part in parts for x in part]
 
 
-def _sealed_layers(layers: list[MultiPolygon], per: list | None = None) -> list[MultiPolygon]:
+def _post_thicken_incremental(base: list, layers: list, infill: list | None, changed: list, min_width: float = 0.3,
+                              min_area: float = 0.05) -> tuple[list, list]:
+    """The thickened ``_post_process`` result from the plain one, thickening only the ``changed`` layers (those
+    the thin check flags, with their neighbours) and redoing the cells right above them. Returns the result
+    and the recomputed layer indices."""
+    from . import parallel
+    n = len(base)
+    redo = sorted(set(changed) | {i + 1 for i in changed if i + 1 < n})
+    out = list(base)
+    fills = infill if infill and len(infill) == n else [None] * n
+    runs, start = [], None
+    for k, i in enumerate(redo):
+        if start is None:
+            start = i
+        if k == len(redo) - 1 or redo[k + 1] != i + 1:
+            runs.append((start, i))
+            start = None
+    thick = set(changed)
+    args = []
+    for a, b in runs:
+        items = [(layers[k], fills[k], k in thick) for k in range(max(0, a - 1), b + 1)]
+        args.append((items, a == 0, True, min_width / 2, min_area))
+    parts = parallel.run_chunks(_post_chunk, args, weights=[b - a + 1 for a, b in runs]) if args else []
+    for (a, b), part in zip(runs, parts):
+        out[a:b + 1] = part
+    return out, redo
+
+
+def _sealed_layers(layers: list[MultiPolygon], per: list | None = None, previous: list | None = None,
+                   changed: list | None = None) -> list[MultiPolygon]:
     """Per layer, the empty space that is enclosed by walls and sealed on the build-plate side.
 
     A cavity is sealed only if all of it sits on solid or on a cavity that is itself sealed; any opening
@@ -685,10 +727,32 @@ def _sealed_layers(layers: list[MultiPolygon], per: list | None = None) -> list[
         per = _per_layer(_cavity_cells_chunk, [(g, layers[i - 1] if i else EMPTY) for i, g in enumerate(layers)])
     out = []
     sealed = EMPTY
-    for i, item in enumerate(per):
+    incremental = previous is not None and changed is not None and len(previous) == len(per)
+    marks = sorted(set(changed)) if incremental else []
+    if incremental:
+        # only some layers changed (a fix): a layer's sealed space depends only on its own cells and the
+        # layer below, so recompute from each changed layer up until the result matches the old one again
+        if not marks:
+            return list(previous)
+        out = list(previous[:marks[0]])
+        sealed = previous[marks[0] - 1] if marks[0] else EMPTY
+    i = marks[0] if incremental else 0
+    while i < len(per):
+        if incremental:
+            pending = [c for c in marks if c >= i]
+            if (not pending or pending[0] > i) and i and not any(c == i - 1 for c in marks) \
+                    and _same(sealed, previous[i - 1]):
+                nxt = pending[0] if pending else len(per)          # in step again: copy up to the next change
+                out += previous[i:nxt]
+                if nxt >= len(per):
+                    break
+                sealed = previous[nxt - 1]
+                i = nxt
+        item = per[i]
         if item is None:
             sealed = EMPTY
             out.append(EMPTY)
+            i += 1
             continue
         cells, rest, bx = item
         if i == 0 and sealed.is_empty:
@@ -708,6 +772,7 @@ def _sealed_layers(layers: list[MultiPolygon], per: list | None = None) -> list[
             keep = list(cells[shapely.area(rest) < limit])
         sealed = as_multipolygon(shapely.union_all(keep)) if keep else EMPTY
         out.append(sealed)
+        i += 1
     return out
 
 
@@ -845,6 +910,53 @@ def _lasting_thin(thin: list, min_area: float = 0.05, layer_height: float = 0.05
     return [i for i, t in enumerate(lasting) if t.area > min_area]
 
 
+# ----------------------------------------------------------------- result cache
+# Slicing again after a fix or a setting change usually leaves the models alone: their contours, the hollowed
+# layers and the per-layer checks are then taken from here instead of being computed again. Keys are content
+# hashes of the meshes plus every setting a step depends on, so a changed model or setting never hits.
+_CACHE_SIZE = 12
+_cache: "dict" = {}
+
+
+def _cache_get(key):
+    hit = _cache.pop(key, None)
+    if hit is not None:
+        _cache[key] = hit                    # most recently used last
+    return hit
+
+
+def _cache_put(key, value):
+    _cache[key] = value
+    while len(_cache) > _CACHE_SIZE:
+        _cache.pop(next(iter(_cache)))
+
+
+def clear_cache():
+    _cache.clear()
+
+
+def mesh_key(mesh: Mesh) -> str:
+    cached = getattr(mesh, "_content_key", None)
+    if cached is not None and cached[0] == (id(mesh.vertices), id(mesh.faces)):
+        return cached[1]
+    import hashlib
+    h = hashlib.blake2b(digest_size=16)
+    h.update(np.ascontiguousarray(mesh.vertices).tobytes())
+    h.update(np.ascontiguousarray(mesh.faces).tobytes())
+    key = h.hexdigest()
+    mesh._content_key = ((id(mesh.vertices), id(mesh.faces)), key)
+    return key
+
+
+def _cached_slice(meshes: list, planes: list, resolution: float, **kw) -> list:
+    key = ("slice", tuple(mesh_key(m) for m in meshes), tuple(round(p, 6) for p in planes), resolution)
+    hit = _cache_get(key)
+    if hit is None:
+        hit = slice_meshes(meshes, planes, resolution, **kw)
+        _cache_put(key, hit)
+    return list(hit)
+
+
 # ----------------------------------------------------------------- prepare
 def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
@@ -913,9 +1025,10 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     hollowing = False
     for gi, idx in enumerate(groups.values()):
         gcfg = cfgs[idx[0]]
-        g_layers = slice_meshes([models[i] for i in idx], planes, cfg["resolution"],
-                                progress=lambda f, gi=gi: report("slice", (gi + f) / len(groups) * split),
-                                cancelled=cancelled)
+        g_keys = tuple(mesh_key(models[i]) for i in idx)
+        g_layers = _cached_slice([models[i] for i in idx], planes, cfg["resolution"],
+                                 progress=lambda f, gi=gi: report("slice", (gi + f) / len(groups) * split),
+                                 cancelled=cancelled)
         if cfg["xy_compensation"]:
             g_layers = [as_multipolygon(g.buffer(cfg["xy_compensation"], join_style="mitre", mitre_limit=3))
                         if not g.is_empty else g for g in g_layers]
@@ -927,8 +1040,16 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         # choosing an internal infill means "hollow it and fill the cavity": it turns hollowing on by itself
         if (gcfg["hollow_enable"] or gcfg["hollow_infill"] != "none") and not jetting:
             report("hollow", gi / len(groups))
-            g_infill: list = []
-            g_layers, g_saved, notes = hollow(g_layers, lh, gcfg, g_infill)
+            hkey = ("hollow", g_keys, tuple(round(p, 6) for p in planes), cfg["resolution"], cfg["xy_compensation"],
+                    tuple(bool(filled and i < len(filled) and filled[i]) for i in idx), lh,
+                    tuple(gcfg[k] for k in HOLLOW_KEYS), gcfg["support_enable"])
+            hit = _cache_get(hkey)
+            if hit is None:
+                g_infill: list = []
+                out_layers, g_saved, notes = hollow(g_layers, lh, gcfg, g_infill)
+                hit = (out_layers, g_saved, notes, g_infill)
+                _cache_put(hkey, hit)
+            g_layers, g_saved, notes, g_infill = list(hit[0]), hit[1], list(hit[2]), list(hit[3])
             saved += g_saved
             warnings += [n for n in notes if n not in warnings]
             if g_infill:
@@ -942,23 +1063,50 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         hole_tubes += hole_meshes([group], cfg, 0.0 if flat else lifted)
     cutter_meshes = hole_tubes + [c.translated([0, 0, lifted]) for c in (cutters or [])]
     if cutter_meshes:
-        cut_layers = slice_meshes(cutter_meshes, planes, cfg["resolution"])
+        cut_layers = _cached_slice(cutter_meshes, planes, cfg["resolution"])
         layers = [as_multipolygon(g.difference(c)) if not c.is_empty and not g.is_empty else g
                   for g, c in zip(layers, cut_layers)]
     # one pass on all cores: thicken thin parts (the model, never the honeycomb walls inside it), the shell
     # without that infill (its walls are thin on purpose), the shell's thin parts and its enclosed cells
-    post = _post_process(layers, infill if hollowing else None, bool(cfg["sla_thicken_thin"]))
+    post_key = None
+    if not cutter_meshes:
+        post_key = ("post", tuple(tuple(mesh_key(models[i]) for i in idx) for idx in groups.values()),
+                    tuple(round(p, 6) for p in planes), cfg["resolution"], cfg["xy_compensation"], lh,
+                    tuple(bool(filled and i < len(filled) and filled[i]) for i in range(len(models))),
+                    tuple(tuple(c[k] for k in HOLLOW_KEYS) + (c["support_enable"],) for c in cfgs),
+                    bool(cfg["sla_thicken_thin"]))
+    post = _cache_get(post_key) if post_key else None
+    base_key = post_key[:-1] + (False,) if post_key and post_key[-1] else None
+    redo = None
+    if post is None:
+        thicken = bool(cfg["sla_thicken_thin"])
+        base = _cache_get(base_key) if base_key else None
+        if base is None:
+            base = _post_process(layers, infill if hollowing else None, False)
+            if base_key or (post_key and not thicken):
+                _cache_put(base_key or post_key, base)
+        if thicken:
+            # grow only what the thin check flags (thin through 0.5 mm of height), with the layers around it;
+            # the brief thin slivers of almost every layer of a scanned model need nothing
+            k = max(1, int(round(0.5 / lh / 2)))
+            flagged = _lasting_thin([x[2] for x in base], layer_height=lh)
+            changed = sorted({j for i in flagged for j in range(max(0, i - k), min(len(base), i + k + 1))})
+            post, redo = _post_thicken_incremental(base, layers, infill if hollowing else None, changed)
+        else:
+            post = base
+        if post_key:
+            _cache_put(post_key, post)
     layers = [x[0] for x in post]
     shell = [x[1] for x in post]
     thin = _lasting_thin([x[2] for x in post], layer_height=lh)
     shell_cells = [x[3] for x in post]
     if support_meshes:
-        sup_layers = slice_meshes(support_meshes, planes, cfg["resolution"],
-                                  progress=lambda f: report("slice", split + f * (1 - split)), cancelled=cancelled)
+        sup_layers = _cached_slice(support_meshes, planes, cfg["resolution"],
+                                   progress=lambda f: report("slice", split + f * (1 - split)), cancelled=cancelled)
         layers = _per_layer(_union_chunk, list(zip(layers, sup_layers)))
-    pillars = 0
+    pillars, left = 0, None
     if cfg["sla_island_pillars"] and not jetting:
-        layers, pillars = island_pillars(layers)
+        layers, pillars, left = island_pillars(layers)
     foot = cfg["bottom_xy_compensation"]
     if foot > 0:
         for i in range(min(int(cfg["bottom_layers"]), len(layers))):
@@ -990,11 +1138,19 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         job.cost = (job.volume_ml * cfg["resin_density"] * cfg["pj_model_cost"] + job.support_ml * 1.1 * cfg["pj_support_cost"]) / 1000.0
         job.time_s = top / max(cfg["pj_build_speed"], 0.1) * 3600.0
         return job        # no peel, so no suction cups or unsupported islands
-    job.islands = find_islands(layers)
+    # with pillars, the islands left are what their last check found (every other layer was checked before)
+    job.islands = left if left is not None else find_islands(layers)
     # suction cups are cavities of the model itself: look at the shell (no supports, no honeycomb infill,
     # whose hundreds of cells per layer made this the slowest step)
     cup_layers = shell if len(shell) == len(layers) else layers
-    sealed = _sealed_layers(cup_layers, shell_cells if len(shell_cells) == len(cup_layers) else None)
+    seal_key = ("sealed",) + post_key[1:] if post_key and cup_layers is shell else None
+    sealed = _cache_get(seal_key) if seal_key else None
+    if sealed is None:
+        prev = _cache_get(("sealed",) + base_key[1:]) if redo is not None and seal_key else None
+        sealed = _sealed_layers(cup_layers, shell_cells if len(shell_cells) == len(cup_layers) else None,
+                                previous=prev, changed=redo if prev is not None else None)
+        if seal_key:
+            _cache_put(seal_key, sealed)
     job.cups = find_cups(cup_layers, sealed=sealed)
     if job.cups:
         job.cup_vents = cup_vents(cup_layers, job.layer_z, radius=max(0.5, cfg["drain_hole_diameter"] / 2), sealed=sealed)
