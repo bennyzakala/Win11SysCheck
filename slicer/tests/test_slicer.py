@@ -4443,8 +4443,10 @@ def test_formlabs_dialog_connects_finds_and_sends(tmp_path):
             print("STATUS", seen.get("status"))
         ''')
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), FAKE_PORT=str(srv.port))
-        r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+        env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), FAKE_PORT=str(srv.port),
+                   PYTHONIOENCODING="utf-8")                  # the status is Hebrew; a Windows console is cp1252
+        r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
+                           encoding="utf-8", errors="replace")
         assert r.returncode == 0 and "STATUS" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
         assert srv.printed and srv.printed[0]["printer"] == "192.168.7.20" and srv.printed[0]["print_now"] is False
         assert "192.168.7.20" in r.stdout
