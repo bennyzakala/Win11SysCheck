@@ -4163,3 +4163,17 @@ def test_cavity_pillars_reach_the_plate_through_an_open_bottom():
     pil = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", dict(base, sla_cavity_pillars=True)))
     assert pil.layers[0].area > plain.layers[0].area + 5               # pillars stand on the plate
     assert not pil.islands
+
+
+def test_cavity_pillars_also_hold_up_outside_overhangs():
+    """With 'also under outside overhangs' a ledge that sticks out of the model gets pillars from the plate."""
+    from shapely.geometry import box as sbox
+    from unislicer import mesh_tools
+    from unislicer.mesh import Mesh
+    body = mesh_tools.extrude(sbox(0, 0, 20, 20), 0, 10)
+    ledge = mesh_tools.extrude(sbox(20, 5, 26, 15), 6, 8)              # sticks out 6 mm, 6 mm above the plate
+    m = placed(Mesh.merge([body, ledge], "ledge")).world_mesh()
+    base = {"support_enable": False, "hollow_enable": False, "sla_cavity_pillars": True}
+    off = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", dict(base, sla_cavity_outside=False)))
+    on = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", dict(base, sla_cavity_outside=True)))
+    assert on.layers[0].area > off.layers[0].area + 1                 # pillars under the ledge stand on the plate

@@ -1271,5 +1271,7 @@
 "Pillars inside the cavity (model on the plate)": "أعمدة داخل التجويف (النموذج على اللوح)",
 "A model printed straight on the plate (not raised, no raft): pillars only inside its cavity, from the plate or the inner floor up to the ceiling. Works on a cavity the model already has and on a hollowed one": "نموذج يُطبع مباشرة على اللوح (دون رفع ودون طوف): أعمدة داخل تجويفه فقط، من اللوح أو الأرضية الداخلية حتى السقف. يعمل على تجويف موجود في النموذج وعلى تجويف التفريغ",
 "Cavity pillar spacing": "تباعد أعمدة التجويف",
-"Cavity pillar diameter": "قطر عمود التجويف"
+"Cavity pillar diameter": "قطر عمود التجويف",
+"Pillars also under outside overhangs": "أعمدة أيضًا تحت البروزات الخارجية",
+"With the cavity pillars: parts of the model that stick out and hang in the air also get pillars, from the plate or from the model below them": "مع أعمدة التجويف: الأجزاء البارزة من النموذج المعلقة في الهواء تحصل أيضًا على أعمدة، من اللوح أو من النموذج تحتها"
 }

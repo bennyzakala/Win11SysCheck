@@ -300,7 +300,7 @@ def _per_layer(fn, items: list, *extra) -> list:
     return [x for chunk in chunks for x in chunk]
 
 
-HOLLOW_KEYS = ("sla_cavity_pillars", "sla_cavity_spacing", "sla_cavity_diameter", "hollow_enable", "hollow_wall", "hollow_base_height", "hollow_mode", "hollow_infill",
+HOLLOW_KEYS = ("sla_cavity_pillars", "sla_cavity_outside", "sla_cavity_spacing", "sla_cavity_diameter", "hollow_enable", "hollow_wall", "hollow_base_height", "hollow_mode", "hollow_infill",
                "hollow_infill_spacing", "hollow_infill_thickness", "drain_holes", "drain_hole_diameter",
                "drain_hole_depth", "sla_internal_supports", "sla_internal_spacing")
 
@@ -327,6 +327,47 @@ def covered_voids(layers: list[MultiPolygon]) -> list[MultiPolygon]:
                 out[i] = as_multipolygon(v.buffer(-0.05).buffer(0.05)) if v.area > 1 else EMPTY
         if not layers[i].is_empty:
             above = above.union(layers[i]) if not above.is_empty else layers[i]
+            if i % 25 == 0:
+                above = above.simplify(0.02)
+    return out
+
+
+def _overhang_points(under: list, cavity: list, r: float, spacing: float) -> list:
+    """Pillar spots in the parts that hang in the air outside the cavity (often narrow strips the even grid
+    misses): at least one in each, more in larger ones."""
+    parts = [u for u in under[::2] if not u.is_empty]
+    if not parts:
+        return []
+    cav = [c for c in cavity[::2] if not c.is_empty]
+    # outside = under the model but nowhere in the cavity (the cavity's open bottom layers count as cavity)
+    outside = shapely.union_all(parts).simplify(0.05)
+    if cav:
+        outside = outside.difference(shapely.union_all(cav).buffer(spacing * 0.3))
+    pts = []
+    for comp in polygons_of(outside):
+        inner = comp.buffer(-r * 0.6)
+        if inner.is_empty or comp.area < 0.5:
+            continue
+        n = max(1, int(round(comp.area / (spacing * spacing))))
+        pts += _spread_points(as_multipolygon(inner), n)
+    return pts
+
+
+def under_model(layers: list[MultiPolygon], min_area: float = 0.5) -> list[MultiPolygon]:
+    """Per layer, the empty space that has model material somewhere above it: the cavity and every part of
+    the model that hangs in the air (what a model standing on the plate needs held up)."""
+    n = len(layers)
+    out = [EMPTY] * n
+    above = EMPTY
+    for i in range(n - 1, -1, -1):
+        g = layers[i]
+        if not above.is_empty:
+            v = above.difference(g) if not g.is_empty else above
+            if not v.is_empty and v.area > min_area:
+                v = v.buffer(-0.05).buffer(0.05)
+                out[i] = as_multipolygon(v) if not v.is_empty else EMPTY
+        if not g.is_empty:
+            above = above.union(g) if not above.is_empty else g
             if i % 25 == 0:
                 above = above.simplify(0.02)
     return out
@@ -453,7 +494,7 @@ def _infill_pattern(cavity: list, cfg: Config):
 
 
 def _internal_pillars(layers: list, cavity: list, cfg: Config, from_plate: bool = False,
-                      radius: float | None = None, spacing: float | None = None) -> list:
+                      radius: float | None = None, spacing: float | None = None, extra_points=None) -> list:
     """Pillars inside cavities; a pillar only starts on solid material or on its own pillar below. With
     ``from_plate`` (a model printed straight on the plate) a pillar may also stand on the build plate: where
     nothing of the model lies under that spot, it goes straight down to the plate."""
@@ -468,6 +509,9 @@ def _internal_pillars(layers: list, cavity: list, cfg: Config, from_plate: bool 
     maxy = max(c.bounds[3] for c in cav)
     xs, ys = np.meshgrid(np.arange(minx + sp / 2, maxx, sp), np.arange(miny + sp / 2, maxy, sp))
     px, py = xs.ravel(), ys.ravel()
+    if extra_points:
+        ex = np.asarray(extra_points, dtype=float).reshape(-1, 2)
+        px, py = np.concatenate([px, ex[:, 0]]), np.concatenate([py, ex[:, 1]])
     if px.size == 0:
         return layers
     circles = [Point(x, y).buffer(r, quad_segs=6) for x, y in zip(px, py)]
@@ -1214,7 +1258,13 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
                     tuple(gcfg[k] for k in HOLLOW_KEYS), cfg["xy_compensation"])
             hit = _cache_get(ckey)
             if hit is None:
-                hit = _internal_pillars(g_layers, covered_voids(g_layers), gcfg, from_plate=True,
+                cav = covered_voids(g_layers)
+                extra = []
+                room = cav
+                if gcfg["sla_cavity_outside"]:
+                    room = under_model(g_layers)
+                    extra = _overhang_points(room, cav, gcfg["sla_cavity_diameter"] / 2, gcfg["sla_cavity_spacing"])
+                hit = _internal_pillars(g_layers, room, gcfg, from_plate=True, extra_points=extra,
                                         radius=gcfg["sla_cavity_diameter"] / 2, spacing=gcfg["sla_cavity_spacing"])
                 _cache_put(ckey, hit)
             g_layers = list(hit)

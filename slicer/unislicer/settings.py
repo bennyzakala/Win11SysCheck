@@ -268,6 +268,10 @@ SCHEMA: list[Setting] = [
              "הפנימית עד התקרה. עובד על חלל שכבר קיים במודל ועל חלל של חלילה",
       tip_en="A model printed straight on the plate (not raised, no raft): pillars only inside its cavity, from the "
              "plate or the inner floor up to the ceiling. Works on a cavity the model already has and on a hollowed one"),
+    S("sla_cavity_outside", "bool", True, "support", "sla", "עמודים גם מתחת לבליטות מבחוץ", "Pillars also under outside overhangs",
+      tip_he="יחד עם העמודים בחלל: גם חלקים של המודל שבולטים החוצה ותלויים באוויר מקבלים עמודים, מהפלטה או מהמודל שמתחתם",
+      tip_en="With the cavity pillars: parts of the model that stick out and hang in the air also get pillars, from the "
+             "plate or from the model below them"),
     S("sla_cavity_spacing", "float", 5.0, "support", "sla", "מרווח בין העמודים בחלל", "Cavity pillar spacing", "mm", 1.5, 30, 0.5),
     S("sla_cavity_diameter", "float", 1.2, "support", "sla", "קוטר עמוד בחלל", "Cavity pillar diameter", "mm", 0.4, 6, 0.1),
 
