@@ -321,7 +321,7 @@ def test_print_checks_cups_and_thin_features():
     from unislicer.mesh import Mesh
 
     def check(mesh, **over):
-        cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", over)
+        cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {"sla_hole_advice": True, **over})
         return sla.prepare([placed(mesh, 70, 45).world_mesh()], cfg)
     assert check(primitives.box(20, 20, 20)).cups == []
     assert check(primitives.box(20, 20, 20), hollow_enable=True, drain_holes=0).cups
@@ -487,7 +487,8 @@ def test_hollow_modes_infill_internal_supports_and_manual_holes():
     m = placed(primitives.box(30, 30, 25), 70, 45).world_mesh()
 
     def run(**over):
-        cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {"hollow_enable": True, "drain_holes": 2, **over})
+        cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {"hollow_enable": True, "drain_holes": 2,
+                                                                      "sla_hole_advice": True, **over})
         return sla.prepare([m], cfg)
     closed = run()
     for kind in ("grid", "hive"):
@@ -498,7 +499,8 @@ def test_hollow_modes_infill_internal_supports_and_manual_holes():
     assert supported.islands == []
     sealed = run(drain_holes=0)
     assert sealed.cups
-    vented = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", dict(hollow_enable=True, drain_holes=0)),
+    vented = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", dict(hollow_enable=True, drain_holes=0,
+                                                                                          sla_hole_advice=True)),
                          holes=[np.array([[70, 30, 3, 0, -1, 0]])])
     assert len(vented.cups) < len(sealed.cups)
 
@@ -782,7 +784,7 @@ def test_suction_cup_vents_fix_the_cup():
                       primitives.box(20, 2, 10).translated([0, 18, 2]), primitives.box(2, 16, 10).translated([0, 2, 2]),
                       primitives.box(2, 16, 10).translated([18, 2, 2])])
     m = placed(cup, 70, 45).world_mesh()
-    cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {})
+    cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {"sla_hole_advice": True})
     job = sla.prepare([m], cfg)
     assert job.cups and job.cup_vents
     v = job.cup_vents[0]
@@ -790,7 +792,7 @@ def test_suction_cup_vents_fix_the_cup():
     assert m.bounds[0][0] - 0.1 <= v["x"] <= m.bounds[1][0] + 0.1 and v["depth"] <= 2.5
     assert sla.prepare([m], cfg, holes=[sla.vent_hole_rows(v, cfg)]).cups == []
     # on supports the cup is vented from below, through the roof
-    up = profiles.build_config("elegoo_mars3", None, "sla_fast", {"support_enable": True})
+    up = profiles.build_config("elegoo_mars3", None, "sla_fast", {"support_enable": True, "sla_hole_advice": True})
     job = sla.prepare([m], up)
     lift = up["sla_elevation"] + up["sla_raft_thickness"]
     if job.cups:
@@ -3284,7 +3286,8 @@ def test_closed_honeycomb_cavity_is_a_suction_cup_and_a_vent_clears_it():
     from unislicer.scene import SceneObject
     cfg = profiles.build_config("phrozen_sonic_ls_plus", "phrozen_ds_phrozen_dental_washable_dental_model", None,
                                 {"support_enable": True, "hollow_enable": True, "hollow_mode": "inner",
-                                 "hollow_infill": "hive", "drain_holes": 0, "sla_layer_height": 0.1})
+                                 "hollow_infill": "hive", "drain_holes": 0, "sla_layer_height": 0.1,
+                                 "sla_hole_advice": True})
     o = SceneObject.from_mesh(primitives.box(40, 30, 15)); o.x, o.y = 90, 60
     job = sla.prepare([o.world_mesh()], cfg)
     assert job.cups and max(a for _i, a in job.cups) > 500 and job.cup_vents
@@ -3518,6 +3521,7 @@ def test_print_check_rows_have_fix_buttons():
         w.settings.select_printer("phrozen_sonic_xl_4k_plus"); app.processEvents()
         w.settings.set_value("support_enable", False)
         w.settings.set_value("hollow_enable", True); w.settings.set_value("drain_holes", 0)
+        w.settings.set_value("sla_hole_advice", True)
         o = w.add_mesh(primitives.box(30, 20, 15)); o.direct = True
         settle = time.time() + 1.0
         while time.time() < settle:
@@ -3629,6 +3633,7 @@ def test_fix_keeps_the_check_list_and_fix_all_slices_once():
         w.settings.select_printer("phrozen_sonic_xl_4k_plus"); app.processEvents()
         w.settings.set_value("support_enable", False)
         w.settings.set_value("hollow_enable", True); w.settings.set_value("drain_holes", 0)
+        w.settings.set_value("sla_hole_advice", True)
         part = Mesh.merge([mesh_tools.extrude(box(0, 0, 20, 20), 0, 12), mesh_tools.extrude(box(20, 8, 30, 8.2), 0, 12)], "p")
         o = w.add_mesh(part); o.direct = True
         def run_slice():
@@ -4064,3 +4069,13 @@ def test_make_watertight_falls_back_to_the_advanced_repair():
     fixed, rep, ok = mesh_tools.make_watertight(holed)
     assert ok and fixed.is_watertight() and [k for k, _ in rep["steps"]][-1] == "advanced"
     assert abs(fixed.volume() - s.volume()) < 0.02 * s.volume()
+
+
+def test_holes_are_never_suggested_by_default():
+    """By default the program does not look for suction cups and never offers holes: a sealed hollow model
+    gets no cup warning and no drain holes."""
+    cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {"hollow_enable": True, "support_enable": False})
+    assert cfg["drain_holes"] == 0 and not cfg["sla_hole_advice"]
+    job = sla.prepare([placed(primitives.box(20, 20, 20)).world_mesh()], cfg)
+    assert job.cups == [] and not job.cups_checked and not job.cup_vents
+    assert not any("drain" in w for w in job.warnings)

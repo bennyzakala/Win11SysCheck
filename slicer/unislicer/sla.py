@@ -34,6 +34,7 @@ class SlaJob:
     cup_vents: list[dict] = field(default_factory=list)              # where a vent breaks each cup
     thin_layers: list[int] = field(default_factory=list)
     island_pillars: int = 0
+    cups_checked: bool = False          # the suction-cup check ran (only with "Suggest drain / vent holes")
     volume_ml: float = 0.0
     saved_ml: float = 0.0              # resin saved by hollowing
     time_s: float = 0.0
@@ -403,7 +404,7 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list 
                 out[i] = as_multipolygon(out[i].difference(cut))
         else:
             notes.append("The cavity is too small for the drain holes.")
-    elif saved > 0:
+    elif saved > 0 and cfg["sla_hole_advice"]:
         notes.append("Hollowed without drain holes: uncured resin will stay trapped inside.")
     return [as_multipolygon(g) for g in out], saved, notes
 
@@ -1274,6 +1275,10 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     # suction cups are cavities of the model itself: look at the shell (no supports, no honeycomb infill,
     # whose hundreds of cells per layer made this the slowest step)
     cup_layers = shell if len(shell) == len(layers) else layers
+    job.cups_checked = bool(cfg["sla_hole_advice"])
+    if not job.cups_checked:
+        # holes are off (the default): no suction-cup analysis, nothing that would lead to drilling the model
+        cup_layers = []
     seal_key = ("sealed",) + post_key[1:] if post_key and cup_layers is shell else None
     sealed = _cache_get(seal_key) if seal_key else None
     if sealed is None:

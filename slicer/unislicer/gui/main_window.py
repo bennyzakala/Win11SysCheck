@@ -4524,7 +4524,7 @@ class MainWindow(QMainWindow):
         if job.cups:
             first, last = job.cups[0][0], job.cups[-1][0]
             out.append(tr("check_cups").format(first + 1, last + 1, max(a for _, a in job.cups)))
-        else:
+        elif getattr(job, "cups_checked", False):
             out.append("✓ " + tr("check_no_cups"))
         if job.thin_layers:
             out.append(tr("check_thin").format(len(job.thin_layers), job.thin_layers[0] + 1))

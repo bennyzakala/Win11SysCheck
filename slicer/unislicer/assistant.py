@@ -316,8 +316,12 @@ class Assistant:
         elif outcome == "fail_suction":
             w = self.data["orient"]["sla"]["weights"]
             w[1], w[2] = w[1] * 1.2, w[2] * 1.2       # care more about peel area and faces parallel to the screen
-            out.append(Suggestion(f"print_suction_{time.time():.0f}", "improve", "sg_after_suction", (),
-                                  "set", {"hollow_enable": True, "drain_holes": 2}, False))
+            if cfg.get("sla_hole_advice", False):
+                out.append(Suggestion(f"print_suction_{time.time():.0f}", "improve", "sg_after_suction", (),
+                                      "set", {"hollow_enable": True, "drain_holes": 2}, False))
+            else:                     # holes are not wanted: change the orientation instead
+                out.append(Suggestion(f"print_suction_{time.time():.0f}", "improve", "sg_cups_orient", (),
+                                      "auto_orient_all", {}, False))
         elif outcome == "fail_adhesion":
             if technology == "sla":
                 new = round(cfg["bottom_exposure_time"] * 1.15, 1)
@@ -363,7 +367,7 @@ class Assistant:
 
         # problems found in the last slice
         if job.get("cups"):
-            if cfg is not None and cfg["hollow_enable"] and int(cfg["drain_holes"]) == 0:
+            if cfg is not None and cfg["hollow_enable"] and int(cfg["drain_holes"]) == 0 and cfg["sla_hole_advice"]:
                 out.append(Suggestion("cups_drain", "problem", "sg_cups_drain", (), "set", {"drain_holes": 2}, False))
             else:
                 out.append(Suggestion("cups_orient", "problem", "sg_cups_orient", (), "auto_orient_all", {}, False))
@@ -386,7 +390,8 @@ class Assistant:
                 save = o.get("hollow_saving_ml", 0)
                 if not cfg["hollow_enable"] and save >= 8:
                     out.append(Suggestion("hollow", "improve", "sg_hollow", (save,), "set",
-                                          {"hollow_enable": True, "drain_holes": 2}, False))
+                                          {"hollow_enable": True, "drain_holes": 2} if cfg["sla_hole_advice"]
+                                          else {"hollow_enable": True}, False))
                     break
             if cfg["support_enable"] and cfg["sla_support_type"] == "pillar":
                 out.append(Suggestion("tree_supports", "improve", "sg_tree", (), "set", {"sla_support_type": "tree"}))
