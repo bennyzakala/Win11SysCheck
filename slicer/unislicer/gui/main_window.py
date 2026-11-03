@@ -452,6 +452,10 @@ class MainWindow(QMainWindow):
         self.close_holes_act.setCheckable(True)
         self.close_holes_act.setChecked(self.store.value("auto_close_holes", "true") == "true")
         self.close_holes_act.toggled.connect(lambda on: self.store.setValue("auto_close_holes", "true" if on else "false"))
+        self.defects_act = mm.addAction(tr("show_defects"))
+        self.defects_act.setCheckable(True)
+        self.defects_act.setChecked(self.store.value("show_defects", "true") == "true")
+        self.defects_act.toggled.connect(self._toggle_defects)
         mm.addSeparator()
         mm.addAction(theme.icon("download"), tr("export_as") + "…", lambda: self.export(ask=True))
         mm.addAction(theme.icon("open"), tr("export_library_open"), self.open_export_library)
@@ -685,6 +689,7 @@ class MainWindow(QMainWindow):
         grid = QGridLayout(holder)
         grid.setContentsMargins(0, 0, 0, 0)
         self.viewer = Viewer()
+        self.viewer.show_defects = self.store.value("show_defects", "true") == "true"
         self.viewer.objectClicked.connect(self._on_view_click)
         self.viewer.boxSelected.connect(self._on_box_select)
         self.viewer.contextRequested.connect(self._show_context_menu)
@@ -697,6 +702,7 @@ class MainWindow(QMainWindow):
         self.viewer.rotateFinished.connect(self._on_rotate_end)
         self.viewer.facePicked.connect(self._on_face_picked)
         self.viewer.holePicked.connect(self._on_hole_picked)
+        self.viewer.keepoutPicked.connect(self._on_keepout_picked)
         self.viewer.measured.connect(self._on_measured)
         self.viewer.previewObjectClicked.connect(self._on_preview_click)
         self.viewer.rayPicked.connect(self._on_support_remove)
@@ -776,7 +782,7 @@ class MainWindow(QMainWindow):
         pl.setSpacing(2)
         self.tool_buttons = {}
         for name, icon_name, key in (("move", "move", "M"), ("rotate", "rotate3d", "R"), ("face", "face", "F"),
-                                     ("hole", "drop", "H"), ("measure", "ruler", "D")):
+                                     ("hole", "drop", "H"), ("keepout", "shield", "K"), ("measure", "ruler", "D")):
             b = QToolButton()
             b.setIcon(theme.icon(icon_name, theme.TEXT, 20))
             b.setIconSize(QSize(20, 20))
@@ -1160,6 +1166,7 @@ class MainWindow(QMainWindow):
                         (QKeySequence.Redo, self.redo), (QKeySequence.Save, via_key("save_project", self.save_project)), (QKeySequence("Escape"), lambda: (self._set_pick_mode(None), self.set_tool("move"))),
                         (QKeySequence("M"), lambda: self.set_tool("move")), (QKeySequence("R"), lambda: self.set_tool("rotate")),
                         (QKeySequence("F"), lambda: self.set_tool("face")), (QKeySequence("H"), lambda: self.set_tool("hole")),
+                        (QKeySequence("K"), lambda: self.set_tool("keepout")),
                         (QKeySequence("D"), lambda: self.set_tool("measure"))):
             act = QAction(self)
             act.setShortcut(seq)
@@ -1201,7 +1208,8 @@ class MainWindow(QMainWindow):
                 pts = o.world_support_points(lift)
             elif cfg["support_enable"]:
                 if "auto_points" not in geo:
-                    geo["auto_points"] = sla_supports.auto_support_points(world, cfg)
+                    geo["auto_points"] = sla_supports.drop_keepout(sla_supports.auto_support_points(world, cfg),
+                                                                   o.world_keepout(lift))
                 pts = geo["auto_points"]
             else:
                 pts = np.zeros((0, 3))
@@ -1241,7 +1249,8 @@ class MainWindow(QMainWindow):
                 if contact is None:
                     continue
                 if o.support_points is None:
-                    o.set_world_support_points(sla_supports.auto_support_points(world, cfg), lift)
+                    o.set_world_support_points(sla_supports.drop_keepout(sla_supports.auto_support_points(world, cfg),
+                                                                         o.world_keepout(lift)), lift)
                 o.set_world_support_points(np.vstack([o.world_support_points(lift), contact[None, :]]), lift)
                 added += 1
                 break
@@ -2080,7 +2089,7 @@ class MainWindow(QMainWindow):
         for n, b in self.tool_buttons.items():
             b.setChecked(n == name)
         self.viewer.tool = name
-        self.viewer.setCursor(Qt.CrossCursor if name in ("face", "hole", "measure") else Qt.ArrowCursor)
+        self.viewer.setCursor(Qt.CrossCursor if name in ("face", "hole", "keepout", "measure") else Qt.ArrowCursor)
         if name != "measure":
             self.viewer.measure_points = []
             self.viewer.measure_hover = None
@@ -2093,6 +2102,8 @@ class MainWindow(QMainWindow):
                 "measure": "tool_measure_hint"}.get(name)
         if hint:
             self.status.setText(tr(hint))
+        if name == "keepout":
+            self.status.setText(tr("tool_keepout_hint").format(f"{self.KEEPOUT_DIAMETER:g}"))
         self.viewer.update()
 
     @staticmethod
@@ -2180,6 +2191,40 @@ class MainWindow(QMainWindow):
         self._objects_changed(refresh_list=False)
         self.status.setText(tr("hole_added").format(len(o.drain_holes)))
 
+    KEEPOUT_DIAMETER = 6.0
+
+    def _on_keepout_picked(self, uid, point):
+        """Support-free zone tool: a click adds a zone there; a click on a zone removes it."""
+        o = next((x for x in self.objects if x.uid == uid), None)
+        if o is None:
+            return
+        self._push_undo()
+        lift = self._lift() if self._shows_supports(o) else 0.0
+        zones = o.world_keepout(lift)
+        if len(zones):
+            d = np.linalg.norm(zones[:, :3] - np.asarray(point), axis=1)
+            k = int(np.argmin(d))
+            if d[k] < zones[k, 3]:
+                o.keepout = np.delete(o.keepout, k, axis=0)
+                self._objects_changed(refresh_list=False)
+                self.status.setText(tr("keepout_removed"))
+                return
+        o.add_world_keepout(point, self.KEEPOUT_DIAMETER / 2, lift)
+        if o.support_points is not None and len(o.support_points):   # drop edited supports already inside
+            o.set_world_support_points(sla_supports.drop_keepout(o.world_support_points(lift), o.world_keepout(lift)),
+                                       lift)
+        self._objects_changed(refresh_list=False)
+        self.status.setText(tr("keepout_added").format(len(o.keepout)))
+
+    def clear_keepout(self):
+        targets = [o for o in self._support_targets() if len(o.keepout)]
+        if not targets:
+            return
+        self._push_undo()
+        for o in targets:
+            o.keepout = np.zeros((0, 4))
+        self._objects_changed(refresh_list=False)
+
     def _hole_preview(self, o: SceneObject, cfg):
         """Red cylinders marking manual drain holes, in the object's own coordinates."""
         if len(o.drain_holes) == 0:
@@ -2187,6 +2232,15 @@ class MainWindow(QMainWindow):
         lift = self._lift(cfg) if self._shows_supports(o) else 0.0
         tubes = sla.hole_meshes([o.world_drain_holes(lift)], cfg)
         return Mesh.merge(tubes).transform(np.linalg.inv(self._display_matrix(o)))
+
+    def _keepout_preview(self, o: SceneObject, cfg):
+        """Blue see-through balls marking the support-free zones, in the object's own coordinates."""
+        if len(o.keepout) == 0:
+            return None
+        from ..primitives import sphere
+        lift = self._lift(cfg) if self._shows_supports(o) else 0.0
+        balls = [sphere(float(z[3]), 10, 20).translated(z[:3] - [0, 0, z[3]]) for z in o.world_keepout(lift)]
+        return Mesh.merge(balls).transform(np.linalg.inv(self._display_matrix(o)))
 
     def _on_measured(self, a, b):
         d = np.asarray(b) - np.asarray(a)
@@ -2290,6 +2344,10 @@ class MainWindow(QMainWindow):
         self.viewer.remove_object(obj.uid)
         self._refresh_objects(select=new[0].uid if new else None)
         self.status.setText(tr("parts_made").format(len(new)))
+
+    def _toggle_defects(self, on: bool):
+        self.store.setValue("show_defects", "true" if on else "false")
+        self.viewer.set_show_defects(on)
 
     def repair_selected(self):
         from .. import mesh_tools
@@ -2513,6 +2571,7 @@ class MainWindow(QMainWindow):
                                                        for r in o.regions] or None)
             self.viewer.set_object_supports(o.uid, self._support_preview(o, cfg))
             self.viewer.set_object_holes(o.uid, self._hole_preview(o, cfg))
+            self.viewer.set_object_keepout(o.uid, self._keepout_preview(o, cfg))
         sel = self.selected()
         self._update_support_info()
         self.viewer.set_selected(sel.uid if sel else None, [o.uid for o in self.selected_objects()])
@@ -2560,6 +2619,9 @@ class MainWindow(QMainWindow):
             info = f"{len(obj.mesh.faces):,} {tr('triangles')} · {tr('volume')} {obj.volume / 1000:.2f} cm³"
             if not watertight:
                 info += f"\n⚠ {tr('not_watertight')}"
+                n_open, n_bad = self.viewer.defect_counts(obj.uid)
+                if n_open or n_bad:
+                    info += "\n" + tr("defects_info").format(n_open, n_bad)
             if len(group) > 1:
                 info = tr("group_selected").format(len(group), sum(o.volume for o in group) / 1000) + "\n" + info
             self.object_info.setText(info)
@@ -2695,6 +2757,8 @@ class MainWindow(QMainWindow):
         sup_menu.addAction(theme.icon("plus"), tr("sup_add") + "\tS", lambda: self._set_pick_mode("add"))
         sup_menu.addAction(theme.icon("x"), tr("sup_remove") + "\tShift+S", lambda: self._set_pick_mode("remove"))
         sup_menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
+        sup_menu.addAction(theme.icon("shield"), tr("tool_keepout") + "\tK", lambda: self.set_tool("keepout"))
+        sup_menu.addAction(tr("keepout_clear"), self.clear_keepout)
         sup_menu.addAction(theme.icon("grid"), tr("raft_menu") + "…", self.raft_menu)
         self.edit_sup_btn = button("pillar", tr("supports_card"), menu=sup_menu)
         button("drop", tr("shade_menu"), self.dental_shades_dialog)
@@ -2916,6 +2980,9 @@ class MainWindow(QMainWindow):
                 menu.addAction(theme.icon("plus"), tr("sup_add") + "\tS", lambda: self._set_pick_mode("add"))
                 menu.addAction(theme.icon("x"), tr("sup_remove") + "\tShift+S", lambda: self._set_pick_mode("remove"))
                 menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
+            menu.addAction(theme.icon("shield"), tr("tool_keepout") + "\tK", lambda: self.set_tool("keepout"))
+            if any(len(o.keepout) for o in self.selected_objects()):
+                menu.addAction(tr("keepout_clear"), self.clear_keepout)
                 menu.addAction(theme.icon("grid"), tr("raft_menu") + "…", self.raft_menu)
                 flat = menu.addAction(theme.icon("flat"), tr("direct_on_plate"))
                 flat.setToolTip(tr("direct_on_plate_tip"))
@@ -3517,7 +3584,8 @@ class MainWindow(QMainWindow):
                 continue
             world = o.mesh.transform(o.world_matrix())
             world = world.translated([0, 0, lift])
-            o.set_world_support_points(sla_supports.auto_support_points(world, o.config(learned_plate)), lift)
+            o.set_world_support_points(sla_supports.drop_keepout(
+                sla_supports.auto_support_points(world, o.config(learned_plate)), o.world_keepout(lift)), lift)
             o.__dict__["support_session"] = {"auto": len(o.support_points), "added": [], "removed": 0,
                                              "threshold": o.config(learned_plate)["support_angle"]}
         self._objects_changed(refresh_list=False)
@@ -4026,6 +4094,7 @@ class MainWindow(QMainWindow):
         """The model meshes and keyword arguments ``sla.prepare`` gets for these models."""
         meshes = [o.world_mesh() for o in models]
         kw = dict(support_points=[o.world_support_points(0.0) for o in models], direct=[o.direct for o in models],
+                  keepout=[o.world_keepout(0.0) for o in models],
                   holes=[o.world_drain_holes(0.0) for o in models],
                   cutters=[o.world_mesh() for o in self.objects if o.role == "cutter"],
                   materials=[dental_shades.face_shades(len(o.mesh.faces), o.material, o.regions) if o.regions

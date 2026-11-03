@@ -1253,5 +1253,13 @@
 "With the cavity pillars: parts of the model that stick out and hang in the air also get pillars, from the plate or from the model below them": "Вместе с опорами в полости: выступающие части модели, висящие в воздухе, тоже получают опоры — от платформы или от модели под ними",
 "Apply": "Применить",
 "Save": "Сохранить",
-"Send": "Отправить"
+"Send": "Отправить",
+"Show mesh problems on the model (red lines)": "Показывать дефекты сетки на модели (красные линии)",
+"{} open edges (red), {} non-manifold edges (orange)": "{} открытых рёбер (красные), {} неманифолдных рёбер (оранжевые)",
+"Support-free zone": "Зона без поддержек",
+"Click the model to mark an area (blue circle) automatic supports must not touch, e.g. a splint's biting surface; click a zone again to remove it": "Щёлкните по модели, чтобы отметить область (синий круг), которой не должны касаться автоматические поддержки, например окклюзионную поверхность каппы; повторный щелчок удаляет зону",
+"Click the areas of the model that must stay free of supports (zone diameter: {} mm)": "Щёлкните по областям модели, которые должны остаться без поддержек (диаметр зоны: {} мм)",
+"Support-free zone added ({} on this model). Generate supports again to apply it": "Зона без поддержек добавлена ({} на модели). Сгенерируйте поддержки заново, чтобы применить",
+"Support-free zone removed": "Зона без поддержек удалена",
+"Clear support-free zones": "Очистить зоны без поддержек"
 }

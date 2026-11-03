@@ -147,6 +147,16 @@ def auto_support_points(mesh: Mesh, cfg: Config) -> np.ndarray:
     return np.array(points, dtype=np.float64).reshape(-1, 3)
 
 
+def drop_keepout(points: np.ndarray, zones: np.ndarray | None) -> np.ndarray:
+    """Remove contact points that fall inside a support-free zone ((N, 4) centre + radius)."""
+    points = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    if zones is None or len(zones) == 0 or len(points) == 0:
+        return points
+    z = np.asarray(zones, dtype=np.float64).reshape(-1, 4)
+    d = np.linalg.norm(points[:, None, :] - z[None, :, :3], axis=2)
+    return points[~np.any(d <= z[None, :, 3], axis=1)]
+
+
 def _tip_points(mesh: Mesh, normals: np.ndarray, threshold: float, spacing: float, existing: list) -> list:
     """Local lowest points that need their own support. A scanned model (intraoral / desktop scans) has
     thousands of tiny dips from scan noise: only tips on overhanging surface count, taken lowest first,

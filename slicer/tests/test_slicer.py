@@ -4106,3 +4106,84 @@ def test_view_does_not_flip_near_the_bottom_or_top_view():
         if last is not None:
             assert abs(front[1] - last) < 0.2, (p, front, last)
         last = front[1]
+
+
+def test_mesh_problems_are_drawn_on_the_model():
+    """An open model shows its hole's rim as red lines in the 3D view (and the model info counts them);
+    a closed model shows none, and the menu toggle hides them."""
+    from unislicer import mesh_tools
+    box = primitives.box(20, 20, 10)
+    open_box = Mesh(box.vertices, box.faces[2:])          # two triangles removed: a square hole
+    op, bad = mesh_tools.defect_edges(open_box)
+    assert len(op) == 4 and len(bad) == 0 and op.shape[1:] == (2, 3)
+    assert all(len(x) == 0 for x in mesh_tools.defect_edges(box))
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        import numpy as np
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.mesh import Mesh
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        w.close_holes_act.setChecked(False)
+        b = primitives.box(40, 40, 20)
+        o = w.add_mesh(Mesh(b.vertices, b.faces[2:], "open")); app.processEvents()
+        w._select_uid(o.uid); app.processEvents()
+        assert "open edges" in w.object_info.text() or "קצוות פתוחים" in w.object_info.text(), w.object_info.text()
+        def red():
+            img = w.viewer.grabFramebuffer()
+            a = np.frombuffer(img.constBits(), np.uint8).reshape(img.height(), img.bytesPerLine() // 4, 4)
+            r, g, bl = a[..., 2].astype(int), a[..., 1].astype(int), a[..., 0].astype(int)   # BGRA
+            return int(((r > 200) & (g < 60) & (bl < 70)).sum())
+        assert w.viewer.show_defects
+        gl = not w.viewer.grabFramebuffer().isNull()      # no OpenGL on a headless test machine
+        on = red() if gl else 0
+        w.defects_act.setChecked(False); app.processEvents()
+        assert not w.viewer.show_defects and w.store.value("show_defects") == "false"
+        if gl:
+            off = red()
+            assert on > 20 and off < on // 4, (on, off)
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_support_free_zones_keep_automatic_supports_away():
+    """A support-free zone (e.g. a splint's biting surface) removes the automatic contact points inside it,
+    in the editor and when slicing; it follows the model, survives undo and is saved in the project."""
+    from unislicer import sla_supports, project
+    from unislicer.scene import SceneObject
+    pts = np.array([[0, 0, 1.0], [5, 0, 1.0], [20, 0, 1.0]])
+    left = sla_supports.drop_keepout(pts, np.array([[1, 0, 1.0, 6.0]]))
+    assert left.tolist() == [[20, 0, 1.0]]
+    assert len(sla_supports.drop_keepout(pts, np.zeros((0, 4)))) == 3
+    o = SceneObject.from_mesh(primitives.box(20, 20, 10))
+    o.x, o.y = 50.0, 40.0
+    o.add_world_keepout([52.0, 41.0, 0.0], 3.0)
+    o.x += 10                                             # the zone moves with the model
+    z = o.world_keepout()
+    assert np.allclose(z[0], [62.0, 41.0, 0.0, 3.0])
+    st = o.state(); o.keepout = np.zeros((0, 4)); o.restore(st)
+    assert len(o.keepout) == 1 and len(o.duplicate().keepout) == 1
+    import tempfile
+    path = os.path.join(tempfile.mkdtemp(), "k.usp")
+    project.save(path, [o], {})
+    loaded, _ = project.load(path)
+    assert np.allclose(loaded[0].keepout, o.keepout)
+    # slicing: a zone on the sphere's underside leaves no contact point inside it
+    mesh = placed(primitives.sphere(10), 70, 45).world_mesh()
+    cfg = profiles.build_config("elegoo_mars3", None, "sla_fast", {"support_enable": True})
+    full = sla.prepare([mesh], cfg)
+    bottom = np.array([[70.0, 45.0, mesh.bounds[0, 2], 6.0]])
+    kept = sla.prepare([mesh], cfg, keepout=[bottom])
+    lift = cfg["sla_elevation"] + cfg["sla_raft_thickness"]
+    sp = np.asarray(kept.support_points).reshape(-1, 3)
+    assert 0 < len(sp) < len(full.support_points)
+    assert np.all(np.linalg.norm(sp - (bottom[0, :3] + [0, 0, lift]), axis=1) > 6.0)

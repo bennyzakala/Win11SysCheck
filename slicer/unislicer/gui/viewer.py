@@ -346,6 +346,7 @@ class Viewer(QOpenGLWidget):
     rotateFinished = Signal(object)
     facePicked = Signal(object, object)        # uid, world normal of the clicked face
     holePicked = Signal(object, object, object)  # uid, world point, world normal (drain hole tool)
+    keepoutPicked = Signal(object, object)       # uid, world point (support-free zone tool)
     measured = Signal(object, object)            # first and second world point
     rayPicked = Signal(object, object)         # origin, direction (support "remove" mode)
     cameraChanged = Signal()                   # after every repaint (keeps the view cube in step)
@@ -375,6 +376,7 @@ class Viewer(QOpenGLWidget):
         self._settle.setInterval(220)
         self._settle.timeout.connect(self._end_interaction)
         self.tool = "move"                       # move | rotate | face | hole | measure
+        self.show_defects = True                 # red lines where a model's surface is open / broken
         self.measure_points: list = []
         self.measure_hover = None                # cursor point while measuring (line follows it)
         from PySide6.QtWidgets import QLabel
@@ -461,7 +463,7 @@ class Viewer(QOpenGLWidget):
         if old is not None and old["mesh"] is mesh:
             old["matrix"], old["state"] = matrix, state
         else:
-            for key in ("buffer", "buffer_lod"):
+            for key in ("buffer", "buffer_lod", "defect_open", "defect_bad"):
                 if old and old.get(key):
                     self._trash(old[key])
             for b in (old or {}).get("region_buffers") or []:
@@ -523,7 +525,7 @@ class Viewer(QOpenGLWidget):
     def remove_object(self, uid):
         obj = self.objects.pop(uid, None)
         if obj:
-            for key in ("buffer", "sup_buffer", "hole_buffer", "buffer_lod", "sup_buffer_lod"):
+            for key in ("buffer", "sup_buffer", "hole_buffer", "keep_buffer", "buffer_lod", "sup_buffer_lod"):
                 if obj.get(key):
                     self._trash(obj[key])
             for b in obj.get("region_buffers") or []:
@@ -538,6 +540,16 @@ class Viewer(QOpenGLWidget):
         if obj.get("hole_buffer"):
             self._trash(obj["hole_buffer"])
         obj["holes"], obj["hole_buffer"] = mesh, None
+        self.update()
+
+    def set_object_keepout(self, uid, mesh: Mesh | None):
+        """Support-free zone markers in the object's own coordinates."""
+        obj = self.objects.get(uid)
+        if obj is None or (obj.get("keepout") is mesh and (mesh is None or obj.get("keep_buffer") is not None)):
+            return
+        if obj.get("keep_buffer"):
+            self._trash(obj["keep_buffer"])
+        obj["keepout"], obj["keep_buffer"] = mesh, None
         self.update()
 
     def set_object_supports(self, uid, mesh: Mesh | None):
@@ -756,6 +768,8 @@ class Viewer(QOpenGLWidget):
                 obj["sup_buffer"] = _Buffer(mesh_vertices(obj["supports"]), [3, 3])
             if obj.get("holes") is not None and obj.get("hole_buffer") is None and len(obj["holes"].faces):
                 obj["hole_buffer"] = _Buffer(mesh_vertices(obj["holes"]), [3, 3])
+            if obj.get("keepout") is not None and obj.get("keep_buffer") is None and len(obj["keepout"].faces):
+                obj["keep_buffer"] = _Buffer(mesh_vertices(obj["keepout"]), [3, 3])
         if self._extra_dirty:
             for b, _ in self._extra_buffers:
                 b.delete()
@@ -868,6 +882,18 @@ class Viewer(QOpenGLWidget):
                     GL.glUniform3f(self._u(p, "uColor"), 1.0, 0.35, 0.42)
                     obj["hole_buffer"].draw(GL.GL_TRIANGLES)
                     GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
+                if obj.get("keep_buffer") is not None and not preview:
+                    GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
+                    GL.glUniform3f(self._u(p, "uColor"), 0.2, 0.55, 1.0)
+                    GL.glUniform1f(self._u(p, "uAlpha"), 0.45)
+                    GL.glEnable(GL.GL_BLEND)
+                    GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+                    GL.glDepthMask(GL.GL_FALSE)
+                    obj["keep_buffer"].draw(GL.GL_TRIANGLES)
+                    GL.glDepthMask(GL.GL_TRUE)
+                    GL.glDisable(GL.GL_BLEND)
+                    GL.glUniform1f(self._u(p, "uAlpha"), 1.0)
+                    GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
                 if obj.get("sup_buffer") is not None and not preview and self.technology == "sla":
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
                     GL.glUniform3f(self._u(p, "uColor"), *theme.SUPPORT_COLOR)
@@ -923,6 +949,8 @@ class Viewer(QOpenGLWidget):
             for uid in self.selection:
                 if uid in self.objects:
                     self._draw_selection_box(mvp, uid, primary=uid == self.selected)
+        if self.show_defects and not preview:
+            self._draw_defects(mvp)
         self._draw_measure(mvp)
         if self.warning is not None and not preview:
             mesh, buf = self.warning
@@ -1094,6 +1122,62 @@ class Viewer(QOpenGLWidget):
         GL.glUniform4f(self._u(self._line_prog, "uColor"), 1.0, 0.64, 0.28, 0.9 if primary else 0.45)
         buf.draw(GL.GL_LINES)
         buf.delete()
+
+    def set_show_defects(self, show: bool):
+        self.show_defects = bool(show)
+        self.update()
+
+    def defect_counts(self, uid) -> tuple[int, int]:
+        """(open edges, non-manifold edges) of a model, from the cached defect lines."""
+        obj = self.objects.get(uid)
+        if obj is None:
+            return 0, 0
+        self._defect_data(obj)
+        return obj["_defect_n"]
+
+    @staticmethod
+    def _defect_data(obj):
+        if obj.get("_defect_key") != id(obj["mesh"]):
+            from ..mesh_tools import defect_edges
+            op, bad = defect_edges(obj["mesh"])
+            obj["_defect_key"], obj["_defect_n"] = id(obj["mesh"]), (len(op), len(bad))
+            obj["_defect_lines"] = (op.reshape(-1, 3), bad.reshape(-1, 3))
+            obj["_defect_new"] = True
+
+    def _draw_defects(self, mvp):
+        """Open edges (holes) in red and non-manifold edges in orange, drawn on top of the model so a broken
+        surface is visible at a glance."""
+        GL.glUseProgram(self._line_prog)
+        GL.glDisable(GL.GL_DEPTH_TEST)
+        try:
+            GL.glLineWidth(2.5)
+        except Exception:
+            pass
+        for obj in self.objects.values():
+            if obj.get("hidden"):
+                continue
+            self._defect_data(obj)
+            if obj["_defect_n"] == (0, 0):
+                continue
+            if obj.pop("_defect_new", False):
+                for key in ("defect_open", "defect_bad"):
+                    if obj.get(key):
+                        self._trash(obj[key])
+                    obj[key] = None
+                op, bad = obj["_defect_lines"]
+                obj["defect_open"] = _Buffer(op.astype(np.float32), [3]) if len(op) else None
+                obj["defect_bad"] = _Buffer(bad.astype(np.float32), [3]) if len(bad) else None
+            GL.glUniformMatrix4fv(self._u(self._line_prog, "uMVP"), 1, GL.GL_TRUE,
+                                  (mvp @ obj["matrix"]).astype(np.float32))
+            for key, color in (("defect_open", (1.0, 0.1, 0.15, 1.0)), ("defect_bad", (1.0, 0.6, 0.0, 1.0))):
+                if obj.get(key):
+                    GL.glUniform4f(self._u(self._line_prog, "uColor"), *color)
+                    obj[key].draw(GL.GL_LINES)
+        try:
+            GL.glLineWidth(1.0)
+        except Exception:
+            pass
+        GL.glEnable(GL.GL_DEPTH_TEST)
 
     def _set_model(self, prog, matrix: np.ndarray):
         lin = matrix[:3, :3]
@@ -1309,6 +1393,12 @@ class Viewer(QOpenGLWidget):
             if uid is not None:
                 _, normal = self.pick_face(e.position())
                 self.holePicked.emit(uid, point, normal)
+                self._picked = True
+            return
+        if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.tool == "keepout":
+            uid, point = self.pick_hit(e.position())
+            if uid is not None:
+                self.keepoutPicked.emit(uid, point)
                 self._picked = True
             return
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.tool == "face":

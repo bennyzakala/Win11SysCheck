@@ -374,6 +374,27 @@ def analyze(mesh: Mesh) -> dict:
             "watertight": bool(np.all(counts == 2))}
 
 
+def defect_edges(mesh: Mesh) -> tuple[np.ndarray, np.ndarray]:
+    """Where the surface is broken, as line segments in the model's own coordinates:
+    (open edges - the rim of a hole, used by one face only; non-manifold edges - shared by 3+ faces),
+    each an (n, 2, 3) array. Shown in red / orange on the model so the user sees where it is not closed."""
+    f = np.asarray(mesh.faces)
+    v = np.asarray(mesh.vertices, dtype=np.float32)
+    empty = np.zeros((0, 2, 3), dtype=np.float32)
+    if len(f) == 0:
+        return empty, empty
+    e = np.sort(f[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2), axis=1).astype(np.int64)
+    keys = e[:, 0] * (int(e.max()) + 1) + e[:, 1]
+    order = np.argsort(keys, kind="stable")
+    ks = keys[order]
+    starts = np.flatnonzero(np.r_[True, ks[1:] != ks[:-1]])
+    counts = np.diff(np.r_[starts, len(ks)])
+    first = order[starts]
+    open_e = e[first[counts == 1]]
+    bad_e = e[first[counts > 2]]
+    return (v[open_e] if len(open_e) else empty), (v[bad_e] if len(bad_e) else empty)
+
+
 def _triangulate_loop(points: np.ndarray) -> list[tuple[int, int, int]]:
     """Ear-clipping of a hole loop projected on its best-fit plane (falls back to a fan)."""
     n = len(points)

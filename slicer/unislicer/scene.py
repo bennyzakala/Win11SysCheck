@@ -39,6 +39,9 @@ class SceneObject:
     fill_cavity: bool = False                    # resin: fill the model's own cavity (a hollow shell prints solid)
     locked: bool = False                         # position locked: dragging, layout and align leave it in place
     settings: dict = field(default_factory=dict)  # this model's own settings (supports, hollowing...) over the plate's
+    # resin: areas automatic supports must not touch (e.g. a splint's biting surface): (N, 4) centre + radius,
+    # in the mesh's own coordinates
+    keepout: np.ndarray = field(default_factory=lambda: np.zeros((0, 4)))
     uid: int = field(default_factory=lambda: next(_ids))
 
     @classmethod
@@ -144,6 +147,22 @@ class SceneObject:
         inv = np.linalg.inv(m[:3, :3])
         self.support_points = (np.asarray(points, dtype=np.float64).reshape(-1, 3) - [0, 0, lift] - m[:3, 3]) @ inv.T
 
+    def world_keepout(self, lift: float = 0.0) -> np.ndarray:
+        """Support-free zones in bed coordinates: (N, 4) centre + radius (the radius scales with the model)."""
+        if len(self.keepout) == 0:
+            return np.zeros((0, 4))
+        m = self.world_matrix()
+        c = self.keepout[:, :3] @ m[:3, :3].T + m[:3, 3] + [0, 0, lift]
+        k = abs(float(np.linalg.det(m[:3, :3]))) ** (1.0 / 3.0)
+        return np.hstack([c, self.keepout[:, 3:4] * k])
+
+    def add_world_keepout(self, point, radius: float, lift: float = 0.0) -> None:
+        m = self.world_matrix()
+        inv = np.linalg.inv(m[:3, :3])
+        c = (np.asarray(point, dtype=float) - [0, 0, lift] - m[:3, 3]) @ inv.T
+        k = abs(float(np.linalg.det(m[:3, :3]))) ** (1.0 / 3.0) or 1.0
+        self.keepout = np.vstack([self.keepout, np.r_[c, radius / k][None, :]])
+
     def world_drain_holes(self, lift: float = 0.0) -> np.ndarray:
         """Drain holes in bed coordinates as (N, 6) point + unit normal."""
         if len(self.drain_holes) == 0:
@@ -169,7 +188,7 @@ class SceneObject:
                 self.drain_holes.copy(), self.role, self.z, self.direct, self.material,
                 [dict(r) for r in self.regions], self.filament, [dict(p) for p in self.filament_parts],
                 self.mesh,                    # repairs / cuts replace the mesh object: undo puts it back
-                self.fill_cavity, self.locked, dict(self.settings))
+                self.fill_cavity, self.locked, dict(self.settings), self.keepout.copy())
 
     def restore(self, state: tuple) -> None:
         (self.x, self.y, rot, scale, base, mirror, sp, holes, self.role, self.z, self.direct, self.material,
@@ -183,6 +202,8 @@ class SceneObject:
             self.fill_cavity, self.locked = bool(state[16]), bool(state[17])
         if len(state) > 18:
             self.settings = dict(state[18])
+        if len(state) > 19:
+            self.keepout = np.array(state[19], dtype=float).reshape(-1, 4)
         self.regions = [dict(r) for r in regions]
         self.drain_holes = holes.copy()
         self.rotation, self.scale, self.base_rotation, self.mirror = rot.copy(), scale.copy(), base.copy(), mirror.copy()
@@ -203,7 +224,8 @@ class SceneObject:
         return SceneObject(self.mesh, self.name, self.x, self.y, self.rotation.copy(), self.scale.copy(),
                            self.base_rotation.copy(), self.mirror.copy(), sp, self.drain_holes.copy(), self.role, self.z,
                            self.direct, self.material, [dict(r) for r in self.regions], self.filament,
-                           [dict(p) for p in self.filament_parts], self.fill_cavity, False, dict(self.settings))
+                           [dict(p) for p in self.filament_parts], self.fill_cavity, False, dict(self.settings),
+                           self.keepout.copy())
 
 
 def plate_rect(cfg) -> tuple[float, float, float, float]:

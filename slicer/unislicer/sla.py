@@ -1148,6 +1148,7 @@ def _slice_supports(mesh: Mesh, planes: list, resolution: float, **kw) -> list:
 def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
             support_points: list[np.ndarray | None] | None = None, direct: list[bool] | None = None,
+            keepout: list[np.ndarray] | None = None,
             holes: list[np.ndarray | None] | None = None, cutters: list[Mesh] | None = None,
             materials: list[str] | None = None, filled: list[bool] | None = None,
             model_settings: list[dict | None] | None = None) -> SlaJob:
@@ -1201,6 +1202,11 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             manual = support_points[i] if support_points and i < len(support_points) else None
             if manual is not None:
                 manual = np.asarray(manual, dtype=np.float64).reshape(-1, 3) + [0, 0, lift]
+            zones = keepout[i] if keepout and i < len(keepout) else None
+            if manual is None and zones is not None and len(zones):
+                from .sla_supports import auto_support_points, drop_keepout
+                manual = drop_keepout(auto_support_points(m, cfgs[i]),
+                                      np.asarray(zones, dtype=np.float64).reshape(-1, 4) + [0, 0, lift, 0])
             label = meshes[i].name if cfg["sla_raft_label"] else ""
             skey = ("supports-build", mesh_key(m), None if manual is None else np.ascontiguousarray(manual).tobytes(),
                     label, tuple(sorted((k, v) for k, v in cfgs[i].values.items()

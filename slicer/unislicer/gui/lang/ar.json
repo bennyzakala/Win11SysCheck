@@ -1253,5 +1253,13 @@
 "With the cavity pillars: parts of the model that stick out and hang in the air also get pillars, from the plate or from the model below them": "مع أعمدة التجويف: الأجزاء البارزة من النموذج المعلقة في الهواء تحصل أيضًا على أعمدة، من اللوح أو من النموذج تحتها",
 "Apply": "تطبيق",
 "Save": "حفظ",
-"Send": "إرسال"
+"Send": "إرسال",
+"Show mesh problems on the model (red lines)": "إظهار عيوب الشبكة على النموذج (خطوط حمراء)",
+"{} open edges (red), {} non-manifold edges (orange)": "{} حواف مفتوحة (أحمر)، {} حواف غير متشعبة (برتقالي)",
+"Support-free zone": "منطقة بلا دعامات",
+"Click the model to mark an area (blue circle) automatic supports must not touch, e.g. a splint's biting surface; click a zone again to remove it": "انقر على النموذج لتحديد منطقة (دائرة زرقاء) يجب ألا تلمسها الدعامات التلقائية، مثل سطح العض في الجبيرة؛ انقر على المنطقة مرة أخرى لإزالتها",
+"Click the areas of the model that must stay free of supports (zone diameter: {} mm)": "انقر على مناطق النموذج التي يجب أن تبقى بلا دعامات (قطر المنطقة: {} مم)",
+"Support-free zone added ({} on this model). Generate supports again to apply it": "أُضيفت منطقة بلا دعامات ({} في هذا النموذج). أنشئ الدعامات من جديد لتطبيقها",
+"Support-free zone removed": "أُزيلت المنطقة بلا دعامات",
+"Clear support-free zones": "مسح المناطق بلا دعامات"
 }

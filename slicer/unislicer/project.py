@@ -39,6 +39,7 @@ def save(path: str, objects: list[SceneObject], settings_state: dict) -> None:
                 "filament_parts": [{"name": p.get("name", ""), "filament": int(p["filament"]),
                                     "faces": np.asarray(p["faces"]).tolist()} for p in o.filament_parts],
                 "fill_cavity": bool(o.fill_cavity), "locked": bool(o.locked), "settings": dict(o.settings),
+                "keepout": o.keepout.tolist(),
             })
         doc = {"format": FORMAT_VERSION, "generator": f"UniSlicer {__version__}",
                "settings": settings_state, "objects": entries}
@@ -70,5 +71,6 @@ def load(path: str) -> tuple[list[SceneObject], dict]:
                 int(e.get("filament", 1) or 1),
                 [{"name": p.get("name", ""), "filament": int(p.get("filament", 1)),
                   "faces": np.array(p.get("faces", []), dtype=np.int64)} for p in e.get("filament_parts", [])],
-                bool(e.get("fill_cavity", False)), bool(e.get("locked", False)), dict(e.get("settings", {}) or {})))
+                bool(e.get("fill_cavity", False)), bool(e.get("locked", False)), dict(e.get("settings", {}) or {}),
+                np.array(e.get("keepout", []), dtype=float).reshape(-1, 4)))
     return objects, doc.get("settings", {})
