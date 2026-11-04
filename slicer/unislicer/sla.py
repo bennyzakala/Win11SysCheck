@@ -711,6 +711,28 @@ def _same(a, b) -> bool:
     return abs(a.area - b.area) < 1e-9 and np.allclose(a.bounds, b.bounds, atol=1e-9)
 
 
+def layer_triangles(layer, z: float) -> np.ndarray:
+    """A sliced layer as flat triangles (n, 3, 3) at height ``z``, holes and honeycomb kept (for the 3D
+    preview). Empty when the layer is empty or shapely is too old to triangulate polygons with holes."""
+    if layer is None or layer.is_empty or not hasattr(shapely, "constrained_delaunay_triangles"):
+        return np.zeros((0, 3, 3), dtype=np.float32)
+    try:
+        tri = shapely.constrained_delaunay_triangles(layer)
+    except shapely.errors.GEOSException:
+        return np.zeros((0, 3, 3), dtype=np.float32)
+    parts = shapely.get_parts(tri)
+    if len(parts) == 0:
+        return np.zeros((0, 3, 3), dtype=np.float32)
+    xy = shapely.get_coordinates(shapely.get_exterior_ring(parts)).reshape(len(parts), 4, 2)[:, :3]
+    a, b, c = xy[:, 0], xy[:, 1], xy[:, 2]
+    cw = (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (c[:, 0] - a[:, 0]) * (b[:, 1] - a[:, 1]) < 0
+    xy[cw] = xy[cw][:, ::-1]                       # every triangle faces up (lit from above, not "inside")
+    out = np.empty((len(parts), 3, 3), dtype=np.float32)
+    out[:, :, :2] = xy
+    out[:, :, 2] = z
+    return out
+
+
 def _clip(g, x0: float, y0: float, x1: float, y1: float):
     """``g`` cut to a rectangle, only to make the next step cheaper. GEOS's rectangle clip can trip over some
     contours ("Invalid number of points in LinearRing found 3"); then the whole of ``g`` gives the same

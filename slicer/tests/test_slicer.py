@@ -4705,3 +4705,21 @@ def test_sdcp_upload_survives_firmware_writing_status_before_the_http_reply(tmp_
                                         {"Content-Type": "multipart/form-data; boundary=x"})
     assert status == 200 and json.loads(raw)["success"] is True
     srv.close()
+
+
+def test_layer_triangles_keep_the_honeycomb():
+    """The 3D preview draws the current layer at the cut: its triangles cover exactly the layer, holes and
+    honeycomb cells left open."""
+    import shapely
+    if not hasattr(shapely, "constrained_delaunay_triangles"):
+        pytest.skip("shapely < 2.1 cannot triangulate polygons with holes")
+    from shapely.geometry import Polygon
+    cells = [Polygon([(x, y), (x + 3, y), (x + 3, y + 3), (x, y + 3)]) for x in range(2, 18, 4) for y in range(2, 18, 4)]
+    layer = sla.as_multipolygon(Polygon([(0, 0), (20, 0), (20, 20), (0, 20)]).difference(shapely.union_all(cells)))
+    tris = sla.layer_triangles(layer, 5.0)
+    a, b, c = tris[:, 0, :2], tris[:, 1, :2], tris[:, 2, :2]
+    area = 0.5 * np.abs((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (c[:, 0] - a[:, 0]) * (b[:, 1] - a[:, 1])).sum()
+    assert abs(area - layer.area) < 1e-6 and np.all(tris[:, :, 2] == 5.0)
+    signed = (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (c[:, 0] - a[:, 0]) * (b[:, 1] - a[:, 1])
+    assert np.all(signed > 0)                      # all facing up
+    assert len(sla.layer_triangles(sla.EMPTY, 1.0)) == 0

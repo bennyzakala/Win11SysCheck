@@ -592,6 +592,15 @@ class Viewer(QOpenGLWidget):
         self.highlight = None if mesh is None or len(mesh.faces) == 0 else (mesh, None)
         self.update()
 
+    def set_layer_cap(self, tris: np.ndarray | None):
+        """Preview: the current layer drawn flat at its height (``tris``: (n, 3, 3) triangles), so what is
+        inside the cut models - honeycomb infill, hollow walls, pillars - shows in 3D."""
+        old = getattr(self, "layer_cap", None)
+        if old is not None and old[1] is not None:
+            self._trash(old[1])
+        self.layer_cap = None if tris is None or len(tris) == 0 else (np.asarray(tris, dtype=np.float32), None)
+        self.update()
+
     def set_warning_mesh(self, mesh):
         if self.warning is not None and self.warning[1] is not None:
             self._trash(self.warning[1])
@@ -977,6 +986,20 @@ class Viewer(QOpenGLWidget):
         if self.show_defects and not preview:
             self._draw_defects(mvp)
         self._draw_measure(mvp)
+        cap = getattr(self, "layer_cap", None)
+        if cap is not None and preview:
+            tris, buf = cap
+            if buf is None:
+                normals = np.zeros_like(tris)
+                normals[:, :, 2] = 1.0
+                buf = _Buffer(np.concatenate([tris, normals], axis=2).reshape(-1, 6), [3, 3])
+                self.layer_cap = (tris, buf)
+            GL.glUseProgram(p)
+            GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
+            GL.glUniform1f(self._u(p, "uClipZ"), 1e9)
+            GL.glUniform3f(self._u(p, "uColor"), 1.0, 0.86, 0.55)
+            self._set_model(p, np.eye(4))
+            buf.draw(GL.GL_TRIANGLES)
         if self.warning is not None and not preview:
             mesh, buf = self.warning
             if buf is None:

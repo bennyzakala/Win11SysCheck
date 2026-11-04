@@ -4571,6 +4571,7 @@ class MainWindow(QMainWindow):
         else:
             job = self.result[1]
             self.viewer.set_layer_range(0, value, clip_z=z)
+            self._schedule_layer_cap(value, z)
             img = sla.render_layer(job.layers[value], self._mask_cfg).convert("RGB")
             if job.support_layers and value < len(job.support_layers) and not job.support_layers[value].is_empty:
                 from PIL import Image as _Image      # PolyJet gel support, drawn grey around the model
@@ -4586,6 +4587,31 @@ class MainWindow(QMainWindow):
             qimg = QImage(img.tobytes(), img.width, img.height, img.width * 3, QImage.Format_RGB888).copy()
             pm = QPixmap.fromImage(qimg).scaled(self.mask_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.mask_label.setPixmap(pm)
+
+    def _schedule_layer_cap(self, index: int, z: float):
+        """Draw the layer itself at the cut in 3D, a moment after the slider stops (dragging stays smooth)."""
+        self._cap_want = (index, z)
+        timer = getattr(self, "_cap_timer", None)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.setInterval(120)
+            timer.timeout.connect(self._show_layer_cap)
+            self._cap_timer = timer
+        timer.start()
+
+    def _show_layer_cap(self):
+        res = self.result
+        want = getattr(self, "_cap_want", None)
+        if res is None or res[0] != "sla" or want is None:
+            self.viewer.set_layer_cap(None)
+            return
+        index, z = want
+        job = res[1]
+        if index >= len(job.layers) or index >= self.layer_slider.maximum():
+            self.viewer.set_layer_cap(None)          # the top: the whole model shows, nothing to cut
+            return
+        self.viewer.set_layer_cap(sla.layer_triangles(job.layers[index], z + 0.02))
 
     def _check_fix(self, text: str, result):
         """The action that fixes one print-check line, or None."""
