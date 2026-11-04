@@ -4926,11 +4926,11 @@ def test_label_hugs_a_curved_surface():
         from unislicer.scene import SceneObject
         die = SceneObject.from_mesh(primitives.cylinder(5.0, 14.0, 96))
         die.x, die.y = 50.0, 50.0
-        die.add_world_label("45198", [50.0, 45.0, 7.0], [0, -1, 0], 2.5, 0.6, True)
+        die.add_world_label("45198", [50.0, 45.0, 7.0], [0, -1, 0], 1.6, 0.6, True)   # fits the die in any font
         up, cut = die.world_label_meshes()
         v = cut.vertices
         r = np.hypot(v[:, 0] - 50.0, v[:, 1] - 50.0)                  # distance from the die's axis
-        assert np.ptp(v[:, 0]) > 6                                     # wide enough to bend around the die
+        assert 3.5 < np.ptp(v[:, 0]) < 8.5                             # wide enough to bend around the die
         assert r.max() <= 5.0 + 0.3 + 0.05 and r.min() >= 5.0 - 0.6 - 0.05, (r.min(), r.max())
         print("ok", flush=True)
     ''')
