@@ -20,6 +20,11 @@ STEP_KEYS = {"scene": "fl_step_scene", "import": "fl_step_import", "orient": "fl
              "save": "fl_step_save", "print": "fl_step_print", "done": "fl_step_done"}
 
 
+class _Failed:
+    def __init__(self, message: str):
+        self.message = message
+
+
 class FormlabsDialog(QDialog):
     """``export_meshes(mode)`` returns [(name, Mesh)] of the models to send ("auto"/"mini_rafts_on_bp": models
     alone; "none": with UniSlicer's supports)."""
@@ -144,10 +149,20 @@ class FormlabsDialog(QDialog):
         if self.task is not None and self.task.isRunning():
             return
         self._busy(True, text)
-        self.task = Task(fn, self)
+
+        def guarded(progress, cancelled):
+            try:
+                return fn(progress, cancelled)
+            except formlabs.FormlabsError as e:     # PreForm's answer: shown here, not a program-bug report
+                return _Failed(str(e))
+
+        self.task = Task(guarded, self)
         self.task.progress.connect(lambda stage, f: self.status.setText(tr(STEP_KEYS.get(stage, "fl_working"))))
 
         def ok(result):
+            if isinstance(result, _Failed):
+                self._busy(False, tr("fl_failed").format(result.message))
+                return
             self._busy(False)
             done(result)
 
@@ -289,9 +304,10 @@ class FormlabsDialog(QDialog):
                                         orient=self.orient.isChecked(), print_now=print_now, save_form=save_form,
                                         progress=progress, cancelled=cancelled)
             except formlabs.FormlabsError as e:
+                # PreForm's own answer (does not fit, printer not found...) is a message, not a program bug
                 if e.code == "LAYOUT_DOES_NOT_FIT":
                     return {"too_big": True}
-                raise
+                return {"error": str(e)}
             finally:
                 for p in paths:
                     try:
@@ -300,6 +316,9 @@ class FormlabsDialog(QDialog):
                         pass
 
         def done(result):
+            if result.get("error"):
+                self.status.setText(tr("fl_failed").format(result["error"]))
+                return
             if result.get("too_big"):
                 self.status.setText(tr("fl_too_big").format(len(paths), footprint / 100.0,
                                                             plate / 100.0 if plate else 0.0, self.ptype.currentText()))

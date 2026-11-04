@@ -234,9 +234,17 @@ class Client:
         try:
             for k, path in enumerate(stl_paths):
                 step("import", k / max(1, len(stl_paths)))
-                self.call("POST", f"/scene/{sid}/import-model/",
-                          {"file": os.path.abspath(path), "repair_behavior": "REPAIR", "units": "MILLIMETERS"},
-                          cancelled=cancelled)
+                # an explicit position: PreForm otherwise places each import on the platform at once and gives
+                # up ("unable to fit the models into the work area") as soon as it is full; the layout step
+                # below arranges them all together, with its retries
+                body = {"file": os.path.abspath(path), "repair_behavior": "REPAIR", "units": "MILLIMETERS",
+                        "position": {"x": 0.0, "y": 0.0, "z": 0.0}}
+                try:
+                    self.call("POST", f"/scene/{sid}/import-model/", body, cancelled=cancelled)
+                except FormlabsError as e:
+                    if not _layout_full(e):
+                        raise
+                    raise FormlabsError(f"{e} ({k} of {len(stl_paths)} models went in)", "LAYOUT_DOES_NOT_FIT")
             if orient:
                 step("orient")
                 self.call("POST", f"/scene/{sid}/auto-orient/", {"models": "ALL"}, cancelled=cancelled)

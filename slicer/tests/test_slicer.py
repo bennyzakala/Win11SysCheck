@@ -4326,6 +4326,9 @@ class _FakePreFormServer:
             if what == "import-model":
                 if not os.path.isabs(body["file"]) or not os.path.isfile(body["file"]):
                     return 400, {"error": {"code": "FILE_NOT_FOUND", "message": body["file"]}}
+                if "position" not in body and len(sc["models"]) >= 1:     # PreForm places each import at once
+                    return 200, {"error": {"code": "OPERATION_FAILED",
+                                           "message": "The layout tool was unable to fit the models into the work area."}}
                 sc["models"].append(body["file"])
                 return 200, {"id": f"m{len(sc['models'])}"}
             if what == "auto-layout" and (self.layout_mode == "full" or
@@ -4406,6 +4409,8 @@ def test_formlabs_send_through_preformserver(tmp_path):
         r = c.send([stl], types[0]["materials"][0]["settings"][0]["scene_settings"], "192.168.7.20", "x")
         lay = srv.scenes[f"scene{n0 + 1}"]["auto-layout"]
         assert r["job_id"] == "job-1" and lay["lock_rotation"] is False and lay["allow_overlapping_supports"] is True
+        many = c.send([stl, stl, stl], types[0]["materials"][0]["settings"][0]["scene_settings"], "192.168.7.20", "x")
+        assert many["job_id"] == "job-1"                # several models: imported at a set position, then laid out
         srv.layout_mode = "full"                        # still too many models: a clear error, nothing printed
         printed = len(srv.printed)
         try:
