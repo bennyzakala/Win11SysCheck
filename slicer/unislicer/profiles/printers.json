@@ -767,6 +767,78 @@
    "material_name": "Formlabs resin"
   }
  },
+ "formlabs_form4": {
+  "name": "Formlabs Form 4",
+  "vendor": "Formlabs",
+  "note": "Formlabs MSLA (Low Force Display), 405 nm. Formlabs printers print only jobs prepared by PreForm: use More > Send to Formlabs (through PreFormServer) or export 3MF/STL and open it in PreForm. Build volume and pixel size from Formlabs' published specifications.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "lcd",
+   "bed_x": 200.0,
+   "bed_y": 125.0,
+   "max_z": 210,
+   "resolution_x": 4000,
+   "resolution_y": 2500,
+   "sla_format": "3mf",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 4,
+   "material_name": "Formlabs resin"
+  }
+ },
+ "formlabs_form4b": {
+  "name": "Formlabs Form 4B (dental)",
+  "vendor": "Formlabs",
+  "note": "Formlabs MSLA (Low Force Display), 405 nm. Formlabs printers print only jobs prepared by PreForm: use More > Send to Formlabs (through PreFormServer) or export 3MF/STL and open it in PreForm. The B model is the dental/medical version of the same printer (biocompatible resin range). Build volume and pixel size from Formlabs' published specifications.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "lcd",
+   "bed_x": 200.0,
+   "bed_y": 125.0,
+   "max_z": 210,
+   "resolution_x": 4000,
+   "resolution_y": 2500,
+   "sla_format": "3mf",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 4,
+   "material_name": "Formlabs resin"
+  }
+ },
+ "formlabs_form4l": {
+  "name": "Formlabs Form 4L",
+  "vendor": "Formlabs",
+  "note": "Formlabs MSLA (Low Force Display), 405 nm. Formlabs printers print only jobs prepared by PreForm: use More > Send to Formlabs (through PreFormServer) or export 3MF/STL and open it in PreForm. Build volume and pixel size from Formlabs' published specifications.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "lcd",
+   "bed_x": 353.0,
+   "bed_y": 196.0,
+   "max_z": 350,
+   "resolution_x": 7674,
+   "resolution_y": 4261,
+   "sla_format": "3mf",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 4,
+   "material_name": "Formlabs resin"
+  }
+ },
+ "formlabs_form4bl": {
+  "name": "Formlabs Form 4BL (dental)",
+  "vendor": "Formlabs",
+  "note": "Formlabs MSLA (Low Force Display), 405 nm. Formlabs printers print only jobs prepared by PreForm: use More > Send to Formlabs (through PreFormServer) or export 3MF/STL and open it in PreForm. The B model is the dental/medical version of the same printer (biocompatible resin range). Build volume and pixel size from Formlabs' published specifications.",
+  "values": {
+   "technology": "sla",
+   "sla_process": "lcd",
+   "bed_x": 353.0,
+   "bed_y": 196.0,
+   "max_z": 350,
+   "resolution_x": 7674,
+   "resolution_y": 4261,
+   "sla_format": "3mf",
+   "sla_layer_height": 0.05,
+   "bottom_layers": 4,
+   "material_name": "Formlabs resin"
+  }
+ },
  "formlabs_form3l": {
   "name": "Formlabs Form 3L",
   "vendor": "Formlabs",

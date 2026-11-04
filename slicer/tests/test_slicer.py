@@ -4459,3 +4459,97 @@ def test_formlabs_dialog_connects_finds_and_sends(tmp_path):
         assert "192.168.7.20" in r.stdout
     finally:
         srv.close()
+
+
+def test_model_menu_keeps_print_on_plate_raft_and_fill():
+    """The resin model menu always offers Raft, Print directly on the plate and Fill cavity (they once hid
+    behind 'only when the model has support-free zones')."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication, QMenu
+        from PySide6.QtCore import QPoint
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui.i18n import tr
+        w = MainWindow(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        if w.viewer.technology != "sla":
+            w.viewer.technology = "sla"
+        o = w.add_mesh(primitives.box(10, 10, 5)); app.processEvents()
+        seen = []
+        from unislicer.gui import main_window as mw
+
+        class Shown(QMenu):                     # record the menu instead of opening it
+            def exec(self, *a, **k):
+                seen.extend(x.text() for x in self.actions())
+
+        mw.QMenu = Shown
+        w._show_context_menu(o.uid, QPoint(10, 10))
+        for key in ("direct_on_plate", "fill_cavity", "tool_keepout"):
+            assert any(t.startswith(tr(key)) for t in seen), (key, seen)
+        assert any(t.startswith(tr("raft_menu")) for t in seen), seen
+        assert not any(t == tr("keepout_clear") for t in seen)     # nothing to clear yet
+        w._stop_preslice()
+        from unislicer import parallel
+        if parallel._pool is not None:          # worker processes would hold the output pipe open
+            parallel._pool.shutdown(wait=True, cancel_futures=True)
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_text_survives_a_two_point_glyph_sliver(monkeypatch):
+    """Qt returns every glyph outline closed (last point = first); a sliver of two distinct points became a
+    3-point ring and GEOS refused it ('Invalid number of points in LinearRing found 3'), failing the slice."""
+    pytest.importorskip("PySide6")
+    import PySide6.QtGui as qtgui
+    from PySide6.QtCore import QPointF
+    from unislicer import mesh_tools
+
+    class FakePath:
+        def addText(self, *a):
+            pass
+
+        def toSubpathPolygons(self):
+            square = [QPointF(0, 0), QPointF(10, 0), QPointF(10, -10), QPointF(0, -10), QPointF(0, 0)]
+            sliver = [QPointF(3, 3), QPointF(4, 3), QPointF(3, 3)]
+            return [square, sliver]
+
+    monkeypatch.setattr(qtgui, "QPainterPath", FakePath)
+    monkeypatch.setattr(qtgui, "QFont", lambda *a: type("F", (), {"setPointSizeF": lambda self, v: None})())
+    polys = mesh_tools.text_polygons("A", 4.0)
+    assert not polys.is_empty and abs(polys.bounds[3] - polys.bounds[1] - 4.0) < 1e-6
+
+
+def test_formlabs_form4_family_in_the_printer_list():
+    ps = profiles.load("printers")
+    for k, size in (("formlabs_form4b", (200.0, 125.0, 210.0)), ("formlabs_form4bl", (353.0, 196.0, 350.0)),
+                    ("formlabs_form4", (200.0, 125.0, 210.0)), ("formlabs_form4l", (353.0, 196.0, 350.0))):
+        assert ps[k]["vendor"] == "Formlabs"
+        c = profiles.build_config(k, None, None, {})
+        assert (c["bed_x"], c["bed_y"], c["max_z"]) == size and c["technology"] == "sla" and c["sla_process"] == "lcd"
+
+
+def test_dental_files_recognised_by_name_and_shape():
+    """3Shape's '_Antag' (antagonist) and '_Tooth_14' (the die) are recognised; a lab code with no type word
+    falls back to the shape: arch -> model, single solid tooth -> die, thin shell over a cavity -> crown."""
+    from unislicer import dental_cad
+    assert dental_cad.detect_indication("EGI-SOD260046764-114-Z-14-14-1-00-V227_Antag.stl") == "model"
+    assert dental_cad.detect_indication("EGI-SOD260046764-114-Z-14-14-1-00-V227_Tooth_14.stl") == "die"
+    assert dental_cad.detect_indication("FYQ-SOD260046892-044-P-16-16-1-00-R685_2.stl") == "unknown"
+    arch = primitives.box(60, 45, 15)
+    assert dental_cad.indication_from_shape(arch) == "model"
+    die = primitives.cylinder(4, 15)
+    assert dental_cad.indication_from_shape(die) == "die"
+    outer, inner = primitives.box(10, 10, 8), primitives.box(8, 8, 7).translated([0, 0, -0.6])
+    cap = Mesh(np.vstack([outer.vertices, inner.vertices]),
+               np.vstack([outer.faces, inner.faces[:, ::-1] + len(outer.vertices)]))   # a closed thin shell
+    assert dental_cad.indication_from_shape(cap) == "crown"

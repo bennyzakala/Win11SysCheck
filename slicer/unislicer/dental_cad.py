@@ -27,8 +27,9 @@ INDICATIONS = (
                 "retainer", "tray", "custom tray", "aligner")),
     ("crown", ("crown", "coping", "bridge", "pontic", "inlay", "onlay", "veneer", "provisional", "temporary",
                "temp", "anatomic", "telescope", "abutment", "framework")),
-    ("die", ("die", "ditched", "stump")),
-    ("model", ("model", "upperjaw", "lowerjaw", "upper jaw", "lower jaw", "maxilla", "mandible", "antagonist",
+    # 3Shape's model builder names the removable die of a prepared tooth "..._Tooth_14"
+    ("die", ("die", "ditched", "stump", "tooth")),
+    ("model", ("model", "upperjaw", "lowerjaw", "upper jaw", "lower jaw", "maxilla", "mandible", "antagonist", "antag",
                "preparation", "raw", "scan", "arch", "study", "ortho", "base")),
 )
 LABEL = {"model": ("מודל", "Model"), "die": ("מודל גדם (Die)", "Die"), "crown": ("כתר / גשר", "Crown / bridge"),
@@ -118,3 +119,40 @@ class FolderTracker:
                     self.seen.add(f"{p}|{os.path.getmtime(p):.0f}")
         except OSError:
             pass
+
+
+def indication_from_shape(mesh) -> str:
+    """When the file name says nothing (e.g. a lab code like FYQ-SOD260046892-044-P-16-16-1-00): guess from
+    the shape. Longer than 40 mm: a model (arch / antagonist); a single tooth that is solid through most of
+    its height: a die; anything else tooth-sized: a crown or bridge (thin walls over a hollow fitting
+    surface)."""
+    import numpy as np
+    lo, hi = mesh.bounds
+    size = np.sort(hi - lo)[::-1]
+    if size[0] > 40.0:
+        return "model"
+    if size[0] < 20.0 and _solid_fraction(mesh) > 0.6:
+        return "die"
+    return "crown"
+
+
+def _solid_fraction(mesh) -> float:
+    """Median share of the height that is solid along vertical rays through the middle of the part, taken
+    along the part's tallest axis (a crown is ~0.1-0.3: thin walls over its cavity; a die ~0.8)."""
+    import numpy as np
+    from .mesh import Mesh
+    from .sla_supports import _Caster
+    lo, hi = mesh.bounds
+    axis = int(np.argmax(hi - lo)) if (hi - lo)[2] < 0.5 * float(np.max(hi - lo)) else 2
+    perm = [(axis + 1) % 3, (axis + 2) % 3, axis]
+    m = Mesh(np.asarray(mesh.vertices)[:, perm], mesh.faces)
+    lo, hi = m.bounds
+    height = float(hi[2] - lo[2]) or 1.0
+    caster = _Caster(m)
+    ratios = []
+    for x in np.linspace(lo[0], hi[0], 12)[2:-2]:
+        for y in np.linspace(lo[1], hi[1], 12)[2:-2]:
+            z, _ = caster.hits(x, y)
+            if len(z) >= 2 and len(z) % 2 == 0:
+                ratios.append(float(np.sum(z[1::2] - z[0::2])) / height)
+    return float(np.median(ratios)) if ratios else 0.0

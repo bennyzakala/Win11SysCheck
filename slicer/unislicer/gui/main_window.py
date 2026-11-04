@@ -3148,12 +3148,12 @@ class MainWindow(QMainWindow):
                 menu.addAction(theme.icon("plus"), tr("sup_add") + "\tS", lambda: self._set_pick_mode("add"))
                 menu.addAction(theme.icon("x"), tr("sup_remove") + "\tShift+S", lambda: self._set_pick_mode("remove"))
                 menu.addAction(theme.icon("trash"), tr("sup_clear"), self.clear_supports)
-            menu.addAction(theme.icon("shield"), tr("tool_keepout") + "\tK", lambda: self.set_tool("keepout"))
-            menu.addAction(theme.icon("code"), tr("label_title") + "…", self.label_dialog)
-            if any(o.labels for o in self.selected_objects()):
-                menu.addAction(tr("label_clear"), self.clear_labels)
-            if any(len(o.keepout) for o in self.selected_objects()):
-                menu.addAction(tr("keepout_clear"), self.clear_keepout)
+                menu.addAction(theme.icon("shield"), tr("tool_keepout") + "\tK", lambda: self.set_tool("keepout"))
+                if any(len(o.keepout) for o in group):
+                    menu.addAction(tr("keepout_clear"), self.clear_keepout)
+                menu.addAction(theme.icon("code"), tr("label_title") + "…", self.label_dialog)
+                if any(o.labels for o in group):
+                    menu.addAction(tr("label_clear"), self.clear_labels)
                 menu.addAction(theme.icon("grid"), tr("raft_menu") + "…", self.raft_menu)
                 flat = menu.addAction(theme.icon("flat"), tr("direct_on_plate"))
                 flat.setToolTip(tr("direct_on_plate_tip"))
@@ -3506,7 +3506,7 @@ class MainWindow(QMainWindow):
             self.load_files([p])
             kind = dental_cad.detect_indication(p, dental_cad.order_text_for(p))
             for o in self.objects[n0:]:
-                kinds[o.uid] = kind
+                kinds[o.uid] = kind if kind != "unknown" else dental_cad.indication_from_shape(o.mesh)
         new = [o for o in self.objects if o.uid not in before]
         if not new:
             return
@@ -5782,6 +5782,9 @@ class MainWindow(QMainWindow):
 
         from .. import network
         from .network_dialog import NetworkDialog, SendDialog, lang
+        if profiles.load("printers").get(self.settings.printer_id, {}).get("vendor") == "Formlabs":
+            self.send_to_formlabs()                 # Formlabs printers take jobs only through PreForm
+            return
         res = self._exportable()
         if res is None:
             return

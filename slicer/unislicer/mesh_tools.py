@@ -51,8 +51,13 @@ def text_polygons(text: str, height: float, font_family: str = "") -> MultiPolyg
     rings = []
     for poly in path.toSubpathPolygons():
         pts = [(p.x(), -p.y()) for p in poly]           # Qt's y axis points down
-        if len(pts) >= 3:
-            rings.append(Polygon(pts).buffer(0))
+        if len(pts) > 1 and pts[0] == pts[-1]:          # Qt closes each outline: drop the repeated point
+            pts = pts[:-1]
+        if len(set(pts)) >= 3:                          # a sliver of a glyph (2 points) is not a ring
+            try:
+                rings.append(Polygon(pts).buffer(0))
+            except Exception:
+                continue
     if not rings:
         return MultiPolygon()
     # even-odd fill: letters with counters (o, a, ...) become polygons with holes
