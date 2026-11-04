@@ -181,6 +181,71 @@ def _open(p: NetPrinter, method: str, path: str, body=None, headers=None, timeou
         raise NetworkError(f"unreachable: {reason}") from e
 
 
+def _lenient_post(host: str, port: int, path: str, body, headers: dict, timeout: float = 60.0) -> tuple[int, bytes]:
+    """POST over a plain socket, reading the reply leniently. Phrozen / ChiTu SDCP V3 firmware (e.g. Sonic LS+
+    1.1.8) writes its WebSocket status broadcast onto the upload connection before the HTTP reply, so a
+    normal HTTP client stops at "BadStatusLine"; here anything before "HTTP/1." is skipped."""
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+    except OSError as e:
+        raise NetworkError(f"unreachable: {e}") from e
+    try:
+        size = len(body)
+        head = [f"POST {path} HTTP/1.1", f"Host: {host}:{port}", f"Content-Length: {size}", "Connection: close"]
+        head += [f"{k}: {v}" for k, v in headers.items()]
+        sock.sendall(("\r\n".join(head) + "\r\n\r\n").encode("latin-1"))
+        while True:
+            block = body.read(1 << 16)
+            if not block:
+                break
+            sock.sendall(block)
+        data = b""
+        while True:
+            try:
+                chunk = sock.recv(65536)
+            except socket.timeout:
+                break
+            if not chunk:
+                break
+            data += chunk
+            start = data.find(b"HTTP/1.")
+            if start >= 0 and b"\r\n\r\n" in data[start:]:
+                hdr, _, rest = data[start:].partition(b"\r\n\r\n")
+                length = None
+                for line in hdr.split(b"\r\n")[1:]:
+                    k, _, v = line.partition(b":")
+                    if k.strip().lower() == b"content-length":
+                        length = int(v.strip() or 0)
+                if length is not None and len(rest) >= length:
+                    break
+    except OSError as e:
+        raise NetworkError(f"unreachable: {e}") from e
+    finally:
+        sock.close()
+    start = data.find(b"HTTP/1.")
+    if start < 0:
+        raise NetworkError("no HTTP reply from the printer")
+    hdr, _, rest = data[start:].partition(b"\r\n\r\n")
+    lines = hdr.split(b"\r\n")
+    try:
+        status = int(lines[0].split()[1])
+    except (IndexError, ValueError):
+        raise NetworkError("bad HTTP reply: " + lines[0][:80].decode("latin-1")) from None
+    length = None
+    for line in lines[1:]:
+        k, _, v = line.partition(b":")
+        if k.strip().lower() == b"content-length":
+            length = int(v.strip() or 0)
+    payload = rest[:length] if length is not None else rest
+    # a body may itself be followed (or preceded) by more broadcast frames: keep the JSON object only
+    i, j = payload.find(b"{"), payload.rfind(b"}")
+    if length is None and i >= 0 and j > i:
+        payload = payload[i:j + 1]
+    if status >= 400:
+        raise NetworkError(f"HTTP {status}: {payload[:200].decode('utf-8', 'replace')}")
+    return status, payload
+
+
 def _json(raw: bytes):
     try:
         return json.loads(raw.decode("utf-8") or "null")
@@ -682,7 +747,8 @@ class _Sdcp:
                                      (path, offset, n),
                                      (lambda f, o=offset, n=n: progress((o + f * n) / max(size, 1))) if progress else None,
                                      cancelled)
-            _, raw = _open(self.p, "POST", "/uploadFile/upload", body, {"Content-Type": ctype}, timeout=60)
+            _, raw = _lenient_post(self.p.host, self.p.port or DEFAULT_PORT["sdcp"], "/uploadFile/upload", body,
+                                   {"Content-Type": ctype}, timeout=60)
             j = _json(raw) or {}
             if not j.get("success", False):
                 raise NetworkError(f"upload refused: {raw[:200].decode('utf-8', 'replace')}")

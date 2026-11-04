@@ -4663,3 +4663,45 @@ def test_gingiva_mask_recognised_and_prepared(tmp_path):
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
                        encoding="utf-8", errors="replace")
     assert r.returncode == 0 and ("Gingiva mask" in r.stdout or "מסכת חניכיים" in r.stdout), r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_sdcp_upload_survives_firmware_writing_status_before_the_http_reply(tmp_path):
+    """Phrozen Sonic LS+ firmware 1.1.8 (SDCP V3) writes its WebSocket status broadcast onto the upload
+    connection before 'HTTP/1.1 200 OK'; a normal HTTP client failed with BadStatusLine ('Export failed')."""
+    import socket, threading
+    from unislicer import network
+    got = {"bodies": 0}
+    srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(4)
+    port = srv.getsockname()[1]
+
+    def serve():
+        for _ in range(2):
+            c, _ = srv.accept()
+            data = b""
+            while b"\r\n\r\n" not in data:
+                data += c.recv(65536)
+            head, _, rest = data.partition(b"\r\n\r\n")
+            n = int([l.split(b":")[1] for l in head.split(b"\r\n") if l.lower().startswith(b"content-length")][0])
+            while len(rest) < n:
+                rest += c.recv(65536)
+            assert b'name="Offset"' in rest and b"payload" in rest
+            got["bodies"] += 1
+            status = json.dumps({"Attributes": {"Name": "Sonic LS+", "ProtocolVersion": "V3.0.0"}}).encode()
+            frame = b"\x81\x7e" + len(status).to_bytes(2, "big") + status        # a WebSocket text frame
+            reply = json.dumps({"code": "000000", "messages": None, "data": {}, "success": True}).encode()
+            c.sendall(frame + b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                      + str(len(reply)).encode() + b"\r\n\r\n" + reply)
+            c.close()
+
+    import json
+    t = threading.Thread(target=serve, daemon=True); t.start()
+    f = tmp_path / "plate.prz"
+    f.write_bytes(b"payload" * 10)
+    p = network.NetPrinter("LS+", "sdcp", "127.0.0.1", port)
+    network._Sdcp(p).upload(str(f), "plate.prz")
+    assert got["bodies"] == 1
+    status, raw = network._lenient_post("127.0.0.1", port, "/uploadFile/upload",
+                                        network._multipart({"Offset": "0"}, "File", "x", b"payload")[0],
+                                        {"Content-Type": "multipart/form-data; boundary=x"})
+    assert status == 200 and json.loads(raw)["success"] is True
+    srv.close()
