@@ -4250,6 +4250,7 @@ class _FakePreFormServer:
     def __init__(self):
         import http.server, threading, uuid
         self.calls, self.ops, self.scenes, self.printed = [], {}, {}, []
+        self.layout_mode = "ok"            # "tight": fits only when allowed to turn; "full": never fits
         fake = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -4327,6 +4328,10 @@ class _FakePreFormServer:
                     return 400, {"error": {"code": "FILE_NOT_FOUND", "message": body["file"]}}
                 sc["models"].append(body["file"])
                 return 200, {"id": f"m{len(sc['models'])}"}
+            if what == "auto-layout" and (self.layout_mode == "full" or
+                                          (self.layout_mode == "tight" and body.get("lock_rotation"))):
+                return 200, {"error": {"code": "OPERATION_FAILED",
+                                       "message": "The layout tool was unable to fit the models into the work area."}}
             if what in ("auto-orient", "auto-support", "auto-layout", "save-form"):
                 sc[what] = body
                 if what == "save-form":
@@ -4395,6 +4400,21 @@ def test_formlabs_send_through_preformserver(tmp_path):
             raise AssertionError("expected a failure")
         except formlabs.FormlabsError as e:
             assert e.code == "PRINTER_IP_NOT_FOUND"
+        # PreForm's layout cannot fit them as turned: retry letting it turn them, closer, overlapping supports
+        srv.layout_mode = "tight"
+        n0 = len(srv.scenes)
+        r = c.send([stl], types[0]["materials"][0]["settings"][0]["scene_settings"], "192.168.7.20", "x")
+        lay = srv.scenes[f"scene{n0 + 1}"]["auto-layout"]
+        assert r["job_id"] == "job-1" and lay["lock_rotation"] is False and lay["allow_overlapping_supports"] is True
+        srv.layout_mode = "full"                        # still too many models: a clear error, nothing printed
+        printed = len(srv.printed)
+        try:
+            c.send([stl, stl], types[0]["materials"][0]["settings"][0]["scene_settings"], "192.168.7.20", "x")
+            raise AssertionError("expected a failure")
+        except formlabs.FormlabsError as e:
+            assert e.code == "LAYOUT_DOES_NOT_FIT" and "2 models" in str(e)
+        assert len(srv.printed) == printed
+        srv.layout_mode = "ok"
         dead = formlabs.Client(port=1)
         assert not dead.running()
         try:
@@ -4457,6 +4477,11 @@ def test_formlabs_dialog_connects_finds_and_sends(tmp_path):
         assert r.returncode == 0 and "STATUS" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
         assert srv.printed and srv.printed[0]["printer"] == "192.168.7.20" and srv.printed[0]["print_now"] is False
         assert "192.168.7.20" in r.stdout
+        srv.layout_mode = "full"                       # too many models for the platform: a clear message
+        r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
+                           encoding="utf-8", errors="replace")
+        assert r.returncode == 0 and "STATUS" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+        assert "Form 4BL" in r.stdout and "Error" not in r.stdout.split("STATUS", 1)[1], r.stdout[-1500:]
     finally:
         srv.close()
 

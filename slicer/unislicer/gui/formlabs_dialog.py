@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 import tempfile
 
+import numpy as np
+
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
@@ -265,7 +267,8 @@ class FormlabsDialog(QDialog):
         folder = tempfile.mkdtemp(prefix="unislicer-formlabs-")
         from ..mesh import save_stl
         paths = []
-        for k, (name, mesh) in enumerate(self.export_meshes(mode)):
+        meshes = self.export_meshes(mode)
+        for k, (name, mesh) in enumerate(meshes):
             safe = "".join(ch if ch.isalnum() or ch in "-_ ." else "_" for ch in (name or "model"))[:60] or "model"
             path = os.path.join(folder, f"{k + 1:02d}_{safe}.stl")
             save_stl(mesh, path)
@@ -275,12 +278,20 @@ class FormlabsDialog(QDialog):
             return
         job_name = self.job.text().strip() or "UniSlicer"
         print_now = None if not printer else not self.queue.isChecked()
+        footprint = sum(float(np.prod(m.bounds[1, :2] - m.bounds[0, :2])) for _n, m in meshes)
+        i = self.ptype.currentIndex()
+        build = self.types[i].get("build") if 0 <= i < len(self.types) else []
+        plate = float(build[0]) * float(build[1]) if len(build) >= 2 else 0.0
 
         def work(progress, cancelled):
             try:
                 return self.client.send(paths, dict(scene), printer, job_name, supports=mode,
                                         orient=self.orient.isChecked(), print_now=print_now, save_form=save_form,
                                         progress=progress, cancelled=cancelled)
+            except formlabs.FormlabsError as e:
+                if e.code == "LAYOUT_DOES_NOT_FIT":
+                    return {"too_big": True}
+                raise
             finally:
                 for p in paths:
                     try:
@@ -289,6 +300,10 @@ class FormlabsDialog(QDialog):
                         pass
 
         def done(result):
+            if result.get("too_big"):
+                self.status.setText(tr("fl_too_big").format(len(paths), footprint / 100.0,
+                                                            plate / 100.0 if plate else 0.0, self.ptype.currentText()))
+                return
             bad = formlabs.validation_problems(result.get("validation"))
             lines = [tr("fl_sent").format(printer) if printer else tr("fl_saved").format(save_form)]
             if result.get("print_time_s"):
@@ -298,7 +313,7 @@ class FormlabsDialog(QDialog):
                 lines.append(tr("fl_warnings").format(bad["cups"], bad["unsupported_minima"], bad["undersupported"]))
             self.status.setText("\n".join(lines))
 
-        self._run(work, done, tr("fl_working"))
+        self._run(work, done, tr("fl_sending").format(len(paths)))
 
     def _send(self):
         printer = self._printer_id()

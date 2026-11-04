@@ -1322,5 +1322,7 @@
 "No models to send": "لا توجد نماذج للإرسال",
 "Gingiva mask (45° tilt, with supports)": "قناع اللثة (ميل 45°، مع دعامات)",
 "Starting point: 45° tilt with supports. Print in flexible gingiva resin and keep supports off the side that sits on the model": "نقطة البداية: ميل 45° مع دعامات. اطبع بالراتنج المرن للثة وأبقِ الدعامات بعيدة عن الجانب الملاصق للنموذج",
-"Gingiva mask": "قناع اللثة"
+"Gingiva mask": "قناع اللثة",
+"The models do not fit on PreForm's platform even packed tightly: {} models sent, about {:.0f} cm² of base against a {:.0f} cm² platform ({}), plus supports and raft. Select only some models (Ctrl+click) and send several jobs, turn off 'Let PreForm re-orient', or choose a Form 4BL.": "النماذج لا تتسع على منصة PreForm حتى مع الترتيب المكثف: أُرسل {} نموذجًا، بمساحة قاعدة نحو {:.0f} سم² مقابل منصة {:.0f} سم² ({})، إضافة إلى الدعامات والقاعدة. اختر بعض النماذج فقط (Ctrl+نقر) وأرسلها في عدة مهام، أو أوقف «دع PreForm يعيد التوجيه»، أو اختر Form 4BL.",
+"Sending {} models to PreForm…": "جارٍ إرسال {} نماذج إلى PreForm…"
 }

@@ -226,6 +226,8 @@ STRINGS = {
     "holes_partly_closed": ("רוב החורים ב-{} נסגרו; חלק מהפגמים נשארו", "Most holes in {} closed; some defects remain"),
     "holes_not_closed": ("לא ניתן היה לסגור את החורים ב-{} אוטומטית", "The holes in {} could not be closed automatically"),
     "auto_close_holes": ("סגור חורים במודלים אוטומטית בטעינה", "Close holes in models automatically on load"),
+    "fl_too_big": ("הדגמים לא נכנסים לפלטה של PreForm גם אחרי סידור צפוף: נשלחו {} דגמים, שטח בסיס כולל כ-{:.0f} סמ\"ר מול פלטה של {:.0f} סמ\"ר ({}), ועוד תמיכות ורפסודה. בחר רק חלק מהדגמים (Ctrl+לחיצה) ושלח בכמה עבודות, כבה את 'תן ל-PreForm לכוון מחדש', או בחר Form 4BL.", "The models do not fit on PreForm's platform even packed tightly: {} models sent, about {:.0f} cm² of base against a {:.0f} cm² platform ({}), plus supports and raft. Select only some models (Ctrl+click) and send several jobs, turn off 'Let PreForm re-orient', or choose a Form 4BL."),
+    "fl_sending": ("שולח {} דגמים ל-PreForm…", "Sending {} models to PreForm…"),
     "dental_gingiva": ("מסכת חניכיים (הטיה 45°, עם תמיכות)", "Gingiva mask (45° tilt, with supports)"),
     "dental_gingiva_hint": ("נקודת התחלה: הטיה 45° עם תמיכות. הדפס בשרף גמיש לחניכיים, ושמור את הצד שנצמד לדגם נקי מתמיכות", "Starting point: 45° tilt with supports. Print in flexible gingiva resin and keep supports off the side that sits on the model"),
     "fl_title": ("שליחה למדפסת Formlabs", "Send to Formlabs"),

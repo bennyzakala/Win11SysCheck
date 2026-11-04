@@ -187,6 +187,7 @@ class Client:
                                  "settings": settings})
             if mats:
                 out.append({"label": pt.get("label", ""), "product_names": list(pt.get("supported_product_names") or []),
+                            "build": list(pt.get("build_volume_dimensions_mm") or []),
                             "machine_types": list(pt.get("supported_machine_type_ids") or []), "materials": mats})
         return out
 
@@ -200,6 +201,20 @@ class Client:
     def devices(self) -> list[dict]:
         _, r = self.request("GET", "/devices/?can_print=true")
         return [d for d in r.get("devices", []) or [] if isinstance(d, dict)]
+
+    def layout(self, sid: str, count: int, cancelled=None) -> None:
+        """Arrange the scene; if the models do not fit as they are, retry turning them about Z, closer, with
+        overlapping supports. Still too many: a clear error (send fewer models, or a bigger printer)."""
+        last = None
+        for body in LAYOUT_TRIES:
+            try:
+                self.call("POST", f"/scene/{sid}/auto-layout/", dict(body), cancelled=cancelled)
+                return
+            except FormlabsError as e:
+                if not _layout_full(e):
+                    raise
+                last = e
+        raise FormlabsError(f"{last} ({count} models)", "LAYOUT_DOES_NOT_FIT")
 
     # ------------------------------------------------------------ a job
     def send(self, stl_paths: list[str], scene_settings: dict, printer: str, job_name: str, *, supports: str = "auto",
@@ -232,8 +247,7 @@ class Client:
                     body["raft_type"] = "MINI_RAFTS_ON_BP"
                 self.call("POST", f"/scene/{sid}/auto-support/", body, cancelled=cancelled)
             step("layout")
-            self.call("POST", f"/scene/{sid}/auto-layout/", {"models": "ALL", "lock_rotation": True},
-                      cancelled=cancelled)
+            self.layout(sid, len(stl_paths), cancelled)
             step("check")
             validation = {}
             try:
@@ -264,6 +278,20 @@ class Client:
                 self.request("DELETE", f"/scene/{sid}/", timeout=10.0)
             except FormlabsError:
                 pass
+
+
+LAYOUT_TRIES = (
+    # first as arranged: each model keeps its turn
+    {"models": "ALL", "lock_rotation": True},
+    # then let PreForm turn them about Z, pack closer and let neighbouring supports overlap, trying harder
+    {"models": "ALL", "lock_rotation": False, "model_spacing_mm": 1.0, "allow_overlapping_supports": True,
+     "layout_attempts": 1000},
+)
+
+
+def _layout_full(e: "FormlabsError") -> bool:
+    text = f"{e.code} {e}".lower()
+    return "unable to fit" in text or "work area" in text or "build volume" in text or "layout" in e.code.lower()
 
 
 def validation_problems(validation: dict) -> dict:

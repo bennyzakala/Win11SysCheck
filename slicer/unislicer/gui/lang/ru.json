@@ -1322,5 +1322,7 @@
 "No models to send": "Нет моделей для отправки",
 "Gingiva mask (45° tilt, with supports)": "Десневая маска (наклон 45°, с поддержками)",
 "Starting point: 45° tilt with supports. Print in flexible gingiva resin and keep supports off the side that sits on the model": "Начальная точка: наклон 45° с поддержками. Печатайте гибкой смолой для десны и не ставьте поддержки на сторону, прилегающую к модели",
-"Gingiva mask": "Десневая маска"
+"Gingiva mask": "Десневая маска",
+"The models do not fit on PreForm's platform even packed tightly: {} models sent, about {:.0f} cm² of base against a {:.0f} cm² platform ({}), plus supports and raft. Select only some models (Ctrl+click) and send several jobs, turn off 'Let PreForm re-orient', or choose a Form 4BL.": "Модели не помещаются на платформу PreForm даже при плотной раскладке: отправлено {} моделей, около {:.0f} см² основания на платформе {:.0f} см² ({}), плюс поддержки и рафт. Выберите только часть моделей (Ctrl+щелчок) и отправьте несколькими заданиями, отключите «Пусть PreForm переориентирует» или выберите Form 4BL.",
+"Sending {} models to PreForm…": "Отправка {} моделей в PreForm…"
 }
