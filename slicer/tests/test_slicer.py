@@ -4750,3 +4750,21 @@ def test_teeth_rafts_carry_the_sod_case_code():
     assert label(crown, cfg) == ""
     cfg.update({"sla_raft_label": True})
     assert label(jaw, cfg) == jaw.name
+
+
+def test_mini_tiny_raft_stays_inside_the_tooth():
+    """'Mini tiny' raft (temporary teeth): the raft follows the tooth's outline seen from above, set back by
+    the inset, and never reaches past it."""
+    from unislicer import sla_supports
+    from shapely.geometry import Polygon
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None,
+                                {"support_enable": True, "sla_raft_type": "tiny", "sla_raft_tiny_inset": 0.5})
+    tooth = placed(primitives.sphere(5), 60, 40).world_mesh().translated([0, 0, 3])
+    sup, pts = sla_supports.build_supports(tooth, cfg)
+    raft_top = cfg["sla_raft_thickness"]
+    v = sup.vertices
+    raft_xy = v[v[:, 2] <= raft_top + 1e-6][:, :2]
+    d = np.hypot(raft_xy[:, 0] - 60, raft_xy[:, 1] - 40)
+    assert len(raft_xy) and d.max() <= 5.0 - 0.5 + 0.06           # inside the outline, set back 0.5 mm
+    outline = sla_supports.tooth_outline(tooth, 0.5)
+    assert abs(outline.area - np.pi * 4.5 ** 2) < 1.5

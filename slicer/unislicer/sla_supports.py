@@ -426,6 +426,34 @@ def _raft_label(text: str, feet: np.ndarray, cfg: Config, pad: float, raft: floa
     return [_slab(tab, 0.0, raft, 90), extrude(polys, raft - 0.01, raft + 0.4, "Raft label")]
 
 
+def _raft_label_inside(text: str, shape, raft: float) -> list[Mesh]:
+    """The label embossed on top of a mini tiny raft, sized to fit inside it (no tab past the tooth)."""
+    try:
+        from PySide6.QtGui import QGuiApplication
+        if QGuiApplication.instance() is None:
+            return []
+        from .mesh_tools import extrude, text_polygons
+        polys = text_polygons(text[:24], 2.0)
+    except Exception:          # pragma: no cover - no Qt fonts here
+        return []
+    if polys.is_empty:
+        return []
+    from shapely import affinity
+    room = shape.buffer(-0.4)
+    if room.is_empty:
+        return []
+    c = room.representative_point()
+    minx, miny, maxx, maxy = room.bounds
+    tx0, ty0, tx1, ty1 = polys.bounds
+    k = min(0.85 * (maxx - minx) / max(tx1 - tx0, 1e-6), 0.5 * (maxy - miny) / max(ty1 - ty0, 1e-6), 1.5)
+    polys = affinity.scale(polys, k, k, origin=(tx0, ty0))
+    tx0, ty0, tx1, ty1 = polys.bounds
+    polys = affinity.translate(polys, c.x - (tx0 + tx1) / 2, c.y - (ty0 + ty1) / 2).intersection(room)
+    if polys.is_empty or k * 2.0 < 0.8:            # too small to read: leave it out
+        return []
+    return [extrude(polys, raft - 0.01, raft + 0.4, "Raft label")]
+
+
 def hex_edges(bounds, cell: float) -> list[tuple[tuple[float, float], tuple[float, float]]]:
     """Wall segments of a honeycomb (flat-topped hexagons, ``cell`` = distance between opposite walls)
     covering ``bounds`` = (minx, miny, maxx, maxy); each wall is listed once."""
@@ -466,12 +494,34 @@ def _hex_walls(hull, cell: float, width: float) -> list:
     return out
 
 
-def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None) -> list[Mesh]:
+def tooth_outline(mesh: Mesh, inset: float, levels: int = 16):
+    """The part's outline seen from above (the union of its cross-sections at several heights), set back by
+    ``inset``: a "mini tiny" raft never reaches past the tooth it carries."""
+    from .slicing import slice_mesh
+    lo, hi = mesh.bounds
+    if hi[2] - lo[2] <= 1e-6:
+        return ShapelyPolygon()
+    planes = list(np.linspace(lo[2], hi[2], levels + 2)[1:-1])
+    shape = unary_union([g for g in slice_mesh(mesh, planes, 0.05) if not g.is_empty])
+    if shape.is_empty:
+        return ShapelyPolygon()
+    shape = shape.buffer(0.2).buffer(-0.2)          # close slivers between neighbouring sections
+    shape = shape.buffer(-inset) if inset > 0 else shape
+    return shape.simplify(0.02) if not shape.is_empty else shape
+
+
+def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None, outline_shape=None) -> list[Mesh]:
     """Raft geometry under the support feet for the chosen raft type."""
     kind = cfg["sla_raft_type"]
     raft = cfg["sla_raft_thickness"]
     if kind == "none" or raft <= 0 or not feet:
         return []
+    if kind == "tiny":
+        # the tooth's own outline, a little smaller; feet outside it stand on the plate as they are
+        if outline_shape is None or outline_shape.is_empty:
+            return []
+        from .mesh_tools import extrude
+        return [extrude(outline_shape, 0.0, raft, "Raft")]
     pts = np.array(feet)
     margin = pad + cfg["sla_raft_margin"]
     slope = cfg["sla_raft_slope"]
@@ -714,10 +764,13 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     if cfg["sla_bracing"] and len(pillars) > 1:
         parts += _braces(pillars, underside(), cfg, segs)
 
-    parts += _rafts(feet, cfg, pillar_r * 4, foot_radii)
+    tiny = tooth_outline(mesh, cfg["sla_raft_tiny_inset"]) if cfg["sla_raft_type"] == "tiny" and feet else None
+    parts += _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny)
     # the caller chooses the text (the model's name, or a tooth's SOD case code); "" = no label
     if label and feet and cfg["sla_raft_type"] in ("solid", "grid", "hexagon") and raft >= 0.4:
         parts += _raft_label(label, np.array(feet), cfg, pillar_r * 4, raft)
+    elif label and tiny is not None and not tiny.is_empty and raft >= 0.4:
+        parts += _raft_label_inside(label, tiny, raft)
     merged = Mesh.merge(list(parts), "Supports")
     if owners is not None:
         owners["faces"] = np.concatenate([np.full(len(m.faces), o, dtype=np.int64) for m, o in zip(parts, part_owner)]) \

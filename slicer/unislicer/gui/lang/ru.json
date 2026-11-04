@@ -1326,5 +1326,9 @@
 "The models do not fit on PreForm's platform even packed tightly: {} models sent, about {:.0f} cm² of base against a {:.0f} cm² platform ({}), plus supports and raft. Select only some models (Ctrl+click) and send several jobs, turn off 'Let PreForm re-orient', or choose a Form 4BL.": "Модели не помещаются на платформу PreForm даже при плотной раскладке: отправлено {} моделей, около {:.0f} см² основания на платформе {:.0f} см² ({}), плюс поддержки и рафт. Выберите только часть моделей (Ctrl+щелчок) и отправьте несколькими заданиями, отключите «Пусть PreForm переориентирует» или выберите Form 4BL.",
 "Sending {} models to PreForm…": "Отправка {} моделей в PreForm…",
 "SOD code on teeth rafts": "Код SOD на рафтах зубов",
-"Crowns and bridges only: the code from the SOD number in the file name is embossed on the raft, e.g. 46671-044 from DSY-SOD260046671-044-P-46": "Только коронки и мосты: на рафте выдавливается код из номера SOD в имени файла, например 46671-044 из DSY-SOD260046671-044-P-46"
+"Crowns and bridges only: the code from the SOD number in the file name is embossed on the raft, e.g. 46671-044 from DSY-SOD260046671-044-P-46": "Только коронки и мосты: на рафте выдавливается код из номера SOD в имени файла, например 46671-044 из DSY-SOD260046671-044-P-46",
+"Mini tiny (inside the tooth outline)": "Мини крошечный (внутри контура зуба)",
+"Mini: a small raft under each group of supports, as in PreForm. Mini tiny: for temporary teeth - the raft follows the tooth's outline seen from above, a little smaller, never past it": "Мини: небольшой рафт под каждой группой поддержек, как в PreForm. Мини крошечный: для временных зубов — рафт повторяет контур зуба сверху, чуть меньше его и никогда не выходит за него",
+"Mini tiny raft inset": "Отступ крошечного рафта",
+"How far the mini tiny raft stays inside the tooth's outline": "Насколько крошечный рафт меньше контура зуба"
 }
