@@ -2297,8 +2297,16 @@ class MainWindow(QMainWindow):
             if d < reach and (best is None or d < best):
                 hit, best = k, d
         if hit is None:
-            o.add_world_label(self._label_text(o, len(o.labels) + 1), point, normal, prefs["height"], prefs["depth"],
-                              prefs["engrave"], 0.0, lift)
+            from .. import mesh_tools
+            text = self._label_text(o, len(o.labels) + 1)
+            size = prefs["height"]
+            # as big as the surface there allows: a small round die gets small letters that still hug it
+            tris = o.world_mesh().triangles + [0, 0, lift]
+            near = tris[np.linalg.norm(tris.mean(axis=1) - np.asarray(point), axis=1) < 40.0]
+            room = mesh_tools.label_room(near, point, normal, size)
+            if room > 0:
+                size = max(1.0, min(size, 0.9 * room / max(1, len(text)) / 0.62))
+            o.add_world_label(text, point, normal, size, prefs["depth"], prefs["engrave"], 0.0, lift)
             hit = len(o.labels) - 1
             self._drop_label_supports(o)
             self._objects_changed(refresh_list=False)
@@ -2337,7 +2345,7 @@ class MainWindow(QMainWindow):
         lift = self._lift() if self._shows_supports(o) else 0.0
         o.move_label(sel[1], point, normal, lift)
         self._label_dragged = True
-        self.viewer.set_object_labels(o.uid, self._label_preview(o, self.settings.config()))
+        self.viewer.set_object_labels(o.uid, self._label_preview(o, self.settings.config(), fit=False))
 
     def _on_label_drag_finished(self):
         if getattr(self, "_label_dragged", False):
@@ -2534,12 +2542,12 @@ class MainWindow(QMainWindow):
         st("label_max", most.value())
         self.auto_label()
 
-    def _label_preview(self, o: SceneObject, cfg):
-        """The label text, in the object's own coordinates."""
+    def _label_preview(self, o: SceneObject, cfg, fit: bool = True):
+        """The label text, in the object's own coordinates (``fit`` off: flat, instant - while dragging)."""
         if not o.labels:
             return None
         lift = self._lift(cfg) if self._shows_supports(o) else 0.0
-        up, cut = o.world_label_meshes(lift)
+        up, cut = o.world_label_meshes(lift, fit=fit)
         parts = [m for m in (up, cut) if m is not None]
         if not parts:
             return None

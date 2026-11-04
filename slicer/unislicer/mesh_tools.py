@@ -83,7 +83,7 @@ _TEXT_CACHE: dict = {}
 
 
 def label_mesh(text: str, point, normal, height: float, depth: float, engrave: bool, width: float = 0.0,
-               angle: float = 0.0, mirror: bool = False) -> Mesh:
+               angle: float = 0.0, mirror: bool = False, surface: np.ndarray | None = None) -> Mesh:
     """``text`` standing on the surface at ``point`` facing out along ``normal``, readable from outside with its
     letters upright (towards +Z, or +Y on a horizontal face). Embossed text rises ``depth`` out of the surface;
     engraved text (a cutter) goes ``depth`` in. Either reaches 0.3 mm past the surface so it joins cleanly.
@@ -91,7 +91,13 @@ def label_mesh(text: str, point, normal, height: float, depth: float, engrave: b
     key = (text, round(height, 4))
     flat = _TEXT_CACHE.get(key)
     if flat is None:
-        flat = text_mesh(text, height, 1.0)
+        polys = text_polygons(text, height)
+        if polys.is_empty:
+            raise ValueError("No printable characters")
+        minx, miny, _maxx, _maxy = polys.bounds
+        polys = shapely.affinity.translate(polys, -minx, -miny)
+        # short edges, so the letters can bend with a curved surface (a long straight stroke would not)
+        flat = extrude(shapely.segmentize(polys, 0.25), 0.0, 1.0, f"Text: {text}")
         if len(_TEXT_CACHE) > 64:
             _TEXT_CACHE.clear()
         _TEXT_CACHE[key] = flat
@@ -114,8 +120,85 @@ def label_mesh(text: str, point, normal, height: float, depth: float, engrave: b
     up = ref - n * (ref @ n)
     up /= np.linalg.norm(up)
     right = np.cross(up, n)
+    if surface is not None and len(surface):
+        # hug the model: every point of the text keeps its depth from the surface right under it, so on a
+        # curved wall (a die, a rounded base) no letter stands in the air or sinks too deep
+        z = z + _surface_grid_offsets(surface, np.asarray(point, dtype=np.float64), right, up, n, x, y)
     out = np.asarray(point, dtype=np.float64) + np.outer(x, right) + np.outer(y, up) + np.outer(z, n)
     return Mesh(out, faces, f"Label: {text}")
+
+
+def _surface_grid_offsets(tris, point, right, up, n, x, y, step: float = 0.3) -> np.ndarray:
+    """``_surface_offsets`` sampled on a ``step`` grid under the text and interpolated: thousands of text
+    points cost a few hundred rays, so a label follows the mouse smoothly."""
+    x0, x1, y0, y1 = float(x.min()), float(x.max()), float(y.min()), float(y.max())
+    gx = np.arange(x0, x1 + step, step)
+    gy = np.arange(y0, y1 + step, step)
+    if len(gx) * len(gy) >= len(x):                  # tiny text: no gain
+        return _surface_offsets(tris, point, right, up, n, x, y)
+    X, Y = np.meshgrid(gx, gy, indexing="ij")
+    H = _surface_offsets(tris, point, right, up, n, X.ravel(), Y.ravel()).reshape(X.shape)
+    fx = np.clip((x - x0) / step, 0, len(gx) - 1.000001)
+    fy = np.clip((y - y0) / step, 0, len(gy) - 1.000001)
+    i, j = np.floor(fx).astype(int), np.floor(fy).astype(int)
+    i1, j1 = np.minimum(i + 1, len(gx) - 1), np.minimum(j + 1, len(gy) - 1)
+    tx, ty = fx - i, fy - j
+    return ((H[i, j] * (1 - tx) + H[i1, j] * tx) * (1 - ty) + (H[i, j1] * (1 - tx) + H[i1, j1] * tx) * ty)
+
+
+def label_room(tris: np.ndarray, point, normal, height: float, max_sag: float = 0.8, reach: float = 40.0) -> float:
+    """How wide a label can be at ``point``: along the label's line, how far the surface stays within
+    ``max_sag`` of the label's plane on both sides (a small round die leaves little room, a flat base a lot)."""
+    n = np.asarray(normal, dtype=np.float64)
+    n = n / (np.linalg.norm(n) or 1.0)
+    ref = np.array([0.0, 0.0, 1.0]) if abs(n[2]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    up = ref - n * (ref @ n)
+    up /= np.linalg.norm(up)
+    right = np.cross(up, n)
+    xs = np.arange(0.0, reach, 0.4)
+    room = []
+    for sign in (1.0, -1.0):
+        ys = np.zeros(len(xs))
+        hs = _surface_offsets(tris, np.asarray(point, dtype=np.float64), right, up, n, sign * xs, ys,
+                              reach=max(3.0, height), fill=False)
+        ok = ~np.isnan(hs) & (np.abs(hs) <= max_sag)
+        bad = np.flatnonzero(~ok)
+        room.append(xs[bad[0]] if len(bad) else xs[-1])
+    return 2.0 * float(min(room))
+
+
+def _surface_offsets(tris: np.ndarray, point, right, up, n, x, y, reach: float = 6.0, fill: bool = True) -> np.ndarray:
+    """Height of the model's surface above the label's plane at each (x, y) of the text, along ``n``. Where
+    no surface is found near (the text runs past the model's edge) it follows the nearest found point, or
+    is NaN with ``fill`` off."""
+    from .sla_supports import _Caster
+    frame = np.stack([right, up, n])                 # world -> label frame
+    local = (np.asarray(tris, dtype=np.float64) - point) @ frame.T
+    local = local.reshape(-1, 3, 3)
+    caster = _Caster(Mesh(local.reshape(-1, 3), np.arange(len(local) * 3).reshape(-1, 3)))   # no weld needed
+    out = np.full(len(x), np.nan)
+    cache: dict = {}
+    for i, (px, py) in enumerate(zip(x, y)):
+        key = (round(float(px), 4), round(float(py), 4))
+        hit = cache.get(key)
+        if hit is None:
+            zs, faces = caster.hits(float(px), float(py))
+            outward = caster.normals[faces, 2] > 0 if len(zs) else np.zeros(0, dtype=bool)
+            near = zs[outward & (np.abs(zs) <= reach)] if len(zs) else zs
+            hit = float(near[np.argmin(np.abs(near))]) if len(near) else np.nan
+            cache[key] = hit
+        out[i] = hit
+    if not fill:
+        return out
+    found = ~np.isnan(out)
+    if not found.any():
+        return np.zeros(len(x))
+    if not found.all():                              # past the model's edge: follow the nearest found point
+        xy = np.column_stack([x, y])
+        idx = np.flatnonzero(found)
+        for i in np.flatnonzero(~found):
+            out[i] = out[idx[np.argmin(np.hypot(*(xy[idx] - xy[i]).T))]]
+    return out
 
 
 def label_spot(mesh: Mesh) -> tuple[np.ndarray, np.ndarray, float, float] | None:

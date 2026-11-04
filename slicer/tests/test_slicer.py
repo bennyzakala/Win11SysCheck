@@ -4909,3 +4909,31 @@ def test_model_labels_use_the_short_sod_code(tmp_path):
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
                        encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_label_hugs_a_curved_surface():
+    """On a round die a flat label stood in the air at its ends; now each point of the text keeps its depth
+    from the surface under it (engraved: 0.3 mm proud to 'depth' deep, everywhere)."""
+    pytest.importorskip("PySide6")
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        import numpy as np
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.scene import SceneObject
+        die = SceneObject.from_mesh(primitives.cylinder(5.0, 14.0, 96))
+        die.x, die.y = 50.0, 50.0
+        die.add_world_label("45198", [50.0, 45.0, 7.0], [0, -1, 0], 2.5, 0.6, True)
+        up, cut = die.world_label_meshes()
+        v = cut.vertices
+        r = np.hypot(v[:, 0] - 50.0, v[:, 1] - 50.0)                  # distance from the die's axis
+        assert np.ptp(v[:, 0]) > 6                                     # wide enough to bend around the die
+        assert r.max() <= 5.0 + 0.3 + 0.05 and r.min() >= 5.0 - 0.6 - 0.05, (r.min(), r.max())
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
