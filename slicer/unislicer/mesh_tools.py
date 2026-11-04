@@ -82,7 +82,8 @@ def text_mesh(text: str, height: float = 8.0, depth: float = 1.5, font_family: s
 _TEXT_CACHE: dict = {}
 
 
-def label_mesh(text: str, point, normal, height: float, depth: float, engrave: bool, width: float = 0.0) -> Mesh:
+def label_mesh(text: str, point, normal, height: float, depth: float, engrave: bool, width: float = 0.0,
+               angle: float = 0.0) -> Mesh:
     """``text`` standing on the surface at ``point`` facing out along ``normal``, readable from outside with its
     letters upright (towards +Z, or +Y on a horizontal face). Embossed text rises ``depth`` out of the surface;
     engraved text (a cutter) goes ``depth`` in. Either reaches 0.3 mm past the surface so it joins cleanly.
@@ -98,6 +99,9 @@ def label_mesh(text: str, point, normal, height: float, depth: float, engrave: b
     w, h = float(v[:, 0].max()), float(v[:, 1].max())
     k = min(1.0, width / w) if width > 0 and w > 0 else 1.0
     x, y = (v[:, 0] - w / 2) * k, (v[:, 1] - h / 2) * k
+    if angle:                                       # turned in the surface plane
+        a = np.radians(angle)
+        x, y = x * np.cos(a) - y * np.sin(a), x * np.sin(a) + y * np.cos(a)
     z0, z1 = (-depth, 0.3) if engrave else (-0.3, depth)
     z = z0 + v[:, 2] * (z1 - z0)
     n = np.asarray(normal, dtype=np.float64)

@@ -1330,5 +1330,9 @@
 "Mini tiny (inside the tooth outline)": "Мини крошечный (внутри контура зуба)",
 "Mini: a small raft under each group of supports, as in PreForm. Mini tiny: for temporary teeth - the raft follows the tooth's outline seen from above, a little smaller, never past it": "Мини: небольшой рафт под каждой группой поддержек, как в PreForm. Мини крошечный: для временных зубов — рафт повторяет контур зуба сверху, чуть меньше его и никогда не выходит за него",
 "Mini tiny raft inset": "Отступ крошечного рафта",
-"How far the mini tiny raft stays inside the tooth's outline": "Насколько крошечный рафт меньше контура зуба"
+"How far the mini tiny raft stays inside the tooth's outline": "Насколько крошечный рафт меньше контура зуба",
+"Click the model to emboss or engrave a label (file name / case number); click a label to edit it, drag it to move it": "Щёлкните по модели, чтобы выдавить или выгравировать метку (имя файла / номер случая); щелчок по метке открывает её для правки, перетаскивание перемещает",
+"Edit label": "Правка метки",
+"Angle": "Угол",
+"To move it: with the label tool (L), press on the label and drag it over the model. Ctrl+Z undoes.": "Чтобы переместить: инструментом метки (L) нажмите на метку и перетащите её по модели. Ctrl+Z отменяет."
 }

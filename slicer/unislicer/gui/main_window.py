@@ -705,6 +705,8 @@ class MainWindow(QMainWindow):
         self.viewer.holePicked.connect(self._on_hole_picked)
         self.viewer.keepoutPicked.connect(self._on_keepout_picked)
         self.viewer.labelPicked.connect(self._on_label_picked)
+        self.viewer.labelDragged.connect(self._on_label_dragged)
+        self.viewer.labelDragFinished.connect(self._on_label_drag_finished)
         self.viewer.measured.connect(self._on_measured)
         self.viewer.previewObjectClicked.connect(self._on_preview_click)
         self.viewer.rayPicked.connect(self._on_support_remove)
@@ -2272,22 +2274,115 @@ class MainWindow(QMainWindow):
         return text.strip()[:max(1, prefs["max"])]
 
     def _on_label_picked(self, uid, point, normal):
-        """Label tool: a click puts the label there, facing out of the surface; a click on a label removes it."""
+        """Label tool: a click on a label selects it for editing (drag to move it); a click elsewhere on the
+        model puts a new label there, facing out of the surface, and selects it."""
         o = next((x for x in self.objects if x.uid == uid), None)
         if o is None:
             return
         prefs = self._label_prefs()
         lift = self._lift() if self._shows_supports(o) else 0.0
         self._push_undo()
+        hit, best = None, None
         for k, (p, _n, lab) in enumerate(o.world_labels(lift)):
-            if np.linalg.norm(p - np.asarray(point)) < max(2.0, lab["height"]):
+            reach = max(2.0, 0.5 * len(lab["text"]) * 0.62 * lab["height"], lab["height"])
+            d = float(np.linalg.norm(p - np.asarray(point)))
+            if d < reach and (best is None or d < best):
+                hit, best = k, d
+        if hit is None:
+            o.add_world_label(self._label_text(o, len(o.labels) + 1), point, normal, prefs["height"], prefs["depth"],
+                              prefs["engrave"], 0.0, lift)
+            hit = len(o.labels) - 1
+            self._objects_changed(refresh_list=False)
+        self._label_sel = (o.uid, hit)
+        self._label_dragged = False
+        self.edit_label(o, hit)
+
+    def _on_label_dragged(self, uid, point, normal):
+        """Dragging the selected label over its model's surface."""
+        sel = getattr(self, "_label_sel", None)
+        o = next((x for x in self.objects if x.uid == uid), None)
+        if sel is None or o is None or sel[0] != uid or sel[1] >= len(o.labels):
+            return
+        lift = self._lift() if self._shows_supports(o) else 0.0
+        o.move_label(sel[1], point, normal, lift)
+        self._label_dragged = True
+        self.viewer.set_object_labels(o.uid, self._label_preview(o, self.settings.config()))
+
+    def _on_label_drag_finished(self):
+        if getattr(self, "_label_dragged", False):
+            self._label_dragged = False
+            self._objects_changed(refresh_list=False)
+
+    def edit_label(self, o: SceneObject, k: int):
+        """A small window to edit one label: text, size, depth, angle, engraved / embossed, delete. Every change
+        shows on the model at once; drag the label with the mouse (label tool) to move it."""
+        from PySide6.QtWidgets import QComboBox, QFormLayout, QLineEdit
+        old = getattr(self, "_label_editor", None)
+        if old is not None:
+            old.close()
+        lab = o.labels[k]
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("label_edit_title"))
+        dlg.setWindowFlag(Qt.Tool, True)
+        form = QFormLayout(dlg)
+        text = QLineEdit(lab["text"])
+        height, depth = _spin(0.5, 30, 0.1, 1, " mm", 110), _spin(0.1, 5, 0.1, 2, " mm", 110)
+        height.setValue(float(lab["height"]))
+        depth.setValue(float(lab["depth"]))
+        angle = _spin(-180, 180, 5, 0, "°", 110)
+        angle.setValue(float(lab.get("angle", 0.0)))
+        mode = QComboBox()
+        mode.addItem(tr("label_engrave"), True)
+        mode.addItem(tr("label_emboss"), False)
+        mode.setCurrentIndex(0 if lab["engrave"] else 1)
+        form.addRow(tr("label_text"), text)
+        form.addRow(tr("text_height"), height)
+        form.addRow(tr("text_depth"), depth)
+        form.addRow(tr("label_angle"), angle)
+        form.addRow(tr("text_mode"), mode)
+        hint = QLabel(tr("label_drag_hint"))
+        hint.setObjectName("Faint")
+        hint.setWordWrap(True)
+        form.addRow(hint)
+        row = QHBoxLayout()
+        delete = QPushButton(theme.icon("trash", theme.DANGER), tr("delete"))
+        done = QPushButton(tr("close"))
+        done.setDefault(True)
+        row.addWidget(delete)
+        row.addStretch(1)
+        row.addWidget(done)
+        form.addRow(row)
+        timer = QTimer(dlg)
+        timer.setSingleShot(True)
+        timer.setInterval(400)
+        timer.timeout.connect(lambda: self._objects_changed(refresh_list=False))
+
+        def apply(*_):
+            if k >= len(o.labels):
+                return
+            o.labels[k] = dict(o.labels[k], text=text.text().strip() or o.labels[k]["text"], height=height.value(),
+                               depth=depth.value(), angle=angle.value(), engrave=bool(mode.currentData()), width=0.0)
+            self.viewer.set_object_labels(o.uid, self._label_preview(o, self.settings.config()))
+            timer.start()                        # the slice inputs follow a moment later
+
+        def remove():
+            if k < len(o.labels):
+                self._push_undo()
                 del o.labels[k]
+                self._label_sel = None
                 self._objects_changed(refresh_list=False)
                 self.status.setText(tr("label_removed"))
-                return
-        o.add_world_label(self._label_text(o, len(o.labels) + 1), point, normal, prefs["height"], prefs["depth"],
-                          prefs["engrave"], 0.0, lift)
-        self._objects_changed(refresh_list=False)
+            dlg.close()
+
+        for w in (height, depth, angle):
+            w.valueChanged.connect(apply)
+        text.textChanged.connect(apply)
+        mode.currentIndexChanged.connect(apply)
+        delete.clicked.connect(remove)
+        done.clicked.connect(dlg.close)
+        dlg.finished.connect(lambda _r: self._objects_changed(refresh_list=False))
+        self._label_editor = dlg
+        dlg.show()
 
     def auto_label(self, targets=None) -> int:
         """Put a label on each model by itself: on the largest flat side of its lower part."""
@@ -3152,6 +3247,10 @@ class MainWindow(QMainWindow):
                 if any(len(o.keepout) for o in group):
                     menu.addAction(tr("keepout_clear"), self.clear_keepout)
                 menu.addAction(theme.icon("code"), tr("label_title") + "…", self.label_dialog)
+                if len(group) == 1 and group[0].labels:
+                    for k, lab in enumerate(group[0].labels[:8]):
+                        menu.addAction(theme.icon("code"), f"{tr('label_edit_title')}: {lab['text']}",
+                                       lambda o=group[0], k=k: self.edit_label(o, k))
                 if any(o.labels for o in group):
                     menu.addAction(tr("label_clear"), self.clear_labels)
                 menu.addAction(theme.icon("grid"), tr("raft_menu") + "…", self.raft_menu)

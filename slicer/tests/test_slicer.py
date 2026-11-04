@@ -4785,3 +4785,55 @@ def test_raft_code_fits_whole_along_a_diagonal_bridge():
     assert (bx[3] - bx[1]) > (bx[2] - bx[0]) * 0.9                       # runs up the diagonal, not across
     tiny = box(0, 0, 3, 1.0)                                                # no room for a readable code
     assert sla_supports.fit_text(text, tiny) is None
+
+
+def test_label_select_edit_drag_and_delete(tmp_path):
+    """Label tool: clicking a label selects it and opens its editor (no longer deletes it); size, angle,
+    text and engrave/emboss change it live; dragging moves it over the surface; Delete removes it."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        import numpy as np
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QLineEdit, QPushButton
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui.i18n import tr
+        w = MainWindow(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        o = w.add_mesh(primitives.box(40, 30, 15)); app.processEvents()
+        b = o.world_bounds()
+        front = np.array([(b[0, 0] + b[1, 0]) / 2, b[0, 1], 5.0])
+        w._on_label_picked(o.uid, front, np.array([0.0, -1.0, 0.0]))          # new label, editor opens
+        assert len(o.labels) == 1 and w._label_editor is not None and w._label_editor.isVisible()
+        w._on_label_picked(o.uid, front + [1.0, 0, 0], np.array([0.0, -1.0, 0.0]))   # click it again: select
+        assert len(o.labels) == 1, "clicking a label must not add or delete one"
+        ed = w._label_editor
+        spins = ed.findChildren(QDoubleSpinBox)
+        spins[0].setValue(6.0); spins[2].setValue(30.0)                     # height, angle
+        ed.findChildren(QLineEdit)[0].setText("12345-044")
+        app.processEvents()
+        lab = o.labels[0]
+        assert lab["height"] == 6.0 and lab["angle"] == 30.0 and lab["text"] == "12345-044"
+        side = np.array([b[1, 0], (b[0, 1] + b[1, 1]) / 2, 6.0])
+        w._on_label_dragged(o.uid, side, np.array([1.0, 0.0, 0.0])); w._on_label_drag_finished()
+        p, n, _ = o.world_labels()[0]
+        assert np.allclose(p, side) and np.allclose(n, [1, 0, 0])
+        up, cut = o.world_label_meshes()
+        assert cut is not None and len(cut.faces)
+        [x for x in ed.findChildren(QPushButton) if x.text() == tr("delete")][0].click(); app.processEvents()
+        assert o.labels == []
+        w.undo(); app.processEvents()
+        assert len(w.objects[0].labels) == 1
+        w._stop_preslice()
+        from unislicer import parallel
+        if parallel._pool is not None:
+            parallel._pool.shutdown(wait=True, cancel_futures=True)
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

@@ -176,6 +176,15 @@ class SceneObject:
         self.labels.append({"text": str(text), "point": p.tolist(), "normal": n.tolist(), "height": float(height),
                             "depth": float(depth), "engrave": bool(engrave), "width": float(width)})
 
+    def move_label(self, k: int, point, normal, lift: float = 0.0) -> None:
+        """Put label ``k`` at a new spot on the surface (bed coordinates), facing out of it there."""
+        m = self.world_matrix()
+        inv = np.linalg.inv(m[:3, :3])
+        p = (np.asarray(point, dtype=float) - [0, 0, lift] - m[:3, 3]) @ inv.T
+        n = np.asarray(normal, dtype=float) @ m[:3, :3]
+        n /= np.linalg.norm(n) or 1.0
+        self.labels[k] = dict(self.labels[k], point=p.tolist(), normal=n.tolist())
+
     def world_labels(self, lift: float = 0.0) -> list[tuple[np.ndarray, np.ndarray, dict]]:
         """(point, outward normal, label) of each label in bed coordinates."""
         out = []
@@ -195,7 +204,8 @@ class SceneObject:
         raised, cut = [], []
         for p, n, lab in self.world_labels(lift):
             try:
-                mesh = label_mesh(lab["text"], p, n, lab["height"], lab["depth"], lab["engrave"], lab.get("width", 0.0))
+                mesh = label_mesh(lab["text"], p, n, lab["height"], lab["depth"], lab["engrave"], lab.get("width", 0.0),
+                                  lab.get("angle", 0.0))
             except ValueError:
                 continue
             (cut if lab["engrave"] else raised).append(mesh)

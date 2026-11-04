@@ -350,6 +350,8 @@ class Viewer(QOpenGLWidget):
     holePicked = Signal(object, object, object)  # uid, world point, world normal (drain hole tool)
     keepoutPicked = Signal(object, object)       # uid, world point (support-free zone tool)
     labelPicked = Signal(object, object, object)  # uid, world point, world normal (label tool)
+    labelDragged = Signal(object, object, object)  # uid, world point, world normal while dragging a label
+    labelDragFinished = Signal()
     measured = Signal(object, object)            # first and second world point
     rayPicked = Signal(object, object)         # origin, direction (support "remove" mode)
     cameraChanged = Signal()                   # after every repaint (keeps the view cube in step)
@@ -1449,6 +1451,7 @@ class Viewer(QOpenGLWidget):
                 _, normal = self.pick_face(e.position())
                 self.labelPicked.emit(uid, point, normal)
                 self._picked = True
+                self._label_drag = uid           # keep the button down to drag the label over the surface
             return
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.tool == "keepout":
             uid, point = self.pick_hit(e.position())
@@ -1551,6 +1554,13 @@ class Viewer(QOpenGLWidget):
                     self._rot = (uid, axis, start, delta)
                     self.rotateDragged.emit(uid, axis, float(delta))
             return
+        if getattr(self, "_label_drag", None) is not None and e.buttons() & Qt.LeftButton and self.tool == "label":
+            uid, point = self.pick_hit(pos)
+            if uid == self._label_drag and point is not None:
+                _, normal = self.pick_face(pos)
+                if normal is not None:
+                    self.labelDragged.emit(uid, point, normal)
+            return
         if self.tool == "measure" and len(self.measure_points) == 1 and not e.buttons():
             _, point = self.pick_hit(pos)
             self.measure_hover = point if point is not None else self._bed_point(pos)
@@ -1635,6 +1645,9 @@ class Viewer(QOpenGLWidget):
         super().leaveEvent(e)
 
     def mouseReleaseEvent(self, e):
+        if getattr(self, "_label_drag", None) is not None:
+            self._label_drag = None
+            self.labelDragFinished.emit()
         moved = (e.position() - self._press_pos).manhattanLength() > 3
         click_select, self._click_select = self._click_select, None
         if self._band is not None:
