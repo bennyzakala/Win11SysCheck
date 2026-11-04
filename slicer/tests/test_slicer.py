@@ -1776,6 +1776,8 @@ def test_remote_control_agent_links_reports_and_obeys(tmp_path, monkeypatch):
         assert wait(lambda: get(f"agents/{uid}/printers")[kp.id]["state"] == "paused")
         write(f"agents/{uid}/commands/c2", {"printer": kp.id, "action": "resume", "at": now, "by": "owner1"})
         assert wait(lambda: calls == ["/printer/print/pause", "/printer/print/resume"])
+        # c2's answer goes to the same per-printer result: wait for it, or it may land after (over) c3's
+        assert wait(lambda: (get(f"agents/{uid}/results/{kp.id}") or {}).get("id") == "c2")
         # an old command (e.g. queued while the computer was off) is refused, an unknown printer too
         write(f"agents/{uid}/commands/c3", {"printer": kp.id, "action": "stop", "at": now - 3_600_000, "by": "owner1"})
         assert wait(lambda: (get(f"agents/{uid}/results/{kp.id}") or {}).get("id") == "c3")
