@@ -217,7 +217,7 @@ class SceneObject:
         for p, n, lab in self.world_labels(lift):
             try:
                 mesh = label_mesh(lab["text"], p, n, lab["height"], lab["depth"], lab["engrave"], lab.get("width", 0.0),
-                                  lab.get("angle", 0.0))
+                                  lab.get("angle", 0.0), bool(lab.get("mirror", False)))
             except ValueError:
                 continue
             (cut if lab["engrave"] else raised).append(mesh)

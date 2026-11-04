@@ -1337,5 +1337,12 @@
 "To move it: with the label tool (L), press on the label and drag it over the model. Ctrl+Z undoes.": "للنقل: باستخدام أداة الملصق (L) اضغط على الملصق واسحبه فوق النموذج. Ctrl+Z للتراجع.",
 "Size (letter height)": "الحجم (ارتفاع الأحرف)",
 "Select a label first (click it with the label tool, L); then Ctrl + wheel resizes it and Alt + wheel turns it": "اختر ملصقًا أولًا (انقر عليه بأداة الملصق L)؛ ثم Ctrl + العجلة لتغيير الحجم و Alt + العجلة للتدوير",
-"To move it: with the label tool (L), press on the label and drag it over the model. Ctrl + wheel resizes, Alt + wheel turns, Ctrl+Z undoes.": "للنقل: باستخدام أداة الملصق (L) اضغط على الملصق واسحبه فوق النموذج. Ctrl + العجلة للحجم، Alt + العجلة للتدوير، Ctrl+Z للتراجع."
+"To move it: with the label tool (L), press on the label and drag it over the model. Ctrl + wheel resizes, Alt + wheel turns, Ctrl+Z undoes.": "للنقل: باستخدام أداة الملصق (L) اضغط على الملصق واسحبه فوق النموذج. Ctrl + العجلة للحجم، Alt + العجلة للتدوير، Ctrl+Z للتراجع.",
+"{code} = the short SOD code (e.g. 45198-N183-E), {name} = model name, {n} = running number, {date} = today's date": "{code} = رمز SOD المختصر (مثل 45198-N183-E)، {name} = اسم النموذج، {n} = رقم تسلسلي، {date} = تاريخ اليوم",
+"Crowns and bridges only: the code from the SOD number in the file name is embossed on the raft, e.g. 46671-044-P from DSY-SOD260046671-044-P-46": "للتيجان والجسور فقط: يُنقش على القاعدة الرمز من رقم SOD في اسم الملف، مثل 46671-044-P من DSY-SOD260046671-044-P-46",
+"Turn 90° left": "تدوير 90° لليسار",
+"Turn 90° right": "تدوير 90° لليمين",
+"Turn 180°": "تدوير 180°",
+"Upright": "مستقيم",
+"Mirrored (reads from the other side)": "معكوس (يُقرأ من الجهة الأخرى)"
 }

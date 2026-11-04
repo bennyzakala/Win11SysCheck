@@ -4732,8 +4732,9 @@ def test_teeth_rafts_carry_the_sod_case_code():
     from unislicer import dental_cad
     from unislicer.gui.main_window import MainWindow
     from unislicer.scene import SceneObject
-    assert dental_cad.case_code("DSY-SOD260046671-044-P-46-46-1-A35-.stl") == "46671-044"
-    assert dental_cad.case_code("C:/cases/WMJ-SOD260043945-044-P-43-46-4-A3-.stl") == "43945-044"
+    assert dental_cad.case_code("DSY-SOD260046671-044-P-46-46-1-A35-.stl") == "46671-044-P"
+    assert dental_cad.case_code("SMG-SOD260045198-N183-E-16-16-1-A35_Antag.stl") == "45198-N183-E"
+    assert dental_cad.case_code("C:/cases/WMJ-SOD260043945-044-P-43-46-4-A3-.stl") == "43945-044-P"
     assert dental_cad.case_code("upper.stl") == ""
     cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True})
     assert cfg["sla_raft_label_teeth"] is False                 # off unless the user turns it on
@@ -4745,7 +4746,7 @@ def test_teeth_rafts_carry_the_sod_case_code():
     jaw = SceneObject.from_mesh(primitives.box(60, 45, 15), "EGI-SOD260046764-114-Z-14-14-1-00-V227_UnsectionedModel_UpperJaw")
     die = SceneObject.from_mesh(primitives.cylinder(4, 15), "EGI-SOD260046764-114-Z-14-14-1-00-V227_Tooth_14")
     label = MainWindow._raft_label_text
-    assert label(crown, cfg) == "46671-044"
+    assert label(crown, cfg) == "46671-044-P"
     assert label(jaw, cfg) == "" and label(die, cfg) == ""
     cfg.update({"sla_raft_label_teeth": False})
     assert label(crown, cfg) == ""
@@ -4822,6 +4823,14 @@ def test_label_select_edit_drag_and_delete(tmp_path):
         assert o.labels[0]["height"] < 6.9
         w._on_label_wheel(1.0, True); app.processEvents()              # Alt + wheel turns it
         assert abs(o.labels[0]["angle"] - 35.0) < 1e-6
+        from PySide6.QtWidgets import QCheckBox
+        [x for x in ed.findChildren(QPushButton) if x.text() == "⟳"][0].click(); app.processEvents()
+        assert abs(o.labels[0]["angle"] - (-55.0)) < 1e-6              # 90 degrees to the right
+        [x for x in ed.findChildren(QPushButton) if x.text() == tr("label_upright")][0].click(); app.processEvents()
+        assert o.labels[0]["angle"] == 0.0
+        ed.findChildren(QCheckBox)[0].setChecked(True); app.processEvents()
+        assert o.labels[0]["mirror"] is True
+        spins[2].setValue(30.0)
         spins[0].setValue(6.0)
         side = np.array([b[1, 0], (b[0, 1] + b[1, 1]) / 2, 6.0])
         w._on_label_dragged(o.uid, side, np.array([1.0, 0.0, 0.0])); w._on_label_drag_finished()
@@ -4869,3 +4878,34 @@ def test_supports_keep_away_from_labels():
     job2 = sla.prepare([o.world_mesh()], cfg, support_points=[edited - [0, 0, lift]], keepout=[o.world_keepout(0.0)])
     sp2 = np.asarray(job2.support_points).reshape(-1, 3)
     assert np.all(np.linalg.norm(sp2 - (zone[:3] + [0, 0, lift]), axis=1) >= zone[3])
+
+
+def test_model_labels_use_the_short_sod_code(tmp_path):
+    """The label text defaults to the short SOD code ({code}): 'SMG-SOD260045198-N183-E-16-16-1-A35_Antag'
+    is labelled '45198-N183-E'; a file without an SOD number keeps its name."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.store.setValue("label_template", "{name}")       # the old default is moved to the code once
+        w.store.remove("label_template_v2")
+        a = w.add_mesh(primitives.box(40, 30, 15)); a.name = "SMG-SOD260045198-N183-E-16-16-1-A35_Antag"
+        b = w.add_mesh(primitives.box(40, 30, 15)); b.name = "upper_jaw_7"
+        assert w._label_text(a) == "45198-N183-E", w._label_text(a)
+        assert w._label_text(b) == "upper_jaw_7"
+        w.store.setValue("label_template", "{name}")       # a user's own choice afterwards stays
+        assert w._label_text(a) == "SMG-SOD260045198-N183-E-16-16-1-A35_Antag"[:14]
+        w._stop_preslice()
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

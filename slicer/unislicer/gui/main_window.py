@@ -2259,17 +2259,24 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------- labels
     def _label_prefs(self) -> dict:
         v = self.store.value
-        return {"template": str(v("label_template", "{name}")), "height": float(v("label_height", 4.0)),
+        if v("label_template_v2", "") != "1":           # the short SOD code is the default now
+            if str(v("label_template", "{name}")) == "{name}":
+                self.store.setValue("label_template", "{code}")
+            self.store.setValue("label_template_v2", "1")
+        return {"template": str(v("label_template", "{code}")), "height": float(v("label_height", 4.0)),
                 "depth": float(v("label_depth", 0.6)), "engrave": str(v("label_engrave", "true")) == "true",
                 "max": int(v("label_max", 14))}
 
     def _label_text(self, o, number: int = 1) -> str:
         import datetime
         import os as _os
+        from .. import dental_cad
         prefs = self._label_prefs()
         name = _os.path.splitext(o.name or "model")[0]
+        code = dental_cad.case_code(name) or name           # no SOD number: the file name
         try:
-            text = prefs["template"].format(name=name, n=number, date=datetime.date.today().strftime("%d.%m.%y"))
+            text = prefs["template"].format(name=name, code=code, n=number,
+                                            date=datetime.date.today().strftime("%d.%m.%y"))
         except (KeyError, IndexError, ValueError):
             text = prefs["template"]
         return text.strip()[:max(1, prefs["max"])]
@@ -2342,9 +2349,12 @@ class MainWindow(QMainWindow):
             self._objects_changed(refresh_list=False)
 
     def edit_label(self, o: SceneObject, k: int):
-        """A small window to edit one label: text, size, depth, angle, engraved / embossed, delete. Every change
-        shows on the model at once; drag the label with the mouse (label tool) to move it."""
+        """A small window to edit one label: text, size, depth, angle (turn buttons), mirrored, engraved /
+        embossed, delete. Every change shows on the model at once; drag the label (label tool) to move it."""
         from PySide6.QtWidgets import QComboBox, QFormLayout, QLineEdit
+
+        def _wrap(a: float) -> float:
+            return (a + 180.0) % 360.0 - 180.0
         old = getattr(self, "_label_editor", None)
         if old is not None:
             old.close()
@@ -2375,7 +2385,23 @@ class MainWindow(QMainWindow):
         size_row.addStretch(1)
         form.addRow(tr("label_size"), size_row)
         form.addRow(tr("text_depth"), depth)
-        form.addRow(tr("label_angle"), angle)
+        turn_row = QHBoxLayout()
+        turn_row.addWidget(angle)
+        for txt, tip, fn in (("⟲", tr("label_turn_left"), lambda: angle.setValue(_wrap(angle.value() + 90))),
+                             ("⟳", tr("label_turn_right"), lambda: angle.setValue(_wrap(angle.value() - 90))),
+                             ("⇅", tr("label_turn_180"), lambda: angle.setValue(_wrap(angle.value() + 180))),
+                             (tr("label_upright"), tr("label_upright"), lambda: angle.setValue(0.0))):
+            btn = QPushButton(txt)
+            btn.setToolTip(tip)
+            if len(txt) == 1:
+                btn.setFixedWidth(34)
+            btn.clicked.connect(fn)
+            turn_row.addWidget(btn)
+        turn_row.addStretch(1)
+        form.addRow(tr("label_angle"), turn_row)
+        mirror = QCheckBox(tr("label_mirror"))
+        mirror.setChecked(bool(lab.get("mirror", False)))
+        form.addRow("", mirror)
         form.addRow(tr("text_mode"), mode)
         hint = QLabel(tr("label_drag_hint"))
         hint.setObjectName("Faint")
@@ -2398,7 +2424,8 @@ class MainWindow(QMainWindow):
             if k >= len(o.labels):
                 return
             o.labels[k] = dict(o.labels[k], text=text.text().strip() or o.labels[k]["text"], height=height.value(),
-                               depth=depth.value(), angle=angle.value(), engrave=bool(mode.currentData()), width=0.0)
+                               depth=depth.value(), angle=angle.value(), engrave=bool(mode.currentData()), width=0.0,
+                               mirror=mirror.isChecked())
             self.viewer.set_object_labels(o.uid, self._label_preview(o, self.settings.config()))
             timer.start()                        # the slice inputs follow a moment later
 
@@ -2415,6 +2442,7 @@ class MainWindow(QMainWindow):
             w.valueChanged.connect(apply)
         text.textChanged.connect(apply)
         mode.currentIndexChanged.connect(apply)
+        mirror.toggled.connect(apply)
         delete.clicked.connect(remove)
         done.clicked.connect(dlg.close)
         dlg.finished.connect(lambda _r: self._objects_changed(refresh_list=False))
@@ -2466,7 +2494,7 @@ class MainWindow(QMainWindow):
         dlg = QDialog(self)
         dlg.setWindowTitle(tr("label_title"))
         form = QFormLayout(dlg)
-        text = QLineEdit(prefs["template"])
+        text = QLineEdit(prefs["template"] or "{code}")
         text.setToolTip(tr("label_text_tip"))
         tip = QLabel(tr("label_text_tip"))
         tip.setObjectName("Faint")
@@ -2499,7 +2527,7 @@ class MainWindow(QMainWindow):
         if dlg.exec() != QDialog.Accepted:
             return
         st = self.store.setValue
-        st("label_template", text.text().strip() or "{name}")
+        st("label_template", text.text().strip() or "{code}")
         st("label_height", height.value())
         st("label_depth", depth.value())
         st("label_engrave", "true" if mode.currentData() else "false")
@@ -3843,7 +3871,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _raft_label_text(o: SceneObject, cfg) -> str:
         """What goes on a model's raft: on teeth (crowns / bridges) the case code from the SOD number,
-        e.g. 46671-044; otherwise the model's name when "Model name on the raft" is on."""
+        e.g. 46671-044-P; otherwise the model's name when "Model name on the raft" is on."""
         from .. import dental_cad
         if cfg["sla_raft_label_teeth"] and dental_cad.kind_of(o.name, o.mesh) == "crown":
             code = dental_cad.case_code(o.name)

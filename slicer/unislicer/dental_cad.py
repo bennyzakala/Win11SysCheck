@@ -162,11 +162,13 @@ def _solid_fraction(mesh) -> float:
 
 
 def case_code(name: str) -> str:
-    """The short case code a lab writes on a tooth's raft, from the SOD order number in the file name:
-    "DSY-SOD260046671-044-P-46-46-1-A35" -> "46671-044" (the last five digits of the SOD number and the
-    group after it). "" when the name has no SOD number."""
-    m = re.search(r"SOD\d*?(\d{5})-(\d+)", os.path.basename(name or ""), re.IGNORECASE)
-    return f"{m.group(1)}-{m.group(2)}" if m else ""
+    """The short case code a lab writes on a part, from the SOD order number in the file name: the last five
+    digits of the SOD number and the two groups after it - "SMG-SOD260045198-N183-E-16-16-1-A35_Antag" ->
+    "45198-N183-E", "DSY-SOD260046671-044-P-46-46-1-A35" -> "46671-044-P". "" when there is no SOD number."""
+    m = re.search(r"SOD\d*?(\d{5})-([A-Za-z0-9]+)(?:-([A-Za-z0-9]+))?", os.path.basename(name or ""), re.IGNORECASE)
+    if not m:
+        return ""
+    return "-".join(g for g in (m.group(1), m.group(2), m.group(3)) if g)
 
 
 _KIND_CACHE: dict = {}

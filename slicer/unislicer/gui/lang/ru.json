@@ -1337,5 +1337,12 @@
 "To move it: with the label tool (L), press on the label and drag it over the model. Ctrl+Z undoes.": "Чтобы переместить: инструментом метки (L) нажмите на метку и перетащите её по модели. Ctrl+Z отменяет.",
 "Size (letter height)": "Размер (высота букв)",
 "Select a label first (click it with the label tool, L); then Ctrl + wheel resizes it and Alt + wheel turns it": "Сначала выберите метку (щёлкните по ней инструментом метки, L); затем Ctrl + колесо меняет размер, Alt + колесо поворачивает",
-"To move it: with the label tool (L), press on the label and drag it over the model. Ctrl + wheel resizes, Alt + wheel turns, Ctrl+Z undoes.": "Чтобы переместить: инструментом метки (L) нажмите на метку и перетащите её по модели. Ctrl + колесо — размер, Alt + колесо — поворот, Ctrl+Z — отмена."
+"To move it: with the label tool (L), press on the label and drag it over the model. Ctrl + wheel resizes, Alt + wheel turns, Ctrl+Z undoes.": "Чтобы переместить: инструментом метки (L) нажмите на метку и перетащите её по модели. Ctrl + колесо — размер, Alt + колесо — поворот, Ctrl+Z — отмена.",
+"{code} = the short SOD code (e.g. 45198-N183-E), {name} = model name, {n} = running number, {date} = today's date": "{code} = короткий код SOD (например 45198-N183-E), {name} = имя модели, {n} = порядковый номер, {date} = сегодняшняя дата",
+"Crowns and bridges only: the code from the SOD number in the file name is embossed on the raft, e.g. 46671-044-P from DSY-SOD260046671-044-P-46": "Только коронки и мосты: на рафте выдавливается код из номера SOD в имени файла, например 46671-044-P из DSY-SOD260046671-044-P-46",
+"Turn 90° left": "Повернуть на 90° влево",
+"Turn 90° right": "Повернуть на 90° вправо",
+"Turn 180°": "Повернуть на 180°",
+"Upright": "Прямо",
+"Mirrored (reads from the other side)": "Зеркально (читается с другой стороны)"
 }
