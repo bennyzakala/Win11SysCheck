@@ -5,6 +5,7 @@ import zipfile
 
 import numpy as np
 import pytest
+import shapely
 
 from unislicer import fdm, gcode, primitives, profiles, sla
 from unislicer.mesh import Mesh, load_mesh, save_stl
@@ -4768,3 +4769,19 @@ def test_mini_tiny_raft_stays_inside_the_tooth():
     assert len(raft_xy) and d.max() <= 5.0 - 0.5 + 0.06           # inside the outline, set back 0.5 mm
     outline = sla_supports.tooth_outline(tooth, 0.5)
     assert abs(outline.area - np.pi * 4.5 ** 2) < 1.5
+
+
+def test_raft_code_fits_whole_along_a_diagonal_bridge():
+    """On a narrow diagonal bridge raft the case code is turned along the raft and shrunk until all of it
+    fits inside (it was centred horizontally and cut off); too small to read -> left out, never cut."""
+    from shapely import affinity
+    from shapely.geometry import Polygon, box
+    from unislicer import sla_supports
+    text = sla.as_multipolygon(shapely.union_all([box(x, 0, x + 1.2, 2.0) for x in np.arange(0, 9 * 1.5, 1.5)]))
+    raft = affinity.rotate(box(0, 0, 34, 6), 55, origin=(0, 0))             # a 34 x 6 mm bridge raft at 55 degrees
+    placed = sla_supports.fit_text(text, raft.buffer(-0.4))
+    assert placed is not None and raft.buffer(-0.4).contains(placed)
+    bx = placed.bounds
+    assert (bx[3] - bx[1]) > (bx[2] - bx[0]) * 0.9                       # runs up the diagonal, not across
+    tiny = box(0, 0, 3, 1.0)                                                # no room for a readable code
+    assert sla_supports.fit_text(text, tiny) is None

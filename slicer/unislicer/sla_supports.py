@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import shapely
 from shapely.affinity import scale as shapely_scale
 from shapely.geometry import LineString, MultiPoint
 from shapely.geometry import Polygon as ShapelyPolygon
@@ -427,31 +428,58 @@ def _raft_label(text: str, feet: np.ndarray, cfg: Config, pad: float, raft: floa
 
 
 def _raft_label_inside(text: str, shape, raft: float) -> list[Mesh]:
-    """The label embossed on top of a mini tiny raft, sized to fit inside it (no tab past the tooth)."""
+    """The label embossed on top of a mini tiny raft: turned along the raft's long side (never upside
+    down), sized so the whole text fits inside it - shrunk and slid along until it does. Left out (rather
+    than cut short) when even the smallest readable size does not fit."""
     try:
         from PySide6.QtGui import QGuiApplication
         if QGuiApplication.instance() is None:
             return []
         from .mesh_tools import extrude, text_polygons
-        polys = text_polygons(text[:24], 2.0)
+        base = text_polygons(text[:24], 2.0)
     except Exception:          # pragma: no cover - no Qt fonts here
         return []
-    if polys.is_empty:
+    placed = fit_text(base, shape.buffer(-0.4))
+    if placed is None:
         return []
+    return [extrude(placed, raft - 0.01, raft + 0.4, "Raft label")]
+
+
+def fit_text(text, room, min_height: float = 0.7, max_height: float = 3.0):
+    """``text`` (polygons, 2 mm tall, horizontal) placed wholly inside ``room``: along its long axis, as big
+    as fits (up to ``max_height``), or None."""
     from shapely import affinity
-    room = shape.buffer(-0.4)
-    if room.is_empty:
-        return []
-    c = room.representative_point()
-    minx, miny, maxx, maxy = room.bounds
-    tx0, ty0, tx1, ty1 = polys.bounds
-    k = min(0.85 * (maxx - minx) / max(tx1 - tx0, 1e-6), 0.5 * (maxy - miny) / max(ty1 - ty0, 1e-6), 1.5)
-    polys = affinity.scale(polys, k, k, origin=(tx0, ty0))
-    tx0, ty0, tx1, ty1 = polys.bounds
-    polys = affinity.translate(polys, c.x - (tx0 + tx1) / 2, c.y - (ty0 + ty1) / 2).intersection(room)
-    if polys.is_empty or k * 2.0 < 0.8:            # too small to read: leave it out
-        return []
-    return [extrude(polys, raft - 0.01, raft + 0.4, "Raft label")]
+    if text.is_empty or room.is_empty:
+        return None
+    room = room.buffer(0)
+    rect = room.minimum_rotated_rectangle
+    xy = np.asarray(rect.exterior.coords)[:4]
+    edges = [xy[(k + 1) % 4] - xy[k] for k in range(2)]
+    long_edge = max(edges, key=lambda e: float(np.hypot(*e)))
+    angle = float(np.degrees(np.arctan2(long_edge[1], long_edge[0])))
+    if angle > 90:
+        angle -= 180
+    elif angle <= -90:
+        angle += 180                                   # read left to right, never upside down
+    length = float(np.hypot(*long_edge))
+    width = float(min(np.hypot(*e) for e in edges))
+    tx0, ty0, tx1, ty1 = text.bounds
+    tw, th = tx1 - tx0, ty1 - ty0
+    centred = affinity.translate(text, -(tx0 + tx1) / 2, -(ty0 + ty1) / 2)
+    c = np.asarray(rect.centroid.coords[0])
+    axis = long_edge / max(np.hypot(*long_edge), 1e-9)
+    shapely.prepare(room)
+    k = min(0.92 * length / max(tw, 1e-6), 0.8 * width / max(th, 1e-6), max_height / max(th, 1e-6))
+    while k * th >= min_height:
+        piece = affinity.rotate(affinity.scale(centred, k, k, origin=(0, 0)), angle, origin=(0, 0))
+        span = max(0.0, (length - k * tw) / 2)
+        for off in (0.0, -0.25, 0.25, -0.5, 0.5, -0.75, 0.75):
+            p = c + axis * off * span
+            cand = affinity.translate(piece, p[0], p[1])
+            if room.contains(cand):
+                return cand
+        k *= 0.9
+    return None
 
 
 def hex_edges(bounds, cell: float) -> list[tuple[tuple[float, float], tuple[float, float]]]:
