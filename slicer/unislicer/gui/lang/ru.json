@@ -1319,5 +1319,8 @@
 "Sending failed: {}": "Не удалось отправить: {}",
 "Connect to PreFormServer and choose a resin and layer thickness": "Подключитесь к PreFormServer и выберите смолу и толщину слоя",
 "Choose a printer (find printers, or type a serial name / IP address)": "Выберите принтер (найдите принтеры или введите серийное имя / IP-адрес)",
-"No models to send": "Нет моделей для отправки"
+"No models to send": "Нет моделей для отправки",
+"Gingiva mask (45° tilt, with supports)": "Десневая маска (наклон 45°, с поддержками)",
+"Starting point: 45° tilt with supports. Print in flexible gingiva resin and keep supports off the side that sits on the model": "Начальная точка: наклон 45° с поддержками. Печатайте гибкой смолой для десны и не ставьте поддержки на сторону, прилегающую к модели",
+"Gingiva mask": "Десневая маска"
 }

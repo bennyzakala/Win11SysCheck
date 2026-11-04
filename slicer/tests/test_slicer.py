@@ -4597,3 +4597,39 @@ def test_autosave_survives_a_locked_file(tmp_path, monkeypatch):
     src.write_text("y")
     assert project.replace_retry(str(src), str(dst), tries=3, delay=0.01) is False
     assert not src.exists() and dst.read_text() == "x"
+
+
+def test_gingiva_mask_recognised_and_prepared(tmp_path):
+    """3Shape's gingiva mask ('..._Tissue_17') is its own indication: recognised from the name (not as a
+    crown, not as a denture), tilted 45 degrees and supported, not stood on the plate."""
+    from unislicer import dental_cad
+    assert dental_cad.detect_indication("BAH-SOD260046430-034-X-35-36-2-C2-B592_Tissue_17.stl") == "gingiva"
+    assert dental_cad.detect_indication("case_gingiva_mask.stl") == "gingiva"
+    assert dental_cad.detect_indication("full denture gingiva.stl") == "denture"
+    import subprocess, sys, textwrap
+    from unislicer.mesh import save_stl
+    path = tmp_path / "BAH-SOD260046430-034-X-35-36-2-C2-B592_Tissue_17.stl"
+    save_stl(primitives.box(18, 20, 7), str(path))
+    code = textwrap.dedent(f'''
+        import os, sys
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.set_printer("phrozen_sonic_ls_plus") if hasattr(w.settings, "set_printer") else None
+        w.import_from_cad([{str(path)!r}]); app.processEvents()
+        o = w.objects[-1]
+        assert not o.direct, "a gingiva mask is not printed on the plate"
+        print("STATUS", w.status.text(), flush=True)
+        w._stop_preslice()
+        from unislicer import parallel
+        if parallel._pool is not None:
+            parallel._pool.shutdown(wait=True, cancel_futures=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and ("Gingiva mask" in r.stdout or "מסכת חניכיים" in r.stdout), r.stdout[-2000:] + r.stderr[-3000:]

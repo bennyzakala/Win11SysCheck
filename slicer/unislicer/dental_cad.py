@@ -20,6 +20,9 @@ MODEL_EXTS = (".stl", ".3mf", ".obj", ".ply", ".amf")
 
 # indication -> words that name it in file names and CAD order files (3Shape, exocad, Medit, common lab use)
 INDICATIONS = (
+    # gingiva mask (3Shape: "..._Tissue_17"), before denture: "gingiva mask" must not read as a denture's gingiva
+    ("gingiva", ("tissue", "soft tissue", "gingiva mask", "gingivamask", "gingival mask", "gum mask", "gummask",
+                 "gingiva shell")),
     ("denture", ("denture", "full denture", "partial denture", "gingiva", "denturebase", "denture base",
                  "dentureteeth", "monolithic")),
     ("guide", ("surgical guide", "surgicalguide", "implant guide", "drill guide", "guide")),
@@ -32,7 +35,7 @@ INDICATIONS = (
     ("model", ("model", "upperjaw", "lowerjaw", "upper jaw", "lower jaw", "maxilla", "mandible", "antagonist", "antag",
                "preparation", "raw", "scan", "arch", "study", "ortho", "base")),
 )
-LABEL = {"model": ("מודל", "Model"), "die": ("מודל גדם (Die)", "Die"), "crown": ("כתר / גשר", "Crown / bridge"),
+LABEL = {"model": ("מודל", "Model"), "die": ("מודל גדם (Die)", "Die"), "gingiva": ("מסכת חניכיים", "Gingiva mask"), "crown": ("כתר / גשר", "Crown / bridge"),
          "splint": ("סד / שומר לילה", "Splint / night guard"), "guide": ("מדריך כירורגי", "Surgical guide"),
          "denture": ("תותבת", "Denture"), "unknown": ("לא זוהה", "Not recognised")}
 

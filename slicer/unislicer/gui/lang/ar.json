@@ -1319,5 +1319,8 @@
 "Sending failed: {}": "فشل الإرسال: {}",
 "Connect to PreFormServer and choose a resin and layer thickness": "اتصل بـ PreFormServer واختر الراتنج وسماكة الطبقة",
 "Choose a printer (find printers, or type a serial name / IP address)": "اختر طابعة (ابحث عن الطابعات، أو اكتب الاسم التسلسلي / عنوان IP)",
-"No models to send": "لا توجد نماذج للإرسال"
+"No models to send": "لا توجد نماذج للإرسال",
+"Gingiva mask (45° tilt, with supports)": "قناع اللثة (ميل 45°، مع دعامات)",
+"Starting point: 45° tilt with supports. Print in flexible gingiva resin and keep supports off the side that sits on the model": "نقطة البداية: ميل 45° مع دعامات. اطبع بالراتنج المرن للثة وأبقِ الدعامات بعيدة عن الجانب الملاصق للنموذج",
+"Gingiva mask": "قناع اللثة"
 }

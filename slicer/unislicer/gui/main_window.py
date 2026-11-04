@@ -3135,7 +3135,7 @@ class MainWindow(QMainWindow):
                 self._fill_filament_menu(menu.addMenu(theme.icon("layers"), tr("fil_menu")))
             menu.addAction(theme.icon("drop"), tr("shade_menu") + "…", self.dental_shades_dialog)
             dental = menu.addMenu(theme.icon("sparkle"), tr("dental_indication"))
-            for key in ("model", "splint", "crown", "guide"):
+            for key in ("model", "splint", "crown", "gingiva", "guide"):
                 dental.addAction(tr(f"dental_{key}"), lambda k=key: self.apply_dental_indication(k))
             menu.addAction(theme.icon("download"), tr("export_selection_stl"), lambda: self.export_stl(selection_only=True))
             if self.viewer.technology == "sla" and self.settings.config()["sla_process"] == "polyjet":
@@ -3473,6 +3473,7 @@ class MainWindow(QMainWindow):
         "model": (0.0, True),
         "splint": (45.0, False),
         "crown": (45.0, False),
+        "gingiva": (45.0, False),
         "guide": (45.0, False),
         "die": (0.0, True),
         "denture": (45.0, False),
@@ -3511,7 +3512,7 @@ class MainWindow(QMainWindow):
         if not new:
             return
         if auto:
-            for kind in ("model", "die", "crown", "splint", "guide", "denture"):
+            for kind in ("model", "die", "crown", "gingiva", "splint", "guide", "denture"):
                 group = [o for o in new if kinds.get(o.uid) == kind]
                 if group:
                     self._select_uid(group[0].uid)

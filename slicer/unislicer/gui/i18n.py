@@ -226,6 +226,8 @@ STRINGS = {
     "holes_partly_closed": ("רוב החורים ב-{} נסגרו; חלק מהפגמים נשארו", "Most holes in {} closed; some defects remain"),
     "holes_not_closed": ("לא ניתן היה לסגור את החורים ב-{} אוטומטית", "The holes in {} could not be closed automatically"),
     "auto_close_holes": ("סגור חורים במודלים אוטומטית בטעינה", "Close holes in models automatically on load"),
+    "dental_gingiva": ("מסכת חניכיים (הטיה 45°, עם תמיכות)", "Gingiva mask (45° tilt, with supports)"),
+    "dental_gingiva_hint": ("נקודת התחלה: הטיה 45° עם תמיכות. הדפס בשרף גמיש לחניכיים, ושמור את הצד שנצמד לדגם נקי מתמיכות", "Starting point: 45° tilt with supports. Print in flexible gingiva resin and keep supports off the side that sits on the model"),
     "fl_title": ("שליחה למדפסת Formlabs", "Send to Formlabs"),
     "fl_menu": ("שלח למדפסת Formlabs…", "Send to Formlabs…"),
     "fl_intro": ("מדפסות Formlabs מקבלות רק עבודות שהוכנו ב-PreForm, ולכן השליחה עוברת דרך PreFormServer (תוכנה חינמית של Formlabs, או PreForm עצמה: File > Start PreForm Server). המודלים נשלחים בכיוון שקבעת כאן; PreForm מסדר אותם על הפלטה, יוצר את השכבות לפי השרף שבחרת ושולח למדפסת.", "Formlabs printers only take jobs prepared by PreForm, so sending goes through PreFormServer (a free Formlabs program, or PreForm itself: File > Start PreForm Server). The models go as you turned them here; PreForm arranges them, makes the layers for the resin you choose and sends them to the printer."),
