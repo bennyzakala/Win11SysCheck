@@ -1237,10 +1237,11 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             if manual is not None:
                 manual = np.asarray(manual, dtype=np.float64).reshape(-1, 3) + [0, 0, lift]
             zones = keepout[i] if keepout and i < len(keepout) else None
-            if manual is None and zones is not None and len(zones):
+            if zones is not None and len(zones):
                 from .sla_supports import auto_support_points, drop_keepout
-                manual = drop_keepout(auto_support_points(m, cfgs[i]),
-                                      np.asarray(zones, dtype=np.float64).reshape(-1, 4) + [0, 0, lift, 0])
+                zones = np.asarray(zones, dtype=np.float64).reshape(-1, 4) + [0, 0, lift, 0]
+                # automatic or edited points alike: none inside a support-free zone or under a label
+                manual = drop_keepout(auto_support_points(m, cfgs[i]) if manual is None else manual, zones)
             if raft_labels is not None:               # chosen per model by the caller (e.g. SOD code on teeth)
                 label = raft_labels[i] if i < len(raft_labels) else ""
             else:

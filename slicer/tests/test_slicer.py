@@ -4816,6 +4816,13 @@ def test_label_select_edit_drag_and_delete(tmp_path):
         app.processEvents()
         lab = o.labels[0]
         assert lab["height"] == 6.0 and lab["angle"] == 30.0 and lab["text"] == "12345-044"
+        [x for x in ed.findChildren(QPushButton) if x.text() == "+"][0].click(); app.processEvents()
+        assert abs(o.labels[0]["height"] - 6.9) < 1e-6                 # "+" grows it 15 %
+        w._on_label_wheel(-2.0, False); app.processEvents()            # Ctrl + wheel shrinks it
+        assert o.labels[0]["height"] < 6.9
+        w._on_label_wheel(1.0, True); app.processEvents()              # Alt + wheel turns it
+        assert abs(o.labels[0]["angle"] - 35.0) < 1e-6
+        spins[0].setValue(6.0)
         side = np.array([b[1, 0], (b[0, 1] + b[1, 1]) / 2, 6.0])
         w._on_label_dragged(o.uid, side, np.array([1.0, 0.0, 0.0])); w._on_label_drag_finished()
         p, n, _ = o.world_labels()[0]
@@ -4837,3 +4844,28 @@ def test_label_select_edit_drag_and_delete(tmp_path):
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
                        encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_supports_keep_away_from_labels():
+    """A label is a support-free zone of its own size: no support head lands next to engraved text, where
+    it would show through the letters; in the editor and when slicing alike."""
+    from unislicer.scene import SceneObject
+    from unislicer import sla_supports
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True})
+    o = SceneObject.from_mesh(primitives.box(40, 30, 15))
+    o.x, o.y, o.z = 80.0, 60.0, 0.0
+    b = o.world_bounds()
+    o.add_world_label("46671-044", [80.0, b[0, 1], 3.0], [0, -1, 0], 3.0, 0.6, True)
+    zone = o.label_zones()[0]
+    lift = cfg["sla_elevation"] + cfg["sla_raft_thickness"]
+    world = o.world_mesh().translated([0, 0, lift])
+    all_pts = sla_supports.auto_support_points(world, cfg)
+    near = np.linalg.norm(all_pts - (zone[:3] + [0, 0, lift]), axis=1) < zone[3]
+    assert near.any(), "the test needs supports that would land by the label"
+    job = sla.prepare([o.world_mesh()], cfg, keepout=[o.world_keepout(0.0)])
+    sp = np.asarray(job.support_points).reshape(-1, 3)
+    assert len(sp) and np.all(np.linalg.norm(sp - (zone[:3] + [0, 0, lift]), axis=1) >= zone[3])
+    edited = all_pts[:5]                                         # hand-edited points are cleared too
+    job2 = sla.prepare([o.world_mesh()], cfg, support_points=[edited - [0, 0, lift]], keepout=[o.world_keepout(0.0)])
+    sp2 = np.asarray(job2.support_points).reshape(-1, 3)
+    assert np.all(np.linalg.norm(sp2 - (zone[:3] + [0, 0, lift]), axis=1) >= zone[3])

@@ -151,13 +151,25 @@ class SceneObject:
         self.support_points = (np.asarray(points, dtype=np.float64).reshape(-1, 3) - [0, 0, lift] - m[:3, 3]) @ inv.T
 
     def world_keepout(self, lift: float = 0.0) -> np.ndarray:
-        """Support-free zones in bed coordinates: (N, 4) centre + radius (the radius scales with the model)."""
-        if len(self.keepout) == 0:
-            return np.zeros((0, 4))
-        m = self.world_matrix()
-        c = self.keepout[:, :3] @ m[:3, :3].T + m[:3, 3] + [0, 0, lift]
-        k = abs(float(np.linalg.det(m[:3, :3]))) ** (1.0 / 3.0)
-        return np.hstack([c, self.keepout[:, 3:4] * k])
+        """Support-free zones in bed coordinates: (N, 4) centre + radius (the radius scales with the model).
+        Every label is one too, of its own size, so a support head never shows through engraved text."""
+        zones = np.zeros((0, 4))
+        if len(self.keepout):
+            m = self.world_matrix()
+            c = self.keepout[:, :3] @ m[:3, :3].T + m[:3, 3] + [0, 0, lift]
+            k = abs(float(np.linalg.det(m[:3, :3]))) ** (1.0 / 3.0)
+            zones = np.hstack([c, self.keepout[:, 3:4] * k])
+        lz = self.label_zones(lift)
+        return np.vstack([zones, lz]) if len(lz) else zones
+
+    def label_zones(self, lift: float = 0.0) -> np.ndarray:
+        """(N, 4) centre + radius around each label: supports keep out of it."""
+        out = []
+        for p, _n, lab in self.world_labels(lift):
+            h = float(lab["height"])
+            half = 0.5 * len(lab.get("text", "")) * 0.62 * h
+            out.append([*p, max(h, half) + 1.5 + float(lab.get("depth", 0.0))])
+        return np.array(out, dtype=float).reshape(-1, 4)
 
     def add_world_keepout(self, point, radius: float, lift: float = 0.0) -> None:
         m = self.world_matrix()

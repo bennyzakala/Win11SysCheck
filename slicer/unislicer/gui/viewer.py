@@ -352,6 +352,7 @@ class Viewer(QOpenGLWidget):
     labelPicked = Signal(object, object, object)  # uid, world point, world normal (label tool)
     labelDragged = Signal(object, object, object)  # uid, world point, world normal while dragging a label
     labelDragFinished = Signal()
+    labelWheel = Signal(float, bool)              # label tool: Ctrl + wheel resizes (False), Alt + wheel turns (True)
     measured = Signal(object, object)            # first and second world point
     rayPicked = Signal(object, object)         # origin, direction (support "remove" mode)
     cameraChanged = Signal()                   # after every repaint (keeps the view cube in step)
@@ -1682,6 +1683,12 @@ class Viewer(QOpenGLWidget):
             self.objectClicked.emit(None, 0)
 
     def wheelEvent(self, e):
+        mods = e.modifiers()
+        if self.tool == "label" and mods & (Qt.ControlModifier | Qt.AltModifier):
+            d = e.angleDelta()
+            steps = (d.y() or d.x()) / 120.0              # Alt turns the wheel into a horizontal one on some systems
+            self.labelWheel.emit(steps, bool(mods & Qt.AltModifier))
+            return
         self.begin_interaction()
         steps = e.angleDelta().y() / 120.0
         self.camera.distance = float(np.clip(self.camera.distance * (0.88 ** steps), 5.0, 5000.0))

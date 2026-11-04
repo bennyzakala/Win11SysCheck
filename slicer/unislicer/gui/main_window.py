@@ -707,6 +707,7 @@ class MainWindow(QMainWindow):
         self.viewer.labelPicked.connect(self._on_label_picked)
         self.viewer.labelDragged.connect(self._on_label_dragged)
         self.viewer.labelDragFinished.connect(self._on_label_drag_finished)
+        self.viewer.labelWheel.connect(self._on_label_wheel)
         self.viewer.measured.connect(self._on_measured)
         self.viewer.previewObjectClicked.connect(self._on_preview_click)
         self.viewer.rayPicked.connect(self._on_support_remove)
@@ -2239,7 +2240,7 @@ class MainWindow(QMainWindow):
             return
         self._push_undo()
         lift = self._lift() if self._shows_supports(o) else 0.0
-        zones = o.world_keepout(lift)
+        zones = o.world_keepout(lift)[:len(o.keepout)]          # the clicked zones, not the labels' own
         if len(zones):
             d = np.linalg.norm(zones[:, :3] - np.asarray(point), axis=1)
             k = int(np.argmin(d))
@@ -2292,10 +2293,33 @@ class MainWindow(QMainWindow):
             o.add_world_label(self._label_text(o, len(o.labels) + 1), point, normal, prefs["height"], prefs["depth"],
                               prefs["engrave"], 0.0, lift)
             hit = len(o.labels) - 1
+            self._drop_label_supports(o)
             self._objects_changed(refresh_list=False)
         self._label_sel = (o.uid, hit)
         self._label_dragged = False
         self.edit_label(o, hit)
+
+    def _on_label_wheel(self, steps: float, rotate: bool):
+        """Label tool, a label selected: Ctrl + wheel resizes it, Alt + wheel turns it."""
+        spins = getattr(self, "_label_spins", None)
+        ed = getattr(self, "_label_editor", None)
+        if spins is None or ed is None or not ed.isVisible():
+            self.status.setText(tr("label_wheel_hint"))
+            return
+        height, angle = spins
+        if rotate:
+            angle.setValue(angle.value() + 5.0 * steps)
+        else:
+            height.setValue(round(height.value() * (1.1 ** steps), 1))
+
+    def _drop_label_supports(self, o: SceneObject):
+        """Supports already placed under a label (it was added, moved or grown) go away by themselves."""
+        if o.support_points is None or len(o.support_points) == 0 or not o.labels:
+            return
+        lift = self._lift() if self._shows_supports(o) else 0.0
+        kept = sla_supports.drop_keepout(o.world_support_points(lift), o.label_zones(lift))
+        if len(kept) != len(o.support_points):
+            o.set_world_support_points(kept, lift)
 
     def _on_label_dragged(self, uid, point, normal):
         """Dragging the selected label over its model's surface."""
@@ -2311,6 +2335,10 @@ class MainWindow(QMainWindow):
     def _on_label_drag_finished(self):
         if getattr(self, "_label_dragged", False):
             self._label_dragged = False
+            sel = getattr(self, "_label_sel", None)
+            o = next((x for x in self.objects if sel and x.uid == sel[0]), None)
+            if o is not None:
+                self._drop_label_supports(o)
             self._objects_changed(refresh_list=False)
 
     def edit_label(self, o: SceneObject, k: int):
@@ -2336,7 +2364,16 @@ class MainWindow(QMainWindow):
         mode.addItem(tr("label_emboss"), False)
         mode.setCurrentIndex(0 if lab["engrave"] else 1)
         form.addRow(tr("label_text"), text)
-        form.addRow(tr("text_height"), height)
+        size_row = QHBoxLayout()
+        smaller, bigger = QPushButton("−"), QPushButton("+")
+        for btn, f in ((smaller, 1 / 1.15), (bigger, 1.15)):
+            btn.setFixedWidth(34)
+            btn.clicked.connect(lambda _=False, f=f: height.setValue(round(height.value() * f, 1)))
+        size_row.addWidget(height)
+        size_row.addWidget(smaller)
+        size_row.addWidget(bigger)
+        size_row.addStretch(1)
+        form.addRow(tr("label_size"), size_row)
         form.addRow(tr("text_depth"), depth)
         form.addRow(tr("label_angle"), angle)
         form.addRow(tr("text_mode"), mode)
@@ -2355,7 +2392,7 @@ class MainWindow(QMainWindow):
         timer = QTimer(dlg)
         timer.setSingleShot(True)
         timer.setInterval(400)
-        timer.timeout.connect(lambda: self._objects_changed(refresh_list=False))
+        timer.timeout.connect(lambda: (self._drop_label_supports(o), self._objects_changed(refresh_list=False)))
 
         def apply(*_):
             if k >= len(o.labels):
@@ -2382,6 +2419,7 @@ class MainWindow(QMainWindow):
         done.clicked.connect(dlg.close)
         dlg.finished.connect(lambda _r: self._objects_changed(refresh_list=False))
         self._label_editor = dlg
+        self._label_spins = (height, angle)        # Ctrl / Alt + mouse wheel over the view change these
         dlg.show()
 
     def auto_label(self, targets=None) -> int:
@@ -2404,6 +2442,7 @@ class MainWindow(QMainWindow):
             h = min(prefs["height"], height * 0.8)
             o.add_world_label(self._label_text(o, i + 1), point, normal, h, prefs["depth"], prefs["engrave"],
                               width * 0.85)
+            self._drop_label_supports(o)
             done += 1
         self._objects_changed(refresh_list=False)
         msg = tr("label_added").format(done)

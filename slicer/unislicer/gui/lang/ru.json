@@ -1334,5 +1334,8 @@
 "Click the model to emboss or engrave a label (file name / case number); click a label to edit it, drag it to move it": "Щёлкните по модели, чтобы выдавить или выгравировать метку (имя файла / номер случая); щелчок по метке открывает её для правки, перетаскивание перемещает",
 "Edit label": "Правка метки",
 "Angle": "Угол",
-"To move it: with the label tool (L), press on the label and drag it over the model. Ctrl+Z undoes.": "Чтобы переместить: инструментом метки (L) нажмите на метку и перетащите её по модели. Ctrl+Z отменяет."
+"To move it: with the label tool (L), press on the label and drag it over the model. Ctrl+Z undoes.": "Чтобы переместить: инструментом метки (L) нажмите на метку и перетащите её по модели. Ctrl+Z отменяет.",
+"Size (letter height)": "Размер (высота букв)",
+"Select a label first (click it with the label tool, L); then Ctrl + wheel resizes it and Alt + wheel turns it": "Сначала выберите метку (щёлкните по ней инструментом метки, L); затем Ctrl + колесо меняет размер, Alt + колесо поворачивает",
+"To move it: with the label tool (L), press on the label and drag it over the model. Ctrl + wheel resizes, Alt + wheel turns, Ctrl+Z undoes.": "Чтобы переместить: инструментом метки (L) нажмите на метку и перетащите её по модели. Ctrl + колесо — размер, Alt + колесо — поворот, Ctrl+Z — отмена."
 }

@@ -1334,5 +1334,8 @@
 "Click the model to emboss or engrave a label (file name / case number); click a label to edit it, drag it to move it": "انقر على النموذج لنقش أو حفر ملصق (اسم الملف / رقم الحالة)؛ انقر على الملصق لتعديله واسحبه لنقله",
 "Edit label": "تعديل الملصق",
 "Angle": "الزاوية",
-"To move it: with the label tool (L), press on the label and drag it over the model. Ctrl+Z undoes.": "للنقل: باستخدام أداة الملصق (L) اضغط على الملصق واسحبه فوق النموذج. Ctrl+Z للتراجع."
+"To move it: with the label tool (L), press on the label and drag it over the model. Ctrl+Z undoes.": "للنقل: باستخدام أداة الملصق (L) اضغط على الملصق واسحبه فوق النموذج. Ctrl+Z للتراجع.",
+"Size (letter height)": "الحجم (ارتفاع الأحرف)",
+"Select a label first (click it with the label tool, L); then Ctrl + wheel resizes it and Alt + wheel turns it": "اختر ملصقًا أولًا (انقر عليه بأداة الملصق L)؛ ثم Ctrl + العجلة لتغيير الحجم و Alt + العجلة للتدوير",
+"To move it: with the label tool (L), press on the label and drag it over the model. Ctrl + wheel resizes, Alt + wheel turns, Ctrl+Z undoes.": "للنقل: باستخدام أداة الملصق (L) اضغط على الملصق واسحبه فوق النموذج. Ctrl + العجلة للحجم، Alt + العجلة للتدوير، Ctrl+Z للتراجع."
 }
