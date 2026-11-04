@@ -89,6 +89,8 @@ def label_mesh(text: str, point, normal, height: float, depth: float, engrave: b
     letters upright (towards +Z, or +Y on a horizontal face). Embossed text rises ``depth`` out of the surface;
     engraved text (a cutter) goes ``depth`` in. Either reaches 0.3 mm past the surface so it joins cleanly.
     ``width`` > 0 shrinks a long text to fit."""
+    if surface is not None and len(surface):
+        return _label_on_surface(text, point, normal, height, depth, engrave, width, angle, mirror, surface, flush)
     key = (text, round(height, 4))
     flat = _TEXT_CACHE.get(key)
     if flat is None:
@@ -129,6 +131,107 @@ def label_mesh(text: str, point, normal, height: float, depth: float, engrave: b
         z = z + _surface_grid_offsets(surface, np.asarray(point, dtype=np.float64), right, up, n, x, y)
     out = np.asarray(point, dtype=np.float64) + np.outer(x, right) + np.outer(y, up) + np.outer(z, n)
     return Mesh(out, faces, f"Label: {text}")
+
+
+def _label_frame(normal):
+    n = np.asarray(normal, dtype=np.float64)
+    n = n / (np.linalg.norm(n) or 1.0)
+    ref = np.array([0.0, 0.0, 1.0]) if abs(n[2]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    up = ref - n * (ref @ n)
+    up /= np.linalg.norm(up)
+    return np.cross(up, n), up, n
+
+
+def surface_region(tris: np.ndarray, point, right, up, n, reach: float, bounds=None):
+    """The part of the label's plane that has model surface under it (facing out, within ``reach`` of the
+    plane): letters are kept inside it, so none hangs in the air past a wall's edge or over a recess."""
+    local = (np.asarray(tris, dtype=np.float64).reshape(-1, 3, 3) - point) @ np.stack([right, up, n]).T
+    cr = np.cross(local[:, 1] - local[:, 0], local[:, 2] - local[:, 0])
+    facing = cr[:, 2] > 0.3 * np.linalg.norm(cr, axis=1)
+    close = np.abs(local[:, :, 2]).min(axis=1) <= reach
+    if bounds is not None:                           # only what lies under the text
+        x0, y0, x1, y1 = bounds
+        lo, hi = local[:, :, :2].min(axis=1), local[:, :, :2].max(axis=1)
+        close &= (hi[:, 0] >= x0) & (lo[:, 0] <= x1) & (hi[:, 1] >= y0) & (lo[:, 1] <= y1)
+    keep = local[facing & close]
+    if len(keep) == 0:
+        return Polygon()
+    polys = shapely.polygons(keep[:, :, :2])
+    polys = polys[shapely.area(polys) > 1e-9]
+    region = shapely.union_all(polys)
+    return region.buffer(0.05).buffer(-0.05)       # close hairline cracks between triangles
+
+
+def _label_on_surface(text, point, normal, height, depth, engrave, width, angle, mirror, surface, flush) -> Mesh:
+    """The label fitted to the model: kept to where the surface is (cut at a wall's edge rather than left
+    in the air), and every point at its depth from the surface under it."""
+    key = ("poly", text, round(height, 4))
+    polys = _TEXT_CACHE.get(key)
+    if polys is None:
+        polys = text_polygons(text, height)
+        if polys.is_empty:
+            raise ValueError("No printable characters")
+        minx, miny, maxx, maxy = polys.bounds
+        polys = shapely.affinity.translate(polys, -(minx + maxx) / 2, -(miny + maxy) / 2)
+        if len(_TEXT_CACHE) > 64:
+            _TEXT_CACHE.clear()
+        _TEXT_CACHE[key] = polys
+    minx, _miny, maxx, _maxy = polys.bounds
+    w = maxx - minx
+    k = min(1.0, width / w) if width > 0 and w > 0 else 1.0
+    g = shapely.affinity.scale(polys, -k if mirror else k, k, origin=(0, 0))
+    if angle:
+        g = shapely.affinity.rotate(g, angle, origin=(0, 0))
+    right, up, n = _label_frame(normal)
+    p0 = np.asarray(point, dtype=np.float64)
+    # the surface's height under the text, sampled once on a grid: it gives both where the surface is (the
+    # text is kept inside that) and how far each point of the text sits from it
+    step = 0.3
+    bx = g.bounds
+    gx = np.arange(bx[0] - 0.5, bx[2] + 0.5 + step, step)
+    gy = np.arange(bx[1] - 0.5, bx[3] + 0.5 + step, step)
+    X, Y = np.meshgrid(gx, gy, indexing="ij")
+    H = _surface_offsets(surface, p0, right, up, n, X.ravel(), Y.ravel(), reach=max(2.0, depth + 1.5),
+                         fill=False).reshape(X.shape)
+    found = ~np.isnan(H)
+    if not found.any():
+        raise ValueError("No room for the label here")
+    # a missed sample between found neighbours (on a shared edge) counts as found
+    inner = np.zeros_like(found)
+    inner[1:-1, :] |= found[:-2, :] & found[2:, :]
+    inner[:, 1:-1] |= found[:, :-2] & found[:, 2:]
+    found = found | inner
+    ii, jj = np.nonzero(found)
+    cells = shapely.box(gx[ii] - step / 2, gy[jj] - step / 2, gx[ii] + step / 2, gy[jj] + step / 2)
+    region = shapely.coverage_union_all(cells) if hasattr(shapely, "coverage_union_all") else shapely.union_all(cells)
+    # close single missed samples (a ray along an edge shared by two triangles can miss both)
+    region = region.buffer(step * 1.01, join_style="mitre").buffer(-step * 1.01, join_style="mitre")
+    g = as_multipolygon(g.intersection(region.buffer(-0.15)))
+    if g.is_empty:
+        raise ValueError("No room for the label here")
+    if np.isnan(H).any():                            # fill the gaps with the nearest height
+        known = ~np.isnan(H)
+        idx = np.flatnonzero(known.ravel())
+        pts = np.column_stack([X.ravel(), Y.ravel()])
+        flat = H.ravel()
+        for q in np.flatnonzero(~known.ravel()):
+            flat[q] = flat[idx[np.argmin(np.hypot(*(pts[idx] - pts[q]).T))]]
+        H = flat.reshape(X.shape)
+    mesh = extrude(shapely.segmentize(g, 0.25), 0.0, 1.0, f"Label: {text}")
+    v = mesh.vertices.astype(np.float64)
+    x, y = v[:, 0], v[:, 1]
+    fx = np.clip((x - gx[0]) / step, 0, len(gx) - 1.000001)
+    fy = np.clip((y - gy[0]) / step, 0, len(gy) - 1.000001)
+    a, b = np.floor(fx).astype(int), np.floor(fy).astype(int)
+    a1, b1 = np.minimum(a + 1, len(gx) - 1), np.minimum(b + 1, len(gy) - 1)
+    tx, ty = fx - a, fy - b
+    hz = (H[a, b] * (1 - tx) + H[a1, b] * tx) * (1 - ty) + (H[a, b1] * (1 - tx) + H[a1, b1] * tx) * ty
+    z0, z1 = (-depth, 0.3) if engrave else (-0.3, depth)
+    if flush and engrave:
+        z0, z1 = -0.05, 0.04
+    z = z0 + v[:, 2] * (z1 - z0) + hz
+    out = p0 + np.outer(x, right) + np.outer(y, up) + np.outer(z, n)
+    return Mesh(out, mesh.faces, f"Label: {text}")
 
 
 def _surface_grid_offsets(tris, point, right, up, n, x, y, step: float = 0.3) -> np.ndarray:

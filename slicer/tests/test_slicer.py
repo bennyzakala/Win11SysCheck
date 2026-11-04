@@ -4937,3 +4937,31 @@ def test_label_hugs_a_curved_surface():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_label_bigger_than_the_wall_is_cut_at_its_edge_not_left_in_the_air():
+    """Enlarging a label past the edge of the wall it sits on left letter parts in the air (seen in the
+    user's video); now the text is kept to where the surface is."""
+    pytest.importorskip("PySide6")
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        import numpy as np
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.scene import SceneObject
+        base = SceneObject.from_mesh(primitives.box(40, 30, 6))      # a 6 mm high wall all round
+        base.x, base.y = 50.0, 50.0
+        b = base.world_bounds()
+        base.add_world_label("45198", [50.0, b[0, 1], 3.0], [0, -1, 0], 10.0, 0.6, True)   # 10 mm letters
+        up, cut = base.world_label_meshes()
+        v = cut.vertices
+        assert len(v) and v[:, 2].min() >= b[0, 2] - 1e-6 and v[:, 2].max() <= b[1, 2] + 1e-6, (v[:, 2].min(), v[:, 2].max())
+        assert np.all(np.abs(v[:, 1] - b[0, 1]) <= 0.6 + 0.3 + 1e-6)  # on the wall: 0.3 proud, 0.6 deep
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
