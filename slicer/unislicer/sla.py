@@ -1182,7 +1182,7 @@ def _slice_supports(mesh: Mesh, planes: list, resolution: float, **kw) -> list:
 def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
             support_points: list[np.ndarray | None] | None = None, direct: list[bool] | None = None,
-            keepout: list[np.ndarray] | None = None, labels: list | None = None,
+            keepout: list[np.ndarray] | None = None, labels: list | None = None, raft_labels: list | None = None,
             holes: list[np.ndarray | None] | None = None, cutters: list[Mesh] | None = None,
             materials: list[str] | None = None, filled: list[bool] | None = None,
             model_settings: list[dict | None] | None = None) -> SlaJob:
@@ -1241,7 +1241,10 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
                 from .sla_supports import auto_support_points, drop_keepout
                 manual = drop_keepout(auto_support_points(m, cfgs[i]),
                                       np.asarray(zones, dtype=np.float64).reshape(-1, 4) + [0, 0, lift, 0])
-            label = meshes[i].name if cfg["sla_raft_label"] else ""
+            if raft_labels is not None:               # chosen per model by the caller (e.g. SOD code on teeth)
+                label = raft_labels[i] if i < len(raft_labels) else ""
+            else:
+                label = meshes[i].name if cfg["sla_raft_label"] else ""
             skey = ("supports-build", mesh_key(m), None if manual is None else np.ascontiguousarray(manual).tobytes(),
                     label, tuple(sorted((k, v) for k, v in cfgs[i].values.items()
                                         if k.startswith(("sla_", "support")))))

@@ -715,7 +715,8 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
         parts += _braces(pillars, underside(), cfg, segs)
 
     parts += _rafts(feet, cfg, pillar_r * 4, foot_radii)
-    if label and feet and cfg["sla_raft_label"] and cfg["sla_raft_type"] in ("solid", "grid", "hexagon") and raft >= 0.4:
+    # the caller chooses the text (the model's name, or a tooth's SOD case code); "" = no label
+    if label and feet and cfg["sla_raft_type"] in ("solid", "grid", "hexagon") and raft >= 0.4:
         parts += _raft_label(label, np.array(feet), cfg, pillar_r * 4, raft)
     merged = Mesh.merge(list(parts), "Supports")
     if owners is not None:

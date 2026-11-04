@@ -3702,6 +3702,17 @@ class MainWindow(QMainWindow):
             m[2, 3] += self._lift()
         return m
 
+    @staticmethod
+    def _raft_label_text(o: SceneObject, cfg) -> str:
+        """What goes on a model's raft: on teeth (crowns / bridges) the case code from the SOD number,
+        e.g. 46671-044; otherwise the model's name when "Model name on the raft" is on."""
+        from .. import dental_cad
+        if cfg["sla_raft_label_teeth"] and dental_cad.kind_of(o.name, o.mesh) == "crown":
+            code = dental_cad.case_code(o.name)
+            if code:
+                return code
+        return o.name if cfg["sla_raft_label"] else ""
+
     def _support_preview(self, o: SceneObject, cfg) -> Mesh | None:
         """Support structure in the object's own coordinates (cached; moving the object keeps it valid)."""
         if not self._shows_supports(o) or len(o.support_points) == 0:
@@ -3718,7 +3729,7 @@ class MainWindow(QMainWindow):
         world, geo = self._support_geometry(o, lift)
         owners = {}
         mesh, _ = sla_supports.build_supports(world, cfg, o.world_support_points(lift), owners=owners, cache=geo,
-                                              label=o.name if cfg["sla_raft_label"] else "")
+                                              label=self._raft_label_text(o, cfg))
         local = mesh.transform(np.linalg.inv(disp)) if len(mesh.faces) else None
         self._support_cache[o.uid] = (key, local, owners)
         return local
@@ -4268,6 +4279,7 @@ class MainWindow(QMainWindow):
         kw = dict(support_points=[o.world_support_points(0.0) for o in models], direct=[o.direct for o in models],
                   keepout=[o.world_keepout(0.0) for o in models],
                   labels=[o.world_label_meshes(0.0) if o.labels else None for o in models],
+                  raft_labels=[self._raft_label_text(o, o.config(self.settings.config())) for o in models],
                   holes=[o.world_drain_holes(0.0) for o in models],
                   cutters=[o.world_mesh() for o in self.objects if o.role == "cutter"],
                   materials=[dental_shades.face_shades(len(o.mesh.faces), o.material, o.regions) if o.regions
@@ -5478,7 +5490,7 @@ class MainWindow(QMainWindow):
                 if mode == "none" and cfg["technology"] == "sla" and cfg["support_enable"] and not o.direct:
                     lift = self._lift(cfg)
                     m = m.translated([0, 0, lift])
-                    sup, _ = sla_supports.build_supports(m, cfg, o.world_support_points(lift))
+                    sup, _ = sla_supports.build_supports(m, cfg, o.world_support_points(lift), label=self._raft_label_text(o, cfg))
                     m = Mesh.merge([m, sup], o.name)
                 out.append((o.name or "model", m))
             return out
@@ -5503,7 +5515,7 @@ class MainWindow(QMainWindow):
             parts = []
             for o, m in zip(models, meshes):
                 lifted = m.translated([0, 0, lift])
-                sup, _ = sla_supports.build_supports(lifted, cfg, o.world_support_points(lift))
+                sup, _ = sla_supports.build_supports(lifted, cfg, o.world_support_points(lift), label=self._raft_label_text(o, cfg))
                 parts += [lifted, sup]
             meshes = parts
         try:

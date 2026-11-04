@@ -159,3 +159,28 @@ def _solid_fraction(mesh) -> float:
             if len(z) >= 2 and len(z) % 2 == 0:
                 ratios.append(float(np.sum(z[1::2] - z[0::2])) / height)
     return float(np.median(ratios)) if ratios else 0.0
+
+
+def case_code(name: str) -> str:
+    """The short case code a lab writes on a tooth's raft, from the SOD order number in the file name:
+    "DSY-SOD260046671-044-P-46-46-1-A35" -> "46671-044" (the last five digits of the SOD number and the
+    group after it). "" when the name has no SOD number."""
+    m = re.search(r"SOD\d*?(\d{5})-(\d+)", os.path.basename(name or ""), re.IGNORECASE)
+    return f"{m.group(1)}-{m.group(2)}" if m else ""
+
+
+_KIND_CACHE: dict = {}
+
+
+def kind_of(name: str, mesh) -> str:
+    """Indication of a part: from its name, else from its shape (cached per mesh)."""
+    kind = detect_indication(name or "")
+    if kind != "unknown":
+        return kind
+    key = id(mesh)
+    hit = _KIND_CACHE.get(key)
+    if hit is None or hit[0] is not mesh:
+        if len(_KIND_CACHE) > 256:
+            _KIND_CACHE.clear()
+        hit = _KIND_CACHE[key] = (mesh, indication_from_shape(mesh))
+    return hit[1]

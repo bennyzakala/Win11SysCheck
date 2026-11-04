@@ -4723,3 +4723,28 @@ def test_layer_triangles_keep_the_honeycomb():
     signed = (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (c[:, 0] - a[:, 0]) * (b[:, 1] - a[:, 1])
     assert np.all(signed > 0)                      # all facing up
     assert len(sla.layer_triangles(sla.EMPTY, 1.0)) == 0
+
+
+def test_teeth_rafts_carry_the_sod_case_code():
+    """On crowns / bridges only, the raft carries the code from the SOD number (DSY-SOD260046671-044-... ->
+    46671-044); models, dies and gingiva masks keep the plain rule (name only with 'Model name on the raft')."""
+    from unislicer import dental_cad
+    from unislicer.gui.main_window import MainWindow
+    from unislicer.scene import SceneObject
+    assert dental_cad.case_code("DSY-SOD260046671-044-P-46-46-1-A35-.stl") == "46671-044"
+    assert dental_cad.case_code("C:/cases/WMJ-SOD260043945-044-P-43-46-4-A3-.stl") == "43945-044"
+    assert dental_cad.case_code("upper.stl") == ""
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True})
+    outer, inner = primitives.box(10, 10, 8), primitives.box(8, 8, 7).translated([0, 0, -0.6])
+    cap = Mesh(np.vstack([outer.vertices, inner.vertices]),
+               np.vstack([outer.faces, inner.faces[:, ::-1] + len(outer.vertices)]))
+    crown = SceneObject.from_mesh(cap, "DSY-SOD260046671-044-P-46-46-1-A35-")
+    jaw = SceneObject.from_mesh(primitives.box(60, 45, 15), "EGI-SOD260046764-114-Z-14-14-1-00-V227_UnsectionedModel_UpperJaw")
+    die = SceneObject.from_mesh(primitives.cylinder(4, 15), "EGI-SOD260046764-114-Z-14-14-1-00-V227_Tooth_14")
+    label = MainWindow._raft_label_text
+    assert label(crown, cfg) == "46671-044"
+    assert label(jaw, cfg) == "" and label(die, cfg) == ""
+    cfg.update({"sla_raft_label_teeth": False})
+    assert label(crown, cfg) == ""
+    cfg.update({"sla_raft_label": True})
+    assert label(jaw, cfg) == jaw.name
