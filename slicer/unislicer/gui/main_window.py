@@ -5392,11 +5392,10 @@ class MainWindow(QMainWindow):
             os.makedirs(profiles.USER_DIR, exist_ok=True)
             tmp = path + ".tmp"
             project.save(tmp, snapshot, state)
-            os.replace(tmp, path)
-            return True
+            return project.replace_retry(tmp, path)   # locked for good: skip this round, the next one saves
 
         task = Task(work, self)
-        task.succeeded.connect(lambda _r: self.store.setValue("autosave_clean", "false"))
+        task.succeeded.connect(lambda ok: ok and self.store.setValue("autosave_clean", "false"))
         self._autosave_task = task
         task.start()
 

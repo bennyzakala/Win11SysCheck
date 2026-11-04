@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import os
 import json
 import zipfile
 
@@ -75,3 +76,23 @@ def load(path: str) -> tuple[list[SceneObject], dict]:
                 np.array(e.get("keepout", []), dtype=float).reshape(-1, 4),
                 [dict(lab) for lab in e.get("labels", []) or []]))
     return objects, doc.get("settings", {})
+
+
+def replace_retry(src: str, dst: str, tries: int = 6, delay: float = 0.25) -> bool:
+    """Move ``src`` over ``dst``; on Windows a file another program holds for a moment (antivirus,
+    OneDrive, a second window) refuses it with WinError 32, so try again a few times. False (and ``src``
+    removed) when it stays locked."""
+    import time
+    for k in range(tries):
+        try:
+            os.replace(src, dst)
+            return True
+        except PermissionError:
+            if k == tries - 1:
+                break
+            time.sleep(delay)
+    try:
+        os.remove(src)
+    except OSError:
+        pass
+    return False

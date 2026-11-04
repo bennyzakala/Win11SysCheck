@@ -4553,3 +4553,47 @@ def test_dental_files_recognised_by_name_and_shape():
     cap = Mesh(np.vstack([outer.vertices, inner.vertices]),
                np.vstack([outer.faces, inner.faces[:, ::-1] + len(outer.vertices)]))   # a closed thin shell
     assert dental_cad.indication_from_shape(cap) == "crown"
+
+
+def test_cavity_cells_survive_a_failing_rectangle_clip(monkeypatch):
+    """GEOS's clip_by_rect raised 'Invalid number of points in LinearRing found 3' on a user's jaw while
+    hollowing (sla._cavity_cells_chunk); the clip only speeds things up, so the slice must go on with the
+    same result."""
+    import shapely
+    from shapely.geometry import Polygon
+    ring = Polygon([(0, 0), (20, 0), (20, 20), (0, 20)], [[(5, 5), (15, 5), (15, 15), (5, 15)]])
+    below = Polygon([(0, 0), (20, 0), (20, 20), (0, 20)], [[(8, 8), (12, 8), (12, 12), (8, 12)]])
+    layer = sla.as_multipolygon(ring)
+    good = sla._cavity_cells_chunk([(layer, sla.as_multipolygon(below))])
+
+    def broken(*a, **k):
+        raise shapely.errors.GEOSException("IllegalArgumentException: Invalid number of points in LinearRing found 3")
+
+    monkeypatch.setattr(shapely, "clip_by_rect", broken)
+    out = sla._cavity_cells_chunk([(layer, sla.as_multipolygon(below))])
+    assert len(out) == 1 and out[0] is not None
+    assert abs(sum(c.area for c in out[0][1]) - sum(c.area for c in good[0][1])) < 1e-9
+    assert abs(sum(c.area for c in out[0][1]) - 16.0) < 1e-9          # the part of the cell over the hole below
+
+
+def test_autosave_survives_a_locked_file(tmp_path, monkeypatch):
+    """Windows refuses to replace a file another program holds for a moment (WinError 32): the autosave
+    retries, and if it stays locked it gives up quietly (it saves again two minutes later)."""
+    from unislicer import project
+    src, dst = tmp_path / "a.tmp", tmp_path / "a.unislicer"
+    real = os.replace
+    calls = {"n": 0}
+
+    def flaky(a, b):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise PermissionError(32, "The process cannot access the file because it is being used")
+        real(a, b)
+
+    monkeypatch.setattr(os, "replace", flaky)
+    src.write_text("x")
+    assert project.replace_retry(str(src), str(dst), delay=0.01) and dst.read_text() == "x" and calls["n"] == 3
+    monkeypatch.setattr(os, "replace", lambda a, b: (_ for _ in ()).throw(PermissionError(32, "locked")))
+    src.write_text("y")
+    assert project.replace_retry(str(src), str(dst), tries=3, delay=0.01) is False
+    assert not src.exists() and dst.read_text() == "x"

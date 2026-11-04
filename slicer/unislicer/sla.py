@@ -711,6 +711,16 @@ def _same(a, b) -> bool:
     return abs(a.area - b.area) < 1e-9 and np.allclose(a.bounds, b.bounds, atol=1e-9)
 
 
+def _clip(g, x0: float, y0: float, x1: float, y1: float):
+    """``g`` cut to a rectangle, only to make the next step cheaper. GEOS's rectangle clip can trip over some
+    contours ("Invalid number of points in LinearRing found 3"); then the whole of ``g`` gives the same
+    result, a little slower, instead of failing the slice."""
+    try:
+        return shapely.clip_by_rect(g, x0, y0, x1, y1)
+    except shapely.errors.GEOSException:
+        return g
+
+
 def _cavity_cells_chunk(pairs: list) -> list:
     """Per (layer, layer below): the enclosed empty cells of the layer, and what of each cell is not over the
     solid of the layer below. Independent per layer, so it runs on all cores (``_sealed_layers``)."""
@@ -736,7 +746,7 @@ def _cavity_cells_chunk(pairs: list) -> list:
             rest = cells
         else:
             # each cell against only the piece of the layer below under its own bounding box
-            near = np.array([shapely.clip_by_rect(below, b[0] - 0.1, b[1] - 0.1, b[2] + 0.1, b[3] + 0.1) for b in bx],
+            near = np.array([_clip(below, b[0] - 0.1, b[1] - 0.1, b[2] + 0.1, b[3] + 0.1) for b in bx],
                             dtype=object)
             rest = shapely.difference(cells, near)
         out.append((cells, rest, bx))
@@ -859,7 +869,7 @@ def _sealed_layers(layers: list[MultiPolygon], per: list | None = None, previous
                 todo = np.flatnonzero(~(shapely.is_empty(rest) | shapely.covers(sealed, rest)))
                 rest = np.where(shapely.is_empty(rest), rest, shapely.Polygon())
                 if len(todo):
-                    near = np.array([shapely.clip_by_rect(sealed, *(bx[k, :2] - 0.1), *(bx[k, 2:] + 0.1)) for k in todo],
+                    near = np.array([_clip(sealed, *(bx[k, :2] - 0.1), *(bx[k, 2:] + 0.1)) for k in todo],
                                     dtype=object)
                     rest[todo] = shapely.difference(per[i][1][todo], near)
             limit = np.minimum(0.01 * shapely.area(cells), 0.3) + 1e-6
