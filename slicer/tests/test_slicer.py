@@ -4824,7 +4824,7 @@ def test_label_select_edit_drag_and_delete(tmp_path):
         w._on_label_wheel(1.0, True); app.processEvents()              # Alt + wheel turns it
         assert abs(o.labels[0]["angle"] - 35.0) < 1e-6
         from PySide6.QtWidgets import QCheckBox
-        [x for x in ed.findChildren(QPushButton) if x.text() == "⟳"][0].click(); app.processEvents()
+        [x for x in ed.findChildren(QPushButton) if x.text() == "↻ 90°"][0].click(); app.processEvents()
         assert abs(o.labels[0]["angle"] - (-55.0)) < 1e-6              # 90 degrees to the right
         [x for x in ed.findChildren(QPushButton) if x.text() == tr("label_upright")][0].click(); app.processEvents()
         assert o.labels[0]["angle"] == 0.0

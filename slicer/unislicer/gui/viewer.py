@@ -533,7 +533,7 @@ class Viewer(QOpenGLWidget):
     def remove_object(self, uid):
         obj = self.objects.pop(uid, None)
         if obj:
-            for key in ("buffer", "sup_buffer", "hole_buffer", "keep_buffer", "label_buffer", "buffer_lod",
+            for key in ("buffer", "sup_buffer", "hole_buffer", "keep_buffer", "label_buffer", "label_cut_buffer", "buffer_lod",
                         "sup_buffer_lod"):
                 if obj.get(key):
                     self._trash(obj[key])
@@ -561,14 +561,20 @@ class Viewer(QOpenGLWidget):
         obj["keepout"], obj["keep_buffer"] = mesh, None
         self.update()
 
-    def set_object_labels(self, uid, mesh: Mesh | None):
-        """Label text in the object's own coordinates."""
+    def set_object_labels(self, uid, meshes):
+        """Label text in the object's own coordinates: (embossed, engraved) - embossed drawn light, engraved
+        dark (a groove) - or one mesh (drawn light)."""
         obj = self.objects.get(uid)
-        if obj is None or (obj.get("labels") is mesh and (mesh is None or obj.get("label_buffer") is not None)):
+        if obj is None:
             return
-        if obj.get("label_buffer"):
-            self._trash(obj["label_buffer"])
-        obj["labels"], obj["label_buffer"] = mesh, None
+        up, cut = meshes if isinstance(meshes, tuple) else (meshes, None)
+        if obj.get("labels") is up and obj.get("labels_cut") is cut:
+            return
+        for key in ("label_buffer", "label_cut_buffer"):
+            if obj.get(key):
+                self._trash(obj[key])
+            obj[key] = None
+        obj["labels"], obj["labels_cut"] = up, cut
         self.update()
 
     def set_object_supports(self, uid, mesh: Mesh | None):
@@ -800,6 +806,8 @@ class Viewer(QOpenGLWidget):
                 obj["keep_buffer"] = _Buffer(mesh_vertices(obj["keepout"]), [3, 3])
             if obj.get("labels") is not None and obj.get("label_buffer") is None and len(obj["labels"].faces):
                 obj["label_buffer"] = _Buffer(mesh_vertices(obj["labels"]), [3, 3])
+            if obj.get("labels_cut") is not None and obj.get("label_cut_buffer") is None and len(obj["labels_cut"].faces):
+                obj["label_cut_buffer"] = _Buffer(mesh_vertices(obj["labels_cut"]), [3, 3])
         if self._extra_dirty:
             for b, _ in self._extra_buffers:
                 b.delete()
@@ -918,6 +926,14 @@ class Viewer(QOpenGLWidget):
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
                     GL.glUniform3f(self._u(p, "uColor"), 0.96, 0.96, 1.0)
                     obj["label_buffer"].draw(GL.GL_TRIANGLES)
+                    GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
+                if obj.get("label_cut_buffer") is not None and not preview:
+                    GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
+                    GL.glUniform3f(self._u(p, "uColor"), 0.16, 0.17, 0.2)      # engraved: a dark groove
+                    GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)
+                    GL.glPolygonOffset(-1.0, -1.0)
+                    obj["label_cut_buffer"].draw(GL.GL_TRIANGLES)
+                    GL.glDisable(GL.GL_POLYGON_OFFSET_FILL)
                     GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
                 if obj.get("keep_buffer") is not None and not preview:
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)

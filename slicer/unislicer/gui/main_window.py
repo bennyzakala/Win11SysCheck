@@ -2383,9 +2383,13 @@ class MainWindow(QMainWindow):
         mode.setCurrentIndex(0 if lab["engrave"] else 1)
         form.addRow(tr("label_text"), text)
         size_row = QHBoxLayout()
-        smaller, bigger = QPushButton("−"), QPushButton("+")
+        smaller, bigger = QPushButton("-"), QPushButton("+")
         for btn, f in ((smaller, 1 / 1.15), (bigger, 1.15)):
-            btn.setFixedWidth(34)
+            btn.setFixedWidth(40)
+            f_ = btn.font()
+            f_.setPointSizeF(f_.pointSizeF() * 1.4)
+            f_.setBold(True)
+            btn.setFont(f_)
             btn.clicked.connect(lambda _=False, f=f: height.setValue(round(height.value() * f, 1)))
         size_row.addWidget(height)
         size_row.addWidget(smaller)
@@ -2395,14 +2399,12 @@ class MainWindow(QMainWindow):
         form.addRow(tr("text_depth"), depth)
         turn_row = QHBoxLayout()
         turn_row.addWidget(angle)
-        for txt, tip, fn in (("⟲", tr("label_turn_left"), lambda: angle.setValue(_wrap(angle.value() + 90))),
-                             ("⟳", tr("label_turn_right"), lambda: angle.setValue(_wrap(angle.value() - 90))),
-                             ("⇅", tr("label_turn_180"), lambda: angle.setValue(_wrap(angle.value() + 180))),
+        for txt, tip, fn in (("↺ 90°", tr("label_turn_left"), lambda: angle.setValue(_wrap(angle.value() + 90))),
+                             ("↻ 90°", tr("label_turn_right"), lambda: angle.setValue(_wrap(angle.value() - 90))),
+                             ("180°", tr("label_turn_180"), lambda: angle.setValue(_wrap(angle.value() + 180))),
                              (tr("label_upright"), tr("label_upright"), lambda: angle.setValue(0.0))):
-            btn = QPushButton(txt)
+            btn = QPushButton(txt)                  # plain text: arrow glyphs like ⟲ are missing in Windows fonts
             btn.setToolTip(tip)
-            if len(txt) == 1:
-                btn.setFixedWidth(34)
             btn.clicked.connect(fn)
             turn_row.addWidget(btn)
         turn_row.addStretch(1)
@@ -2543,15 +2545,14 @@ class MainWindow(QMainWindow):
         self.auto_label()
 
     def _label_preview(self, o: SceneObject, cfg, fit: bool = True):
-        """The label text, in the object's own coordinates (``fit`` off: flat, instant - while dragging)."""
+        """(embossed, engraved) label text in the object's own coordinates; engraved text as a dark inlay at
+        the surface, so it reads as a groove (``fit`` off: flat, instant - while dragging)."""
         if not o.labels:
             return None
         lift = self._lift(cfg) if self._shows_supports(o) else 0.0
-        up, cut = o.world_label_meshes(lift, fit=fit)
-        parts = [m for m in (up, cut) if m is not None]
-        if not parts:
-            return None
-        return Mesh.merge(parts).transform(np.linalg.inv(self._display_matrix(o)))
+        up, cut = o.world_label_meshes(lift, fit=fit, look=True)
+        inv = np.linalg.inv(self._display_matrix(o))
+        return (up.transform(inv) if up is not None else None, cut.transform(inv) if cut is not None else None)
 
     def clear_keepout(self):
         targets = [o for o in self._support_targets() if len(o.keepout)]

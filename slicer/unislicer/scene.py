@@ -210,7 +210,8 @@ class SceneObject:
             out.append((p, n / (np.linalg.norm(n) or 1.0), lab))
         return out
 
-    def world_label_meshes(self, lift: float = 0.0, fit: bool = True) -> tuple[Mesh | None, Mesh | None]:
+    def world_label_meshes(self, lift: float = 0.0, fit: bool = True,
+                           look: bool = False) -> tuple[Mesh | None, Mesh | None]:
         """(embossed text, engraved text) in bed coordinates; the text keeps its size when the model turns."""
         from .mesh_tools import label_mesh
         raised, cut = [], []
@@ -225,7 +226,7 @@ class SceneObject:
             near = tris[np.linalg.norm(cent - p, axis=1) < reach] if fit else None
             try:
                 mesh = label_mesh(lab["text"], p, n, lab["height"], lab["depth"], lab["engrave"], lab.get("width", 0.0),
-                                  lab.get("angle", 0.0), bool(lab.get("mirror", False)), surface=near)
+                                  lab.get("angle", 0.0), bool(lab.get("mirror", False)), surface=near, flush=look)
             except ValueError:
                 continue
             (cut if lab["engrave"] else raised).append(mesh)
