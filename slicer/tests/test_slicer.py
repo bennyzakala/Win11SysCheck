@@ -4735,6 +4735,8 @@ def test_teeth_rafts_carry_the_sod_case_code():
     assert dental_cad.case_code("C:/cases/WMJ-SOD260043945-044-P-43-46-4-A3-.stl") == "43945-044"
     assert dental_cad.case_code("upper.stl") == ""
     cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True})
+    assert cfg["sla_raft_label_teeth"] is False                 # off unless the user turns it on
+    cfg.update({"sla_raft_label_teeth": True})
     outer, inner = primitives.box(10, 10, 8), primitives.box(8, 8, 7).translated([0, 0, -0.6])
     cap = Mesh(np.vstack([outer.vertices, inner.vertices]),
                np.vstack([outer.faces, inner.faces[:, ::-1] + len(outer.vertices)]))
