@@ -110,6 +110,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete unislicer-latest --cleanup-tag --yes 2>$null
+          # GitHub's release API sometimes answers 5xx or still lists a just-deleted release: retry both
+          # steps, so a passing build always ends with the download link in place
           $notes = "Windows build of UniSlicer from commit $env:GITHUB_SHA.`n`n- UniSlicer-Setup.exe: installer`n- UniSlicer-portable-win64.zip: unzip and run UniSlicer.exe"
-          gh release create unislicer-latest dist/UniSlicer-Setup.exe dist/UniSlicer-portable-win64.zip --target $env:GITHUB_SHA --prerelease --title "UniSlicer (Windows) - latest build" --notes $notes
+          $ok = $false
+          for ($i = 1; $i -le 6 -and -not $ok; $i++) {
+            for ($j = 1; $j -le 5; $j++) {
+              gh release delete unislicer-latest --cleanup-tag --yes 2>$null
+              Start-Sleep -Seconds 3
+              gh release view unislicer-latest 2>$null | Out-Null
+              if ($LASTEXITCODE -ne 0) { break }
+            }
+            gh release create unislicer-latest dist/UniSlicer-Setup.exe dist/UniSlicer-portable-win64.zip --target $env:GITHUB_SHA --prerelease --title "UniSlicer (Windows) - latest build" --notes $notes
+            if ($LASTEXITCODE -eq 0) { $ok = $true } else { Write-Host "publish attempt $i failed; retrying"; Start-Sleep -Seconds (10 * $i) }
+          }
+          if (-not $ok) { exit 1 }
+          exit 0
