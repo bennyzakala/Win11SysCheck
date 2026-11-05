@@ -5,7 +5,7 @@ import json
 import os
 
 import numpy as np
-from PySide6.QtCore import QItemSelectionModel, QSettings, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QEventLoop, QItemSelectionModel, QSettings, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon, QImage, QKeySequence, QPixmap
 from PySide6.QtWidgets import (QApplication, QDialog, QCheckBox, QDoubleSpinBox, QFileDialog, QInputDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QListWidget, QListWidgetItem, QScrollArea, QMainWindow, QMenu, QMessageBox, QProgressBar,
@@ -167,7 +167,7 @@ class MainWindow(QMainWindow):
         self._suggest_timer = QTimer(self)
         self._suggest_timer.setSingleShot(True)
         self._suggest_timer.setInterval(600)
-        self._suggest_timer.timeout.connect(self._refresh_suggestions)
+        self._suggest_timer.timeout.connect(lambda: self._after_job(self._suggest_timer, self._refresh_suggestions))
 
         central = QWidget()
         root = QVBoxLayout(central)
@@ -1053,7 +1053,7 @@ class MainWindow(QMainWindow):
         self._unsupported_timer = QTimer(self)
         self._unsupported_timer.setSingleShot(True)
         self._unsupported_timer.setInterval(300)
-        self._unsupported_timer.timeout.connect(self._show_unsupported)
+        self._unsupported_timer.timeout.connect(lambda: self._after_job(self._unsupported_timer, self._show_unsupported))
         # dental CAD hot folder (3Shape / exocad / Medit export here)
         from .. import dental_cad
         self._cad_tracker = dental_cad.FolderTracker()
@@ -1073,12 +1073,12 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._init_learning_share)      # the assistant panel is built later
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setInterval(120000)          # autosave every 2 minutes while there are models
-        self._autosave_timer.timeout.connect(self._autosave)
+        self._autosave_timer.timeout.connect(lambda: self._after_job(None, self._autosave))
         self._autosave_timer.start()
         self._collision_timer = QTimer(self)
         self._collision_timer.setSingleShot(True)
         self._collision_timer.setInterval(250)
-        self._collision_timer.timeout.connect(self._check_collisions)
+        self._collision_timer.timeout.connect(lambda: self._after_job(self._collision_timer, self._check_collisions))
         # a burst of edits (typing, spin arrows held down) is handled once, after it settles
         self._settings_timer = QTimer(self)
         self._settings_timer.setSingleShot(True)
@@ -1380,6 +1380,13 @@ class MainWindow(QMainWindow):
             self._remember_file(p)
 
     def load_parts(self, parts: list[dict]):
+        self._long(True)
+        try:
+            self._load_parts(parts)
+        finally:
+            self._long(False)
+
+    def _load_parts(self, parts: list[dict]):
         """Parts from the Add parts window: each with its type (on the plate or on supports, hollow), units
         and number of copies. Orientation is left as in the file and placement as a plain Open does; no
         supports are added here."""
@@ -1403,6 +1410,7 @@ class MainWindow(QMainWindow):
                     self._model_source[o.uid] = source
                     group.append(o)
             self._import_project_filaments(meshes)
+            self._breathe()
             kind = part.get("kind", "asis")
             preset = self.DENTAL.get("model" if kind == "model_hollow" else kind)
             for o in group:                  # the type never turns the part: it comes in as in the file
@@ -1422,6 +1430,13 @@ class MainWindow(QMainWindow):
         self.status.setText(tr("ap_loaded").format(len(added)))
 
     def load_files(self, paths):
+        self._long(True)
+        try:
+            self._load_files(paths)
+        finally:
+            self._long(False)
+
+    def _load_files(self, paths):
         added = None
         loaded = []
         for path in paths:
@@ -1440,6 +1455,7 @@ class MainWindow(QMainWindow):
                 self.status.setText(tr("loaded").format(m.name, len(m.faces)))
             self._import_project_filaments(meshes)
             loaded += new_objs
+            self._breathe()
         if added is not None:
             self.arrange_objects()
             self.viewer.fit_objects()
@@ -1549,6 +1565,8 @@ class MainWindow(QMainWindow):
             return
         if o.mesh.is_watertight() and len(o.mesh.faces) > 150_000:
             return                        # a big closed model: nothing worth the time to analyse
+        if not self.assistant.data.get("repair", {}).get("by_sig"):
+            return                        # no repair learned yet: nothing to match (skips a full analysis)
         try:
             fp = self._repair_fingerprint(o)
         except Exception:
@@ -1827,6 +1845,9 @@ class MainWindow(QMainWindow):
         self.objects.append(obj)
         if rearrange:
             self._arrange(cfg)
+        if getattr(self, "_long_job", 0):
+            self._added_in_job = getattr(self, "_added_in_job", []) + [obj.uid]
+            return obj                    # opening many files: the plate is refreshed once, at the end
         self._refresh_objects(select=obj.uid)
         return obj
 
@@ -2951,6 +2972,44 @@ class MainWindow(QMainWindow):
         self._objects_changed(refresh_list=False)
         self._sync_transform()
 
+    def _breathe(self):
+        """During a long job on many models (opening files, generating supports): let the window repaint and
+        stay 'responding' between models (about once a second), without taking clicks or keys until the
+        job is done."""
+        import time as _time
+        if getattr(self, "_long_job", 0) and not getattr(self, "_breathing", False):
+            now = _time.monotonic()
+            if now - getattr(self, "_last_breath", 0.0) < 1.0:
+                return
+            self._last_breath = now
+            self._breathing = True
+            try:
+                QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+            finally:
+                self._breathing = False
+
+    def _after_job(self, timer, fn):
+        """A delayed check that fires while a long job is still running waits for the job to end (its result
+        would be stale at once and it only slows the job down)."""
+        if getattr(self, "_long_job", 0):
+            if timer is not None:
+                timer.start()
+            return
+        fn()
+
+    def _long(self, on: bool):
+        self._long_job = getattr(self, "_long_job", 0) + (1 if on else -1)
+        if on:
+            import time as _time
+            self._last_breath = _time.monotonic()
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            return
+        QApplication.restoreOverrideCursor()
+        added = getattr(self, "_added_in_job", [])
+        if not self._long_job and added:          # the models opened during the job: one refresh for all
+            self._added_in_job = []
+            self._refresh_objects(select=[u for u in added if any(o.uid == u for o in self.objects)][-1:] or None)
+
     def _objects_changed(self, refresh_list: bool = True):
         cfg = self.settings.config()
         outside = {o.uid: o.name for o in out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg), region=plate_region(cfg))}
@@ -2976,6 +3035,7 @@ class MainWindow(QMainWindow):
             self.viewer.set_object_holes(o.uid, self._hole_preview(o, cfg))
             self.viewer.set_object_keepout(o.uid, self._keepout_preview(o, cfg))
             self.viewer.set_object_labels(o.uid, self._label_preview(o, cfg))
+            self._breathe()
         sel = self.selected()
         self._update_support_info()
         self.viewer.set_selected(sel.uid if sel else None, [o.uid for o in self.selected_objects()])
@@ -4003,6 +4063,13 @@ class MainWindow(QMainWindow):
     def generate_supports(self):
         if not self.objects:
             return
+        self._long(True)
+        try:
+            self._generate_supports()
+        finally:
+            self._long(False)
+
+    def _generate_supports(self):
         self._push_undo()
         self._ensure_supports_enabled()
         cfg = self.settings.config()
@@ -4024,6 +4091,7 @@ class MainWindow(QMainWindow):
                 sla_supports.auto_support_points(world, o.config(learned_plate)), o.world_keepout(lift)), lift)
             o.__dict__["support_session"] = {"auto": len(o.support_points), "added": [], "removed": 0,
                                              "threshold": o.config(learned_plate)["support_angle"]}
+            self._breathe()
         self._objects_changed(refresh_list=False)
         self.status.setText(tr("sup_generated_hint") + (" " + tr("sup_skipped_direct").format(skipped) if skipped else ""))
 
@@ -4552,7 +4620,7 @@ class MainWindow(QMainWindow):
         if timer is None:
             timer = QTimer(self)
             timer.setSingleShot(True)
-            timer.timeout.connect(self._preslice)
+            timer.timeout.connect(lambda: self._after_job(timer, self._preslice))
             self._preslice_timer = timer
         if self.store.value("preslice", "true") == "true":
             timer.start(self.PRESLICE_DELAY_MS)

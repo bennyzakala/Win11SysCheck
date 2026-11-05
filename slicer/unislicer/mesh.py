@@ -30,7 +30,16 @@ class Mesh:
             return cls(np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64), name)
         points = tris.reshape(-1, 3)
         keys = np.round(points / tolerance).astype(np.int64)
-        _, first, inverse = np.unique(keys, axis=0, return_index=True, return_inverse=True)
+        # rows sorted by (x, y, z) with lexsort and split where they change: the same result as
+        # np.unique(axis=0) at a fraction of the time (that one sorts whole rows as opaque bytes)
+        order = np.lexsort((keys[:, 2], keys[:, 1], keys[:, 0]))
+        k = keys[order]
+        new = np.ones(len(k), dtype=bool)
+        new[1:] = np.any(k[1:] != k[:-1], axis=1)
+        group = np.cumsum(new) - 1
+        first = order[new]
+        inverse = np.empty(len(k), dtype=np.int64)
+        inverse[order] = group
         faces = inverse.reshape(-1, 3)
         mesh = cls(points[first], faces, name)
         mesh.remove_degenerate()
@@ -61,7 +70,13 @@ class Mesh:
     # ------------------------------------------------------------ properties
     @property
     def triangles(self) -> np.ndarray:
-        return self.vertices[self.faces]
+        # meshes are treated as immutable once built; the cache is checked against the arrays it came from
+        c = self.__dict__.get("_tris")
+        if c is not None and c[0] is self.vertices and c[1] is self.faces:
+            return c[2]
+        t = self.vertices[self.faces]
+        self._tris = (self.vertices, self.faces, t)
+        return t
 
     @property
     def bounds(self) -> np.ndarray:
@@ -76,11 +91,16 @@ class Mesh:
         return b[1] - b[0]
 
     def face_normals(self) -> np.ndarray:
+        c = self.__dict__.get("_normals")
+        if c is not None and c[0] is self.vertices and c[1] is self.faces:
+            return c[2]
         t = self.triangles
         n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
         length = np.linalg.norm(n, axis=1, keepdims=True)
         length[length == 0] = 1.0
-        return n / length
+        n = n / length
+        self._normals = (self.vertices, self.faces, n)
+        return n
 
     def face_areas(self) -> np.ndarray:
         cached = self.__dict__.get("_areas")

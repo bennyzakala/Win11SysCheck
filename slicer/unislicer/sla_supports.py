@@ -44,7 +44,7 @@ def caster_for(mesh: Mesh) -> "_Caster":
     key = (len(mesh.faces), hash(mesh.vertices.tobytes()), hash(mesh.faces.tobytes()))
     hit = _CASTERS.get(key)
     if hit is None:
-        if len(_CASTERS) >= 6:
+        if len(_CASTERS) >= 48:          # a full plate of parts: each kept (a few MB each)
             _CASTERS.pop(next(iter(_CASTERS)))
         hit = _CASTERS[key] = _Caster(mesh)
     return hit
@@ -457,6 +457,9 @@ def fit_text(text, room, min_height: float = 0.7, max_height: float = 3.0):
     straight = _fit_straight(text, room, min_height, max_height)
     if straight is not None and straight[1] >= max_height * 0.999:
         return straight[0]
+    # a room that fills most of its rectangle is not bent: bending cannot do better, skip the costly search
+    if room.area >= 0.7 * room.minimum_rotated_rectangle.area:
+        return straight[0] if straight is not None else None
     curved = _fit_curved(text, room, min_height, max_height)
     if curved is not None and (straight is None or curved[1] > straight[1] * 1.3):
         return curved[0]
@@ -505,6 +508,8 @@ def centre_line(room, step: float | None = None) -> np.ndarray | None:
     x0, y0, x1, y1 = room.bounds
     if step is None:
         step = max(0.1, min(0.4, min(x1 - x0, y1 - y0) / 12))
+    step = max(step, room.length / 400)                    # at most ~400 boundary points: the Voronoi stays fast
+    room = room.simplify(step * 0.25)
     ring_pts = []
     for ring in [room.exterior, *room.interiors]:
         ring_pts.append(np.asarray(shapely.segmentize(ring, step).coords)[:-1])
