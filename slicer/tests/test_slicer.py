@@ -5118,3 +5118,26 @@ def test_raft_code_bends_along_an_arch_raft():
     flat = sla_supports.fit_text(text, box(0, 0, 30, 6))
     assert flat is not None
     assert sla_supports._fit_straight(text, box(0, 0, 30, 6), 0.7, 3.0)[0].equals(flat)   # straight stays straight
+
+
+def test_supports_never_run_through_the_model():
+    """A shelf hanging 0.3 mm over a lower block, next to a wall: no support may run down through the
+    block (a gap under 0.5 mm was taken for open air) or cut through the wall beside it - only the tips
+    touch the model."""
+    from unislicer import sla_supports
+    block = primitives.box(20, 20, 6).translated([0, 0, 5 + 3])              # 5..11
+    shelf = primitives.box(30, 20, 2).translated([5, 0, 11.3 + 1])           # 11.3..13.3, overhangs past the block
+    wall = primitives.box(1.0, 20, 8).translated([20.9, 0, 9 + 4])           # a thin wall just past the shelf
+    model = Mesh.merge([block, shelf, wall])
+    for shape in ("tree", "pillar"):
+        cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None,
+                                    {"support_enable": True, "sla_support_type": shape})
+        owners = {}
+        sup, used = sla_supports.build_supports(model, cfg, owners=owners)
+        assert len(used)                                                      # the free part is still held
+        caster = sla_supports.caster_for(model)
+        cent = sup.triangles.mean(axis=1)
+        inside = np.array([np.sum(np.unique(np.round(caster.hits(c[0], c[1])[0], 4)) > c[2]) % 2 == 1 for c in cent])
+        if inside.any():
+            d = np.min(np.linalg.norm(cent[inside][:, None, :] - used[None, :, :], axis=2), axis=1)
+            assert d.max() <= 1.0, (shape, d.max())                          # only the tips go in

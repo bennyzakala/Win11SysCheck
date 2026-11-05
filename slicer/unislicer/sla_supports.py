@@ -92,10 +92,34 @@ class _Caster:
         order = np.argsort(z)
         return z[order], sel[local[order]]
 
+    def solid_spans(self, x: float, y: float) -> np.ndarray:
+        """(k, 2) z ranges where the vertical line through (x, y) is inside the model."""
+        z, _ = self.hits(x, y)
+        if len(z) > 1:
+            z = z[np.concatenate([[True], np.diff(z) > 1e-4])]     # one hit where triangles share an edge
+        n = len(z) // 2 * 2
+        return z[:n].reshape(-1, 2)
+
+    def column_blocked(self, x: float, y: float, r: float, z0: float, z1: float, tol: float = 0.1) -> bool:
+        """True when a vertical column of radius ``r`` from z0 to z1 would run through the model (checked
+        on its axis and on a ring around it)."""
+        if z1 - z0 <= 2 * tol:
+            return False
+        ring = [(0.0, 0.0)] + [(r * math.cos(a), r * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 6, endpoint=False)]
+        for dx, dy in (ring if r > 1e-6 else ring[:1]):
+            spans = self.solid_spans(x + dx, y + dy)
+            if len(spans) and np.any((spans[:, 0] < z1 - tol) & (spans[:, 1] > z0 + tol)):
+                return True
+        return False
+
+    def inside(self, p: np.ndarray) -> bool:
+        spans = self.solid_spans(p[0], p[1])
+        return bool(len(spans) and np.any((spans[:, 0] < p[2]) & (spans[:, 1] > p[2])))
+
     def base_below(self, p: np.ndarray) -> float | None:
         """Height where a pillar dropped from ``p`` lands: 0 for the bed, or the top of the model below it."""
         z, faces = self.hits(p[0], p[1])
-        below = (z < p[2] - 0.5) & (self.normals[faces, 2] > 0)
+        below = (z < p[2] - 1e-3) & (self.normals[faces, 2] > 0)
         return float(z[below].max()) if np.any(below) else 0.0
 
 
@@ -862,6 +886,18 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
         if sphere_tip:
             parts.append(ball(tip - [0, 0, tip_r * 0.3], tip_r * 1.25, 4, 10))
 
+    def blocked(x, y, top, h_len, bottom, contact, tip):
+        """Would this support run through the model anywhere but its own tip? (its column, the wide part
+        of its head, or a leaning head's arm)"""
+        if caster.column_blocked(x, y, widened(pillar_r, top - h_len - bottom), bottom + 0.05, top - h_len):
+            return True
+        if tip is None:
+            if caster.column_blocked(x, y, pillar_r, top - h_len, top - h_len / 2):
+                return True
+            return caster.column_blocked(x, y, 0.0, top - h_len / 2, contact[2] - 0.05)
+        a = np.array([x, y, top - h_len])
+        return any(caster.inside(a + (tip - a) * t) for t in (0.0, 0.2, 0.4, 0.6, 0.8))
+
     for index, p in enumerate(points):
         contact = underside_contact(caster, p)
         if contact is None:
@@ -891,7 +927,9 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
         if height < 0.5:
             continue
         h_len = head_len if d is not None else min(head_len, height * 0.5)
-        if d is not None and height - h_len < 0.5:     # too close to the plate to lean: vertical head
+        if d is not None and (height - h_len < 0.5 or blocked(x, y, top, h_len, bottom, p, tip)):
+            # too close to the plate to lean, or the leaning arm / its pillar would cut through the
+            # model: a vertical head instead
             d, tip = None, None
             x, y, top = p[0], p[1], p[2] + depth
             base = caster.base_below(p)
@@ -901,6 +939,8 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
             if height < 0.5 or (not on_bed and not on_model):
                 continue
             h_len = min(head_len, height * 0.5)
+        if d is None and blocked(x, y, top, h_len, bottom, p, None):
+            continue                     # no straight way down that stays clear of the model
         used.append(p)
         if tree and on_bed and height > h_len + 3.0:
             # the head is built now; the branch below it is decided when the trees are grown
