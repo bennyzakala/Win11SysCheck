@@ -1380,8 +1380,9 @@ class MainWindow(QMainWindow):
             self._remember_file(p)
 
     def load_parts(self, parts: list[dict]):
-        """Parts from the Add parts window: each with its type (orientation preset), units and number of
-        copies. Placed on the plate as a plain Open does; no supports are added here."""
+        """Parts from the Add parts window: each with its type (on the plate or on supports, hollow), units
+        and number of copies. Orientation is left as in the file and placement as a plain Open does; no
+        supports are added here."""
         added = []
         for part in parts:
             path = part["path"]
@@ -1403,11 +1404,12 @@ class MainWindow(QMainWindow):
                     group.append(o)
             self._import_project_filaments(meshes)
             kind = part.get("kind", "asis")
-            if kind != "asis":
-                self._apply_indication(group, "model" if kind == "model_hollow" else kind, enable_supports=False)
+            preset = self.DENTAL.get("model" if kind == "model_hollow" else kind)
+            for o in group:                  # the type never turns the part: it comes in as in the file
+                if preset is not None:
+                    o.direct = preset[1]         # a model prints straight on the plate, a crown on supports
                 if kind == "model_hollow":
-                    for o in group:
-                        o.settings["hollow_enable"] = True
+                    o.settings["hollow_enable"] = True
             added += group
         if not added:
             return

@@ -1,6 +1,6 @@
-"""Add parts: after choosing model files, set each part's type (orientation preset), units and quantity
-before it goes on the plate (no supports are added and the parts are not re-laid out here). Types are recognised from the file name (3Shape / exocad
-names, lab codes) and, when the name says nothing, from the shape."""
+"""Add parts: after choosing model files, set each part's type, units and quantity before it goes on
+the plate. The parts keep the orientation of their files; no supports are added here. Types are recognised
+from the file name (3Shape / exocad names, lab codes) and, when the name says nothing, from the shape."""
 from __future__ import annotations
 
 import json

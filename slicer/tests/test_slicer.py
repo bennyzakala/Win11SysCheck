@@ -4986,8 +4986,8 @@ def test_mini_rafts_differ_from_a_solid_raft():
 
 
 def test_add_parts_window_sets_type_and_adds_no_supports(tmp_path):
-    """Open model -> Add parts: each file gets a type (by name, else by shape) that sets its orientation,
-    a unit and a quantity; Open puts them on the plate without adding supports (or switching them on)."""
+    """Open model -> Add parts: each file gets a type (by name, else by shape), a unit and a quantity; Open
+    puts them on the plate as in their files (the type never turns them) without adding supports."""
     import subprocess, sys, textwrap
     from unislicer.mesh import save_stl
     outer, inner = primitives.box(10, 10, 8), primitives.box(8, 8, 7).translated([0, 0, -0.6])
@@ -5031,8 +5031,8 @@ def test_add_parts_window_sets_type_and_adds_no_supports(tmp_path):
         assert antag.direct and antag.settings.get("hollow_enable") is True
         crowns = [o for o in w.objects if "R685" in o.name]
         assert len(crowns) == 2 and all(not o.direct for o in crowns)
-        tilt = np.degrees(np.arccos(np.clip(crowns[0].matrix()[2, 2], -1, 1)))
-        assert tilt > 5, tilt                                          # the crown preset tilts it
+        for o in w.objects:                                            # the type never turns a part
+            assert np.allclose(o.rotation, 0) and np.allclose(o.base_rotation[2], [0, 0, 1]), o.name
         assert all(o.support_points is None for o in w.objects)        # no supports added
         assert w.settings.config()["support_enable"] is False          # nor switched on
         w._stop_preslice()

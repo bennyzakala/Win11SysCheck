@@ -228,7 +228,7 @@ STRINGS = {
     "auto_close_holes": ("סגור חורים במודלים אוטומטית בטעינה", "Close holes in models automatically on load"),
     "ap_title": ("הוספת חלקים", "Add parts"),
     "ap_col_name": ("שם החלק", "Part name"),
-    "ap_col_kind": ("סוג / כיוון", "Type / orientation"),
+    "ap_col_kind": ("סוג", "Type"),
     "ap_col_supports": ("תמיכות", "Supports"),
     "ap_col_placement": ("מיקום", "Placement"),
     "ap_col_unit": ("יחידות", "Unit"),
