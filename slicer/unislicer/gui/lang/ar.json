@@ -1344,5 +1344,8 @@
 "Turn 90° right": "تدوير 90° لليمين",
 "Turn 180°": "تدوير 180°",
 "Upright": "مستقيم",
-"Mirrored (reads from the other side)": "معكوس (يُقرأ من الجهة الأخرى)"
+"Mirrored (reads from the other side)": "معكوس (يُقرأ من الجهة الأخرى)",
+"Support height": "ارتفاع الدعامات",
+"How far the model is raised above the raft, i.e. the height of the supports under it (also called model elevation)": "مقدار رفع النموذج فوق القاعدة، أي ارتفاع الدعامات تحته (يُسمّى أيضًا رفع النموذج)",
+"Raft type, thickness, margin, slope and support height": "نوع القاعدة والسماكة والهامش والميل وارتفاع الدعامات"
 }

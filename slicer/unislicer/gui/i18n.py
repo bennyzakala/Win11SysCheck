@@ -621,7 +621,7 @@ STRINGS = {
     "sections_expand": ("פתח את כל הקבוצות", "Expand all sections"),
     "sections_collapse": ("סגור את כל הקבוצות", "Collapse all sections"),
     "raft_menu": ("רפסודה", "Raft"),
-    "raft_menu_tip": ("סוג הרפסודה, עובי, שוליים, שיפוע והגבהת המודל", "Raft type, thickness, margin, slope and model elevation"),
+    "raft_menu_tip": ("סוג הרפסודה, עובי, שוליים, שיפוע וגובה התמיכות", "Raft type, thickness, margin, slope and support height"),
     "raft_menu_note": ("השינויים חלים מיד ומוצגים על התמיכות. אותן הגדרות נמצאות גם בהגדרות, תחת 'רפסודה'.",
                        "Changes apply at once and show on the supports. The same settings are under 'Raft' in the settings."),
     "panel_hide": ("מזער את הלוח (Ctrl+[ / Ctrl+])", "Collapse the panel (Ctrl+[ / Ctrl+])"),

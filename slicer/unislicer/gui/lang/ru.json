@@ -1344,5 +1344,8 @@
 "Turn 90° right": "Повернуть на 90° вправо",
 "Turn 180°": "Повернуть на 180°",
 "Upright": "Прямо",
-"Mirrored (reads from the other side)": "Зеркально (читается с другой стороны)"
+"Mirrored (reads from the other side)": "Зеркально (читается с другой стороны)",
+"Support height": "Высота поддержек",
+"How far the model is raised above the raft, i.e. the height of the supports under it (also called model elevation)": "На сколько модель поднята над рафтом, то есть высота поддержек под ней (также называется подъёмом модели)",
+"Raft type, thickness, margin, slope and support height": "Тип рафта, толщина, поля, наклон и высота поддержек"
 }
