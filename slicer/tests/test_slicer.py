@@ -5312,3 +5312,52 @@ def test_jaw_model_ledges_get_no_supports_climbing_up_the_model():
                 model.faces)
     tilt = tilt.translated([0, 0, -tilt.bounds[0][2] + 5])
     assert len(sla_supports.auto_support_points(tilt, cfg)) >= 20               # a sloped underside is held
+
+
+def test_model_type_brings_its_supports():
+    """Supports > Model type (C/B, guide, model, model U, splint horizontal / vertical, denture): each type
+    sets its own supports; Automatic takes the type from the file name, and a part whose name says nothing
+    keeps the plate's support settings."""
+    from unislicer import dental_cad
+    from unislicer.scene import SceneObject
+    from unislicer.settings import MODEL_TYPE_PRESETS
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True})
+    assert cfg["sla_model_type"] == "auto"
+    for t, preset in MODEL_TYPE_PRESETS.items():
+        c = cfg.copy().update({"sla_model_type": t})
+        assert all(c[k] == v for k, v in preset.items()), t
+    assert cfg.copy().update({"sla_model_type": "denture"})["sla_tip_diameter"] > \
+        cfg.copy().update({"sla_model_type": "cb"})["sla_tip_diameter"]            # dentures: stronger contacts
+    assert dental_cad.model_type_of("FYQ-SOD260046892-044-P-16-16-1-00-R685_2", None) == "cb"
+    assert dental_cad.model_type_of("case_SurgicalGuide", None) == "guide"
+    assert dental_cad.model_type_of("upper_denture", None) == "denture"
+    assert dental_cad.model_type_of("bracket.stl", None) == ""
+    horseshoe = Mesh.merge([primitives.box(8, 40, 10), primitives.box(8, 40, 10).translated([30, 0, 0]),
+                            primitives.box(38, 8, 10).translated([0, 32, 0])])
+    plate = primitives.box(38, 40, 10)
+    assert dental_cad.model_type_of("x_UnsectionedModel_UpperJaw", horseshoe) == "model_u"
+    assert dental_cad.model_type_of("x_UnsectionedModel_UpperJaw", plate) == "model"
+    crown = SceneObject.from_mesh(primitives.box(10, 10, 8), "FYQ-SOD260046892-044-P-16-16-1-00-R685_2")
+    part = SceneObject.from_mesh(primitives.box(10, 10, 8), "bracket")
+    assert crown.config(cfg)["sla_avoid_fit"] is True and crown.config(cfg)["sla_tip_diameter"] == 0.35
+    assert part.config(cfg)["sla_tip_diameter"] == cfg["sla_tip_diameter"]          # nothing said: plate settings
+    crown.settings = {"sla_model_type": "plate"}                                    # the model's own choice wins
+    assert crown.config(cfg)["sla_tip_diameter"] == cfg["sla_tip_diameter"]
+
+
+def test_no_supports_on_the_fitting_surface():
+    """C/B, guide, splint, denture: points inside the part's hollow (the fitting surface) get no support; the
+    outside keeps its points."""
+    from unislicer import sla_supports
+    outer, inner = primitives.box(12, 12, 9), primitives.box(9, 9, 6).translated([1.5, 1.5, 1.5])
+    shell = Mesh(np.vstack([outer.vertices, inner.vertices]),
+                 np.vstack([outer.faces, inner.faces[:, ::-1] + len(outer.vertices)])).translated([60, 40, 5])
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True}).update(
+        {"sla_model_type": "cb"})
+    plain = sla_supports.auto_support_points(shell, cfg.copy().update({"sla_avoid_fit": False}))
+    report = {}
+    kept = sla_supports.auto_support_points(shell, cfg, report)
+    inside = plain[plain[:, 2] > 5.5]                       # the hollow's ceiling, 7.5 mm up
+    assert len(inside) and report["fit_dropped"] >= len(inside)
+    assert not np.any(kept[:, 2] > 5.5)                      # none inside
+    assert np.sum(kept[:, 2] < 5.1) >= 9                     # the outside underside is still held

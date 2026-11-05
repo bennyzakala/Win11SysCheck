@@ -1379,5 +1379,18 @@
 "Stop printing directly on the plate (allow supports and raft)": "Не печатать прямо на платформе (разрешить поддержки и рафт)",
 "The model is raised and gets supports and a raft with Generate supports": "Модель поднимается и получает поддержки и рафт при создании поддержек",
 "({} models print directly on the plate and were skipped - right-click > 'Stop printing directly on the plate', or select them and generate again)": "({} моделей печатаются прямо на платформе и пропущены - правый клик > «Не печатать прямо на платформе» или выберите их и создайте снова)",
-"{} crowns / bridges skipped - their label goes on the raft (SOD code), not on the tooth": "{} коронок/мостов пропущено - их метка на рафте (код SOD), не на зубе"
+"{} crowns / bridges skipped - their label goes on the raft (SOD code), not on the tooth": "{} коронок/мостов пропущено - их метка на рафте (код SOD), не на зубе",
+"The fitting surface of {} faces the plate: it gets no supports there, so little is left to hold it - turn it over (fitting surface up, tilted 30-45 deg).": "Посадочная поверхность {} обращена к платформе: там нет поддержек, держать почти не за что - переверните (посадочной поверхностью вверх, наклон 30-45°).",
+"Model type": "Тип модели",
+"Each type sets its own supports: contact size, thickness, spacing, angle, and where not to put supports. Crown/bridge, guide, splint and denture: no supports on the fitting (intaglio) surface - best with the fitting surface up, crowns/bridges tilted 30-45 deg. Model: on its base only, best straight on the plate. Splint horizontal: tilted about 20 deg; vertical: incisors toward the plate. Denture: almost upright (about 10 deg) with stronger supports. Automatic: by each model's file name (3Shape / exocad / lab code); a model whose name says nothing keeps the support settings. Editing one of these support values by hand switches to 'As the support settings'": "Каждый тип задаёт свои поддержки: размер контакта, толщину, шаг, угол и где не ставить поддержки. Коронка/мост, шаблон, сплинт и протез: без поддержек на посадочной поверхности - лучше посадочной поверхностью вверх, коронки/мосты с наклоном 30-45°. Модель: только на основании, лучше прямо на платформе. Сплинт горизонтальный: наклон около 20°; вертикальный: резцы к платформе. Протез: почти вертикально (около 10°) с более прочными поддержками. Автоматически: по имени файла каждой модели (3Shape / exocad / код лаборатории); модель с ничего не говорящим именем сохраняет настройки поддержек. Ручное изменение одного из этих значений переключает на «По настройкам поддержек»",
+"Automatic (by file name)": "Автоматически (по имени файла)",
+"Crown / bridge (C/B)": "Коронка / мост (C/B)",
+"Model U (horseshoe)": "Модель U (подкова)",
+"Splint (horizontal)": "Сплинт (горизонтально)",
+"Splint (vertical)": "Сплинт (вертикально)",
+"As the support settings": "По настройкам поддержек",
+"No supports on the fitting surface": "Без поддержек на посадочной поверхности",
+"Points inside a hollow (the inside of a crown, guide, splint or denture, a guide's sleeve holes) get no support": "Точки внутри полости (внутренняя сторона коронки, шаблона, сплинта или протеза, отверстия втулок шаблона) не получают поддержек",
+"No supports on a model's small ledges": "Без поддержек на мелких уступах модели",
+"On a jaw model: a narrow step (base to gum, a tooth's bulge) holds itself up - no support climbing to it": "На модели челюсти узкий уступ (основание-десна, выпуклость зуба) держится сам - поддержка к нему не поднимается"
 }

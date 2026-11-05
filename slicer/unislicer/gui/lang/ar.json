@@ -1379,5 +1379,18 @@
 "Stop printing directly on the plate (allow supports and raft)": "إلغاء الطباعة مباشرة على الصفيحة (السماح بالدعامات والطوف)",
 "The model is raised and gets supports and a raft with Generate supports": "يُرفع النموذج ويحصل على دعامات وطوف عند إنشاء الدعامات",
 "({} models print directly on the plate and were skipped - right-click > 'Stop printing directly on the plate', or select them and generate again)": "(تم تخطي {} نماذج تُطبع مباشرة على الصفيحة - انقر بالزر الأيمن > «إلغاء الطباعة مباشرة» أو حدّدها وأنشئ مجددًا)",
-"{} crowns / bridges skipped - their label goes on the raft (SOD code), not on the tooth": "تم تخطي {} تيجان/جسور - ملصقها على الطوف (رمز SOD) وليس على السن"
+"{} crowns / bridges skipped - their label goes on the raft (SOD code), not on the tooth": "تم تخطي {} تيجان/جسور - ملصقها على الطوف (رمز SOD) وليس على السن",
+"The fitting surface of {} faces the plate: it gets no supports there, so little is left to hold it - turn it over (fitting surface up, tilted 30-45 deg).": "سطح التلاؤم لـ {} مواجه للصفيحة: لا دعامات عليه فلا يبقى ما يُمسك به - اقلبه (سطح التلاؤم للأعلى، بميل 30-45°).",
+"Model type": "نوع النموذج",
+"Each type sets its own supports: contact size, thickness, spacing, angle, and where not to put supports. Crown/bridge, guide, splint and denture: no supports on the fitting (intaglio) surface - best with the fitting surface up, crowns/bridges tilted 30-45 deg. Model: on its base only, best straight on the plate. Splint horizontal: tilted about 20 deg; vertical: incisors toward the plate. Denture: almost upright (about 10 deg) with stronger supports. Automatic: by each model's file name (3Shape / exocad / lab code); a model whose name says nothing keeps the support settings. Editing one of these support values by hand switches to 'As the support settings'": "كل نوع يحدد دعاماته: حجم نقطة التلامس، السماكة، التباعد، الزاوية، وأين لا توضع الدعامات. تاج/جسر، دليل، جبيرة وطقم: بلا دعامات على سطح التلاؤم - الأفضل أن يكون سطح التلاؤم للأعلى، والتيجان/الجسور بميل 30-45°. النموذج: على قاعدته فقط، والأفضل مباشرة على الصفيحة. جبيرة أفقية: ميل نحو 20°؛ عمودية: القواطع نحو الصفيحة. طقم: شبه عمودي (نحو 10°) بدعامات أقوى. تلقائي: حسب اسم ملف كل نموذج (3Shape / exocad / رمز المختبر)؛ النموذج الذي لا يدل اسمه على شيء يبقى بإعدادات الدعامات. تغيير إحدى هذه القيم يدويًا ينتقل إلى «حسب إعدادات الدعامات»",
+"Automatic (by file name)": "تلقائي (حسب اسم الملف)",
+"Crown / bridge (C/B)": "تاج / جسر (C/B)",
+"Model U (horseshoe)": "نموذج U (حدوة)",
+"Splint (horizontal)": "جبيرة (أفقية)",
+"Splint (vertical)": "جبيرة (عمودية)",
+"As the support settings": "حسب إعدادات الدعامات",
+"No supports on the fitting surface": "بلا دعامات على سطح التلاؤم",
+"Points inside a hollow (the inside of a crown, guide, splint or denture, a guide's sleeve holes) get no support": "النقاط داخل التجويف (داخل التاج أو الدليل أو الجبيرة أو الطقم، وثقوب أكمام الدليل) لا تحصل على دعامة",
+"No supports on a model's small ledges": "بلا دعامات على الحواف الصغيرة للنموذج",
+"On a jaw model: a narrow step (base to gum, a tooth's bulge) holds itself up - no support climbing to it": "في نموذج الفك: الدرجة الضيقة (بين القاعدة واللثة، بروز السن) تحمل نفسها - لا دعامة تصعد إليها"
 }

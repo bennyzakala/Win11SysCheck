@@ -226,6 +226,7 @@ STRINGS = {
     "holes_partly_closed": ("רוב החורים ב-{} נסגרו; חלק מהפגמים נשארו", "Most holes in {} closed; some defects remain"),
     "holes_not_closed": ("לא ניתן היה לסגור את החורים ב-{} אוטומטית", "The holes in {} could not be closed automatically"),
     "auto_close_holes": ("סגור חורים במודלים אוטומטית בטעינה", "Close holes in models automatically on load"),
+    "fit_faces_plate": ("משטח ההתאמה של {} פונה למשטח ההדפסה: אין שם תמיכות, ולכן כמעט אין במה להחזיק - מומלץ להפוך (משטח ההתאמה כלפי מעלה, בהטיה של 30-45°).", "The fitting surface of {} faces the plate: it gets no supports there, so little is left to hold it - turn it over (fitting surface up, tilted 30-45 deg)."),
     "label_teeth_skipped": ("{} כתרים/גשרים דולגו - התווית שלהם על הרפסודה (קוד SOD), לא על השן", "{} crowns / bridges skipped - their label goes on the raft (SOD code), not on the tooth"),
     "direct_off": ("בטל הדפסה ישירה על המשטח (אפשר תמיכות ורפסודה)", "Stop printing directly on the plate (allow supports and raft)"),
     "direct_off_tip": ("המודל יוגבה ויקבל תמיכות ורפסודה ב'צור תמיכות'", "The model is raised and gets supports and a raft with Generate supports"),

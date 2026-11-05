@@ -144,7 +144,7 @@ def effective_spacing(cfg: Config) -> float:
     return cfg["sla_support_spacing"] / math.sqrt(max(cfg["sla_density"], 1.0) / 100.0)
 
 
-def auto_support_points(mesh: Mesh, cfg: Config) -> np.ndarray:
+def auto_support_points(mesh: Mesh, cfg: Config, report: dict | None = None) -> np.ndarray:
     """Contact points (N, 3) on the underside of ``mesh`` that need support."""
     caster = caster_for(mesh)
     threshold = -math.sin(math.radians(cfg["support_angle"]))
@@ -170,9 +170,57 @@ def auto_support_points(mesh: Mesh, cfg: Config) -> np.ndarray:
     if cfg["sla_support_minima"]:
         points += _tip_points(mesh, caster.normals, threshold, spacing, points)
     pts = np.array(points, dtype=np.float64).reshape(-1, 3)
-    if len(pts) and float(np.max(hi[:2] - lo[:2])) > 40.0:     # a jaw model: its base's ledges hold themselves
-        pts = pts[[not _small_ledge(caster, p) for p in pts]]   # (crowns and bridges keep every point)
+    if len(pts) and cfg["sla_skip_ledges"] and float(np.max(hi[:2] - lo[:2])) > 40.0:
+        pts = pts[[not _small_ledge(caster, p) for p in pts]]   # a jaw model: its ledges hold themselves
+    if len(pts) and cfg["sla_avoid_fit"]:
+        fit = fitting_surface(mesh, pts)                        # never on a crown's / guide's / splint's inside
+        if report is not None:
+            report["fit_dropped"], report["points"] = int(fit.sum()), len(pts)
+        pts = pts[~fit]
     return pts
+
+
+def fitting_surface(mesh: Mesh, pts: np.ndarray, reach: float = 12.0) -> np.ndarray:
+    """Which contact points lie inside a hollow of the part - the fitting (intaglio) surface of a crown,
+    bridge, guide, splint or denture, a guide's sleeve holes: looking out from the point, sideways and down
+    (where a support would come from), the part closes around it in at least two thirds of 24 directions.
+    On the outside of a part most of those directions are open. Rays go against a light copy of the part."""
+    pts = np.asarray(pts, dtype=np.float64).reshape(-1, 3)
+    out = np.zeros(len(pts), dtype=bool)
+    if len(pts) == 0:
+        return out
+    tris = mesh.decimated(5000).triangles
+    v0 = tris[:, 0]
+    e1, e2 = tris[:, 1] - v0, tris[:, 2] - v0
+    tlo, thi = tris.min(axis=1), tris.max(axis=1)
+    dirs = []
+    for elev in (-15.0, -35.0, -60.0):                           # below the horizon: where supports come from
+        c, sz = math.cos(math.radians(elev)), math.sin(math.radians(elev))
+        dirs += [(c * math.cos(2 * math.pi * k / 8), c * math.sin(2 * math.pi * k / 8), sz) for k in range(8)]
+    dirs = np.array(dirs)
+    need = 16
+    for i, p in enumerate(pts):
+        near = np.all((thi >= p - reach) & (tlo <= p + reach), axis=1)
+        if not near.any():
+            continue
+        a0, a1, a2 = v0[near], e1[near], e2[near]
+        sv0 = p - a0
+        closed = 0
+        for j, d in enumerate(dirs):
+            if closed >= need or closed + (len(dirs) - j) < need:
+                break                                            # decided either way
+            h = np.cross(d, a2)
+            det = np.einsum("ij,ij->i", a1, h)
+            ok = np.abs(det) > 1e-12
+            inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+            sv = sv0 + d * 0.05                                  # start just off the surface
+            u = np.einsum("ij,ij->i", sv, h) * inv
+            q = np.cross(sv, a1)
+            w = (q @ d) * inv
+            t = np.einsum("ij,ij->i", a2, q) * inv
+            closed += bool(np.any(ok & (u >= 0) & (w >= 0) & (u + w <= 1) & (t > 1e-4) & (t < reach)))
+        out[i] = closed >= need
+    return out
 
 
 LEDGE_REACH = 1.0          # mm: a flat overhang this close to the wall below it holds itself up

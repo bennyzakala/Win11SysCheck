@@ -182,6 +182,34 @@ def case_code(name: str) -> str:
 _KIND_CACHE: dict = {}
 
 
+def model_type_of(name: str, mesh) -> str:
+    """Supports > Model type for a part: crown / bridge, guide, model or horseshoe model, splint, denture -
+    from its file name (3Shape / exocad words, a lab code's tooth range); "" when the name says nothing, so
+    any other part keeps the support settings as they are."""
+    from .settings import KIND_MODEL_TYPE
+    kind = detect_indication(name or "")       # the name only: a part that says nothing keeps the plate's supports
+    t = KIND_MODEL_TYPE.get(kind, "")
+    if t == "model" and kind == "model" and mesh is not None and _horseshoe(mesh):
+        return "model_u"
+    return t
+
+
+def _horseshoe(mesh) -> bool:
+    """A U-shaped arch with no palate or base plate between its ends: its outline seen from above fills
+    well under two thirds of its own convex hull (cached per mesh)."""
+    key = ("u", id(mesh))
+    hit = _KIND_CACHE.get(key)
+    if hit is None or hit[0] is not mesh:
+        try:
+            from .layout import _raster_outline
+            outline = _raster_outline(mesh)
+            u = bool(outline.area < 0.62 * outline.convex_hull.area)
+        except Exception:
+            u = False
+        hit = _KIND_CACHE[key] = (mesh, u)
+    return hit[1]
+
+
 def kind_of(name: str, mesh) -> str:
     """Indication of a part: from its name, else from its shape (cached per mesh)."""
     kind = detect_indication(name or "")

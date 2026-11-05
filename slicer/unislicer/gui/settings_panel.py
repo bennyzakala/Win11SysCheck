@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QHB
 
 from .. import profiles
 from ..gcode import default_end_gcode, default_start_gcode
-from ..settings import CATEGORIES, SCHEMA_BY_KEY, SUPPORT_PRESETS, Config, applies_to_process, visible_settings
+from ..settings import (CATEGORIES, MODEL_TYPE_KEYS, SCHEMA_BY_KEY, SUPPORT_PRESETS, Config, applies_to_process,
+                        visible_settings)
 
 PROCESS_BADGE = {"lcd": "LCD", "dlp": "DLP", "laser": "SLA", "polyjet": "POLYJET"}
 KINDS = ("filament", "resin", "uv")
@@ -970,7 +971,7 @@ class SettingsPanel(QWidget):
         if key.startswith("filament_"):
             self._refresh_filament_panel()
         row = self._rows.get(key)
-        if row is None or key in ("sla_process", "sla_support_preset", "technology"):
+        if row is None or key in ("sla_process", "sla_support_preset", "sla_model_type", "technology"):
             self.rebuild()
             return
         row.set_value(self.config()[key])
@@ -1010,6 +1011,14 @@ class SettingsPanel(QWidget):
             QTimer.singleShot(0, self.rebuild)
         elif key in SUPPORT_PRESETS["medium"] and self.config()["sla_support_preset"] != "custom":
             self.overrides["sla_support_preset"] = "custom"
+            QTimer.singleShot(0, self.rebuild)
+        if key == "sla_model_type":
+            # the model type supplies its supports: drop manual values and refresh the editors
+            for k in MODEL_TYPE_KEYS:
+                self.overrides.pop(k, None)
+            QTimer.singleShot(0, self.rebuild)
+        elif key in MODEL_TYPE_KEYS and self.config()["sla_model_type"] != "plate":
+            self.overrides["sla_model_type"] = "plate"         # a value set by hand: it is not overridden
             QTimer.singleShot(0, self.rebuild)
         row = self._rows.get(key)
         if row is not None:
@@ -1087,7 +1096,7 @@ class SettingsPanel(QWidget):
 
         def changed(key, value):
             self._on_changed(key, value)
-            if key in ("sla_process", "sla_support_preset"):
+            if key in ("sla_process", "sla_support_preset", "sla_model_type"):
                 QTimer.singleShot(0, fill)
 
         def reset(key):

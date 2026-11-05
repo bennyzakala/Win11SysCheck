@@ -68,7 +68,19 @@ class SceneObject:
 
     def config(self, cfg):
         """The plate's settings with this model's own ones on top (supports, hollowing, infill...)."""
-        return cfg.copy().update(self.settings) if self.settings else cfg
+        own = self.effective_settings(cfg)
+        return cfg.copy().update(own) if own else cfg
+
+    def effective_settings(self, cfg) -> dict:
+        """This model's own settings, plus - when Supports > Model type is Automatic - the model type found
+        from its file name and shape (its supports come with it). The model's own choices win."""
+        own = dict(self.settings)
+        if own.get("sla_model_type", cfg.get("sla_model_type")) == "auto" and cfg.get("technology") == "sla":
+            from . import dental_cad
+            kind = dental_cad.model_type_of(self.name, self.mesh)
+            if kind:
+                own = {"sla_model_type": kind, **{k: v for k, v in own.items() if k != "sla_model_type"}}
+        return own
 
     def filaments_used(self) -> list[int]:
         if self.filament_parts and sum(len(p["faces"]) for p in self.filament_parts) == len(self.mesh.faces):

@@ -3663,7 +3663,7 @@ class MainWindow(QMainWindow):
         self.status.setText(tr("texture_done").format(len(group), sum(len(o.mesh.faces) for o in group)))
 
     # ------------------------------------------------------------ per-model settings (GrabCAD model-level)
-    MODEL_KEYS_SLA = ("sla_support_preset", "sla_support_spacing", "support_angle", "sla_support_type",
+    MODEL_KEYS_SLA = ("sla_model_type", "sla_avoid_fit", "sla_support_preset", "sla_support_spacing", "support_angle", "sla_support_type",
                       "sla_tip_diameter", "sla_pillar_diameter", "sla_density", "hollow_enable", "hollow_wall",
                       "hollow_mode", "hollow_infill", "hollow_infill_spacing", "hollow_infill_thickness", "drain_holes")
 
@@ -4083,6 +4083,7 @@ class MainWindow(QMainWindow):
         lift = self._lift(cfg)
         chosen = self.selected_objects()
         skipped = 0
+        upside = []                               # parts whose fitting surface faces the plate
         for o in self._support_targets():
             if o.role == "cutter":
                 continue
@@ -4093,13 +4094,19 @@ class MainWindow(QMainWindow):
                 o.direct = False             # supports asked for this very part: it leaves the plate
             world = o.mesh.transform(o.world_matrix())
             world = world.translated([0, 0, lift])
+            report = {}
             o.set_world_support_points(sla_supports.drop_keepout(
-                sla_supports.auto_support_points(world, o.config(learned_plate)), o.world_keepout(lift)), lift)
+                sla_supports.auto_support_points(world, o.config(learned_plate), report), o.world_keepout(lift)), lift)
+            if report.get("points", 0) >= 4 and report["fit_dropped"] > 0.4 * report["points"]:
+                upside.append(o.name or "model")
             o.__dict__["support_session"] = {"auto": len(o.support_points), "added": [], "removed": 0,
                                              "threshold": o.config(learned_plate)["support_angle"]}
             self._breathe()
         self._objects_changed(refresh_list=False)
-        self.status.setText(tr("sup_generated_hint") + (" " + tr("sup_skipped_direct").format(skipped) if skipped else ""))
+        msg = tr("sup_generated_hint") + (" " + tr("sup_skipped_direct").format(skipped) if skipped else "")
+        if upside:
+            msg = "⚠ " + tr("fit_faces_plate").format(", ".join(upside[:3]) + ("…" if len(upside) > 3 else "")) + " " + msg
+        self.status.setText(msg)
 
     RAFT_KEYS = ("sla_raft_type", "sla_raft_thickness", "sla_raft_margin", "sla_raft_area_ratio", "sla_raft_slope",
                  "sla_raft_bar_spacing", "sla_raft_bar_width", "sla_raft_group_reach", "sla_elevation")
@@ -4602,16 +4609,17 @@ class MainWindow(QMainWindow):
 
     def _sla_inputs(self, models):
         """The model meshes and keyword arguments ``sla.prepare`` gets for these models."""
+        cfg = self.settings.config()
         meshes = [o.world_mesh() for o in models]
         kw = dict(support_points=[o.world_support_points(0.0) for o in models], direct=[o.direct for o in models],
                   keepout=[o.world_keepout(0.0) for o in models],
                   labels=[o.world_label_meshes(0.0) if o.labels else None for o in models],
-                  raft_labels=[self._raft_label_text(o, o.config(self.settings.config())) for o in models],
+                  raft_labels=[self._raft_label_text(o, o.config(cfg)) for o in models],
                   holes=[o.world_drain_holes(0.0) for o in models],
                   cutters=[o.world_mesh() for o in self.objects if o.role == "cutter"],
                   materials=[dental_shades.face_shades(len(o.mesh.faces), o.material, o.regions) if o.regions
                              else o.material for o in models],
-                  filled=[o.fill_cavity for o in models], model_settings=[dict(o.settings) or None for o in models])
+                  filled=[o.fill_cavity for o in models], model_settings=[o.effective_settings(cfg) or None for o in models])
         return meshes, kw
 
     # ---------------------------------------------------------------- background pre-slice

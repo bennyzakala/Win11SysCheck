@@ -199,6 +199,30 @@ SCHEMA: list[Setting] = [
     S("support_xy_gap", "float", 0.7, "support", "fdm", "מרווח אופקי מהמודל", "Horizontal gap to model", "mm", 0, 5, 0.1),
     S("support_z_gap_layers", "int", 1, "support", "fdm", "שכבות מרווח מעל התמיכה", "Top gap layers", "", 0, 10, 1),
     S("support_interface_layers", "int", 2, "support", "fdm", "שכבות ממשק צפופות", "Dense interface layers", "", 0, 10, 1),
+    S("sla_model_type", "enum", "auto", "support", "sla", "סוג מודל", "Model type",
+      options=(("auto", "אוטומטי (לפי שם הקובץ)", "Automatic (by file name)"),
+               ("cb", "כתר / גשר (C/B)", "Crown / bridge (C/B)"), ("guide", "מדריך כירורגי", "Surgical guide"),
+               ("model", "מודל", "Model"), ("model_u", "מודל U (פרסה)", "Model U (horseshoe)"),
+               ("splint_h", "סד (אופקי)", "Splint (horizontal)"), ("splint_v", "סד (אנכי)", "Splint (vertical)"),
+               ("denture", "תותבת", "Denture"), ("plate", "לפי הגדרות התמיכות", "As the support settings")),
+      tip_he="כל סוג קובע את התמיכות שלו: גודל נקודת המגע, עובי, צפיפות, זווית, ואיפה לא לשים תמיכות. "
+             "כתר/גשר, מדריך, סד ותותבת: בלי תמיכות על משטח ההתאמה (הצד הפנימי) - מומלץ משטח ההתאמה כלפי מעלה, "
+             "כתר/גשר בהטיה של 30-45°. מודל: על הבסיס בלבד, ומומלץ ישירות על המשטח. סד אופקי: הטיה של כ-20°; "
+             "סד אנכי: החותכות כלפי המשטח. תותבת: כמעט אנכית (כ-10°) עם תמיכות חזקות יותר. "
+             "אוטומטי: לפי שם הקובץ של כל מודל (3Shape / exocad / קוד מעבדה); מודל ששמו לא אומר כלום נשאר עם הגדרות התמיכות. שינוי ידני של אחד מערכי התמיכות עובר ל'לפי הגדרות התמיכות'",
+      tip_en="Each type sets its own supports: contact size, thickness, spacing, angle, and where not to put supports. "
+             "Crown/bridge, guide, splint and denture: no supports on the fitting (intaglio) surface - best with the "
+             "fitting surface up, crowns/bridges tilted 30-45 deg. Model: on its base only, best straight on the plate. "
+             "Splint horizontal: tilted about 20 deg; vertical: incisors toward the plate. Denture: almost upright "
+             "(about 10 deg) with stronger supports. Automatic: by each model's file name (3Shape / exocad / lab code); a model whose name says nothing keeps the support settings. Editing one of "
+             "these support values by hand switches to 'As the support settings'"),
+    S("sla_avoid_fit", "bool", False, "support", "sla", "בלי תמיכות על משטח ההתאמה", "No supports on the fitting surface",
+      tip_he="נקודות בתוך חלל (הצד הפנימי של כתר, מדריך, סד או תותבת, וחורי השרוולים במדריך) לא מקבלות תמיכה",
+      tip_en="Points inside a hollow (the inside of a crown, guide, splint or denture, a guide's sleeve holes) get no support"),
+    S("sla_skip_ledges", "bool", True, "support", "sla", "בלי תמיכות על מדרגות קטנות של מודל", "No supports on a model's small ledges",
+      advanced=True,
+      tip_he="במודל לסת: מדרגה צרה (בין הבסיס לחניכיים, בליטת שן) מחזיקה את עצמה - בלי תמיכה שמטפסת אליה מהמשטח",
+      tip_en="On a jaw model: a narrow step (base to gum, a tooth's bulge) holds itself up - no support climbing to it"),
     S("sla_support_preset", "enum", "medium", "support", "sla", "סוג תמיכות", "Support preset",
       options=(("light", "קלות", "Light"), ("medium", "בינוניות", "Medium"), ("heavy", "כבדות", "Heavy"), ("custom", "מותאם אישית", "Custom")),
       tip_he="קובע את קוטר הראש, קוטר העמוד והמרווח. שינוי אחד מהם עובר ל'מותאם אישית'",
@@ -446,6 +470,31 @@ SUPPORT_PRESETS = {
 }
 
 
+# dental model types (Supports > Model type): the supports each one gets. Values from the vendors' guidance
+# (Formlabs, SprintRay, Dreve / Phrozen DS Slicer, Shining 3D, CHITUBOX Dental): fine dense contacts for
+# crowns and bridges, none on any fitting surface, models held on their base only, stronger for dentures.
+MODEL_TYPE_PRESETS = {
+    "cb": {"sla_tip_diameter": 0.35, "sla_pillar_diameter": 0.9, "sla_support_spacing": 2.0, "support_angle": 45.0,
+           "sla_contact_depth": 0.15, "sla_avoid_fit": True, "sla_skip_ledges": False},
+    "guide": {"sla_tip_diameter": 0.4, "sla_pillar_diameter": 1.0, "sla_support_spacing": 2.5, "support_angle": 45.0,
+              "sla_contact_depth": 0.2, "sla_avoid_fit": True, "sla_skip_ledges": False},
+    "model": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 3.0, "support_angle": 50.0,
+              "sla_contact_depth": 0.2, "sla_avoid_fit": False, "sla_skip_ledges": True},
+    "model_u": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 2.5, "support_angle": 50.0,
+                "sla_contact_depth": 0.2, "sla_avoid_fit": False, "sla_skip_ledges": True},
+    "splint_h": {"sla_tip_diameter": 0.4, "sla_pillar_diameter": 1.0, "sla_support_spacing": 2.5, "support_angle": 40.0,
+                 "sla_contact_depth": 0.2, "sla_avoid_fit": True, "sla_skip_ledges": False},
+    "splint_v": {"sla_tip_diameter": 0.35, "sla_pillar_diameter": 0.9, "sla_support_spacing": 3.0, "support_angle": 45.0,
+                 "sla_contact_depth": 0.15, "sla_avoid_fit": True, "sla_skip_ledges": False},
+    "denture": {"sla_tip_diameter": 0.6, "sla_pillar_diameter": 1.4, "sla_support_spacing": 2.5, "support_angle": 40.0,
+                "sla_contact_depth": 0.25, "sla_avoid_fit": True, "sla_skip_ledges": False},
+}
+MODEL_TYPE_KEYS = {k for p in MODEL_TYPE_PRESETS.values() for k in p}
+# the dental indication found from a file's name / shape -> its model type
+KIND_MODEL_TYPE = {"crown": "cb", "gingiva": "cb", "guide": "guide", "model": "model", "die": "model",
+                   "splint": "splint_h", "denture": "denture"}
+
+
 # which settings each photopolymer process uses: hidden categories and keys per process
 PROCESS_HIDES = {
     "lcd": {"categories": {"laser", "jetting"}, "keys": set()},
@@ -522,6 +571,11 @@ class Config:
         preset = SUPPORT_PRESETS.get(self.values.get("sla_support_preset"))
         if preset and "sla_support_preset" in overrides:
             for k, v in preset.items():
+                if k not in overrides:
+                    self.values[k] = v
+        typed = MODEL_TYPE_PRESETS.get(self.values.get("sla_model_type"))
+        if typed and "sla_model_type" in overrides:       # a model type brings its supports (after the preset)
+            for k, v in typed.items():
                 if k not in overrides:
                     self.values[k] = v
         return self
