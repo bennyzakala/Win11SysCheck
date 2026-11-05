@@ -5165,9 +5165,34 @@ def test_raft_label_on_a_raft_in_pieces_keeps_the_supports(monkeypatch):
 
     def broken(*a, **k):
         raise RuntimeError("label failed")
-    monkeypatch.setattr(sla_supports, "_raft_label_inside", broken)
-    monkeypatch.setattr(sla_supports, "_raft_label_under", broken)
+    monkeypatch.setattr(sla_supports, "_code_on_raft", broken)
     for side in ("top", "bottom"):
         cfg.update({"sla_raft_label_side": side})
         sup, used2 = sla_supports.build_supports(part, cfg, label="45198-N183-E")
         assert len(used2) == len(used) and len(sup.faces) == len(plain.faces)
+
+
+def test_raft_code_goes_on_the_parts_own_raft():
+    """Solid, grid, hexagon and mini rafts: the case code goes on the part's own raft (engraved under it or
+    standing on it) - never on an extra tab beside the raft."""
+    from PySide6.QtGui import QGuiApplication
+    from unislicer import sla_supports
+    from unislicer.slicing import slice_mesh
+    QGuiApplication.instance() or QGuiApplication(["test", "-platform", "offscreen"])
+    part = placed(primitives.box(26, 10, 7), 60, 40).world_mesh().translated([0, 0, 5])
+    for kind in ("solid", "grid", "hexagon", "mini"):
+        for side in ("bottom", "top"):
+            cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {
+                "support_enable": True, "sla_raft_type": kind, "sla_raft_label_side": side})
+            plain, _ = sla_supports.build_supports(part, cfg)
+            coded, _ = sla_supports.build_supports(part, cfg, label="45198-N183-E")
+            raft = slice_mesh(plain, [0.25], 0.05)[0]
+            got = slice_mesh(coded, [0.25], 0.05)[0]
+            outline = raft.convex_hull.buffer(0.5)       # (the engraved bottom has no bevel)
+            assert outline.contains(got), (kind, side)                  # nothing beside the raft
+            if side == "bottom" and kind == "solid":
+                assert got.area < raft.area - 1.0                       # cut into its underside
+            if side == "top":
+                above = slice_mesh(coded, [cfg["sla_raft_thickness"] + 0.2], 0.05)[0].area - \
+                    slice_mesh(plain, [cfg["sla_raft_thickness"] + 0.2], 0.05)[0].area
+                assert above > 1.0, kind                                 # standing on the raft

@@ -417,81 +417,33 @@ def _slab(poly, z0: float, z1: float, slope_deg: float) -> Mesh:
     return Mesh(v, np.vstack([sides, caps]), "Raft")
 
 
-def _raft_label(text: str, feet: np.ndarray, cfg: Config, pad: float, raft: float, engrave: float = 0.0) -> list[Mesh]:
-    """The model's name embossed on the front edge of its raft (as PreForm's raft label); with ``engrave``
-    it is cut that deep, mirrored, into the tab's underside instead."""
+def _code_on_raft(text: str, room, raft: float, engrave: float, avoid=None):
+    """Where the code goes on the part's own raft. Underside (``engrave`` > 0): mirrored, cut into the
+    side on the plate - returns ("under", polygons). Top: standing up on the raft, clear of the support
+    feet (``avoid``) - returns ("top", polygons). None when it does not fit at a readable size (or there
+    are no fonts here)."""
     try:
         from PySide6.QtGui import QGuiApplication
         if QGuiApplication.instance() is None:     # fonts need the GUI; the command line skips the label
-            return []
-        from .mesh_tools import extrude, text_polygons
-    except Exception:          # pragma: no cover - Qt not available
-        return []
-    margin = pad + cfg["sla_raft_margin"]
-    hull = MultiPoint([tuple(q) for q in feet]).convex_hull.buffer(margin, quad_segs=6)
-    minx, miny, maxx, maxy = hull.bounds
-    height = min(3.0, max(1.2, (maxy - miny) * 0.18))
-    try:
-        polys = text_polygons(text[:24], height)
-    except Exception:          # pragma: no cover - no QGuiApplication (e.g. a worker process)
-        return []
-    if polys.is_empty:
-        return []
-    tx0, ty0, tx1, ty1 = polys.bounds
-    width = maxx - minx - 2.0
-    k = min(1.0, width / max(tx1 - tx0, 1e-6))
-    from shapely import affinity
-    polys = affinity.scale(polys, k, k, origin=(tx0, ty0))
-    tx0, ty0, tx1, ty1 = polys.bounds
-    # a tab in front of the raft (outside the part's footprint, so the name stays readable), text on it
-    cx = (minx + maxx) / 2
-    w2 = (tx1 - tx0) / 2 + 1.2
-    tab = ShapelyPolygon([(cx - w2, miny - (ty1 - ty0) - 2.0), (cx + w2, miny - (ty1 - ty0) - 2.0),
-                          (cx + w2, miny + 1.0), (cx - w2, miny + 1.0)])
-    polys = affinity.translate(polys, cx - (tx0 + tx1) / 2, miny - (ty1 - ty0) - 1.0 - ty0)
-    if engrave > 0:
-        polys = affinity.scale(polys, -1.0, 1.0, origin=polys.centroid)    # reads right from below
-        return [extrude(tab.difference(polys), 0.0, engrave, "Raft"), extrude(tab, engrave, raft, "Raft")]
-    return [_slab(tab, 0.0, raft, 90), extrude(polys, raft - 0.01, raft + 0.4, "Raft label")]
-
-
-def _raft_label_inside(text: str, shape, raft: float) -> list[Mesh]:
-    """The label embossed on top of a mini tiny raft: turned along the raft's long side (never upside
-    down), sized so the whole text fits inside it - shrunk and slid along until it does. Left out (rather
-    than cut short) when even the smallest readable size does not fit."""
-    try:
-        from PySide6.QtGui import QGuiApplication
-        if QGuiApplication.instance() is None:
-            return []
-        from .mesh_tools import extrude, text_polygons
-        base = text_polygons(text[:24], 2.0)
-    except Exception:          # pragma: no cover - no Qt fonts here
-        return []
-    placed = fit_text(base, shape.buffer(-0.4))
-    if placed is None:
-        return []
-    return [extrude(placed, raft - 0.01, raft + 0.4, "Raft label")]
-
-
-def _raft_label_under(text: str, shape, raft: float, depth: float) -> list[Mesh] | None:
-    """A mini tiny raft with the label engraved ``depth`` deep into its underside (the side on the plate),
-    mirrored so it reads right when the raft is turned over. None when no readable size fits."""
-    try:
-        from PySide6.QtGui import QGuiApplication
-        if QGuiApplication.instance() is None:
             return None
         from shapely import affinity
-        from .mesh_tools import extrude, text_polygons
-        base = affinity.scale(text_polygons(text[:24], 2.0), -1.0, 1.0, origin=(0, 0))
+        from .mesh_tools import text_polygons
+        base = text_polygons(text[:24], 2.0)
     except Exception:          # pragma: no cover - no Qt fonts here
         return None
-    placed = fit_text(base, shape.buffer(-0.4), min_height=1.0)   # the bottom layers fill finer text
+    if base.is_empty or room is None or room.is_empty:
+        return None
+    if engrave > 0:
+        placed = fit_text(affinity.scale(base, -1.0, 1.0, origin=(0, 0)), room.buffer(-0.4), min_height=1.0)
+        if placed is not None:
+            return "under", placed
+    top_room = room.buffer(-0.4)
+    placed = None
+    if avoid is not None and not avoid.is_empty:          # clear of the support feet when there is room
+        placed = fit_text(base, top_room.difference(avoid), min_height=1.0)
     if placed is None:
-        return None
-    cut = shape.difference(placed)
-    if cut.is_empty:
-        return None
-    return [extrude(cut, 0.0, depth, "Raft"), extrude(shape, depth, raft, "Raft")]
+        placed = fit_text(base, top_room)
+    return ("top", placed) if placed is not None else None
 
 
 def fit_text(text, room, min_height: float = 0.7, max_height: float = 3.0):
@@ -506,7 +458,7 @@ def fit_text(text, room, min_height: float = 0.7, max_height: float = 3.0):
     if straight is not None and straight[1] >= max_height * 0.999:
         return straight[0]
     curved = _fit_curved(text, room, min_height, max_height)
-    if curved is not None and (straight is None or curved[1] > straight[1] * 1.1):
+    if curved is not None and (straight is None or curved[1] > straight[1] * 1.3):
         return curved[0]
     return straight[0] if straight is not None else None
 
@@ -600,12 +552,20 @@ def centre_line(room, step: float | None = None) -> np.ndarray | None:
     path = np.array(path)
     if len(path) < 2:
         return None
-    for _ in range(3):                                     # smooth the corners (Chaikin), ends kept
-        q = 0.75 * path[:-1] + 0.25 * path[1:]
-        r = 0.25 * path[:-1] + 0.75 * path[1:]
-        mid = np.empty((2 * len(q), 2))
-        mid[0::2], mid[1::2] = q, r
-        path = np.vstack([path[:1], mid, path[-1:]])
+    # resample evenly, then smooth over about a tooth's width: the bumps of each tooth along the outline
+    # must not make the text wave, only the arch's own bend should remain
+    seg = np.hypot(*np.diff(path, axis=0).T)
+    sl = np.concatenate([[0.0], np.cumsum(seg)])
+    if sl[-1] <= 1e-6:
+        return None
+    u = np.linspace(0, sl[-1], max(8, int(sl[-1] / 0.25)))
+    path = np.column_stack([np.interp(u, sl, path[:, 0]), np.interp(u, sl, path[:, 1])])
+    win = max(3, int(min(8.0, sl[-1] / 3) / 0.25) | 1)
+    kernel = np.hanning(win + 2)[1:-1]
+    kernel /= kernel.sum()
+    for _ in range(2):
+        padded = np.vstack([np.repeat(path[:1], win // 2, axis=0), path, np.repeat(path[-1:], win // 2, axis=0)])
+        path = np.column_stack([np.convolve(padded[:, k], kernel, mode="valid") for k in range(2)])
     return path
 
 
@@ -720,21 +680,66 @@ def tooth_outline(mesh: Mesh, inset: float, levels: int = 16):
     return shape.simplify(0.02) if not shape.is_empty else shape
 
 
-def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None, outline_shape=None) -> list[Mesh]:
-    """Raft geometry under the support feet for the chosen raft type."""
+def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None, outline_shape=None,
+           label: str = "") -> list[Mesh]:
+    """Raft geometry under the support feet for the chosen raft type, with ``label`` (a tooth's case code
+    or the model's name) on the raft itself: engraved, mirrored, into its underside or standing on top."""
+    plan = _raft_plan(feet, cfg, pad, radii, outline_shape)
+    if plan is None:
+        return []
+    raft = cfg["sla_raft_thickness"]
+    shape, room, hull = plan
+    code = None
+    if label and raft >= 0.4:
+        depth = cfg["sla_raft_label_depth"]
+        engrave = depth if cfg["sla_raft_label_side"] == "bottom" and raft >= depth + 0.3 else 0.0
+        default_r = max(cfg["sla_base_diameter"] / 2, pad / 2)
+        feet_zone = unary_union([MultiPoint([tuple(np.asarray(q)[:2])]).buffer(
+            (radii[k] if radii is not None and k < len(radii) else default_r) + 0.3, quad_segs=6)
+            for k, q in enumerate(feet)])
+        if hull is not None and cfg["sla_raft_slope"] < 89.9:   # the solid raft's top is set back
+            room_top = hull.buffer(-raft / math.tan(math.radians(cfg["sla_raft_slope"])))
+        else:
+            room_top = room
+        try:
+            code = _code_on_raft(label, room if engrave else room_top, raft, engrave, feet_zone)
+            if code is not None and code[0] == "top" and engrave:
+                code = _code_on_raft(label, room_top, raft, 0.0, feet_zone)
+        except Exception:              # a label must never cost the part its supports and raft
+            code = None
+    from .mesh_tools import extrude
+    if code is None:
+        if hull is not None:
+            return [_slab(hull, 0.0, raft, cfg["sla_raft_slope"])]
+        return [extrude(shape, 0.0, raft, "Raft")] if not shape.is_empty else []
+    where, text = code
+    # a patterned or mini raft gets a solid floor under the code, inside its own outline
+    if hull is not None:                               # the slab's own (sampled) outline, edge to edge
+        floor = ShapelyPolygon(_sample_convex(hull)).buffer(0)
+    else:
+        floor = unary_union([shape, text.buffer(0.8).intersection(room)]).buffer(0)
+    if where == "under":
+        depth = cfg["sla_raft_label_depth"]
+        top = _slab(hull, depth, raft, cfg["sla_raft_slope"]) if hull is not None else extrude(floor, depth, raft, "Raft")
+        return [extrude(floor.difference(text), 0.0, depth, "Raft"), top]
+    body = _slab(hull, 0.0, raft, cfg["sla_raft_slope"]) if hull is not None else extrude(floor, 0.0, raft, "Raft")
+    return [body, extrude(text, raft - 0.01, raft + 0.4, "Raft label")]
+
+
+def _raft_plan(feet: list, cfg: Config, pad: float, radii: list | None = None, outline_shape=None):
+    """(raft outline as built, the area inside its outer edge, the solid raft's hull or None) for the
+    chosen raft type; None for no raft."""
     kind = cfg["sla_raft_type"]
     raft = cfg["sla_raft_thickness"]
     if kind == "none" or raft <= 0 or not feet:
-        return []
+        return None
     if kind == "tiny":
         # the tooth's own outline, a little smaller; feet outside it stand on the plate as they are
         if outline_shape is None or outline_shape.is_empty:
-            return []
-        from .mesh_tools import extrude
-        return [extrude(outline_shape, 0.0, raft, "Raft")]
+            return None
+        return outline_shape, outline_shape, None
     pts = np.array(feet)
     margin = pad + cfg["sla_raft_margin"]
-    slope = cfg["sla_raft_slope"]
     scale = math.sqrt(max(cfg["sla_raft_area_ratio"], 1.0) / 100.0)
 
     def outline(group):
@@ -762,8 +767,8 @@ def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None, outli
                         max(cfg["sla_raft_bar_width"], 0.6) / 2, cap_style="flat"))
         if bars:
             shape = unary_union([shape, *bars])
-        from .mesh_tools import extrude
-        return [extrude(shape.simplify(0.01), 0.0, raft, "Raft")] if not shape.is_empty else []
+        shape = shape.simplify(0.01)
+        return (shape, shape, None) if not shape.is_empty else None
     hull = outline(pts)
     if kind in ("grid", "hexagon"):
         # outline band, a pad under every foot and the pattern, merged in 2D and extruded once: one clean
@@ -787,9 +792,8 @@ def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None, outli
                 pieces.append(ShapelyPolygon([(x - half, miny), (x + half, miny), (x + half, maxy), (x - half, maxy)]))
         shape = unary_union(pieces).intersection(hull).buffer(0)
         shape = shape.simplify(0.01)
-        from .mesh_tools import extrude
-        return [extrude(shape, 0.0, raft, "Raft")] if not shape.is_empty else []
-    return [_slab(hull, 0.0, raft, slope)]
+        return (shape, hull, None) if not shape.is_empty else None
+    return hull, hull, hull
 
 
 def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, owners: dict | None = None,
@@ -996,24 +1000,8 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
         parts += _braces(pillars, underside(), cfg, segs)
 
     tiny = tooth_outline(mesh, cfg["sla_raft_tiny_inset"]) if cfg["sla_raft_type"] == "tiny" and feet else None
-    # under the raft: engraved (mirrored) into the side on the plate, when the raft is thick enough
-    engrave = cfg["sla_raft_label_depth"] if cfg["sla_raft_label_side"] == "bottom" \
-        and raft >= cfg["sla_raft_label_depth"] + 0.3 else 0.0
-    try:
-        engraved = _raft_label_under(label, tiny, raft, engrave) if label and engrave and tiny is not None \
-            and not tiny.is_empty else None
-    except Exception:                  # a label must never cost the part its supports and raft
-        engraved = None
-    parts += engraved if engraved else _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny)
     # the caller chooses the text (the model's name, or a tooth's SOD case code); "" = no label
-    if not engraved:
-        try:
-            if label and feet and cfg["sla_raft_type"] in ("solid", "grid", "hexagon") and raft >= 0.4:
-                parts += _raft_label(label, np.array(feet), cfg, pillar_r * 4, raft, engrave)
-            elif label and tiny is not None and not tiny.is_empty and raft >= 0.4:
-                parts += _raft_label_inside(label, tiny, raft)
-        except Exception:              # a label must never cost the part its supports and raft
-            pass
+    parts += _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny, label)
     merged = Mesh.merge(list(parts), "Supports")
     if owners is not None:
         owners["faces"] = np.concatenate([np.full(len(m.faces), o, dtype=np.int64) for m, o in zip(parts, part_owner)]) \
