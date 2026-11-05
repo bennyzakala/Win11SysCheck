@@ -1362,15 +1362,7 @@ class MainWindow(QMainWindow):
             self.load_files(paths)
         else:
             from .add_parts_dialog import AddPartsDialog
-
-            def first_mesh(path):
-                try:
-                    m = load_mesh(path)
-                except Exception:
-                    return None
-                return m[0] if isinstance(m, list) and m else (m if not isinstance(m, list) else None)
-
-            dlg = AddPartsDialog(models, self.store, first_mesh, self)
+            dlg = AddPartsDialog(models, self.store, parent=self)
             if dlg.exec() != QDialog.Accepted:
                 return
             self.load_parts(dlg.parts())
@@ -1381,9 +1373,9 @@ class MainWindow(QMainWindow):
             self._remember_file(p)
 
     def load_parts(self, parts: list[dict]):
-        """Parts from the Add parts window: each with its type (orientation preset), supports, placement,
-        units and number of copies."""
-        added, to_support, to_place = [], [], []
+        """Parts from the Add parts window, loaded as a plain Open does (orientation untouched, no supports
+        added), with each part's units, number of copies and placement (auto-arranged or where the file put it)."""
+        added, arrange = [], False
         for part in parts:
             path = part["path"]
             try:
@@ -1393,46 +1385,27 @@ class MainWindow(QMainWindow):
                 if not meshes:
                     continue
             meshes = meshes if isinstance(meshes, list) else [meshes]
-            group = []
+            source = self._file_source(path)
             for m in meshes:
                 if part.get("unit") == "inch":
                     m = Mesh(np.asarray(m.vertices) * 25.4, m.faces, m.name)
                 for _ in range(max(1, int(part.get("qty", 1)))):
                     o = self.add_mesh(m, rearrange=False)
-                    self._model_source[o.uid] = self._file_source(path)
+                    self._model_source[o.uid] = source
                     if part.get("placement") == "keep":       # where the file put it
                         b = m.bounds
                         o.x, o.y = float((b[0, 0] + b[1, 0]) / 2), float((b[0, 1] + b[1, 1]) / 2)
                     else:
-                        to_place.append(o)
-                    group.append(o)
-            kind = part.get("kind", "asis")
-            if kind != "asis":
-                self._apply_indication(group, "model" if kind == "model_hollow" else kind)
-                if kind == "model_hollow":
-                    for o in group:
-                        o.settings["hollow_enable"] = True
-            if part.get("supports") == "none":
-                for o in group:
-                    o.direct, o.support_points = True, None
-            elif part.get("supports") == "generate" or (kind not in ("asis",) and not group[0].direct):
-                for o in group:
-                    o.direct = False
-                to_support += group
-            added += group
+                        arrange = True
+                    added.append(o)
+            self._import_project_filaments(meshes)
         if not added:
             return
-        if to_place:                                     # place first: moving a part drops its supports
-            self.auto_layout(scope="all", dialog=False)
-        if to_support and self.settings.config()["technology"] == "sla":
-            from .viewer import SEL_ADD
-            self._select_uid(to_support[0].uid)
-            for o in to_support[1:]:
-                self._select_uid(o.uid, SEL_ADD)
-            self.generate_supports()
+        if arrange:
+            self.arrange_objects()
         self._objects_changed()
         self.viewer.fit_objects()
-        for o in added:
+        for o in added:                       # after arranging, so Ctrl+Z first undoes an automatic repair
             self._check_learned_repair(o)
         self._auto_close_holes(added)
         self.status.setText(tr("ap_loaded").format(len(added)))
