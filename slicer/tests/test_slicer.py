@@ -5234,3 +5234,41 @@ def test_long_bridge_named_by_lab_code_is_a_bridge_not_a_model():
     assert dental_cad.detect_indication("BAH-SOD260046430-034-X-35-36-2-C2-B592_Tissue_17.stl") == "gingiva"
     assert dental_cad.detect_indication("upper.stl") == "unknown"
     assert dental_cad.detect_indication("case-2024-11-05.stl") == "unknown"
+
+
+def test_auto_label_never_puts_a_label_on_a_crown(tmp_path):
+    """Labels > Auto label on the whole plate: models and dies get their label, crowns and bridges do not -
+    a label on the tooth itself would spoil it (their code goes on the raft)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        import numpy as np
+        from unislicer import primitives
+        from unislicer.mesh import Mesh
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        outer, inner = primitives.box(10, 10, 8), primitives.box(8, 8, 7).translated([0, 0, -0.6])
+        cap = Mesh(np.vstack([outer.vertices, inner.vertices]),
+                   np.vstack([outer.faces, inner.faces[:, ::-1] + len(outer.vertices)]),
+                   "FYQ-SOD260046892-044-P-16-16-1-00-R685_2")
+        crown = w.add_mesh(cap)
+        jaw = w.add_mesh(primitives.box(60, 45, 15, "EGI-SOD260046764-114-Z-14-14-1-00-V227_Antag"))
+        w._select_uid(None)
+        w.auto_label()
+        assert jaw.labels, "the model is labelled"
+        assert not crown.labels, "the crown is not"
+        w._stop_preslice()
+        from unislicer import parallel
+        if parallel._pool is not None:
+            parallel._pool.shutdown(wait=True, cancel_futures=True)
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

@@ -1378,5 +1378,6 @@
 "Crowns and bridges only: the code from the SOD number in the file name goes on the raft (see Raft label side), e.g. 46671-044-P from DSY-SOD260046671-044-P-46": "للتيجان والجسور فقط: يُوضع على الطوف الرمز من رقم SOD في اسم الملف (انظر جهة الكتابة على الطوف)، مثل 46671-044-P من DSY-SOD260046671-044-P-46",
 "Stop printing directly on the plate (allow supports and raft)": "إلغاء الطباعة مباشرة على الصفيحة (السماح بالدعامات والطوف)",
 "The model is raised and gets supports and a raft with Generate supports": "يُرفع النموذج ويحصل على دعامات وطوف عند إنشاء الدعامات",
-"({} models print directly on the plate and were skipped - right-click > 'Stop printing directly on the plate', or select them and generate again)": "(تم تخطي {} نماذج تُطبع مباشرة على الصفيحة - انقر بالزر الأيمن > «إلغاء الطباعة مباشرة» أو حدّدها وأنشئ مجددًا)"
+"({} models print directly on the plate and were skipped - right-click > 'Stop printing directly on the plate', or select them and generate again)": "(تم تخطي {} نماذج تُطبع مباشرة على الصفيحة - انقر بالزر الأيمن > «إلغاء الطباعة مباشرة» أو حدّدها وأنشئ مجددًا)",
+"{} crowns / bridges skipped - their label goes on the raft (SOD code), not on the tooth": "تم تخطي {} تيجان/جسور - ملصقها على الطوف (رمز SOD) وليس على السن"
 }

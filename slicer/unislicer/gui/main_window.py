@@ -2547,15 +2547,19 @@ class MainWindow(QMainWindow):
         dlg.show()
 
     def auto_label(self, targets=None) -> int:
-        """Put a label on each model by itself: on the largest flat side of its lower part."""
-        from .. import mesh_tools
+        """Put a label on each model by itself: on the largest flat side of its lower part. Crowns and bridges
+        are left out: a label on the tooth itself would spoil it (their code goes on the raft)."""
+        from .. import dental_cad, mesh_tools
         targets = targets if targets is not None else (self.selected_objects() or
                                                        [o for o in self.objects if o.role != "cutter"])
         prefs = self._label_prefs()
         self._push_undo()
-        done, missed = 0, 0
+        done, missed, teeth = 0, 0, 0
         for i, o in enumerate(targets):
             if o.role == "cutter":
+                continue
+            if dental_cad.kind_of(o.name, o.mesh) == "crown":
+                teeth += 1                # never on a crown / bridge itself: its code goes on its raft
                 continue
             world = o.world_mesh()
             spot = mesh_tools.label_spot(world)
@@ -2572,6 +2576,8 @@ class MainWindow(QMainWindow):
         msg = tr("label_added").format(done)
         if missed:
             msg += " · " + tr("label_no_spot").format(missed)
+        if teeth:
+            msg += " · " + tr("label_teeth_skipped").format(teeth)
         self.status.setText(msg)
         return done
 

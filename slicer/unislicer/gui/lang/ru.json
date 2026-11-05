@@ -1378,5 +1378,6 @@
 "Crowns and bridges only: the code from the SOD number in the file name goes on the raft (see Raft label side), e.g. 46671-044-P from DSY-SOD260046671-044-P-46": "Только коронки и мосты: код из номера SOD в имени файла наносится на рафт (см. «Сторона надписи на рафте»), например 46671-044-P из DSY-SOD260046671-044-P-46",
 "Stop printing directly on the plate (allow supports and raft)": "Не печатать прямо на платформе (разрешить поддержки и рафт)",
 "The model is raised and gets supports and a raft with Generate supports": "Модель поднимается и получает поддержки и рафт при создании поддержек",
-"({} models print directly on the plate and were skipped - right-click > 'Stop printing directly on the plate', or select them and generate again)": "({} моделей печатаются прямо на платформе и пропущены - правый клик > «Не печатать прямо на платформе» или выберите их и создайте снова)"
+"({} models print directly on the plate and were skipped - right-click > 'Stop printing directly on the plate', or select them and generate again)": "({} моделей печатаются прямо на платформе и пропущены - правый клик > «Не печатать прямо на платформе» или выберите их и создайте снова)",
+"{} crowns / bridges skipped - their label goes on the raft (SOD code), not on the tooth": "{} коронок/мостов пропущено - их метка на рафте (код SOD), не на зубе"
 }
