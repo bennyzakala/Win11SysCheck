@@ -4967,3 +4967,19 @@ def test_label_bigger_than_the_wall_is_cut_at_its_edge_not_left_in_the_air():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_mini_rafts_differ_from_a_solid_raft():
+    """'Mini rafts' gave exactly the solid raft (dense supports joined into one group with one convex
+    outline). Now each support stands on its own pad, joined to its neighbours: clearly less raft."""
+    from unislicer import sla_supports
+    from unislicer.slicing import slice_mesh
+    mesh = placed(primitives.box(30, 20, 8), 60, 40).world_mesh()
+    out = {}
+    for kind in ("solid", "mini"):
+        cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True, "sla_raft_type": kind})
+        lift = cfg["sla_elevation"] + cfg["sla_raft_thickness"]
+        sup, pts = sla_supports.build_supports(mesh.translated([0, 0, lift]), cfg)
+        out[kind] = slice_mesh(sup, [cfg["sla_raft_thickness"] / 2], 0.05)[0]
+    assert out["mini"].area < 0.8 * out["solid"].area, (out["mini"].area, out["solid"].area)
+    assert out["solid"].covers(out["mini"].buffer(-0.3))                  # never past the solid outline

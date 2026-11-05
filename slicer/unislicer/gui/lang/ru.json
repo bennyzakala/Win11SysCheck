@@ -1347,5 +1347,6 @@
 "Mirrored (reads from the other side)": "Зеркально (читается с другой стороны)",
 "Support height": "Высота поддержек",
 "How far the model is raised above the raft, i.e. the height of the supports under it (also called model elevation)": "На сколько модель поднята над рафтом, то есть высота поддержек под ней (также называется подъёмом модели)",
-"Raft type, thickness, margin, slope and support height": "Тип рафта, толщина, поля, наклон и высота поддержек"
+"Raft type, thickness, margin, slope and support height": "Тип рафта, толщина, поля, наклон и высота поддержек",
+"Mini: a small pad under every support, joined to its neighbours, as in PreForm - less resin and easier to remove than a solid raft. Mini tiny: for temporary teeth - the raft follows the tooth's outline seen from above, a little smaller, never past it": "Мини: небольшая площадка под каждой поддержкой, соединённая с соседними, как в PreForm — меньше смолы и легче снимать, чем сплошной рафт. Мини крошечный: для временных зубов — рафт повторяет контур зуба сверху, чуть меньше его и никогда не выходит за него"
 }

@@ -560,23 +560,28 @@ def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None, outli
         return shapely_scale(hull, scale, scale, origin="centroid") if scale != 1 else hull
 
     if kind == "mini":
-        # group feet that are close together; each group gets its own small raft
-        parent = list(range(len(pts)))
-
-        def find(a):
-            while parent[a] != a:
-                parent[a] = parent[parent[a]]
-                a = parent[a]
-            return a
-        reach = max(cfg["sla_raft_group_reach"], 2 * margin + 2)
+        # a small pad under every support foot (as PreForm's mini rafts); overlapping pads join, so the raft
+        # follows the supports with open gaps between them instead of one slab under the whole model
+        default_r = max(cfg["sla_base_diameter"] / 2, pad / 2)
+        pads = []
+        for k, q in enumerate(pts):
+            foot_r = radii[k] if radii is not None and k < len(radii) else default_r
+            pads.append(MultiPoint([tuple(q[:2])]).buffer(max(foot_r, 0.3) * scale + cfg["sla_raft_margin"] * 0.5,
+                                                         quad_segs=8))
+        shape = unary_union(pads)
+        # feet closer than the joining distance are tied by a bar, so a cluster prints as one piece
+        reach = cfg["sla_raft_group_reach"]
+        bars = []
         for a in range(len(pts)):
-            d = np.hypot(*(pts - pts[a]).T)
-            for b in np.flatnonzero(d < reach):
-                parent[find(a)] = find(int(b))
-        groups: dict = {}
-        for a in range(len(pts)):
-            groups.setdefault(find(a), []).append(pts[a])
-        return [_slab(outline(g), 0.0, raft, slope) for g in groups.values()]
+            d = np.hypot(*(pts[:, :2] - pts[a, :2]).T)
+            for b in np.flatnonzero((d > 0) & (d < reach)):
+                if b > a and not shape.contains(LineString([tuple(pts[a, :2]), tuple(pts[b, :2])])):
+                    bars.append(LineString([tuple(pts[a, :2]), tuple(pts[b, :2])]).buffer(
+                        max(cfg["sla_raft_bar_width"], 0.6) / 2, cap_style="flat"))
+        if bars:
+            shape = unary_union([shape, *bars])
+        from .mesh_tools import extrude
+        return [extrude(shape.simplify(0.01), 0.0, raft, "Raft")] if not shape.is_empty else []
     hull = outline(pts)
     if kind in ("grid", "hexagon"):
         # outline band, a pad under every foot and the pattern, merged in 2D and extruded once: one clean
