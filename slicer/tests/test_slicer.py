@@ -4525,6 +4525,25 @@ def test_model_menu_keeps_print_on_plate_raft_and_fill():
             assert any(t.startswith(tr(key)) for t in seen), (key, seen)
         assert any(t.startswith(tr("raft_menu")) for t in seen), seen
         assert not any(t == tr("keepout_clear") for t in seen)     # nothing to clear yet
+        # printed on the plate: the menu says plainly how to switch it off, and it does
+        o.direct = True
+        w._select_uid(o.uid)
+        menus = []
+
+        class Kept(QMenu):
+            def exec(self, *a, **k):
+                menus.append(self)
+        mw.QMenu = Kept
+        w._show_context_menu(o.uid, QPoint(10, 10))
+        off = [x for x in menus[-1].actions() if x.text() == tr("direct_off")]
+        assert off and not any(x.text() == tr("direct_on_plate") for x in menus[-1].actions())
+        off[0].trigger(); app.processEvents()
+        assert not o.direct
+        # and Auto generate on a part chosen on purpose gives it supports even if it was on the plate
+        o.direct = True
+        w._select_uid(o.uid)
+        w.generate_supports(); app.processEvents()
+        assert not o.direct and o.support_points is not None
         w._stop_preslice()
         from unislicer import parallel
         if parallel._pool is not None:          # worker processes would hold the output pipe open

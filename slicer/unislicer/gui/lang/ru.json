@@ -1375,5 +1375,8 @@
 "Underside: the label is engraved into the side on the plate, mirrored, so it reads right when the raft is turned over; nothing sticks out to spoil adhesion. When the raft is too thin for the depth the label goes on top": "Снизу: надпись гравируется на стороне, прилегающей к платформе, зеркально, чтобы читаться правильно, когда рафт перевернут; ничего не выступает и не портит адгезию. Если рафт слишком тонкий для этой глубины, надпись ставится сверху",
 "Underside label depth": "Глубина нижней надписи",
 "How deep the underside label is engraved; the long-exposed bottom layers tend to fill shallow engraving - 0.4 mm or more": "Глубина гравировки надписи снизу; долго засвечиваемые нижние слои заливают мелкую гравировку — 0,4 мм и больше",
-"Crowns and bridges only: the code from the SOD number in the file name goes on the raft (see Raft label side), e.g. 46671-044-P from DSY-SOD260046671-044-P-46": "Только коронки и мосты: код из номера SOD в имени файла наносится на рафт (см. «Сторона надписи на рафте»), например 46671-044-P из DSY-SOD260046671-044-P-46"
+"Crowns and bridges only: the code from the SOD number in the file name goes on the raft (see Raft label side), e.g. 46671-044-P from DSY-SOD260046671-044-P-46": "Только коронки и мосты: код из номера SOD в имени файла наносится на рафт (см. «Сторона надписи на рафте»), например 46671-044-P из DSY-SOD260046671-044-P-46",
+"Stop printing directly on the plate (allow supports and raft)": "Не печатать прямо на платформе (разрешить поддержки и рафт)",
+"The model is raised and gets supports and a raft with Generate supports": "Модель поднимается и получает поддержки и рафт при создании поддержек",
+"({} models print directly on the plate and were skipped - right-click > 'Stop printing directly on the plate', or select them and generate again)": "({} моделей печатаются прямо на платформе и пропущены - правый клик > «Не печатать прямо на платформе» или выберите их и создайте снова)"
 }

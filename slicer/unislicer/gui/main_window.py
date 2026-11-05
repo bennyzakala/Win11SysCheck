@@ -3395,11 +3395,14 @@ class MainWindow(QMainWindow):
                 if any(o.labels for o in group):
                     menu.addAction(tr("label_clear"), self.clear_labels)
                 menu.addAction(theme.icon("grid"), tr("raft_menu") + "…", self.raft_menu)
-                flat = menu.addAction(theme.icon("flat"), tr("direct_on_plate"))
-                flat.setToolTip(tr("direct_on_plate_tip"))
-                flat.setCheckable(True)
-                flat.setChecked(all(o.direct for o in group))
-                flat.toggled.connect(self._set_direct)
+                if any(o.direct for o in group):     # on: say plainly how to turn it off
+                    flat = menu.addAction(theme.icon("flat"), tr("direct_off"))
+                    flat.setToolTip(tr("direct_off_tip"))
+                    flat.triggered.connect(lambda: self._set_direct(False))
+                else:
+                    flat = menu.addAction(theme.icon("flat"), tr("direct_on_plate"))
+                    flat.setToolTip(tr("direct_on_plate_tip"))
+                    flat.triggered.connect(lambda: self._set_direct(True))
                 fill = menu.addAction(theme.icon("drop"), tr("fill_cavity"))
                 fill.setToolTip(tr("fill_cavity_tip"))
                 fill.setCheckable(True)
@@ -4005,9 +4008,16 @@ class MainWindow(QMainWindow):
         cfg = self.settings.config()
         learned_plate = self.assistant.learned_config(cfg)   # density and angle learned from earlier edits
         lift = self._lift(cfg)
+        chosen = self.selected_objects()
+        skipped = 0
         for o in self._support_targets():
-            if o.direct or o.role == "cutter":
+            if o.role == "cutter":
                 continue
+            if o.direct:
+                if not chosen:               # the whole plate: parts printed on the plate stay as they are
+                    skipped += 1
+                    continue
+                o.direct = False             # supports asked for this very part: it leaves the plate
             world = o.mesh.transform(o.world_matrix())
             world = world.translated([0, 0, lift])
             o.set_world_support_points(sla_supports.drop_keepout(
@@ -4015,7 +4025,7 @@ class MainWindow(QMainWindow):
             o.__dict__["support_session"] = {"auto": len(o.support_points), "added": [], "removed": 0,
                                              "threshold": o.config(learned_plate)["support_angle"]}
         self._objects_changed(refresh_list=False)
-        self.status.setText(tr("sup_generated_hint"))
+        self.status.setText(tr("sup_generated_hint") + (" " + tr("sup_skipped_direct").format(skipped) if skipped else ""))
 
     RAFT_KEYS = ("sla_raft_type", "sla_raft_thickness", "sla_raft_margin", "sla_raft_area_ratio", "sla_raft_slope",
                  "sla_raft_bar_spacing", "sla_raft_bar_width", "sla_raft_group_reach", "sla_elevation")
