@@ -335,7 +335,7 @@ class Camera:
 # ------------------------------------------------------------------ widget
 class Viewer(QOpenGLWidget):
     objectClicked = Signal(object, int)       # uid or None, SEL_TOGGLE (Ctrl) / SEL_ADD (Shift) flags
-    boxSelected = Signal(object, bool)        # uids inside a Shift/Ctrl-dragged rectangle, additive
+    boxSelected = Signal(object, bool)        # uids inside a dragged rectangle; additive (Ctrl / Shift held)
     contextRequested = Signal(object, object)  # uid under a right click (or None), global position
     objectDragged = Signal(object, float, float)
     objectHovered = Signal(object)                 # uid under a resting cursor (None when it leaves the models)
@@ -416,6 +416,7 @@ class Viewer(QOpenGLWidget):
         self.selected = None             # primary selection (gizmo, transform panel)
         self.selection: set = set()      # every selected uid
         self._band = None                # (origin, QRubberBand) while box-selecting
+        self.mouse_scheme = "chitubox"   # chitubox: right drag turns, wheel drag pans, left drag frames; classic: left turns
         self._click_select = None        # uid to select alone on release (click inside a group)
         self.extra: list = []            # [(mesh, color)] e.g. SLA supports
         self.raft_top = 0.0              # height of the raft top (resin); see-through from below
@@ -1498,7 +1499,9 @@ class Viewer(QOpenGLWidget):
                 start = self._bed_point(e.position())
                 if start is not None:
                     self._drag = (uid, start)
-            elif mods:
+            elif mods or self.mouse_scheme == "chitubox":
+                # CHITUBOX: a left drag over empty space draws a selection frame (Ctrl / Shift: adds to it)
+                self._band_additive = bool(mods)
                 if self._band is not None:
                     self._end_band()
                 from PySide6.QtWidgets import QRubberBand
@@ -1609,11 +1612,20 @@ class Viewer(QOpenGLWidget):
                 self.objectDragged.emit(uid, float(p[0] - start[0]), float(p[1] - start[1]))
                 self._drag = (uid, p)
             return
-        if e.buttons() & Qt.LeftButton:
+        b = e.buttons()
+        if self.mouse_scheme == "chitubox":
+            # CHITUBOX: right drag turns the view, wheel (middle) drag - or Shift + right drag - pans it
+            orbit = bool(b & Qt.RightButton) and not (e.modifiers() & Qt.ShiftModifier)
+            pan = bool(b & Qt.MiddleButton) or (bool(b & Qt.RightButton) and bool(e.modifiers() & Qt.ShiftModifier))
+            if b & Qt.LeftButton and self.mode != self.MODE_PREPARE:
+                orbit = True                        # layer preview: nothing to select, the left button turns it
+        else:
+            orbit, pan = bool(b & Qt.LeftButton), bool(b & (Qt.RightButton | Qt.MiddleButton))
+        if orbit:
             self.camera.yaw -= dx * 0.4
             self.camera.pitch = float(np.clip(self.camera.pitch + dy * 0.4, -89.9, 89.9))
             self.update()
-        elif e.buttons() & (Qt.RightButton | Qt.MiddleButton):
+        elif pan:
             view = self.camera.view()
             right, up = view[0, :3], view[1, :3]
             scale = self.camera.distance * 0.0016
@@ -1669,7 +1681,11 @@ class Viewer(QOpenGLWidget):
         click_select, self._click_select = self._click_select, None
         if self._band is not None:
             rect = self._end_band()
-            self.boxSelected.emit(self.objects_in_rect(rect), True)
+            additive = getattr(self, "_band_additive", True)
+            if not moved and not additive:
+                self.objectClicked.emit(None, 0)       # a plain click on empty space clears the selection
+                return
+            self.boxSelected.emit(self.objects_in_rect(rect), additive)
             return
         if e.button() == Qt.RightButton and not moved:
             uid = self.pick(e.position()) if self.mode == self.MODE_PREPARE else None
@@ -1707,8 +1723,36 @@ class Viewer(QOpenGLWidget):
             return
         self.begin_interaction()
         steps = e.angleDelta().y() / 120.0
-        self.camera.distance = float(np.clip(self.camera.distance * (0.88 ** steps), 5.0, 5000.0))
+        old = self.camera.distance
+        new = float(np.clip(old * (0.88 ** steps), 5.0, 5000.0))
+        if self.mouse_scheme == "chitubox":
+            # zoom toward the point under the cursor (on the plane through the view's centre, facing the camera)
+            hit = self._point_under(e.position())
+            if hit is not None:
+                self.camera.target = self.camera.target + (hit - self.camera.target) * (1.0 - new / old)
+        self.camera.distance = new
         self.update()
+
+    def _point_under(self, pos):
+        """The point under the cursor on the plane through the view's centre that faces the camera."""
+        try:
+            w, h = max(1, self.width()), max(1, self.height())
+            mvp = self.camera.projection(w / h) @ self.camera.view()
+            inv = np.linalg.inv(mvp)
+            x, y = 2.0 * pos.x() / w - 1.0, 1.0 - 2.0 * pos.y() / h
+            a = inv @ np.array([x, y, -1.0, 1.0])
+            b = inv @ np.array([x, y, 1.0, 1.0])
+            a, b = a[:3] / a[3], b[:3] / b[3]
+            n = self.camera.eye() - self.camera.target
+            n = n / np.linalg.norm(n)
+            d = b - a
+            den = float(d @ n)
+            if abs(den) < 1e-9:
+                return None
+            t = float((self.camera.target - a) @ n) / den
+            return a + d * t
+        except Exception:
+            return None
 
     def mouseDoubleClickEvent(self, e):
         self.fit_objects()

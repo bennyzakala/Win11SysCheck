@@ -5361,3 +5361,73 @@ def test_no_supports_on_the_fitting_surface():
     assert len(inside) and report["fit_dropped"] >= len(inside)
     assert not np.any(kept[:, 2] > 5.5)                      # none inside
     assert np.sum(kept[:, 2] < 5.1) >= 9                     # the outside underside is still held
+
+
+def test_mouse_controls_like_chitubox():
+    """Mouse controls as in CHITUBOX (the default): right drag turns the view, wheel drag (or Shift + right
+    drag) pans it, the wheel zooms, a left drag over empty space frames a selection, a right click opens the
+    model menu. The classic scheme keeps left drag = turn, right drag = pan."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        import numpy as np
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import QEvent, QPointF, Qt
+        from PySide6.QtGui import QMouseEvent
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        o = w.add_mesh(primitives.box(20, 20, 5)); app.processEvents()
+        v = w.viewer
+        assert v.mouse_scheme == "chitubox"
+        v.pick = lambda pos, *a, **k: None                        # empty space everywhere
+
+        def drag(button, a, b, mods=Qt.NoModifier):
+            pa, pb = QPointF(*a), QPointF(*b)
+            v.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, pa, pa, button, button, mods))
+            v.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, pb, pb, Qt.NoButton, button, mods))
+            v.mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, pb, pb, button, Qt.NoButton, mods))
+            app.processEvents()
+
+        cam = v.camera
+        yaw, target = cam.yaw, cam.target.copy()
+        drag(Qt.RightButton, (300, 300), (360, 300))
+        assert cam.yaw != yaw and np.allclose(cam.target, target)          # right drag: turns
+        yaw = cam.yaw
+        drag(Qt.MiddleButton, (300, 300), (360, 330))
+        assert cam.yaw == yaw and not np.allclose(cam.target, target)      # wheel drag: pans
+        target = cam.target.copy()
+        drag(Qt.RightButton, (300, 300), (360, 330), Qt.ShiftModifier)
+        assert cam.yaw == yaw and not np.allclose(cam.target, target)      # Shift + right drag: pans
+        w._select_uid(None)
+        drag(Qt.LeftButton, (2, 2), (v.width() - 2, v.height() - 2))
+        assert o.uid in [x.uid for x in w.selected_objects()]             # left drag on empty space: a frame
+        shown = []
+        w._show_context_menu = lambda uid, pos: shown.append(uid)
+        v.contextRequested.disconnect()
+        v.contextRequested.connect(w._show_context_menu)
+        pa = QPointF(300, 300)
+        v.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, pa, pa, Qt.RightButton, Qt.RightButton, Qt.NoModifier))
+        v.mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, pa, pa, Qt.RightButton, Qt.NoButton, Qt.NoModifier))
+        assert shown, "a right click (no drag) opens the menu"
+        w.set_mouse_scheme("classic")
+        yaw = cam.yaw
+        drag(Qt.LeftButton, (300, 300), (360, 300))
+        assert cam.yaw != yaw                                              # classic: left drag turns
+        assert w.store.value("mouse_scheme") == "classic"
+        w.set_mouse_scheme("chitubox")
+        w._stop_preslice()
+        from unislicer import parallel
+        if parallel._pool is not None:
+            parallel._pool.shutdown(wait=True, cancel_futures=True)
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

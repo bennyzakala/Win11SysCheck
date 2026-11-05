@@ -211,6 +211,7 @@ class MainWindow(QMainWindow):
         self._apply_printer()
         self._refresh_objects(select=self.objects[0].uid if self.objects else None)
         self.viewer.view_preset("iso")
+        self.set_mouse_scheme(str(self.store.value("mouse_scheme", "chitubox")))
 
     # ================================================================ layout
     def _fit_to_screen(self):
@@ -452,6 +453,13 @@ class MainWindow(QMainWindow):
         self.close_holes_act.setCheckable(True)
         self.close_holes_act.setChecked(self.store.value("auto_close_holes", "true") == "true")
         self.close_holes_act.toggled.connect(lambda on: self.store.setValue("auto_close_holes", "true" if on else "false"))
+        mouse = mm.addMenu(tr("mouse_menu"))
+        self._mouse_acts = {}
+        for key in ("chitubox", "classic"):
+            act = mouse.addAction(tr(f"mouse_{key}"))
+            act.setCheckable(True)
+            act.triggered.connect(lambda _=False, k=key: self.set_mouse_scheme(k))
+            self._mouse_acts[key] = act
         self.parts_act = mm.addAction(tr("ap_show_menu"))
         self.parts_act.setCheckable(True)
         self.parts_act.setChecked(self.store.value("ap_show", "true") == "true")
@@ -833,7 +841,8 @@ class MainWindow(QMainWindow):
         self.empty_hint.setAttribute(Qt.WA_TransparentForMouseEvents)
         grid.addWidget(self.empty_hint, 0, 0, Qt.AlignCenter)
 
-        nav = QLabel(tr("hint_nav"))
+        nav = QLabel(tr("hint_nav_chitubox"))
+        self._nav_label = nav
         nav.setStyleSheet(f"color: {theme.TEXT_FAINT}; font-size: 11px; background: transparent; padding: 10px;")
         nav.setAttribute(Qt.WA_TransparentForMouseEvents)
         grid.addWidget(nav, 0, 0, Qt.AlignBottom | Qt.AlignHCenter)
@@ -2977,6 +2986,17 @@ class MainWindow(QMainWindow):
         self._syncing = False
         self._objects_changed(refresh_list=False)
         self._sync_transform()
+
+    def set_mouse_scheme(self, key: str):
+        """Mouse controls: CHITUBOX (right drag turns the view, wheel drag pans, wheel zooms at the cursor,
+        left click / drag selects and moves, left drag on empty space frames a selection) or the classic ones."""
+        key = key if key in ("chitubox", "classic") else "chitubox"
+        self.store.setValue("mouse_scheme", key)
+        self.viewer.mouse_scheme = key
+        for k, act in getattr(self, "_mouse_acts", {}).items():
+            act.setChecked(k == key)
+        if getattr(self, "_nav_label", None) is not None:
+            self._nav_label.setText(tr("hint_nav_" + key))
 
     def _breathe(self):
         """During a long job on many models (opening files, generating supports): let the window repaint and

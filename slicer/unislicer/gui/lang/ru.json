@@ -1392,5 +1392,9 @@
 "No supports on the fitting surface": "Без поддержек на посадочной поверхности",
 "Points inside a hollow (the inside of a crown, guide, splint or denture, a guide's sleeve holes) get no support": "Точки внутри полости (внутренняя сторона коронки, шаблона, сплинта или протеза, отверстия втулок шаблона) не получают поддержек",
 "No supports on a model's small ledges": "Без поддержек на мелких уступах модели",
-"On a jaw model: a narrow step (base to gum, a tooth's bulge) holds itself up - no support climbing to it": "На модели челюсти узкий уступ (основание-десна, выпуклость зуба) держится сам - поддержка к нему не поднимается"
+"On a jaw model: a narrow step (base to gum, a tooth's bulge) holds itself up - no support climbing to it": "На модели челюсти узкий уступ (основание-десна, выпуклость зуба) держится сам - поддержка к нему не поднимается",
+"Mouse controls": "Управление мышью",
+"Like CHITUBOX (right: orbit, wheel: pan)": "Как в CHITUBOX (правая: вращение, колесо: сдвиг)",
+"Classic (left: orbit, right: pan)": "Классическое (левая: вращение, правая: сдвиг)",
+"Right-drag: orbit · Wheel-drag or Shift+right-drag: pan · Wheel: zoom · Left: select, drag a model, frame-select · Right-click a model: menu": "Правая (перетаскивание): вращение · Колесо (перетаскивание) или Shift+правая: сдвиг · Колесо: масштаб · Левая: выбор, перемещение модели, выбор рамкой · Правый клик по модели: меню"
 }

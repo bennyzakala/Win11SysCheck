@@ -1392,5 +1392,9 @@
 "No supports on the fitting surface": "بلا دعامات على سطح التلاؤم",
 "Points inside a hollow (the inside of a crown, guide, splint or denture, a guide's sleeve holes) get no support": "النقاط داخل التجويف (داخل التاج أو الدليل أو الجبيرة أو الطقم، وثقوب أكمام الدليل) لا تحصل على دعامة",
 "No supports on a model's small ledges": "بلا دعامات على الحواف الصغيرة للنموذج",
-"On a jaw model: a narrow step (base to gum, a tooth's bulge) holds itself up - no support climbing to it": "في نموذج الفك: الدرجة الضيقة (بين القاعدة واللثة، بروز السن) تحمل نفسها - لا دعامة تصعد إليها"
+"On a jaw model: a narrow step (base to gum, a tooth's bulge) holds itself up - no support climbing to it": "في نموذج الفك: الدرجة الضيقة (بين القاعدة واللثة، بروز السن) تحمل نفسها - لا دعامة تصعد إليها",
+"Mouse controls": "التحكم بالفأرة",
+"Like CHITUBOX (right: orbit, wheel: pan)": "مثل CHITUBOX (الأيمن: تدوير، العجلة: تحريك)",
+"Classic (left: orbit, right: pan)": "كلاسيكي (الأيسر: تدوير، الأيمن: تحريك)",
+"Right-drag: orbit · Wheel-drag or Shift+right-drag: pan · Wheel: zoom · Left: select, drag a model, frame-select · Right-click a model: menu": "الأيمن (سحب): تدوير · العجلة (سحب) أو Shift+الأيمن: تحريك · العجلة: تكبير · الأيسر: تحديد، سحب نموذج، تحديد بإطار · نقر أيمن على نموذج: القائمة"
 }
