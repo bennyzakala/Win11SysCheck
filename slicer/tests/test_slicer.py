@@ -5141,3 +5141,33 @@ def test_supports_never_run_through_the_model():
         if inside.any():
             d = np.min(np.linalg.norm(cent[inside][:, None, :] - used[None, :, :], axis=2), axis=1)
             assert d.max() <= 1.0, (shape, d.max())                          # only the tips go in
+
+
+def test_raft_label_on_a_raft_in_pieces_keeps_the_supports(monkeypatch):
+    """An arch bridge whose mini tiny raft came out in several pieces: bending the code along it failed
+    ('MultiPolygon' has no 'exterior') and the whole bridge lost its supports and raft. The code now fits,
+    and a label that fails for any reason never costs the part its supports."""
+    from PySide6.QtGui import QGuiApplication
+    from shapely.geometry import Polygon, box
+    from unislicer import sla_supports
+    from unislicer.mesh_tools import text_polygons
+    QGuiApplication.instance() or QGuiApplication(["test", "-platform", "offscreen"])
+    ang = np.radians(np.linspace(20, 160, 60))
+    arch = Polygon([(21 * np.cos(a), 21 * np.sin(a)) for a in ang] + [(15 * np.cos(a), 15 * np.sin(a)) for a in ang[::-1]])
+    pieces = shapely.union_all([arch, box(30, 0, 32, 2)]).buffer(-0.4)
+    assert pieces.geom_type == "MultiPolygon"
+    code = sla_supports.fit_text(text_polygons("45198-N183-E", 2.0), pieces)
+    assert code is not None and pieces.contains(code)
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None,
+                                {"support_enable": True, "sla_raft_type": "tiny", "sla_raft_label_side": "top"})
+    part = placed(primitives.box(22, 10, 7), 60, 40).world_mesh().translated([0, 0, 3])
+    plain, used = sla_supports.build_supports(part, cfg)
+
+    def broken(*a, **k):
+        raise RuntimeError("label failed")
+    monkeypatch.setattr(sla_supports, "_raft_label_inside", broken)
+    monkeypatch.setattr(sla_supports, "_raft_label_under", broken)
+    for side in ("top", "bottom"):
+        cfg.update({"sla_raft_label_side": side})
+        sup, used2 = sla_supports.build_supports(part, cfg, label="45198-N183-E")
+        assert len(used2) == len(used) and len(sup.faces) == len(plain.faces)

@@ -590,7 +590,7 @@ def centre_line(room, step: float | None = None) -> np.ndarray | None:
         return end, prev
 
     # the medial axis of the largest connected piece: start from its middle
-    start = max(graph, key=lambda n: room.exterior.distance(shapely.Point(n)))
+    start = max(graph, key=lambda n: room.boundary.distance(shapely.Point(n)))
     a, _ = farthest(start)
     b, prev = farthest(a)
     path = []
@@ -651,7 +651,8 @@ def _fit_curved(text, room, min_height: float, max_height: float):
         return None
     base = affinity.translate(text, -tx0, -(ty0 + ty1) / 2)
     base = shapely.segmentize(base, max(th / 10, 0.02))   # enough points for the letters to bend smoothly
-    half = float(np.min([room.exterior.distance(shapely.Point(p)) for p in path[len(path) // 4: 3 * len(path) // 4 + 1]]))
+    edge = room.boundary                                   # (a raft in several pieces has no single outline)
+    half = float(np.min([edge.distance(shapely.Point(p)) for p in path[len(path) // 4: 3 * len(path) // 4 + 1]]))
     k = min(0.95 * s_total / tw, max_height / th, max(1.9 * half, min_height) / th)
     while k * th >= min_height:
         span = max(0.0, s_total - k * tw)
@@ -998,16 +999,21 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     # under the raft: engraved (mirrored) into the side on the plate, when the raft is thick enough
     engrave = cfg["sla_raft_label_depth"] if cfg["sla_raft_label_side"] == "bottom" \
         and raft >= cfg["sla_raft_label_depth"] + 0.3 else 0.0
-    engraved = _raft_label_under(label, tiny, raft, engrave) if label and engrave and tiny is not None \
-        and not tiny.is_empty else None
+    try:
+        engraved = _raft_label_under(label, tiny, raft, engrave) if label and engrave and tiny is not None \
+            and not tiny.is_empty else None
+    except Exception:                  # a label must never cost the part its supports and raft
+        engraved = None
     parts += engraved if engraved else _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny)
     # the caller chooses the text (the model's name, or a tooth's SOD case code); "" = no label
-    if engraved:
-        pass
-    elif label and feet and cfg["sla_raft_type"] in ("solid", "grid", "hexagon") and raft >= 0.4:
-        parts += _raft_label(label, np.array(feet), cfg, pillar_r * 4, raft, engrave)
-    elif label and tiny is not None and not tiny.is_empty and raft >= 0.4:
-        parts += _raft_label_inside(label, tiny, raft)
+    if not engraved:
+        try:
+            if label and feet and cfg["sla_raft_type"] in ("solid", "grid", "hexagon") and raft >= 0.4:
+                parts += _raft_label(label, np.array(feet), cfg, pillar_r * 4, raft, engrave)
+            elif label and tiny is not None and not tiny.is_empty and raft >= 0.4:
+                parts += _raft_label_inside(label, tiny, raft)
+        except Exception:              # a label must never cost the part its supports and raft
+            pass
     merged = Mesh.merge(list(parts), "Supports")
     if owners is not None:
         owners["faces"] = np.concatenate([np.full(len(m.faces), o, dtype=np.int64) for m, o in zip(parts, part_owner)]) \
