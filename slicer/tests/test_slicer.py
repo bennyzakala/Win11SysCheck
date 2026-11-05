@@ -4572,12 +4572,15 @@ def test_formlabs_form4_family_in_the_printer_list():
 
 
 def test_dental_files_recognised_by_name_and_shape():
-    """3Shape's '_Antag' (antagonist) and '_Tooth_14' (the die) are recognised; a lab code with no type word
-    falls back to the shape: arch -> model, single solid tooth -> die, thin shell over a cavity -> crown."""
+    """3Shape's '_Antag' (antagonist) and '_Tooth_14' (the die) are recognised, a lab code with a tooth range
+    is the restoration; a name that says nothing falls back to the shape: arch -> model, single solid tooth
+    -> die, thin shell over a cavity -> crown."""
     from unislicer import dental_cad
     assert dental_cad.detect_indication("EGI-SOD260046764-114-Z-14-14-1-00-V227_Antag.stl") == "model"
     assert dental_cad.detect_indication("EGI-SOD260046764-114-Z-14-14-1-00-V227_Tooth_14.stl") == "die"
-    assert dental_cad.detect_indication("FYQ-SOD260046892-044-P-16-16-1-00-R685_2.stl") == "unknown"
+    # a lab code with a tooth range and unit count is the restoration (crown / bridge) itself
+    assert dental_cad.detect_indication("FYQ-SOD260046892-044-P-16-16-1-00-R685_2.stl") == "crown"
+    assert dental_cad.detect_indication("BHK-SOD260045947-12-P.stl") == "unknown"   # no range: the shape decides
     arch = primitives.box(60, 45, 15)
     assert dental_cad.indication_from_shape(arch) == "model"
     die = primitives.cylinder(4, 15)
@@ -5196,3 +5199,19 @@ def test_raft_code_goes_on_the_parts_own_raft():
                 above = slice_mesh(coded, [cfg["sla_raft_thickness"] + 0.2], 0.05)[0].area - \
                     slice_mesh(plain, [cfg["sla_raft_thickness"] + 0.2], 0.05)[0].area
                 assert above > 1.0, kind                                 # standing on the raft
+
+
+def test_long_bridge_named_by_lab_code_is_a_bridge_not_a_model():
+    """An 8-unit bridge 14-24 is 44 mm long: by size alone it was taken for a jaw model, put straight on
+    the plate and got no supports, raft or case code. A lab name with a tooth range and unit count says
+    it is the restoration itself."""
+    from unislicer import dental_cad
+    assert dental_cad.detect_indication("FPW-SOD260047135-044-P-A153-14-24-8-A3-_2.stl") == "crown"
+    assert dental_cad.detect_indication("FCN-SOD260047092-044-P-33-43-6-00-A185_2.stl") == "crown"
+    assert dental_cad.detect_indication("BPD-SOD260042368-004-P-23-26-4-A3-.stl") == "crown"
+    # the case's other files still say what they are
+    assert dental_cad.detect_indication("EGI-SOD260046764-114-Z-14-14-1-00-V227_Antag.stl") == "model"
+    assert dental_cad.detect_indication("EGI-SOD260046764-114-Z-14-14-1-00-V227_Tooth_14.stl") == "die"
+    assert dental_cad.detect_indication("BAH-SOD260046430-034-X-35-36-2-C2-B592_Tissue_17.stl") == "gingiva"
+    assert dental_cad.detect_indication("upper.stl") == "unknown"
+    assert dental_cad.detect_indication("case-2024-11-05.stl") == "unknown"
