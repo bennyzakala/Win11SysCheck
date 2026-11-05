@@ -5272,3 +5272,22 @@ def test_auto_label_never_puts_a_label_on_a_crown(tmp_path):
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
                        encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_supports_standing_on_a_sloped_part_of_the_model_are_kept():
+    """Hollow parts (inside a crown, a tilted bridge): points inside sit above another part of the model, so
+    their supports stand on it - on a sloped surface. The through-the-model check dropped them (a third of
+    a tilted bridge's supports): a foot sinking into the slope it stands on, or a pillar's edge grazing a
+    wall, is not a support running through the model."""
+    from unislicer import sla_supports
+
+    def shell(c):
+        o, i = primitives.sphere(5, 24, 48).translated(c), primitives.sphere(4, 24, 48).translated(c)
+        return Mesh(np.vstack([o.vertices, i.vertices]), np.vstack([o.faces, i.faces[:, ::-1] + len(o.vertices)]))
+    model = Mesh.merge([shell([60 + k * 8, 40, 10]) for k in range(3)])
+    for shape in ("tree", "pillar"):
+        cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None,
+                                    {"support_enable": True, "sla_support_type": shape})
+        pts = sla_supports.auto_support_points(model, cfg)
+        _, used = sla_supports.build_supports(model, cfg, pts)
+        assert len(used) == len(pts), (shape, len(used), len(pts))

@@ -899,14 +899,42 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     def blocked(x, y, top, h_len, bottom, contact, tip):
         """Would this support run through the model anywhere but its own tip? (its column, the wide part
         of its head, or a leaning head's arm)"""
-        if caster.column_blocked(x, y, widened(pillar_r, top - h_len - bottom), bottom + 0.05, top - h_len):
+        # the ring is checked at half the radius: a pillar's edge grazing the edge of a wall leaves a sliver
+        # nobody sees, a pillar that really runs through the model is caught on its core
+        # a pillar standing on the model sinks its foot into the (often sloped) surface it stands on
+        start = bottom + (0.05 if bottom <= raft + 1e-6 else 2.0 * pillar_r)
+        if caster.column_blocked(x, y, 0.5 * widened(pillar_r, top - h_len - bottom), start, top - h_len):
             return True
         if tip is None:
-            if caster.column_blocked(x, y, pillar_r, top - h_len, top - h_len / 2):
+            if caster.column_blocked(x, y, 0.5 * pillar_r, top - h_len, top - h_len / 2):
                 return True
             return caster.column_blocked(x, y, 0.0, top - h_len / 2, contact[2] - 0.05)
         a = np.array([x, y, top - h_len])
         return any(caster.inside(a + (tip - a) * t) for t in (0.0, 0.2, 0.4, 0.6, 0.8))
+
+    arm = head_len
+
+    def clear_side(p):
+        """A slanted head from the contact down and out to a pillar beside it, in the first direction whose
+        arm and pillar stay clear of the model (closest to vertical first); None if there is none."""
+        for tilt in (25.0, 40.0, 55.0):
+            t = math.radians(tilt)
+            for k in range(8):
+                f = 2 * math.pi * k / 8
+                dd = np.array([math.sin(t) * math.cos(f), math.sin(t) * math.sin(f), -math.cos(t)])
+                q = p + dd * arm
+                b = caster.base_below(q)
+                if b > 0 and not on_model:
+                    continue
+                bed = b <= 1e-6
+                lo = raft if bed else b
+                tp = q[2] + arm
+                if tp - lo - arm < 0.5:
+                    continue
+                tip = p - dd * depth
+                if not blocked(q[0], q[1], tp, arm, lo, p, tip):
+                    return dd, tip, q[0], q[1], tp, lo, bed, tp - lo, arm
+        return None
 
     for index, p in enumerate(points):
         contact = underside_contact(caster, p)
@@ -950,7 +978,12 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
                 continue
             h_len = min(head_len, height * 0.5)
         if d is None and blocked(x, y, top, h_len, bottom, p, None):
-            continue                     # no straight way down that stays clear of the model
+            # no straight way down: stand the pillar a little to the side, where the way is clear, and
+            # reach the contact with a slanted head (as a leaning head does)
+            way = clear_side(p)
+            if way is None:
+                continue                 # no way down that stays clear of the model
+            d, tip, x, y, top, bottom, on_bed, height, h_len = way
         used.append(p)
         if tree and on_bed and height > h_len + 3.0:
             # the head is built now; the branch below it is decided when the trees are grown
