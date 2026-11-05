@@ -5053,7 +5053,9 @@ def test_tooth_raft_code_engraved_mirrored_under_the_raft():
     cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None,
                                 {"support_enable": True, "sla_raft_type": "tiny", "sla_raft_thickness": 1.0})
     assert cfg["sla_raft_label_side"] == "bottom" and cfg["sla_raft_label_depth"] == 0.5
-    tooth = placed(primitives.box(14, 9, 7), 60, 40).world_mesh().translated([0, 0, 3])
+    # a bridge-sized part: the code fits at a readable size with Windows' wider font too (on a part too
+    # small for it underneath, the code stays on top)
+    tooth = placed(primitives.box(22, 10, 7), 60, 40).world_mesh().translated([0, 0, 3])
     sup, _ = sla_supports.build_supports(tooth, cfg, label="45198-N183-E")
     low, high = slice_mesh(sup, [0.25, 0.75], 0.05)
     outline = sla_supports.tooth_outline(tooth, cfg["sla_raft_tiny_inset"])
