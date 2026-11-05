@@ -4985,9 +4985,9 @@ def test_mini_rafts_differ_from_a_solid_raft():
     assert out["solid"].covers(out["mini"].buffer(-0.3))                  # never past the solid outline
 
 
-def test_add_parts_window_keeps_orientation_and_adds_no_supports(tmp_path):
-    """Open model -> Add parts: each file gets placement, unit and quantity; Open puts them on the plate
-    without touching their orientation or adding supports - exactly like a plain Open."""
+def test_add_parts_window_sets_type_and_adds_no_supports(tmp_path):
+    """Open model -> Add parts: each file gets a type (by name, else by shape) that sets its orientation,
+    a unit and a quantity; Open puts them on the plate without adding supports (or switching them on)."""
     import subprocess, sys, textwrap
     from unislicer.mesh import save_stl
     outer, inner = primitives.box(10, 10, 8), primitives.box(8, 8, 7).translated([0, 0, -0.6])
@@ -5004,30 +5004,37 @@ def test_add_parts_window_keeps_orientation_and_adds_no_supports(tmp_path):
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
         from PySide6.QtWidgets import QApplication
         app = QApplication([])
+        from unislicer.mesh import load_mesh
         from unislicer.gui.main_window import MainWindow
         from unislicer.gui.add_parts_dialog import AddPartsDialog
         w = MainWindow(); app.processEvents()
         w.store.setValue("preslice", "false")
         w.settings.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        w.settings.set_value("support_enable", False); app.processEvents()
         folder = {str(tmp_path)!r}
         paths = sorted(os.path.join(folder, n) for n in os.listdir(folder) if n.endswith(".stl"))
-        dlg = AddPartsDialog(paths, w.store, parent=w)
-        assert dlg.table.columnCount() == 4                           # name, placement, unit, quantity
+        first = lambda p: (lambda m: m[0] if isinstance(m, list) else m)(load_mesh(p))
+        dlg = AddPartsDialog(paths, w.store, first, w)
+        assert dlg.table.columnCount() == 4                           # name, type, unit, quantity
         parts = dlg.parts()
-        assert all(set(p) == {{"path", "placement", "unit", "qty"}} for p in parts), parts
+        assert all(set(p) == {{"path", "kind", "unit", "qty"}} for p in parts), parts
+        got = {{p["path"].split("_")[-1]: p["kind"] for p in parts}}
+        assert got["Antag.stl"] == "model" and got["16.stl"] == "die" and got["17.stl"] == "gingiva", got
+        assert got["2.stl"] == "crown", got
+        r = [os.path.basename(p["path"]) for p in parts].index("XUU-SOD260045840-P048_Antag.stl")
+        dlg._combo(r, "kind").setCurrentIndex(1)                       # Model (hollow)
         c = [os.path.basename(p["path"]) for p in parts].index("FYQ-SOD260046892-044-P-16-16-1-00-R685_2.stl")
         dlg.table.cellWidget(c, 3).setValue(2)                         # two crowns
         w.load_parts(dlg.parts()); app.processEvents()
         assert len(w.objects) == 5, [o.name for o in w.objects]
-        state = lambda o: (o.name, tuple(np.round(o.rotation, 6)), tuple(np.round(o.base_rotation[2], 6)),
-                           o.direct, o.support_points is None, o.settings.get("hollow_enable"))
-        via_parts = sorted(state(o) for o in w.objects)
-        n = len(w.objects)
-        w.load_files(paths); app.processEvents()                       # the plain Open, for comparison
-        plain = [state(o) for o in w.objects[n:]]
-        plain = sorted(plain + [s for s in plain if "R685" in s[0]])
-        assert via_parts == plain, (via_parts, plain)
-        assert all(s[4] for s in via_parts)                            # no supports added
+        antag = [o for o in w.objects if "Antag" in o.name][0]
+        assert antag.direct and antag.settings.get("hollow_enable") is True
+        crowns = [o for o in w.objects if "R685" in o.name]
+        assert len(crowns) == 2 and all(not o.direct for o in crowns)
+        tilt = np.degrees(np.arccos(np.clip(crowns[0].matrix()[2, 2], -1, 1)))
+        assert tilt > 5, tilt                                          # the crown preset tilts it
+        assert all(o.support_points is None for o in w.objects)        # no supports added
+        assert w.settings.config()["support_enable"] is False          # nor switched on
         w._stop_preslice()
         from unislicer import parallel
         if parallel._pool is not None:

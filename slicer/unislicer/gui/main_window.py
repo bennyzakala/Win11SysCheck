@@ -1362,7 +1362,14 @@ class MainWindow(QMainWindow):
             self.load_files(paths)
         else:
             from .add_parts_dialog import AddPartsDialog
-            dlg = AddPartsDialog(models, self.store, parent=self)
+            def first_mesh(path):
+                try:
+                    m = load_mesh(path)
+                except Exception:
+                    return None
+                return m[0] if isinstance(m, list) and m else (m if not isinstance(m, list) else None)
+
+            dlg = AddPartsDialog(models, self.store, first_mesh, self)
             if dlg.exec() != QDialog.Accepted:
                 return
             self.load_parts(dlg.parts())
@@ -1373,9 +1380,9 @@ class MainWindow(QMainWindow):
             self._remember_file(p)
 
     def load_parts(self, parts: list[dict]):
-        """Parts from the Add parts window, loaded as a plain Open does (orientation untouched, no supports
-        added), with each part's units, number of copies and placement (auto-arranged or where the file put it)."""
-        added, arrange = [], False
+        """Parts from the Add parts window: each with its type (orientation preset), units and number of
+        copies. Placed on the plate as a plain Open does; no supports are added here."""
+        added = []
         for part in parts:
             path = part["path"]
             try:
@@ -1386,23 +1393,25 @@ class MainWindow(QMainWindow):
                     continue
             meshes = meshes if isinstance(meshes, list) else [meshes]
             source = self._file_source(path)
+            group = []
             for m in meshes:
                 if part.get("unit") == "inch":
                     m = Mesh(np.asarray(m.vertices) * 25.4, m.faces, m.name)
                 for _ in range(max(1, int(part.get("qty", 1)))):
                     o = self.add_mesh(m, rearrange=False)
                     self._model_source[o.uid] = source
-                    if part.get("placement") == "keep":       # where the file put it
-                        b = m.bounds
-                        o.x, o.y = float((b[0, 0] + b[1, 0]) / 2), float((b[0, 1] + b[1, 1]) / 2)
-                    else:
-                        arrange = True
-                    added.append(o)
+                    group.append(o)
             self._import_project_filaments(meshes)
+            kind = part.get("kind", "asis")
+            if kind != "asis":
+                self._apply_indication(group, "model" if kind == "model_hollow" else kind, enable_supports=False)
+                if kind == "model_hollow":
+                    for o in group:
+                        o.settings["hollow_enable"] = True
+            added += group
         if not added:
             return
-        if arrange:
-            self.arrange_objects()
+        self.arrange_objects()
         self._objects_changed()
         self.viewer.fit_objects()
         for o in added:                       # after arranging, so Ctrl+Z first undoes an automatic repair
@@ -3818,7 +3827,7 @@ class MainWindow(QMainWindow):
         self._push_undo()
         self._apply_indication(group, kind)
 
-    def _apply_indication(self, group, kind: str):
+    def _apply_indication(self, group, kind: str, enable_supports: bool = True):
         if kind not in self.DENTAL:
             return
         tilt, direct = self.DENTAL[kind]
@@ -3828,7 +3837,7 @@ class MainWindow(QMainWindow):
                 o.apply_world_rotation(self._axis_rotation(0, tilt))
             o.direct = direct
             o.support_points = None
-        if not direct:
+        if not direct and enable_supports:
             self._ensure_supports_enabled()
         self._objects_changed()
         if f"dental_{kind}_hint" in i18n.STRINGS:
