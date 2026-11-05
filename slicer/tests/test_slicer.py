@@ -4983,3 +4983,62 @@ def test_mini_rafts_differ_from_a_solid_raft():
         out[kind] = slice_mesh(sup, [cfg["sla_raft_thickness"] / 2], 0.05)[0]
     assert out["mini"].area < 0.8 * out["solid"].area, (out["mini"].area, out["solid"].area)
     assert out["solid"].covers(out["mini"].buffer(-0.3))                  # never past the solid outline
+
+
+def test_add_parts_window_classifies_and_loads(tmp_path):
+    """Open model -> Add parts: each file gets a type (by name, else by shape), supports, placement, unit and
+    quantity; Open puts them on the plate that way."""
+    import subprocess, sys, textwrap
+    from unislicer.mesh import save_stl
+    outer, inner = primitives.box(10, 10, 8), primitives.box(8, 8, 7).translated([0, 0, -0.6])
+    cap = Mesh(np.vstack([outer.vertices, inner.vertices]), np.vstack([outer.faces, inner.faces[:, ::-1] + len(outer.vertices)]))
+    files = {"XUU-SOD260045840-P048_Antag.stl": primitives.box(60, 45, 15),
+             "XUU-SOD260045840-48_Tooth_16.stl": primitives.cylinder(4, 15),
+             "BAH-SOD260046430-034-X-35-36-2-C2-B592_Tissue_17.stl": primitives.box(18, 20, 7),
+             "FYQ-SOD260046892-044-P-16-16-1-00-R685_2.stl": cap}
+    for n, m in files.items():
+        save_stl(m, str(tmp_path / n))
+    code = textwrap.dedent(f'''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.mesh import load_mesh
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui.add_parts_dialog import AddPartsDialog
+        w = MainWindow(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        folder = {str(tmp_path)!r}
+        paths = sorted(os.path.join(folder, n) for n in os.listdir(folder) if n.endswith(".stl"))
+        first = lambda p: (lambda m: m[0] if isinstance(m, list) else m)(load_mesh(p))
+        dlg = AddPartsDialog(paths, w.store, first, w)
+        kinds = {{os.path.basename(p["path"])[:3] + p["path"][-8:]: p["kind"] for p in dlg.parts()}}
+        print(kinds)
+        got = {{p["path"].split("_")[-1]: p["kind"] for p in dlg.parts()}}
+        assert got["Antag.stl"] == "model" and got["16.stl"] == "die" and got["17.stl"] == "gingiva", got
+        assert got["2.stl"] == "crown", got
+        r = [os.path.basename(p["path"]) for p in dlg.parts()].index("XUU-SOD260045840-P048_Antag.stl")
+        dlg._combo(r, "kind").setCurrentIndex(1)                       # Model (hollow)
+        c = [os.path.basename(p["path"]) for p in dlg.parts()].index("FYQ-SOD260046892-044-P-16-16-1-00-R685_2.stl")
+        dlg.table.cellWidget(c, 5).setValue(2)                         # two crowns
+        w.load_parts(dlg.parts()); app.processEvents()
+        objs = {{o.name: o for o in w.objects}}
+        assert len(w.objects) == 5, [o.name for o in w.objects]
+        antag = [o for o in w.objects if "Antag" in o.name][0]
+        assert antag.direct and antag.settings.get("hollow_enable") is True
+        crowns = [o for o in w.objects if "R685" in o.name]
+        assert len(crowns) == 2 and all(not o.direct and o.support_points is not None for o in crowns)
+        die = [o for o in w.objects if "Tooth_16" in o.name][0]
+        assert die.direct
+        w._stop_preslice()
+        from unislicer import parallel
+        if parallel._pool is not None:
+            parallel._pool.shutdown(wait=True, cancel_futures=True)
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path / "home"), USERPROFILE=str(tmp_path / "home"), PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

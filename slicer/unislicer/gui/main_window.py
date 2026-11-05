@@ -452,6 +452,10 @@ class MainWindow(QMainWindow):
         self.close_holes_act.setCheckable(True)
         self.close_holes_act.setChecked(self.store.value("auto_close_holes", "true") == "true")
         self.close_holes_act.toggled.connect(lambda on: self.store.setValue("auto_close_holes", "true" if on else "false"))
+        self.parts_act = mm.addAction(tr("ap_show_menu"))
+        self.parts_act.setCheckable(True)
+        self.parts_act.setChecked(self.store.value("ap_show", "true") == "true")
+        self.parts_act.toggled.connect(lambda on: self.store.setValue("ap_show", "true" if on else "false"))
         self.defects_act = mm.addAction(tr("show_defects"))
         self.defects_act.setCheckable(True)
         self.defects_act.setChecked(self.store.value("show_defects", "true") == "true")
@@ -1350,11 +1354,88 @@ class MainWindow(QMainWindow):
     def open_files(self):
         last = self.store.value("last_dir", os.path.expanduser("~"))
         paths, _ = QFileDialog.getOpenFileNames(self, tr("open"), last, tr("file_filter"))
-        if paths:
-            self.store.setValue("last_dir", os.path.dirname(paths[0]))
+        if not paths:
+            return
+        self.store.setValue("last_dir", os.path.dirname(paths[0]))
+        models = [p for p in paths if not p.lower().endswith((".unislicer", ".usp"))]
+        if not models or self.store.value("ap_show", "true") != "true":
             self.load_files(paths)
-            for p in paths:
-                self._remember_file(p)
+        else:
+            from .add_parts_dialog import AddPartsDialog
+
+            def first_mesh(path):
+                try:
+                    m = load_mesh(path)
+                except Exception:
+                    return None
+                return m[0] if isinstance(m, list) and m else (m if not isinstance(m, list) else None)
+
+            dlg = AddPartsDialog(models, self.store, first_mesh, self)
+            if dlg.exec() != QDialog.Accepted:
+                return
+            self.load_parts(dlg.parts())
+            others = [p for p in paths if p not in models]
+            if others:
+                self.load_files(others)
+        for p in paths:
+            self._remember_file(p)
+
+    def load_parts(self, parts: list[dict]):
+        """Parts from the Add parts window: each with its type (orientation preset), supports, placement,
+        units and number of copies."""
+        added, to_support, to_place = [], [], []
+        for part in parts:
+            path = part["path"]
+            try:
+                meshes = load_mesh(path)
+            except Exception as exc:
+                meshes = self._rescue_model(path, exc)
+                if not meshes:
+                    continue
+            meshes = meshes if isinstance(meshes, list) else [meshes]
+            group = []
+            for m in meshes:
+                if part.get("unit") == "inch":
+                    m = Mesh(np.asarray(m.vertices) * 25.4, m.faces, m.name)
+                for _ in range(max(1, int(part.get("qty", 1)))):
+                    o = self.add_mesh(m, rearrange=False)
+                    self._model_source[o.uid] = self._file_source(path)
+                    if part.get("placement") == "keep":       # where the file put it
+                        b = m.bounds
+                        o.x, o.y = float((b[0, 0] + b[1, 0]) / 2), float((b[0, 1] + b[1, 1]) / 2)
+                    else:
+                        to_place.append(o)
+                    group.append(o)
+            kind = part.get("kind", "asis")
+            if kind != "asis":
+                self._apply_indication(group, "model" if kind == "model_hollow" else kind)
+                if kind == "model_hollow":
+                    for o in group:
+                        o.settings["hollow_enable"] = True
+            if part.get("supports") == "none":
+                for o in group:
+                    o.direct, o.support_points = True, None
+            elif part.get("supports") == "generate" or (kind not in ("asis",) and not group[0].direct):
+                for o in group:
+                    o.direct = False
+                to_support += group
+            added += group
+        if not added:
+            return
+        if to_place:                                     # place first: moving a part drops its supports
+            self.auto_layout(scope="all", dialog=False)
+        if to_support and self.settings.config()["technology"] == "sla":
+            from .viewer import SEL_ADD
+            self._select_uid(to_support[0].uid)
+            for o in to_support[1:]:
+                self._select_uid(o.uid, SEL_ADD)
+            self.generate_supports()
+        self._objects_changed()
+        self.viewer.fit_objects()
+        for o in added:
+            self._check_learned_repair(o)
+        self._auto_close_holes(added)
+        self.status.setText(tr("ap_loaded").format(len(added)))
 
     def load_files(self, paths):
         added = None
@@ -3758,13 +3839,16 @@ class MainWindow(QMainWindow):
 
     def apply_dental_indication(self, kind: str):
         """Starting orientation per dental indication (as Phrozen DS Slicer does per indication)."""
+        group = [o for o in self.selected_objects() if o.role != "cutter"]
+        if kind not in self.DENTAL or not group:
+            return
+        self._push_undo()
+        self._apply_indication(group, kind)
+
+    def _apply_indication(self, group, kind: str):
         if kind not in self.DENTAL:
             return
         tilt, direct = self.DENTAL[kind]
-        group = [o for o in self.selected_objects() if o.role != "cutter"]
-        if not group:
-            return
-        self._push_undo()
         for o in group:
             o.lay_flat()
             if tilt:
