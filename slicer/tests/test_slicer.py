@@ -5042,3 +5042,41 @@ def test_add_parts_window_classifies_and_loads(tmp_path):
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
                        encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_tooth_raft_code_engraved_mirrored_under_the_raft():
+    """SOD code on a mini tiny raft: by default engraved into the underside (the side on the plate),
+    mirrored so it reads right when the raft is turned over; nothing sticks out above or below the raft.
+    'Top' keeps it embossed on top; a raft too thin for the depth also puts it on top."""
+    from PySide6.QtGui import QGuiApplication
+    from shapely import affinity
+    from unislicer import sla_supports
+    from unislicer.slicing import slice_mesh
+    QGuiApplication.instance() or QGuiApplication(["test", "-platform", "offscreen"])
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None,
+                                {"support_enable": True, "sla_raft_type": "tiny", "sla_raft_thickness": 1.0})
+    assert cfg["sla_raft_label_side"] == "bottom" and cfg["sla_raft_label_depth"] == 0.5
+    tooth = placed(primitives.box(14, 9, 7), 60, 40).world_mesh().translated([0, 0, 3])
+    sup, _ = sla_supports.build_supports(tooth, cfg, label="45198-N183-E")
+    low, high = slice_mesh(sup, [0.25, 0.75], 0.05)
+    outline = sla_supports.tooth_outline(tooth, cfg["sla_raft_tiny_inset"])
+    assert low.area < outline.area - 1.0                          # the code is cut into the bottom layers
+    assert high.area >= outline.area - 0.5                        # solid above the engraving
+    assert sup.vertices[:, 2].min() >= -1e-6
+    # the engraving is the mirror image of the text: it matches the mirrored code, not the plain one
+    from unislicer.mesh_tools import text_polygons
+    cut = outline.difference(low)
+    plain = sla_supports.fit_text(text_polygons("45198-N183-E", 2.0), outline.buffer(-0.4), min_height=1.0)
+    mirrored = sla_supports.fit_text(affinity.scale(text_polygons("45198-N183-E", 2.0), -1, 1, origin=(0, 0)),
+                                     outline.buffer(-0.4), min_height=1.0)
+    assert cut.symmetric_difference(mirrored).area < cut.symmetric_difference(plain).area
+    # top: embossed above the raft as before
+    cfg.update({"sla_raft_label_side": "top"})
+    top, _ = sla_supports.build_supports(tooth, cfg, label="45198-N183-E")
+    above = slice_mesh(top, [1.2], 0.05)[0].area - slice_mesh(sup, [1.2], 0.05)[0].area
+    assert above > 1.0                                             # text stands above the 1 mm raft
+    assert abs(slice_mesh(top, [0.25], 0.05)[0].area - outline.area) < 0.5
+    # too thin a raft for a 0.5 mm engraving: the code goes on top
+    cfg.update({"sla_raft_label_side": "bottom", "sla_raft_thickness": 0.6})
+    thin, _ = sla_supports.build_supports(tooth, cfg, label="45198-N183-E")
+    assert abs(slice_mesh(thin, [0.25], 0.05)[0].area - sla_supports.tooth_outline(tooth, 0.5).area) < 0.5

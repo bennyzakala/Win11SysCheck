@@ -393,8 +393,9 @@ def _slab(poly, z0: float, z1: float, slope_deg: float) -> Mesh:
     return Mesh(v, np.vstack([sides, caps]), "Raft")
 
 
-def _raft_label(text: str, feet: np.ndarray, cfg: Config, pad: float, raft: float) -> list[Mesh]:
-    """The model's name embossed on the front edge of its raft (as PreForm's raft label)."""
+def _raft_label(text: str, feet: np.ndarray, cfg: Config, pad: float, raft: float, engrave: float = 0.0) -> list[Mesh]:
+    """The model's name embossed on the front edge of its raft (as PreForm's raft label); with ``engrave``
+    it is cut that deep, mirrored, into the tab's underside instead."""
     try:
         from PySide6.QtGui import QGuiApplication
         if QGuiApplication.instance() is None:     # fonts need the GUI; the command line skips the label
@@ -424,6 +425,9 @@ def _raft_label(text: str, feet: np.ndarray, cfg: Config, pad: float, raft: floa
     tab = ShapelyPolygon([(cx - w2, miny - (ty1 - ty0) - 2.0), (cx + w2, miny - (ty1 - ty0) - 2.0),
                           (cx + w2, miny + 1.0), (cx - w2, miny + 1.0)])
     polys = affinity.translate(polys, cx - (tx0 + tx1) / 2, miny - (ty1 - ty0) - 1.0 - ty0)
+    if engrave > 0:
+        polys = affinity.scale(polys, -1.0, 1.0, origin=polys.centroid)    # reads right from below
+        return [extrude(tab.difference(polys), 0.0, engrave, "Raft"), extrude(tab, engrave, raft, "Raft")]
     return [_slab(tab, 0.0, raft, 90), extrude(polys, raft - 0.01, raft + 0.4, "Raft label")]
 
 
@@ -443,6 +447,27 @@ def _raft_label_inside(text: str, shape, raft: float) -> list[Mesh]:
     if placed is None:
         return []
     return [extrude(placed, raft - 0.01, raft + 0.4, "Raft label")]
+
+
+def _raft_label_under(text: str, shape, raft: float, depth: float) -> list[Mesh] | None:
+    """A mini tiny raft with the label engraved ``depth`` deep into its underside (the side on the plate),
+    mirrored so it reads right when the raft is turned over. None when no readable size fits."""
+    try:
+        from PySide6.QtGui import QGuiApplication
+        if QGuiApplication.instance() is None:
+            return None
+        from shapely import affinity
+        from .mesh_tools import extrude, text_polygons
+        base = affinity.scale(text_polygons(text[:24], 2.0), -1.0, 1.0, origin=(0, 0))
+    except Exception:          # pragma: no cover - no Qt fonts here
+        return None
+    placed = fit_text(base, shape.buffer(-0.4), min_height=1.0)   # the bottom layers fill finer text
+    if placed is None:
+        return None
+    cut = shape.difference(placed)
+    if cut.is_empty:
+        return None
+    return [extrude(cut, 0.0, depth, "Raft"), extrude(shape, depth, raft, "Raft")]
 
 
 def fit_text(text, room, min_height: float = 0.7, max_height: float = 3.0):
@@ -798,10 +823,17 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
         parts += _braces(pillars, underside(), cfg, segs)
 
     tiny = tooth_outline(mesh, cfg["sla_raft_tiny_inset"]) if cfg["sla_raft_type"] == "tiny" and feet else None
-    parts += _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny)
+    # under the raft: engraved (mirrored) into the side on the plate, when the raft is thick enough
+    engrave = cfg["sla_raft_label_depth"] if cfg["sla_raft_label_side"] == "bottom" \
+        and raft >= cfg["sla_raft_label_depth"] + 0.3 else 0.0
+    engraved = _raft_label_under(label, tiny, raft, engrave) if label and engrave and tiny is not None \
+        and not tiny.is_empty else None
+    parts += engraved if engraved else _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny)
     # the caller chooses the text (the model's name, or a tooth's SOD case code); "" = no label
-    if label and feet and cfg["sla_raft_type"] in ("solid", "grid", "hexagon") and raft >= 0.4:
-        parts += _raft_label(label, np.array(feet), cfg, pillar_r * 4, raft)
+    if engraved:
+        pass
+    elif label and feet and cfg["sla_raft_type"] in ("solid", "grid", "hexagon") and raft >= 0.4:
+        parts += _raft_label(label, np.array(feet), cfg, pillar_r * 4, raft, engrave)
     elif label and tiny is not None and not tiny.is_empty and raft >= 0.4:
         parts += _raft_label_inside(label, tiny, raft)
     merged = Mesh.merge(list(parts), "Supports")

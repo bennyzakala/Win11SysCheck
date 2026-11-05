@@ -1339,7 +1339,6 @@
 "Select a label first (click it with the label tool, L); then Ctrl + wheel resizes it and Alt + wheel turns it": "اختر ملصقًا أولًا (انقر عليه بأداة الملصق L)؛ ثم Ctrl + العجلة لتغيير الحجم و Alt + العجلة للتدوير",
 "To move it: with the label tool (L), press on the label and drag it over the model. Ctrl + wheel resizes, Alt + wheel turns, Ctrl+Z undoes.": "للنقل: باستخدام أداة الملصق (L) اضغط على الملصق واسحبه فوق النموذج. Ctrl + العجلة للحجم، Alt + العجلة للتدوير، Ctrl+Z للتراجع.",
 "{code} = the short SOD code (e.g. 45198-N183-E), {name} = model name, {n} = running number, {date} = today's date": "{code} = رمز SOD المختصر (مثل 45198-N183-E)، {name} = اسم النموذج، {n} = رقم تسلسلي، {date} = تاريخ اليوم",
-"Crowns and bridges only: the code from the SOD number in the file name is embossed on the raft, e.g. 46671-044-P from DSY-SOD260046671-044-P-46": "للتيجان والجسور فقط: يُنقش على القاعدة الرمز من رقم SOD في اسم الملف، مثل 46671-044-P من DSY-SOD260046671-044-P-46",
 "Turn 90° left": "تدوير 90° لليسار",
 "Turn 90° right": "تدوير 90° لليمين",
 "Turn 180°": "تدوير 180°",
@@ -1370,5 +1369,12 @@
 "Generate": "إنشاء",
 "None (on the plate)": "بدون (على المنصة)",
 "{} parts added": "تمت إضافة {} أجزاء",
-"Show 'Add parts' when opening models": "إظهار «إضافة أجزاء» عند فتح النماذج"
+"Show 'Add parts' when opening models": "إظهار «إضافة أجزاء» عند فتح النماذج",
+"Raft label side": "جهة الكتابة على الطوف",
+"Underside, engraved and mirrored": "من الأسفل، محفورة ومعكوسة",
+"Top, embossed": "من الأعلى، بارزة",
+"Underside: the label is engraved into the side on the plate, mirrored, so it reads right when the raft is turned over; nothing sticks out to spoil adhesion. When the raft is too thin for the depth the label goes on top": "من الأسفل: تُحفر الكتابة في الجهة الملاصقة للصفيحة معكوسةً، فتُقرأ بشكل صحيح عند قلب الطوف؛ لا شيء يبرز فيُفسد الالتصاق. إذا كان الطوف أرق من عمق الحفر تُوضع الكتابة في الأعلى",
+"Underside label depth": "عمق الكتابة السفلية",
+"How deep the underside label is engraved; the long-exposed bottom layers tend to fill shallow engraving - 0.4 mm or more": "عمق حفر الكتابة في أسفل الطوف؛ الطبقات السفلية ذات التعريض الطويل تميل إلى سدّ الحفر الضحل - 0.4 مم أو أكثر",
+"Crowns and bridges only: the code from the SOD number in the file name goes on the raft (see Raft label side), e.g. 46671-044-P from DSY-SOD260046671-044-P-46": "للتيجان والجسور فقط: يُوضع على الطوف الرمز من رقم SOD في اسم الملف (انظر جهة الكتابة على الطوف)، مثل 46671-044-P من DSY-SOD260046671-044-P-46"
 }
