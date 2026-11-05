@@ -5079,3 +5079,35 @@ def test_tooth_raft_code_engraved_mirrored_under_the_raft():
     cfg.update({"sla_raft_label_side": "bottom", "sla_raft_thickness": 0.6})
     thin, _ = sla_supports.build_supports(tooth, cfg, label="45198-N183-E")
     assert abs(slice_mesh(thin, [0.25], 0.05)[0].area - sla_supports.tooth_outline(tooth, 0.5).area) < 0.5
+
+
+def test_raft_code_bends_along_an_arch_raft():
+    """On an arch-shaped raft (a bridge) the whole code is bent along the arch's middle line, much bigger
+    than any straight placement allows, and stays wholly inside, reading left to right; a straight raft
+    keeps straight text."""
+    from PySide6.QtGui import QGuiApplication
+    from shapely.geometry import Polygon, box
+    from unislicer import sla_supports
+    from unislicer.mesh_tools import text_polygons
+    QGuiApplication.instance() or QGuiApplication(["test", "-platform", "offscreen"])
+    text = text_polygons("45198-N183-E", 2.0)
+    pieces = len(sla.as_multipolygon(text).geoms)
+    for start, stop in ((20, 160), (-170, -10)):                 # an arch and a U
+        ang = np.radians(np.linspace(start, stop, 60))
+        arch = Polygon([(21 * np.cos(a), 21 * np.sin(a)) for a in ang] +
+                       [(15 * np.cos(a), 15 * np.sin(a)) for a in ang[::-1]])
+        room = arch.buffer(-0.4)
+        straight = sla_supports._fit_straight(text, room, 0.7, 3.0)
+        placed = sla_supports.fit_text(text, room)
+        assert placed is not None and room.contains(placed)
+        assert len(sla.as_multipolygon(placed).geoms) == pieces          # every glyph is there
+        bent = sla_supports._fit_curved(text, room, 0.7, 3.0)
+        assert bent is not None and bent[1] > 2.0 and (straight is None or bent[1] > straight[1] * 2)
+        # read left to right: a marker at the text's start lands at the arch's left end
+        marks = sla.as_multipolygon(shapely.union_all([box(0, 0, 1, 1), box(20, 0, 21, 2)]))
+        got = sla.as_multipolygon(sla_supports._fit_curved(marks, room, 0.7, 3.0)[0]).geoms
+        small, big = sorted(got, key=lambda g: g.area)
+        assert small.centroid.x < big.centroid.x
+    flat = sla_supports.fit_text(text, box(0, 0, 30, 6))
+    assert flat is not None
+    assert sla_supports._fit_straight(text, box(0, 0, 30, 6), 0.7, 3.0)[0].equals(flat)   # straight stays straight

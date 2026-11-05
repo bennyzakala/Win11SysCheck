@@ -471,12 +471,24 @@ def _raft_label_under(text: str, shape, raft: float, depth: float) -> list[Mesh]
 
 
 def fit_text(text, room, min_height: float = 0.7, max_height: float = 3.0):
-    """``text`` (polygons, 2 mm tall, horizontal) placed wholly inside ``room``: along its long axis, as big
-    as fits (up to ``max_height``), or None."""
-    from shapely import affinity
+    """``text`` (polygons, 2 mm tall, horizontal) placed wholly inside ``room`` as big as fits (up to
+    ``max_height``), or None: straight along the room's long axis, or - on an arch-shaped or otherwise
+    bent room (a bridge's raft) - bent along the room's centre line when that lets it be bigger."""
     if text.is_empty or room.is_empty:
         return None
     room = room.buffer(0)
+    shapely.prepare(room)
+    straight = _fit_straight(text, room, min_height, max_height)
+    if straight is not None and straight[1] >= max_height * 0.999:
+        return straight[0]
+    curved = _fit_curved(text, room, min_height, max_height)
+    if curved is not None and (straight is None or curved[1] > straight[1] * 1.1):
+        return curved[0]
+    return straight[0] if straight is not None else None
+
+
+def _fit_straight(text, room, min_height: float, max_height: float):
+    from shapely import affinity
     rect = room.minimum_rotated_rectangle
     xy = np.asarray(rect.exterior.coords)[:4]
     edges = [xy[(k + 1) % 4] - xy[k] for k in range(2)]
@@ -493,7 +505,6 @@ def fit_text(text, room, min_height: float = 0.7, max_height: float = 3.0):
     centred = affinity.translate(text, -(tx0 + tx1) / 2, -(ty0 + ty1) / 2)
     c = np.asarray(rect.centroid.coords[0])
     axis = long_edge / max(np.hypot(*long_edge), 1e-9)
-    shapely.prepare(room)
     k = min(0.92 * length / max(tw, 1e-6), 0.8 * width / max(th, 1e-6), max_height / max(th, 1e-6))
     while k * th >= min_height:
         piece = affinity.rotate(affinity.scale(centred, k, k, origin=(0, 0)), angle, origin=(0, 0))
@@ -502,8 +513,129 @@ def fit_text(text, room, min_height: float = 0.7, max_height: float = 3.0):
             p = c + axis * off * span
             cand = affinity.translate(piece, p[0], p[1])
             if room.contains(cand):
-                return cand
+                return cand, k * th
         k *= 0.9
+    return None
+
+
+def centre_line(room, step: float | None = None) -> np.ndarray | None:
+    """The longest path through the room's medial axis (the line midway between its sides), smoothed:
+    for an arch-shaped raft, the arch's middle curve. Points in order; None for a degenerate room."""
+    import heapq
+    if room.is_empty or room.area <= 1e-6:
+        return None
+    if room.geom_type == "MultiPolygon":
+        room = max(room.geoms, key=lambda g: g.area)
+    x0, y0, x1, y1 = room.bounds
+    if step is None:
+        step = max(0.1, min(0.4, min(x1 - x0, y1 - y0) / 12))
+    ring_pts = []
+    for ring in [room.exterior, *room.interiors]:
+        ring_pts.append(np.asarray(shapely.segmentize(ring, step).coords)[:-1])
+    pts = np.vstack(ring_pts)
+    if len(pts) < 4:
+        return None
+    edges = shapely.voronoi_polygons(MultiPoint(pts), only_edges=True)
+    inner = room.buffer(-step * 0.5)
+    if inner.is_empty:
+        return None
+    shapely.prepare(inner)
+    graph: dict = {}
+    for e in getattr(edges, "geoms", [edges]):
+        if not inner.contains(e):
+            continue
+        cs = np.asarray(e.coords)
+        a, b = tuple(np.round(cs[0], 6)), tuple(np.round(cs[-1], 6))
+        w = float(np.hypot(*(cs[-1] - cs[0])))
+        graph.setdefault(a, []).append((b, w))
+        graph.setdefault(b, []).append((a, w))
+    if len(graph) < 2:
+        return None
+
+    def farthest(start):
+        dist, prev, heap = {start: 0.0}, {start: None}, [(0.0, start)]
+        while heap:
+            d, u = heapq.heappop(heap)
+            if d > dist[u]:
+                continue
+            for v, w in graph[u]:
+                if d + w < dist.get(v, float("inf")):
+                    dist[v], prev[v] = d + w, u
+                    heapq.heappush(heap, (d + w, v))
+        end = max(dist, key=dist.get)
+        return end, prev
+
+    # the medial axis of the largest connected piece: start from its middle
+    start = max(graph, key=lambda n: room.exterior.distance(shapely.Point(n)))
+    a, _ = farthest(start)
+    b, prev = farthest(a)
+    path = []
+    while b is not None:
+        path.append(b)
+        b = prev[b]
+    path = np.array(path)
+    if len(path) < 2:
+        return None
+    for _ in range(3):                                     # smooth the corners (Chaikin), ends kept
+        q = 0.75 * path[:-1] + 0.25 * path[1:]
+        r = 0.25 * path[:-1] + 0.75 * path[1:]
+        mid = np.empty((2 * len(q), 2))
+        mid[0::2], mid[1::2] = q, r
+        path = np.vstack([path[:1], mid, path[-1:]])
+    return path
+
+
+def _bend(text, path: np.ndarray, start: float, k: float):
+    """``text`` (centred on y = 0, starting at x = 0) scaled by ``k`` and bent along ``path`` from arc
+    length ``start``: x runs along the path, y along its left normal."""
+    seg = np.diff(path, axis=0)
+    seglen = np.hypot(seg[:, 0], seg[:, 1])
+    s = np.concatenate([[0.0], np.cumsum(seglen)])
+    tang = seg / np.maximum(seglen, 1e-12)[:, None]
+    # tangent at each path point (averaged), so the bend has no kinks at the joints
+    tp = np.vstack([tang[:1], tang[:-1] + tang[1:], tang[-1:]])
+    tp /= np.maximum(np.hypot(tp[:, 0], tp[:, 1]), 1e-12)[:, None]
+
+    def warp(xy):
+        u = start + xy[:, 0] * k
+        px = np.interp(u, s, path[:, 0])
+        py = np.interp(u, s, path[:, 1])
+        tx = np.interp(u, s, tp[:, 0])
+        ty = np.interp(u, s, tp[:, 1])
+        n = np.hypot(tx, ty)
+        tx, ty = tx / np.maximum(n, 1e-12), ty / np.maximum(n, 1e-12)
+        v = xy[:, 1] * k
+        return np.column_stack([px - ty * v, py + tx * v])
+
+    bent = shapely.transform(text, warp)
+    return bent if bent.is_valid else bent.buffer(0)
+
+
+def _fit_curved(text, room, min_height: float, max_height: float):
+    from shapely import affinity
+    path = centre_line(room)
+    if path is None:
+        return None
+    seg = np.diff(path, axis=0)
+    normal_y = float(np.sum(seg[:, 0]))                    # left normal of (dx, dy) has y = dx
+    if normal_y < 0:
+        path = path[::-1]                                  # letters stand up, read left to right
+    s_total = float(np.sum(np.hypot(*np.diff(path, axis=0).T)))
+    tx0, ty0, tx1, ty1 = text.bounds
+    tw, th = tx1 - tx0, ty1 - ty0
+    if tw <= 1e-6 or th <= 1e-6 or s_total <= 1e-6:
+        return None
+    base = affinity.translate(text, -tx0, -(ty0 + ty1) / 2)
+    base = shapely.segmentize(base, max(th / 10, 0.02))   # enough points for the letters to bend smoothly
+    half = float(np.min([room.exterior.distance(shapely.Point(p)) for p in path[len(path) // 4: 3 * len(path) // 4 + 1]]))
+    k = min(0.95 * s_total / tw, max_height / th, max(1.9 * half, min_height) / th)
+    while k * th >= min_height:
+        span = max(0.0, s_total - k * tw)
+        for off in (0.5, 0.375, 0.625, 0.25, 0.75, 0.125, 0.875):
+            cand = _bend(base, path, span * off, k)
+            if not cand.is_empty and room.contains(cand):
+                return cand, k * th
+        k *= 0.92
     return None
 
 
