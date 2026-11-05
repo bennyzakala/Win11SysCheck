@@ -581,7 +581,8 @@ class Config:
         return self
 
     def copy(self) -> "Config":
-        return Config(dict(self.values))
+        import copy as _copy
+        return Config({k: (_copy.deepcopy(v) if isinstance(v, (list, dict)) else v) for k, v in self.values.items()})
 
     @property
     def line_width(self) -> float:

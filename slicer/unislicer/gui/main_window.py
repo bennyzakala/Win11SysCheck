@@ -3088,7 +3088,11 @@ class MainWindow(QMainWindow):
             return "outside"
         region = plate_region(cfg)
         plate = region if region is not None else box(*plate_rect(cfg))
-        hull = MultiPoint(o.world_mesh().vertices[:, :2]).convex_hull
+        from ..layout import footprint                 # the model's outline from above, cached per shape
+        try:
+            hull = footprint(o)
+        except Exception:
+            hull = MultiPoint(o.world_mesh().vertices[:, :2]).convex_hull
         return "partial" if hull.intersection(plate).area > 1e-6 else "outside"
 
     def _sync_transform(self):

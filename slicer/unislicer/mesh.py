@@ -11,6 +11,20 @@ import numpy as np
 WELD_TOLERANCE = 1e-5
 
 
+def _group_rows(keys: np.ndarray):
+    """(group index of every row, size of every group) for equal rows of an (N, 3) integer array - what
+    np.unique(axis=0, return_inverse=True, return_counts=True) gives, by a lexsort (several times faster)."""
+    order = np.lexsort((keys[:, 2], keys[:, 1], keys[:, 0]))
+    k = keys[order]
+    new = np.ones(len(k), dtype=bool)
+    new[1:] = np.any(k[1:] != k[:-1], axis=1)
+    group = np.cumsum(new) - 1
+    inverse = np.empty(len(k), dtype=np.int64)
+    inverse[order] = group
+    counts = np.diff(np.append(np.flatnonzero(new), len(k)))
+    return inverse, counts
+
+
 class Mesh:
     """Indexed triangle mesh. ``vertices`` is (V, 3) float64, ``faces`` is (F, 3) int64."""
 
@@ -112,22 +126,31 @@ class Mesh:
 
     def decimated(self, target_faces: int = 60000) -> "Mesh":
         """A light look-alike for drawing while the view moves: vertices merged on a grid sized so that
-        about ``target_faces`` triangles remain (vertex clustering). Returns self if already small."""
+        about ``target_faces`` triangles remain (vertex clustering). Returns self if already small.
+        Kept on the mesh (meshes are not edited in place), so it is made once."""
         if len(self.faces) <= target_faces:
             return self
+        cache = self.__dict__.setdefault("_decimated", {})
+        hit = cache.get(target_faces)
+        if hit is not None and hit[0] is self.vertices and hit[1] is self.faces:
+            return hit[2]
         area = float(self.face_areas().sum()) or 1.0
         cell = (2.0 * area / target_faces) ** 0.5
         keys = np.floor((self.vertices - self.vertices.min(axis=0)) / cell).astype(np.int64)
-        _, cluster, counts = np.unique(keys, axis=0, return_inverse=True, return_counts=True)
-        cluster = cluster.ravel()
+        cluster, counts = _group_rows(keys)
         verts = np.zeros((len(counts), 3))
         np.add.at(verts, cluster, self.vertices)
         verts /= counts[:, None]
         f = cluster[self.faces]
         ok = (f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 0] != f[:, 2])
         f = f[ok]
-        _, first = np.unique(np.sort(f, axis=1), axis=0, return_index=True)
-        return Mesh(verts, f[np.sort(first)], self.name)
+        sf = np.sort(f, axis=1)
+        order = np.lexsort((sf[:, 2], sf[:, 1], sf[:, 0]))
+        keep = np.ones(len(order), dtype=bool)
+        keep[1:] = np.any(sf[order][1:] != sf[order][:-1], axis=1)
+        out = Mesh(verts, f[np.sort(order[keep])], self.name)
+        cache[target_faces] = (self.vertices, self.faces, out)
+        return out
 
     def volume(self) -> float:
         if self._volume is None:

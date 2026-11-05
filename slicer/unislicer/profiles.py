@@ -44,6 +44,22 @@ def _builtin_extras(kind: str) -> dict:
     return out
 
 
+def files_stamp() -> tuple:
+    """When each profile file last changed: a configuration built from them stays valid while this is equal."""
+    out = []
+    for d in (BUILTIN_DIR, USER_DIR):
+        try:
+            names = sorted(n for n in os.listdir(d) if n.endswith(".json"))
+        except OSError:
+            continue
+        for n in names:
+            try:
+                out.append((d, n, os.path.getmtime(os.path.join(d, n))))
+            except OSError:
+                pass
+    return tuple(out)
+
+
 def load(kind: str) -> dict:
     """All profiles of a kind; user profiles (marked ``user``) override built-in ones."""
     assert kind in KINDS

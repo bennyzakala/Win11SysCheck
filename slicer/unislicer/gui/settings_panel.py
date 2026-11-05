@@ -955,10 +955,18 @@ class SettingsPanel(QWidget):
         return profiles.build_config(self.printer_id, self.material_id, self.quality_id)
 
     def config(self) -> Config:
-        cfg = self.base_config().update(self.overrides)
-        if self.technology == "sla":
-            profiles.apply_layer_table(cfg, self.printer_id, self.material_id, self.overrides)
-        return cfg
+        # built from the profile files on every call it read them ~6 times each (dragging a model asked for it
+        # ~20 times per step): kept until the printer / material / quality, a setting or a profile file changes
+        import json as _json
+        key = (self.printer_id, self.material_id, self.quality_id, self.technology,
+               _json.dumps(self.overrides, sort_keys=True, default=str), profiles.files_stamp())
+        hit = getattr(self, "_cfg_cache", None)
+        if hit is None or hit[0] != key:
+            cfg = self.base_config().update(self.overrides)
+            if self.technology == "sla":
+                profiles.apply_layer_table(cfg, self.printer_id, self.material_id, self.overrides)
+            hit = self._cfg_cache = (key, cfg)
+        return hit[1].copy()
 
     def set_value(self, key: str, value):
         """Programmatic override (e.g. the overhang toggle in the viewport). Only that row is refreshed;

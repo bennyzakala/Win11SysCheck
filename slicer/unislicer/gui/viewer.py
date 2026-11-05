@@ -226,6 +226,22 @@ def _pick_data(mesh: Mesh):
 _PICK_CLUSTER = 128
 
 
+def _prepare_picking(mesh: Mesh):
+    """Build a new model's picking data in the background (a big scan takes ~0.3 s), so the first time the
+    cursor passes over it the view does not stutter. Numpy does the work, mostly outside the GIL."""
+    if getattr(mesh, "_pick_cache", None) is not None or len(mesh.faces) < 20000:
+        return
+    import threading
+
+    def work():
+        try:
+            _pick_data(mesh)
+            mesh.decimated(Viewer.LOD_FACES // 2)        # the light copy drawn while the view moves
+        except Exception:
+            pass
+    threading.Thread(target=work, daemon=True).start()
+
+
 def _ray_near(origin, d, centre, radius2):
     """Indices of the spheres (centre, radius²) that the line origin + s·d (d unit length) passes through."""
     w = centre - origin
@@ -479,6 +495,7 @@ class Viewer(QOpenGLWidget):
                 self._trash(b[0])
             self.objects[uid] = {"mesh": mesh, "buffer": None, "state": state, "matrix": matrix,
                                  "color": (old or {}).get("color")}
+            _prepare_picking(mesh)
         self.update()
 
     def set_object_color(self, uid, rgb):
@@ -1309,10 +1326,10 @@ class Viewer(QOpenGLWidget):
         k = idx[np.argmin(dist[idx])]
         return float(dist[k]), int(order[near[k]])
 
-    def pick(self, pos: QPointF):
+    def pick(self, pos: QPointF, supports: bool = True):
         """The object under the cursor: its surface, its supports, or failing that its bounding box
         (so small or thin parts are easy to grab)."""
-        uid, _ = self.pick_hit(pos, supports=True)
+        uid, _ = self.pick_hit(pos, supports=supports)
         if uid is not None:
             return uid
         origin, direction = self._ray(pos)
@@ -1528,7 +1545,9 @@ class Viewer(QOpenGLWidget):
             uid = None
         else:
             try:
-                uid = self.pick(self._hover_pos)
+                # the model itself only: a support mesh is rebuilt whenever its model moves, and preparing a new
+                # one for picking cost ~150 ms on the next hover (clicks still find supports)
+                uid = self.pick(self._hover_pos, supports=False)
             except Exception:
                 uid = None
         self._set_hover_uid(uid)
