@@ -169,7 +169,26 @@ def auto_support_points(mesh: Mesh, cfg: Config) -> np.ndarray:
     # lowest tips (vertices below all their neighbours) would be missed by a coarse grid
     if cfg["sla_support_minima"]:
         points += _tip_points(mesh, caster.normals, threshold, spacing, points)
-    return np.array(points, dtype=np.float64).reshape(-1, 3)
+    pts = np.array(points, dtype=np.float64).reshape(-1, 3)
+    if len(pts) and float(np.max(hi[:2] - lo[:2])) > 40.0:     # a jaw model: its base's ledges hold themselves
+        pts = pts[[not _small_ledge(caster, p) for p in pts]]   # (crowns and bridges keep every point)
+    return pts
+
+
+LEDGE_REACH = 1.0          # mm: a flat overhang this close to the wall below it holds itself up
+
+
+def _small_ledge(caster: "_Caster", p: np.ndarray) -> bool:
+    """A point under a narrow overhang of a jaw model (the step between its base and the gingiva, the bulge
+    of a tooth over the gum): the model goes on just below it, within LEDGE_REACH to the side, so it prints
+    held by that wall and a support there would only climb up the model from the plate."""
+    probe = p[2] - 0.15
+    for a in np.linspace(0, 2 * math.pi, 8, endpoint=False):
+        spans = caster.solid_spans(p[0] + LEDGE_REACH * math.cos(a), p[1] + LEDGE_REACH * math.sin(a))
+        # a wall (or the gum) going down at least 2 mm under it - not just the next bit of a sloped underside
+        if len(spans) and np.any((spans[:, 0] < probe - 2.0) & (spans[:, 1] > probe)):
+            return True
+    return False
 
 
 def drop_keepout(points: np.ndarray, zones: np.ndarray | None) -> np.ndarray:
@@ -263,6 +282,12 @@ class _Underside:
 
     def __init__(self, mesh: Mesh, cell: float = 1.0):
         tris = mesh.triangles
+        # a scan's triangles are mostly smaller than a cell: the bounding box of such a triangle touches at
+        # most 2 x 2 cells, marked directly below; only the bigger ones go through the general rasterisation
+        ext = (tris[:, :, :2].max(axis=1) - tris[:, :, :2].min(axis=1)).max(axis=1)
+        corners = np.asarray(mesh.vertices)
+        small = tris[ext <= cell]
+        tris = tris[ext > cell]
         # split large triangles so a bounding-box rasterisation stays tight
         for _ in range(8):
             edges = np.linalg.norm(tris[:, [1, 2, 0], :2] - tris[:, :, :2], axis=2).max(axis=1)
@@ -275,8 +300,8 @@ class _Underside:
                                     np.stack([m20, m12, t[:, 2]], 1), np.stack([m01, m12, m20], 1)])
             tris = np.concatenate([tris[~big], split])
         self.cell = cell
-        lo = tris[:, :, :2].min(axis=(0, 1)) - cell
-        hi = tris[:, :, :2].max(axis=(0, 1)) + cell
+        lo = corners[:, :2].min(axis=0) - cell
+        hi = corners[:, :2].max(axis=0) + cell
         self.origin = lo
         self.shape = (int(np.ceil((hi[0] - lo[0]) / cell)) + 1, int(np.ceil((hi[1] - lo[1]) / cell)) + 1)
         grid = np.full(self.shape, np.inf)
@@ -291,6 +316,13 @@ class _Underside:
         ii = i0[tri] + k % w[tri]
         jj = j0[tri] + k // w[tri]
         np.minimum.at(grid, (ii, jj), tris[:, :, 2].min(axis=1)[tri])
+        if len(small):
+            zmin = small[:, :, 2].min(axis=1)
+            si = np.floor((small[:, :, 0] - lo[0]) / cell).astype(int)
+            sj = np.floor((small[:, :, 1] - lo[1]) / cell).astype(int)
+            for ii in (si.min(axis=1), si.max(axis=1)):
+                for jj in (sj.min(axis=1), sj.max(axis=1)):
+                    np.minimum.at(grid, (ii, jj), zmin)
         # dilate by one cell so branch thickness and diagonal neighbours are covered
         pad = np.pad(grid, 1, constant_values=np.inf)
         self.grid = np.min([pad[1 + dx:1 + dx + self.shape[0], 1 + dy:1 + dy + self.shape[1]]

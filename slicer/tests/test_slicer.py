@@ -5291,3 +5291,24 @@ def test_supports_standing_on_a_sloped_part_of_the_model_are_kept():
         pts = sla_supports.auto_support_points(model, cfg)
         _, used = sla_supports.build_supports(model, cfg, pts)
         assert len(used) == len(pts), (shape, len(used), len(pts))
+
+
+def test_jaw_model_ledges_get_no_supports_climbing_up_the_model():
+    """A jaw model (over 40 mm) with a narrow step between its base and the gingiva: the step holds itself
+    up, so no support climbs the wall from the plate to it; the underside keeps all its supports. A tilted
+    model keeps the supports of its sloped underside, and crowns keep every point."""
+    from unislicer import sla_supports
+    base = primitives.box(50, 40, 8)
+    base = base.translated([60, 40, 5 - base.bounds[0][2]])                    # 5..13
+    gum = primitives.box(52, 42, 6)
+    gum = gum.translated([60, 40, 13 - gum.bounds[0][2]])                      # 13..19, a 1 mm step all round
+    model = Mesh.merge([base, gum])
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True})
+    pts = sla_supports.auto_support_points(model, cfg)
+    assert len(pts) and not np.any(pts[:, 2] > 6.0), pts[pts[:, 2] > 6.0]     # nothing on the step at z 13
+    assert np.sum(pts[:, 2] < 5.1) >= 20                                      # the underside is held
+    a = np.radians(30)
+    tilt = Mesh(model.vertices @ np.array([[1, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]]).T,
+                model.faces)
+    tilt = tilt.translated([0, 0, -tilt.bounds[0][2] + 5])
+    assert len(sla_supports.auto_support_points(tilt, cfg)) >= 20               # a sloped underside is held
