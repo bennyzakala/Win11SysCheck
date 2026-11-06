@@ -4289,6 +4289,33 @@ class MainWindow(QMainWindow):
                 return code
         return o.name if cfg["sla_raft_label"] else ""
 
+    def _in_background(self, fn):
+        """Run ``fn()`` on a background thread and return its result; meanwhile the window keeps repainting
+        and stays 'responding' (clicks and keys wait until it is done)."""
+        if not self.async_supports:
+            return fn()
+        from .worker import Task
+        box = {}
+
+        def work(progress, cancelled):
+            try:
+                box["result"] = fn()
+            except Exception as exc:          # handed back to the caller, on the window's thread
+                box["error"] = exc
+                raise
+
+        task = Task(work, self)
+        loop = QEventLoop()
+        task.finished.connect(loop.quit)
+        task.start()
+        if not task.isFinished():
+            loop.exec(QEventLoop.ExcludeUserInputEvents)
+        task.wait()
+        task.deleteLater()
+        if "error" in box:
+            raise box["error"]
+        return box.get("result")
+
     def _support_key(self, o: SceneObject, cfg):
         keys = sorted(k for k in cfg.values if k.startswith("sla_") and not k.startswith("sla_layer"))
         return (o.uid, o.support_points.tobytes(), o.matrix().tobytes(), tuple(cfg[k] for k in keys),
@@ -4446,6 +4473,7 @@ class MainWindow(QMainWindow):
         chosen = self.selected_objects()
         skipped = 0
         upside = []                               # parts whose fitting surface faces the plate
+        jobs = []
         for o in self._support_targets():
             if o.role == "cutter":
                 continue
@@ -4454,19 +4482,29 @@ class MainWindow(QMainWindow):
                     skipped += 1
                     continue
                 o.direct = False             # supports asked for this very part: it leaves the plate
-            world = o.mesh.transform(o.world_matrix())
-            world = world.translated([0, 0, lift])
-            report = {}
-            o.set_world_support_points(sla_supports.drop_keepout(
-                sla_supports.auto_support_points(world, o.config(learned_plate), report), o.world_keepout(lift)), lift)
+            jobs.append((o, o.mesh, o.world_matrix().copy()))
+
+        def work():
+            # each part's settings (its type: the horseshoe test reads its outline) and support points, off
+            # the window's thread (a jaw model takes ~0.5 s); the window waits without input meanwhile
+            out = []
+            for o, mesh, matrix in jobs:
+                ocfg = o.config(learned_plate)
+                world = mesh.transform(matrix).translated([0, 0, lift])
+                report = {}
+                out.append((sla_supports.auto_support_points(world, ocfg, report), report, ocfg))
+            return out
+
+        results = self._in_background(work) if jobs else []
+        for (o, _mesh, _matrix), (pts, report, ocfg) in zip(jobs, results):
+            o.set_world_support_points(sla_supports.drop_keepout(pts, o.world_keepout(lift)), lift)
             if report.get("points", 0) >= 4 and report["fit_dropped"] > 0.4 * report["points"]:
                 upside.append(o.name or "model")
                 self._fit_down.add(o.uid)
             else:
                 self._fit_down.discard(o.uid)
             o.__dict__["support_session"] = {"auto": len(o.support_points), "added": [], "removed": 0,
-                                             "threshold": o.config(learned_plate)["support_angle"]}
-            self._breathe()
+                                             "threshold": ocfg["support_angle"]}
         self._objects_changed(refresh_list=False)
         msg = tr("sup_generated_hint") + (" " + tr("sup_skipped_direct").format(skipped) if skipped else "")
         if upside:
