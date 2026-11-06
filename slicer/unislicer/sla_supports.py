@@ -119,7 +119,7 @@ class _Caster:
     def base_below(self, p: np.ndarray) -> float | None:
         """Height where a pillar dropped from ``p`` lands: 0 for the bed, or the top of the model below it."""
         z, faces = self.hits(p[0], p[1])
-        below = (z < p[2] - 1e-3) & (self.normals[faces, 2] > 0)
+        below = (z < p[2] - 1e-3) & (self.normals[faces, 2] > 0.3)       # a floor, not a steep wall
         return float(z[below].max()) if np.any(below) else 0.0
 
 
