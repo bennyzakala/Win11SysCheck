@@ -5567,3 +5567,43 @@ def test_one_click_plate_and_its_summary():
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env,
                        encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_settings_simple_mode_shows_supports_and_raft_only():
+    """Settings > Simple: only the supports and the raft, open, with their day-to-day settings (printer,
+    material and quality stay at the top); a value set there holds in Full, which shows every section again;
+    the choice is remembered."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.settings import SIMPLE_KEYS
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        sp = w.settings
+        sp.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        assert not sp.simple
+        full = set(sp._sections)
+        sp.simple_btn.click(); app.processEvents()
+        assert sp.simple and set(sp._sections) == {"support", "raft"}, sp._sections
+        allowed = {k for v in SIMPLE_KEYS.values() for k in v}
+        assert set(sp._rows) <= allowed and {"sla_model_type", "sla_raft_type", "sla_raft_margin"} <= set(sp._rows)
+        assert all(sec.toggle.isChecked() for sec in sp._sections.values())       # open, rows in the panel
+        assert w.store.value("settings_simple") == "true"
+        sp.set_value("sla_raft_margin", 3.5); app.processEvents()
+        sp.full_btn.click(); app.processEvents()
+        assert not sp.simple and set(sp._sections) == full
+        assert sp.config()["sla_raft_margin"] == 3.5                              # kept in Full
+        assert w.store.value("settings_simple") == "false"
+        w._stop_preslice()
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

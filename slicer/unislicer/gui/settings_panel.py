@@ -10,8 +10,8 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QHB
 
 from .. import profiles
 from ..gcode import default_end_gcode, default_start_gcode
-from ..settings import (CATEGORIES, MODEL_TYPE_KEYS, SCHEMA_BY_KEY, SUPPORT_PRESETS, Config, applies_to_process,
-                        visible_settings)
+from ..settings import (CATEGORIES, MODEL_TYPE_KEYS, SCHEMA_BY_KEY, SIMPLE_KEYS, SUPPORT_PRESETS, Config,
+                        applies_to_process, visible_settings)
 
 PROCESS_BADGE = {"lcd": "LCD", "dlp": "DLP", "laser": "SLA", "polyjet": "POLYJET"}
 KINDS = ("filament", "resin", "uv")
@@ -303,6 +303,7 @@ class SettingsPanel(QWidget):
     filamentEditRequested = Signal()
     cfsSyncRequested = Signal()
     settingApplied = Signal(str)           # a row's "Apply": that one setting should take effect now
+    simpleChanged = Signal(bool)           # Simple / Full switched
 
     def __init__(self, printer: str, material: str | None, quality: str | None, overrides: dict, show_advanced: bool):
         super().__init__()
@@ -434,6 +435,29 @@ class SettingsPanel(QWidget):
         self.reset_all_btn.clicked.connect(self.reset_all)
         tools.addWidget(self.reset_all_btn)
         lay.addLayout(tools)
+        # Simple: only the supports and the raft, the settings changed day to day; Full: every section
+        mode = QHBoxLayout()
+        mode.setSpacing(0)
+        self.simple_btn = QToolButton()
+        self.simple_btn.setText(tr("settings_simple"))
+        self.simple_btn.setToolTip(tr("settings_simple_tip"))
+        self.full_btn = QToolButton()
+        self.full_btn.setText(tr("settings_full"))
+        from PySide6.QtWidgets import QButtonGroup
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.setExclusive(True)
+        for b in (self.simple_btn, self.full_btn):
+            b.setCheckable(True)
+            b.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            b.setMinimumWidth(90)
+            self._mode_group.addButton(b)
+            mode.addWidget(b)
+        mode.addStretch(1)
+        self.simple = False
+        self.full_btn.setChecked(True)
+        self.simple_btn.clicked.connect(lambda: self.set_simple(True, user=True))
+        self.full_btn.clicked.connect(lambda: self.set_simple(False, user=True))
+        lay.addLayout(mode)
         self.advanced = QCheckBox(tr("show_advanced"))
         self.advanced.setChecked(show_advanced)
         self.advanced.toggled.connect(self._on_advanced)
@@ -1130,6 +1154,18 @@ class SettingsPanel(QWidget):
         self.show_advanced = v
         self.rebuild()
 
+    def set_simple(self, on: bool, user: bool = False):
+        """Simple: the panel shows only the supports and the raft (open, their day-to-day settings);
+        Full: every section as before. Nothing is reset or lost either way."""
+        on = bool(on)
+        (self.simple_btn if on else self.full_btn).setChecked(True)
+        if on == self.simple and not user:
+            return
+        self.simple = on
+        self.advanced.setVisible(not on)
+        self.rebuild()
+        self.simpleChanged.emit(on)
+
     def _on_search(self, text):
         self.filter_text = text.strip().lower()
         self.rebuild()
@@ -1151,8 +1187,13 @@ class SettingsPanel(QWidget):
         v.setSpacing(10)
         self._rows: dict[str, SettingRow] = {}
         self._sections = {}
+        simple = getattr(self, "simple", False) and not self.filter_text
         for cat in CATEGORIES:
-            items = visible_settings(cat[0], tech, self.show_advanced or bool(self.filter_text))
+            if simple and cat[0] not in SIMPLE_KEYS:
+                continue
+            items = visible_settings(cat[0], tech, self.show_advanced or bool(self.filter_text) or simple)
+            if simple:
+                items = [s for s in items if s.key in SIMPLE_KEYS[cat[0]]]
             items = [s for s in items if s.key != "technology"]
             if tech == "sla":
                 items = [s for s in items if applies_to_process(s, cfg["sla_process"])]
@@ -1161,7 +1202,7 @@ class SettingsPanel(QWidget):
                          or self.filter_text in s.en.lower()]
             if not items:
                 continue
-            expanded = bool(self.filter_text)        # search results show in the panel; otherwise the window
+            expanded = bool(self.filter_text) or simple   # search results / Simple show in the panel
             sec = Section(category_label(cat), cat[3], expanded)
             sec.header.setContextMenuPolicy(Qt.CustomContextMenu)
             sec.header.customContextMenuRequested.connect(

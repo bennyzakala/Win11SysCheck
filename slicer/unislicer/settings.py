@@ -548,6 +548,17 @@ def coerce(key: str, value: Any) -> Any:
     return str(value)
 
 
+# Settings panel > Simple: what is changed day to day (printer, material and quality stay at the top of the
+# panel): the supports and the raft
+SIMPLE_KEYS = {
+    "support": ("support_enable", "sla_model_type", "sla_support_type", "sla_support_preset", "sla_density",
+                "sla_elevation", "support_type", "support_angle", "support_density"),
+    "raft": ("sla_raft_type", "sla_raft_thickness", "sla_raft_margin", "sla_raft_label_teeth",
+             "sla_raft_label_side"),
+    "adhesion": ("adhesion_type", "brim_width"),
+}
+
+
 def visible_settings(category: str, technology: str, show_advanced: bool) -> list[Setting]:
     return [s for s in SCHEMA if s.category == category and s.tech in (technology, "both")
             and (show_advanced or not s.advanced)]

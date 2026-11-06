@@ -7,6 +7,24 @@ import traceback
 from PySide6.QtCore import QThread, Signal
 
 
+_RUNNING: set = set()
+
+
+def _wait_all_at_exit():
+    """A thread still running when the program ends makes Qt abort ("QThread: Destroyed while thread is still
+    running"): ask every background task to stop and let it finish first."""
+    for t in list(_RUNNING):
+        try:
+            t.cancel()
+            t.wait(10000)
+        except RuntimeError:                 # its Qt object is already gone
+            pass
+
+
+import atexit as _atexit  # noqa: E402
+_atexit.register(_wait_all_at_exit)
+
+
 class Task(QThread):
     progress = Signal(str, float)
     succeeded = Signal(object)
@@ -16,6 +34,12 @@ class Task(QThread):
         super().__init__(parent)
         self._fn = fn
         self._cancel = False
+        self.started.connect(lambda: _RUNNING.add(self))
+        self.finished.connect(lambda: _RUNNING.discard(self))
+
+    def start(self, *a, **k):
+        _RUNNING.add(self)                   # counted from the moment it is asked to start
+        super().start(*a, **k)
 
     def cancel(self):
         self._cancel = True

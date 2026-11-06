@@ -1421,5 +1421,8 @@
 "{} · about {} ml {}": "{} · около {} мл {}",
 "Back to the plate": "Назад к столу",
 "Slice only": "Только нарезать",
-"Slice & send to {}": "Нарезать и отправить на {}"
+"Slice & send to {}": "Нарезать и отправить на {}",
+"Simple": "Просто",
+"Full": "Полностью",
+"Only what is changed day to day: the supports and the raft (printer, material and quality above). Nothing is reset - Full shows everything": "Только то, что меняют каждый день: поддержки и рафт (принтер, материал и качество выше). Ничего не сбрасывается - «Полностью» показывает всё"
 }

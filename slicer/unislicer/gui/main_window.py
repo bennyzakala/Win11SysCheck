@@ -215,6 +215,8 @@ class MainWindow(QMainWindow):
         self._refresh_objects(select=self.objects[0].uid if self.objects else None)
         self.viewer.view_preset("iso")
         self.set_mouse_scheme(str(self.store.value("mouse_scheme", "chitubox")))
+        self.settings.set_simple(self.store.value("settings_simple", "false") == "true")
+        self.settings.simpleChanged.connect(lambda on: self.store.setValue("settings_simple", "true" if on else "false"))
 
     # ================================================================ layout
     def _fit_to_screen(self):
