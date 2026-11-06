@@ -157,6 +157,7 @@ class MainWindow(QMainWindow):
         self._dragging = False
         self._support_cache: dict = {}
         self._sup_pending: dict = {}                 # uid -> a support build waiting for the background
+        self._fit_down: set = set()                  # parts whose fitting surface faced the plate (last generate)
         self.async_supports = os.environ.get("UNISLICER_SYNC_SUPPORTS") != "1"
         self._islands: dict = {}
         self.assistant = Assistant()
@@ -418,6 +419,7 @@ class MainWindow(QMainWindow):
         menu.addAction(theme.icon("drop"), tr("void_title") + "…", self.void_body_dialog)
         shapes.setMenu(menu)
         shapes.setPopupMode(QToolButton.InstantPopup)
+        tool("sparkle", tr("ocp_button"), tr("ocp_tip"), self.one_click_plate)
         tool("sparkle", tr("auto_prepare"), tr("auto_prepare_tip"), self.auto_prepare)
         arr = tool("arrange", tr("arrange"), tr("arrange_tip"), None)
         am = QMenu(self)
@@ -2943,6 +2945,8 @@ class MainWindow(QMainWindow):
         return [(o, o.state()) for o in self.objects]
 
     def _push_undo(self):
+        if getattr(self, "_undo_held", False):
+            return                          # part of one bigger step that already saved the plate
         self._undo.append(self._snapshot())
         del self._undo[:-60]
         self._redo.clear()
@@ -2988,6 +2992,141 @@ class MainWindow(QMainWindow):
         self._syncing = False
         self._objects_changed(refresh_list=False)
         self._sync_transform()
+
+    # ================================================================ one-click plate
+    def one_click_plate(self):
+        """Recognise each part's type (from its name), arrange the plate and generate the supports in one go,
+        then show what came out with a fix next to every warning, before slicing. The parts keep their
+        orientation; the plate's support settings and each part's own type decide the supports."""
+        if not [o for o in self.objects if o.role != "cutter"]:
+            self.status.setText(tr("no_models"))
+            return
+        self._long(True)
+        self._push_undo()                        # one Ctrl+Z gives back the plate as it was before
+        self._undo_held = True
+        try:
+            self._select_uid(None)
+            self.arrange_objects()
+            if self.settings.config()["technology"] == "sla":
+                self.generate_supports()
+                self.wait_supports()
+        finally:
+            self._undo_held = False
+            self._long(False)
+        self._plate_summary()
+
+    def plate_facts(self) -> dict:
+        """What the one-click summary shows: types, placement, supports, warnings, estimate."""
+        from .. import collision, dental_cad
+        from ..layout import footprint
+        from ..scene import plate_rect as _rect
+        cfg = self.settings.config()
+        models = [o for o in self.objects if o.role != "cutter"]
+        counts, unknown, recognised = {}, [], 0
+        for o in models:
+            own = o.settings.get("sla_model_type")
+            t = own if own not in (None, "auto", "plate") else (
+                dental_cad.model_type_of(o.name, o.mesh) if cfg["sla_model_type"] == "auto" else
+                ("" if cfg["sla_model_type"] == "plate" else cfg["sla_model_type"]))
+            if t:
+                counts[t] = counts.get(t, 0) + 1
+                recognised += 1
+            else:
+                unknown.append((o.uid, o.name or "model"))
+        outside = [o.name or "model" for o in out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"],
+                                                             rect=plate_rect(cfg), region=plate_region(cfg))]
+        pairs = []
+        if 1 < len(models) <= 80:
+            pairs = collision.colliding_pairs({o.uid: self._column_map(o) for o in models}, clearance=0.5)
+        x0, y0, x1, y1 = _rect(cfg)
+        try:
+            used = sum(footprint(o).area for o in models) / max(1e-6, (x1 - x0) * (y1 - y0)) * 100.0
+        except Exception:
+            used = 0.0
+        sla_mode = cfg["technology"] == "sla" and cfg["support_enable"]
+        supported = [o for o in models if not o.direct]
+        points = sum(len(o.support_points) for o in supported if o.support_points is not None) if sla_mode else 0
+        unsupported = [(o.uid, o.name or "model") for o in supported
+                       if sla_mode and (o.support_points is None or len(o.support_points) == 0)]
+        codes = 0
+        if sla_mode and cfg["sla_raft_type"] != "none":
+            codes = sum(1 for o in supported if self._raft_label_text(o, o.config(cfg)))
+        est = None
+        try:
+            e = self.plate_estimate()
+            ml = sum(r.model_ml + r.support_ml for r in e.rows)
+            from .. import gcode as _g
+            est = {"time": _g.format_duration(e.time_s), "ml": f"{ml:.0f}",
+                   "material": self.settings.material_id and profiles.load("materials").get(
+                       self.settings.material_id, {}).get("name", "") or ""}
+        except Exception:
+            est = None
+        printer = profiles.load("printers").get(self.settings.printer_id, {}).get("name", "")
+        return {"types": {"counts": counts, "unknown": unknown, "recognised": recognised},
+                "placement": {"outside": outside, "collisions": len(pairs), "count": len(models),
+                              "used_pct": f"{used:.0f}"},
+                "supports": {"points": points, "models": len(supported) if sla_mode else 0,
+                             "direct": len(models) - len(supported) if sla_mode else 0, "codes": codes,
+                             "unsupported": unsupported,
+                             "fit_down": [(o.uid, o.name or "model") for o in supported if o.uid in self._fit_down]},
+                "estimate": est, "printer": printer}
+
+    def _plate_summary(self):
+        from .plate_summary import PlateSummary
+        facts = self.plate_facts()
+        dlg = PlateSummary(facts, {}, self._can_send(), self)
+        dlg.exec()
+        choice = dlg.choice
+        if choice == "slice":
+            self.slice()
+        elif choice == "send":
+            self._send_after_slice = True
+            self.slice()
+            if self.task is None or not self.task.isRunning():
+                self._send_after_slice = False            # the slice did not start (a warning stopped it)
+        elif isinstance(choice, tuple) and choice[0] == "fix":
+            self._plate_fix(choice[1], choice[2], choice[3])
+            self._plate_summary()
+
+    def _plate_fix(self, action, uid, value=None):
+        o = next((x for x in self.objects if x.uid == uid), None)
+        self._long(True)
+        try:
+            if action == "arrange":
+                self.arrange_objects()
+            elif o is not None and action == "type":
+                self._push_undo()
+                o.settings = {**o.settings, "sla_model_type": value}
+                self._regenerate_one(o)
+            elif o is not None and action == "turn":
+                self._push_undo()                         # Ctrl+Z gives the orientation back
+                o.apply_world_rotation(self._axis_rotation(0, 180.0))
+                self._objects_changed(refresh_list=False)
+                self._regenerate_one(o)
+            elif o is not None and action == "supports":
+                o.direct = False
+                self._regenerate_one(o)
+        finally:
+            self._long(False)
+
+    def _regenerate_one(self, o):
+        self._select_uid(o.uid)
+        self._undo_held = True               # the fix saved the plate once: one Ctrl+Z undoes all of it
+        try:
+            self.generate_supports()
+        finally:
+            self._undo_held = False
+        self._select_uid(None)
+        self.wait_supports()
+
+    def _can_send(self) -> bool:
+        if profiles.load("printers").get(self.settings.printer_id, {}).get("vendor") == "Formlabs":
+            return True
+        try:
+            from .. import network
+            return bool(network.load_printers())
+        except Exception:
+            return False
 
     def set_mouse_scheme(self, key: str):
         """Mouse controls: CHITUBOX (right drag turns the view, wheel drag pans, wheel zooms at the cursor,
@@ -4223,6 +4362,9 @@ class MainWindow(QMainWindow):
                 sla_supports.auto_support_points(world, o.config(learned_plate), report), o.world_keepout(lift)), lift)
             if report.get("points", 0) >= 4 and report["fit_dropped"] > 0.4 * report["points"]:
                 upside.append(o.name or "model")
+                self._fit_down.add(o.uid)
+            else:
+                self._fit_down.discard(o.uid)
             o.__dict__["support_session"] = {"auto": len(o.support_points), "added": [], "removed": 0,
                                              "threshold": o.config(learned_plate)["support_angle"]}
             self._breathe()
@@ -4896,6 +5038,8 @@ class MainWindow(QMainWindow):
 
     def _on_sliced(self, result):
         self.result = result
+        if self.__dict__.pop("_send_after_slice", False):
+            QTimer.singleShot(300, self.send_to_printer)       # One-click plate > Slice & send
         pending = self.__dict__.pop("_cup_fix_pending", 0)
         if pending and result[0] == "sla":
             job, cfg = result[1], result[2]

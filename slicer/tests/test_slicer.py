@@ -5488,3 +5488,82 @@ def test_supports_are_built_in_the_background():
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
                        encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_one_click_plate_and_its_summary():
+    """One-click plate: arranges, supports and shows a summary - types (an unnamed part asks for a type),
+    placement, supports, warnings with fixes, estimate. The parts keep their orientation; 'Turn over' turns
+    only the part it is for (Ctrl+Z gives it back), choosing a type sets that part's supports, and 'Slice
+    only' slices."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        import numpy as np
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.mesh import Mesh
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui import plate_summary
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false"); w.store.setValue("ap_show", "false")
+        w.settings.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        shelf = Mesh.merge([primitives.box(12, 12, 4), primitives.box(20, 4, 2).translated([-4, 4, 6])])
+        crown = w.add_mesh(Mesh(shelf.vertices, shelf.faces, "FYQ-SOD260046892-044-P-16-16-1-00-R685_2"))
+        part = w.add_mesh(Mesh(shelf.vertices, shelf.faces, "bracket"))
+        jaw = w.add_mesh(Mesh(primitives.box(50, 40, 10).vertices, primitives.box(50, 40, 10).faces,
+                              "SMG-SOD260045198-N183-E-16-16-1-A35_Antag"))
+        jaw.direct = True
+        for o in (crown, part):
+            o.direct = False
+        before = {o.uid: o.matrix().copy() for o in w.objects}
+        seen, script = [], []
+
+        def fake_exec(self):
+            seen.append(dict(rows=list(self.rows)))
+            self.choice = script.pop(0) if script else None
+            return 0
+        plate_summary.PlateSummary.exec = fake_exec
+        w._fit_down = set()
+        # 1) plain run: back to the plate
+        w.one_click_plate()
+        rows = seen[-1]["rows"]
+        text = " | ".join(t for _s, _ok, t in rows)
+        assert "bracket" in text and any(not ok for _s, ok, t in rows if "bracket" in t), text   # asks for a type
+        for o in w.objects:                                                      # orientation kept
+            assert np.allclose(o.matrix(), before[o.uid]), o.name
+        assert all(o.support_points is not None and len(o.support_points) for o in (crown, part))
+        assert any("1" in t for s, ok, t in rows if ok)                          # placement / supports lines
+        # 2) a fitting-surface warning: Turn over turns only that part, then choose a type for the unnamed one
+        w._fit_down = {crown.uid}
+        script[:] = [("fix", "turn", crown.uid, None), ("fix", "type", part.uid, "guide"), None]
+        w._plate_summary()
+        assert not np.allclose(crown.matrix(), before[crown.uid])                # turned over
+        assert np.allclose(part.matrix(), before[part.uid]) and np.allclose(jaw.matrix(), before[jaw.uid])
+        assert part.settings.get("sla_model_type") == "guide"
+        assert part.config(w.settings.config())["sla_avoid_fit"] is True        # its supports follow the type
+        w.undo(); app.processEvents()                                            # undoes the type choice
+        part2 = next(o for o in w.objects if o.uid == part.uid)
+        assert part2.settings.get("sla_model_type") is None
+        w.undo(); app.processEvents()                                            # one Ctrl+Z per fix
+        crown2 = next(o for o in w.objects if o.uid == crown.uid)
+        assert np.allclose(crown2.matrix(), before[crown.uid])                   # the turn is given back
+        # 3) Slice only
+        script[:] = ["slice"]
+        sliced = []
+        w.slice = lambda: sliced.append(1)
+        w._plate_summary()
+        assert sliced == [1]
+        w._stop_preslice()
+        from unislicer import parallel
+        if parallel._pool is not None:
+            parallel._pool.shutdown(wait=True, cancel_futures=True)
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
