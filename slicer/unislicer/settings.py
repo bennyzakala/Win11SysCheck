@@ -552,9 +552,10 @@ def coerce(key: str, value: Any) -> Any:
 # panel): the supports and the raft
 SIMPLE_KEYS = {
     "support": ("support_enable", "sla_model_type", "sla_support_type", "sla_support_preset", "sla_density",
-                "sla_elevation", "support_type", "support_angle", "support_density"),
-    "raft": ("sla_raft_type", "sla_raft_thickness", "sla_raft_margin", "sla_raft_label_teeth",
-             "sla_raft_label_side"),
+                "sla_elevation", "sla_supports_on_model", "support_type", "support_angle", "support_density"),
+    "raft": ("sla_raft_type", "sla_raft_thickness", "sla_raft_margin", "sla_raft_tiny_inset",
+             "sla_raft_label_teeth", "sla_raft_label_side"),
+    "hollow": ("hollow_enable", "hollow_wall", "drain_holes"),
     "adhesion": ("adhesion_type", "brim_width"),
 }
 

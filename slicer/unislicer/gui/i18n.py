@@ -228,7 +228,7 @@ STRINGS = {
     "auto_close_holes": ("סגור חורים במודלים אוטומטית בטעינה", "Close holes in models automatically on load"),
     "settings_simple": ("פשוט", "Simple"),
     "settings_full": ("מלא", "Full"),
-    "settings_simple_tip": ("רק מה שמשנים ביומיום: התמיכות והרפסודה (המדפסת, החומר והאיכות למעלה). שום הגדרה לא מתאפסת - 'מלא' מציג את הכל", "Only what is changed day to day: the supports and the raft (printer, material and quality above). Nothing is reset - Full shows everything"),
+    "settings_simple_tip": ("רק מה שמשנים ביומיום: התמיכות, הרפסודה והחלילה (המדפסת, החומר והאיכות למעלה). שום הגדרה לא מתאפסת - 'מלא' מציג את הכל", "Only what is changed day to day: the supports, the raft and hollowing (printer, material and quality above). Nothing is reset - Full shows everything"),
     "ocp_button": ("פלטה בלחיצה אחת", "One-click plate"),
     "ocp_tip": ("זיהוי סוג לכל מודל, סידור הפלטה ותמיכות ברצף - ואז סיכום עם תיקון לכל אזהרה לפני החיתוך. הכיוון של המודלים לא משתנה", "Recognise each part's type, arrange the plate and add supports in one go - then a summary with a fix for every warning before slicing. The parts keep their orientation"),
     "ocp_title": ("פלטה בלחיצה אחת · מוכן לחיתוך", "One-click plate · ready to slice"),
