@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 import numpy as np
 from PySide6.QtCore import QEventLoop, QItemSelectionModel, QSettings, QSize, Qt, QThread, QTimer, Signal
@@ -198,6 +199,11 @@ class MainWindow(QMainWindow):
             sw.setObjectName("Warning")
             sw.setToolTip(tr("software_gl_tip"))
             self.statusBar().addPermanentWidget(sw)
+        self.update_btn = QPushButton("⬆ " + tr("upd_available"))
+        self.update_btn.setObjectName("Primary")
+        self.update_btn.hide()
+        self.update_btn.clicked.connect(self.install_update)
+        self.statusBar().addPermanentWidget(self.update_btn)
         ver = QLabel(f"UniSlicer {__version__}")
         ver.setObjectName("Faint")
         self.statusBar().addPermanentWidget(ver)
@@ -216,6 +222,10 @@ class MainWindow(QMainWindow):
         self.viewer.view_preset("iso")
         self.set_mouse_scheme(str(self.store.value("mouse_scheme", "chitubox")))
         self.settings.set_simple(self.store.value("settings_simple", "false") == "true")
+        from .. import updater
+        if (self.store.value("upd_auto", "true") == "true" and updater.build_commit()
+                and not os.environ.get("UNISLICER_SMOKE_TEST")):
+            QTimer.singleShot(5000, lambda: self.check_updates(manual=False))
         self.settings.simpleChanged.connect(lambda on: self.store.setValue("settings_simple", "true" if on else "false"))
 
     # ================================================================ layout
@@ -459,6 +469,11 @@ class MainWindow(QMainWindow):
         self.close_holes_act.setCheckable(True)
         self.close_holes_act.setChecked(self.store.value("auto_close_holes", "true") == "true")
         self.close_holes_act.toggled.connect(lambda on: self.store.setValue("auto_close_holes", "true" if on else "false"))
+        mm.addAction(tr("upd_check_now"), lambda: self.check_updates(manual=True))
+        self.upd_auto_act = mm.addAction(tr("upd_check_start"))
+        self.upd_auto_act.setCheckable(True)
+        self.upd_auto_act.setChecked(self.store.value("upd_auto", "true") == "true")
+        self.upd_auto_act.toggled.connect(lambda on: self.store.setValue("upd_auto", "true" if on else "false"))
         mouse = mm.addMenu(tr("mouse_menu"))
         self._mouse_acts = {}
         for key in ("chitubox", "classic"):
@@ -3129,6 +3144,88 @@ class MainWindow(QMainWindow):
             return bool(network.load_printers())
         except Exception:
             return False
+
+    # ================================================================ updates
+    def check_updates(self, manual: bool = False):
+        """Ask GitHub (in the background) whether a newer build is published; if so the status bar shows
+        'Update available'. Nothing about the user or their files is sent."""
+        from .. import updater
+        current = updater.build_commit()
+        if not current:
+            if manual:
+                self.status.setText(tr("upd_source"))
+            return
+        if getattr(self, "_upd_task", None) is not None:
+            return
+
+        def work(progress, cancelled):
+            return updater.latest()
+
+        def done(info):
+            self._upd_task = None
+            if updater.newer(info, current):
+                self._update_info = info
+                self.update_btn.setToolTip(tr("upd_tip").format(info.get("date", "")))
+                self.update_btn.show()
+                self.status.setText(tr("upd_found").format(info.get("date", "")))
+            elif manual:
+                self.update_btn.hide()
+                self.status.setText(tr("upd_latest"))
+
+        def failed(msg):
+            self._upd_task = None
+            if manual:
+                self.status.setText(tr("upd_failed").format(msg))
+
+        task = Task(work, self)
+        self._upd_task = task
+        task.succeeded.connect(done)
+        task.failed.connect(failed)
+        task.start()
+
+    def install_update(self):
+        """Download the newer installer (in the background), then - after asking - install it silently: the
+        program closes and opens again when the installation is done."""
+        info = getattr(self, "_update_info", None)
+        if not info:
+            return
+        ans = QMessageBox.question(self, tr("upd_title"), tr("upd_ask").format(info.get("date", "")),
+                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if ans != QMessageBox.Yes:
+            return
+        import tempfile
+        from .. import updater
+        dest = os.path.join(tempfile.gettempdir(), "UniSlicer-update")
+        self.update_btn.setEnabled(False)
+
+        def work(progress, cancelled):
+            return updater.download(info, dest, lambda f: progress("download", f), cancelled)
+
+        task = Task(work, self)
+        task.progress.connect(lambda _s, f: self.status.setText(tr("upd_downloading").format(int(f * 100))))
+        task.succeeded.connect(self._run_installer)
+
+        def failed(msg):
+            self.update_btn.setEnabled(True)
+            self.status.setText(tr("upd_failed").format(msg))
+        task.failed.connect(failed)
+        self._upd_dl = task
+        task.start()
+
+    def _run_installer(self, path: str):
+        self.update_btn.setEnabled(True)
+        if sys.platform != "win32":
+            self.status.setText(tr("upd_saved").format(path))
+            return
+        import subprocess
+        try:
+            self._save_state()
+        except Exception:
+            pass
+        # Inno Setup: quiet install, closes this program, then opens it again (the installer's [Run] entry)
+        subprocess.Popen([path, "/SILENT", "/SP-", "/NOCANCEL", "/CLOSEAPPLICATIONS", "/NORESTART"],
+                         close_fds=True)
+        self.close()
 
     def set_mouse_scheme(self, key: str):
         """Mouse controls: CHITUBOX (right drag turns the view, wheel drag pans, wheel zooms at the cursor,

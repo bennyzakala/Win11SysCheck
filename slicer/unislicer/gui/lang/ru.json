@@ -1424,5 +1424,17 @@
 "Slice & send to {}": "Нарезать и отправить на {}",
 "Simple": "Просто",
 "Full": "Полностью",
-"Only what is changed day to day: the supports, the raft and hollowing (printer, material and quality above). Nothing is reset - Full shows everything": "Только то, что меняют каждый день: поддержки, рафт и полость (принтер, материал и качество выше). Ничего не сбрасывается - «Полностью» показывает всё"
+"Only what is changed day to day: the supports, the raft and hollowing (printer, material and quality above). Nothing is reset - Full shows everything": "Только то, что меняют каждый день: поддержки, рафт и полость (принтер, материал и качество выше). Ничего не сбрасывается - «Полностью» показывает всё",
+"Update available": "Есть обновление",
+"A new version from {} - click to download and install": "Новая версия от {} - нажмите, чтобы скачать и установить",
+"A new UniSlicer version is available ({}) - click 'Update available' in the status bar": "Доступна новая версия UniSlicer ({}) - нажмите «Есть обновление» в строке состояния",
+"You have the latest version": "У вас последняя версия",
+"Running from source - no update check": "Запуск из исходников - проверка обновлений не выполняется",
+"Could not check for updates: {}": "Не удалось проверить обновления: {}",
+"Update UniSlicer": "Обновление UniSlicer",
+"A new version from {} is available.\n\nDownload and install it now? UniSlicer closes while it installs and opens again when done (the plate is kept).": "Доступна новая версия от {}.\n\nСкачать и установить сейчас? UniSlicer закроется на время установки и откроется снова (стол сохранится).",
+"Downloading the update... {}%": "Загрузка обновления... {}%",
+"Installer saved: {}": "Установщик сохранён: {}",
+"Check for updates now": "Проверить обновления",
+"Check for updates at start": "Проверять обновления при запуске"
 }

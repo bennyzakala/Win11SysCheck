@@ -41,3 +41,4 @@
 # Packed control page for manual Netlify upload
 slicer/dist_web/
 
+slicer/unislicer/_build.py

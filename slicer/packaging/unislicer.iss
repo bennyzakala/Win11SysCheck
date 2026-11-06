@@ -77,3 +77,5 @@ Name: "{autodesktop}\UniSlicer"; Filename: "{app}\UniSlicer.exe"; Tasks: desktop
 
 [Run]
 Filename: "{app}\UniSlicer.exe"; Description: "{cm:LaunchProgram,UniSlicer}"; Flags: nowait postinstall skipifsilent runasoriginaluser
+; an update from inside the program installs silently: open the program again when it is done
+Filename: "{app}\UniSlicer.exe"; Flags: nowait runasoriginaluser skipifnotsilent

@@ -39,6 +39,10 @@ jobs:
         # a test that hangs prints every thread's stack and fails instead of blocking the build
         run: python -m pytest -q -v --timeout=300 --timeout-method=thread -o faulthandler_timeout=240
 
+      - name: Stamp the build (the program checks for newer builds by this commit)
+        run: |
+          "COMMIT = `"$env:GITHUB_SHA`"" | Out-File -Encoding utf8 unislicer/_build.py
+
       - name: Build UniSlicer.exe
         run: |
           # Qt's software OpenGL renderer, used on PCs without an OpenGL 3.3 driver

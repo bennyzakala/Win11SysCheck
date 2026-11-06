@@ -5607,3 +5607,82 @@ def test_settings_simple_mode_shows_supports_and_raft_only():
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
                        encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_update_check_download_and_offer(tmp_path):
+    """Updates: a published build with another commit is newer (the same one, or a build run from source, is
+    not); the installer downloads completely or not at all; the window shows 'Update available' and, after
+    asking, gets the installer."""
+    import http.server, socketserver, threading
+    from unislicer import updater
+    assert updater.newer({"commit": "71fe62cc", "url": "u"}, "abc123")
+    assert not updater.newer({"commit": "71fe62cced5f", "url": "u"}, "71fe62cc")
+    assert not updater.newer({"commit": "71fe62cc", "url": "u"}, "")              # from source: never
+    payload = os.urandom(300_000)
+    (tmp_path / "srv").mkdir()
+    (tmp_path / "srv" / "UniSlicer-Setup.exe").write_bytes(payload)
+
+    class Quiet(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *a, **k):
+            super().__init__(*a, directory=str(tmp_path / "srv"), **k)
+
+        def log_message(self, *a):
+            pass
+    srv = socketserver.TCPServer(("127.0.0.1", 0), Quiet)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}/UniSlicer-Setup.exe"
+        seen = []
+        path = updater.download({"url": url, "size": len(payload)}, str(tmp_path / "dl"), seen.append)
+        assert open(path, "rb").read() == payload and seen and seen[-1] == 1.0
+        with pytest.raises(OSError):                                                # truncated: refused
+            updater.download({"url": url, "size": len(payload) + 1}, str(tmp_path / "dl2"))
+        assert not os.path.exists(tmp_path / "dl2" / "UniSlicer-Setup.exe")
+    finally:
+        srv.shutdown()
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication, QMessageBox
+        app = QApplication([])
+        from unislicer import updater
+        from unislicer.gui import main_window as mw
+        updater.build_commit = lambda: "abc123"
+        updater.latest = lambda timeout=10.0: {"commit": "def456", "date": "2026-11-07", "url": "x", "size": 1}
+        got = []
+        updater.download = lambda info, dest, progress=None, cancelled=None: got.append(info) or "/tmp/UniSlicer-Setup.exe"
+        mw.QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+        w = mw.MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        assert not w.update_btn.isVisible()
+        w.check_updates(manual=True)
+        end = time.time() + 10
+        while not w.update_btn.isVisible() and time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        assert w.update_btn.isVisible() and "2026-11-07" in w.update_btn.toolTip()
+        w.update_btn.click()
+        end = time.time() + 10
+        while not got and time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        end = time.time() + 5
+        while "UniSlicer-Setup.exe" not in w.status.text() and time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        assert got and got[0]["commit"] == "def456"
+        assert "UniSlicer-Setup.exe" in w.status.text(), w.status.text()     # not Windows: saved, not run
+        updater.latest = lambda timeout=10.0: {"commit": "abc123", "date": "x", "url": "x", "size": 1}
+        w._upd_task = None
+        w.check_updates(manual=True)
+        end = time.time() + 10
+        while w.update_btn.isVisible() and time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        assert not w.update_btn.isVisible()                                      # up to date
+        w._stop_preslice()
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
