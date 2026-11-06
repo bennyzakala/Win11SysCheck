@@ -2512,7 +2512,7 @@ def test_long_collision_warning_does_not_widen_the_window():
         a = w.add_mesh(primitives.box(20, 20, 5)); b = w.add_mesh(primitives.box(20, 20, 5))
         a.name, b.name = name, name + "-copy"
         b.x, b.y = a.x + 5, a.y
-        w._check_collisions(); app.processEvents()
+        w._check_collisions(); w.wait_supports(); app.processEvents()   # collision maps build in the background
         assert w.collision_wrap.isVisible()
         assert w.minimumSizeHint().width() <= base + 5, (base, w.minimumSizeHint().width())
         assert name in w.collision_label.toolTip()
@@ -5428,6 +5428,63 @@ def test_mouse_controls_like_chitubox():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     _home = str(__import__("tempfile").mkdtemp())
     env = dict(os.environ, HOME=_home, USERPROFILE=_home, PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_supports_are_built_in_the_background():
+    """Generate supports returns without waiting for the support structures: they are built in the
+    background and appear in the view when ready; a change made meanwhile gets its own (never a stale)
+    structure; closing the window while one is being built is clean."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        import numpy as np
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.mesh import Mesh
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        assert w.async_supports
+        parts = [w.add_mesh(Mesh.merge([primitives.box(12, 12, 4), primitives.box(20, 4, 2).translated([-4, 4, 6])]))
+                 for _ in range(3)]
+        for o in parts:
+            o.direct = False
+        w.arrange_objects(); app.processEvents()
+        w._select_uid(None)
+        w.generate_supports()
+        w.wait_supports()
+        cfg = w.settings.config()
+        for o in parts:
+            mesh = w.viewer.objects[o.uid].get("supports")
+            assert mesh is not None and len(mesh.faces), "supports shown once built"
+            assert w._support_cache[o.uid][0] == w._support_key(o, cfg)
+        # change one model's supports while builds may be running: what ends up shown is for the new points
+        o = parts[0]
+        o.support_points = o.support_points[: max(1, len(o.support_points) // 2)]
+        w._objects_changed(refresh_list=False)
+        w.wait_supports()
+        assert w._support_cache[o.uid][0] == w._support_key(o, w.settings.config())
+        assert w.viewer.objects[o.uid]["supports"] is w._support_cache[o.uid][1]
+        # close while building
+        w._select_uid(None)
+        w.settings.set_value("sla_support_spacing", 2.0); app.processEvents()
+        w.generate_supports()
+        w.close(); app.processEvents()
+        from unislicer import parallel
+        if parallel._pool is not None:
+            parallel._pool.shutdown(wait=True, cancel_futures=True)
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, PYTHONIOENCODING="utf-8")
+    env.pop("UNISLICER_SYNC_SUPPORTS", None)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
                        encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

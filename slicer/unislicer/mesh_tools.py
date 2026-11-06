@@ -41,8 +41,25 @@ def extrude(polygons, z0: float, z1: float, name: str = "Extrusion") -> Mesh:
     return Mesh.from_triangles(np.array(tris, dtype=float).reshape(-1, 3, 3), name)
 
 
+_TEXT_CACHE: dict = {}
+
+
 def text_polygons(text: str, height: float, font_family: str = "") -> MultiPolygon:
-    """Outline of ``text`` as polygons, ``height`` mm tall (capital height), baseline at y = 0."""
+    """Outline of ``text`` as polygons, ``height`` mm tall (capital height), baseline at y = 0. Kept per
+    text: made once on the main thread, a background support build takes it from here (fonts are best used
+    on the main thread only)."""
+    key = (text, float(height), font_family)
+    hit = _TEXT_CACHE.get(key)
+    if hit is not None:
+        return hit
+    out = _text_polygons(text, height, font_family)
+    if len(_TEXT_CACHE) > 512:
+        _TEXT_CACHE.clear()
+    _TEXT_CACHE[key] = out
+    return out
+
+
+def _text_polygons(text: str, height: float, font_family: str = "") -> MultiPolygon:
     from PySide6.QtGui import QFont, QPainterPath
     font = QFont(font_family) if font_family else QFont()
     font.setPointSizeF(100.0)

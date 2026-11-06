@@ -156,6 +156,8 @@ class MainWindow(QMainWindow):
         self._redo: list = []
         self._dragging = False
         self._support_cache: dict = {}
+        self._sup_pending: dict = {}                 # uid -> a support build waiting for the background
+        self.async_supports = os.environ.get("UNISLICER_SYNC_SUPPORTS") != "1"
         self._islands: dict = {}
         self.assistant = Assistant()
         self._orient_gain: dict = {}          # uid -> (orientation key, gain)
@@ -3057,7 +3059,7 @@ class MainWindow(QMainWindow):
                 self.viewer.set_object_color(o.uid, dental_shades.display_rgb(o.material))
                 self.viewer.set_object_regions(o.uid, [(r["faces"], dental_shades.display_rgb(r["shade"]))
                                                        for r in o.regions] or None)
-            self.viewer.set_object_supports(o.uid, self._support_preview(o, cfg))
+            self.viewer.set_object_supports(o.uid, self._support_preview_async(o, cfg))
             self.viewer.set_object_holes(o.uid, self._hole_preview(o, cfg))
             self.viewer.set_object_keepout(o.uid, self._keepout_preview(o, cfg))
             self.viewer.set_object_labels(o.uid, self._label_preview(o, cfg))
@@ -4049,13 +4051,111 @@ class MainWindow(QMainWindow):
                 return code
         return o.name if cfg["sla_raft_label"] else ""
 
+    def _support_key(self, o: SceneObject, cfg):
+        keys = sorted(k for k in cfg.values if k.startswith("sla_") and not k.startswith("sla_layer"))
+        return (o.uid, o.support_points.tobytes(), o.matrix().tobytes(), tuple(cfg[k] for k in keys),
+                tuple(sorted(o.settings.items())), o.name)
+
+    def _support_preview_async(self, o: SceneObject, cfg) -> Mesh | None:
+        """The support structure to draw now: the finished one, or - while a changed one is built in the
+        background - the one drawn so far; the view gets the new one when it is ready, so the window never
+        waits for a support build (a big jaw model took ~1 s)."""
+        if not self._shows_supports(o) or len(o.support_points) == 0:
+            return None
+        key = self._support_key(o, cfg)
+        hit = self._support_cache.get(o.uid)
+        if hit is not None and hit[0] == key:
+            return hit[1]
+        if not self.async_supports:
+            return self._support_preview(o, cfg)
+        self._queue_support_build(o, cfg, key)
+        return hit[1] if hit is not None else None
+
+    def _queue_support_build(self, o: SceneObject, cfg, key):
+        running = getattr(self, "_sup_running", None)
+        if running == (o.uid, key) or self._sup_pending.get(o.uid, (None,))[0] == key:
+            return                                   # already on its way
+        ocfg = o.config(cfg)
+        lift = self._lift(ocfg)
+        world, geo = self._support_geometry(o, lift)
+        label = self._raft_label_text(o, ocfg)
+        if label:
+            from ..mesh_tools import text_polygons
+            try:
+                text_polygons(label[:24], 2.0)           # the code's letters, made here on the main thread
+            except Exception:
+                pass
+        self._sup_pending[o.uid] = (key, world, ocfg, o.world_support_points(lift), dict(geo), label,
+                                    self._display_matrix(o), geo)
+        self._start_support_build()
+
+    def _start_support_build(self):
+        if getattr(self, "_sup_task", None) is not None or not self._sup_pending:
+            return
+        uid = next(iter(self._sup_pending))
+        key, world, ocfg, pts, geo, label, disp, shared = self._sup_pending.pop(uid)
+
+        def work(progress, cancelled):
+            owners = {}
+            mesh, _ = sla_supports.build_supports(world, ocfg, pts, owners=owners, cache=geo, label=label)
+            local = mesh.transform(np.linalg.inv(disp)) if len(mesh.faces) else None
+            return uid, key, local, owners, geo
+
+        from .worker import Task
+        task = Task(work, self)
+        self._sup_task, self._sup_running = task, (uid, key)
+        task.succeeded.connect(lambda res, shared=shared: self._support_built(res, shared))
+        task.failed.connect(lambda _msg: self._support_build_done())
+        task.start()
+
+    def _support_build_done(self):
+        task, self._sup_task, self._sup_running = getattr(self, "_sup_task", None), None, None
+        if task is not None:
+            task.wait()
+            task.deleteLater()
+        QTimer.singleShot(0, self._start_support_build)
+
+    def _support_built(self, res, shared: dict):
+        uid, key, local, owners, geo = res
+        for k, v in geo.items():                         # keep the indexes it built for the next build
+            shared.setdefault(k, v)
+        self._support_cache[uid] = (key, local, owners)
+        o = next((x for x in self.objects if x.uid == uid), None)
+        if o is not None and self._shows_supports(o) and len(o.support_points):
+            cfg = self.settings.config()
+            if self._support_key(o, cfg) == key:
+                self.viewer.set_object_supports(uid, local)
+                self._update_support_info()
+        self._support_build_done()
+
+    def _built_supports(self, o: SceneObject, cfg):
+        """The model's support structure as far as it is built: the finished one, else - while the
+        background builds it - none (the estimate and hover use what exists; they never wait)."""
+        if not self.async_supports:
+            return self._support_preview(o, cfg)
+        if not self._shows_supports(o) or len(o.support_points) == 0:
+            return None
+        hit = self._support_cache.get(o.uid)
+        return hit[1] if hit is not None and hit[0] == self._support_key(o, cfg) else None
+
+    def wait_supports(self, timeout: float = 120.0):
+        """Wait until the work started in the background - support builds, collision maps - has finished,
+        and run the collision check it was waiting for (tests, before saving)."""
+        import time as _time
+        end = _time.monotonic() + timeout
+        while (getattr(self, "_sup_task", None) is not None or self._sup_pending
+               or getattr(self, "_colmap_task", None) is not None) and _time.monotonic() < end:
+            QApplication.processEvents(QEventLoop.AllEvents, 50)
+            _time.sleep(0.005)
+        if self._collision_timer.isActive():
+            self._collision_timer.stop()
+            self._check_collisions()
+
     def _support_preview(self, o: SceneObject, cfg) -> Mesh | None:
         """Support structure in the object's own coordinates (cached; moving the object keeps it valid)."""
         if not self._shows_supports(o) or len(o.support_points) == 0:
             return None
-        keys = sorted(k for k in cfg.values if k.startswith("sla_") and not k.startswith("sla_layer"))
-        key = (o.uid, o.support_points.tobytes(), o.matrix().tobytes(), tuple(cfg[k] for k in keys),
-               tuple(sorted(o.settings.items())))
+        key = self._support_key(o, cfg)
         hit = self._support_cache.get(o.uid)
         if hit is not None and hit[0] == key:
             return hit[1]
@@ -4275,7 +4375,7 @@ class MainWindow(QMainWindow):
         for o in self.objects:
             if not self._shows_supports(o) or len(o.support_points) == 0:
                 continue
-            local = self._support_preview(o, cfg)
+            local = self._built_supports(o, cfg)
             entry = self._support_cache.get(o.uid)
             if local is None or entry is None or len(entry) < 3:
                 continue
@@ -4700,6 +4800,10 @@ class MainWindow(QMainWindow):
         self._pre_task.start(QThread.LowPriority)
 
     def _stop_preslice(self):
+        self._sup_pending.clear()
+        for t in (getattr(self, "_sup_task", None), getattr(self, "_colmap_task", None)):
+            if t is not None and t.isRunning():
+                t.wait(10000)
         timer = getattr(self, "_preslice_timer", None)
         try:
             if timer is not None:
@@ -5396,6 +5500,46 @@ class MainWindow(QMainWindow):
                 CrashDialog(entry_diagnosis(e), self).exec()
                 return
 
+    def _column_map_key(self, o: SceneObject):
+        disp = self._display_matrix(o)
+        return (id(o.mesh), disp[:3, :3].tobytes())
+
+    def _column_map_ready(self, o: SceneObject) -> bool:
+        hit = self.__dict__.get("_column_maps", {}).get(o.uid)
+        return hit is not None and hit[0] == self._column_map_key(o)
+
+    def _build_column_maps(self, objs):
+        """Build the collision maps of newly placed or turned parts in the background (~0.5 s each for a
+        jaw model), then check collisions again."""
+        if getattr(self, "_colmap_task", None) is not None:
+            return                                         # one at a time; the next check picks up the rest
+        from .. import collision
+        jobs = [(o.uid, self._column_map_key(o), o.mesh.transform(self._display_matrix(o)),
+                 self._display_matrix(o)[:3, 3].copy()) for o in objs]
+
+        def work(progress, cancelled):
+            return [(uid, key, collision.ColumnMap(mesh), at) for uid, key, mesh, at in jobs]
+
+        def done(res):
+            cache = self.__dict__.setdefault("_column_maps", {})
+            for uid, key, cmap, at in res:
+                cache[uid] = (key, cmap, at)
+            finish()
+            self._collision_timer.start()
+
+        def finish():
+            t, self._colmap_task = self._colmap_task, None
+            if t is not None:
+                t.wait()
+                t.deleteLater()
+
+        from .worker import Task
+        task = Task(work, self)
+        self._colmap_task = task
+        task.succeeded.connect(done)
+        task.failed.connect(lambda _m: finish())
+        task.start()
+
     def _column_map(self, o: SceneObject):
         """Collision map of a part where it is drawn (cached per shape; moving only shifts it)."""
         from .. import collision
@@ -5415,6 +5559,10 @@ class MainWindow(QMainWindow):
         parts = [o for o in self.objects if o.role != "cutter"]
         pairs = []
         if 1 < len(parts) <= 80:
+            missing = [o for o in parts if not self._column_map_ready(o)]
+            if missing and self.async_supports:
+                self._build_column_maps(missing)          # the check runs again when they are ready
+                return
             maps = {o.uid: self._column_map(o) for o in parts}
             pairs = collision.colliding_pairs(maps, clearance=0.5)
         colliding = {u for p in pairs for u in p}
@@ -5894,7 +6042,7 @@ class MainWindow(QMainWindow):
         if cfg["technology"] == "sla" and cfg["support_enable"]:
             for o in self.objects:
                 try:
-                    local = self._support_preview(o, cfg)
+                    local = self._built_supports(o, cfg)
                 except Exception:
                     local = None
                 if local is not None and len(local.faces):
@@ -6267,7 +6415,9 @@ class MainWindow(QMainWindow):
             self.task.wait(3000)
         # background helpers must finish before the window goes away (a running thread would crash)
         self._stop_preslice()
-        for t in (getattr(self, "_autosave_task", None), getattr(self, "_orient_task", None)):
+        self._sup_pending.clear()                    # no new support builds; let a running one finish
+        for t in (getattr(self, "_autosave_task", None), getattr(self, "_orient_task", None),
+                  getattr(self, "_sup_task", None), getattr(self, "_colmap_task", None)):
             if t is not None and t.isRunning():
                 t.wait(5000)
         if getattr(self, "remote", None) is not None:
