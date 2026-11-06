@@ -3223,8 +3223,12 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         # Inno Setup: quiet install, closes this program, then opens it again (the installer's [Run] entry)
-        subprocess.Popen([path, "/SILENT", "/SP-", "/NOCANCEL", "/CLOSEAPPLICATIONS", "/NORESTART"],
-                         close_fds=True)
+        try:
+            subprocess.Popen([path, "/SILENT", "/SP-", "/NOCANCEL", "/CLOSEAPPLICATIONS", "/NORESTART"],
+                             close_fds=True)
+        except OSError as exc:                    # blocked or missing: say so, keep working
+            self.status.setText(tr("upd_failed").format(exc))
+            return
         self.close()
 
     def set_mouse_scheme(self, key: str):

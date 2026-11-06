@@ -5653,6 +5653,9 @@ def test_update_check_download_and_offer(tmp_path):
         got = []
         updater.download = lambda info, dest, progress=None, cancelled=None: got.append(info) or "/tmp/UniSlicer-Setup.exe"
         mw.QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+        import subprocess as _sp, sys as _sys
+        ran = []
+        _sp.Popen = lambda args, **k: ran.append(args)               # the installer is not really run here
         w = mw.MainWindow(); w.show(); app.processEvents()
         w.store.setValue("preslice", "false")
         assert not w.update_btn.isVisible()
@@ -5666,10 +5669,17 @@ def test_update_check_download_and_offer(tmp_path):
         while not got and time.time() < end:
             app.processEvents(); time.sleep(0.01)
         end = time.time() + 5
-        while "UniSlicer-Setup.exe" not in w.status.text() and time.time() < end:
+        while _sys.platform != "win32" and "UniSlicer-Setup.exe" not in w.status.text() and time.time() < end:
             app.processEvents(); time.sleep(0.01)
         assert got and got[0]["commit"] == "def456"
-        assert "UniSlicer-Setup.exe" in w.status.text(), w.status.text()     # not Windows: saved, not run
+        if _sys.platform == "win32":                                 # Windows: run quietly, the window closes
+            end = time.time() + 5
+            while not ran and time.time() < end:
+                app.processEvents(); time.sleep(0.01)
+            assert ran and ran[0][0].endswith("UniSlicer-Setup.exe") and "/SILENT" in ran[0], ran
+            w.show(); app.processEvents()
+        else:                                                        # elsewhere: saved, not run
+            assert "UniSlicer-Setup.exe" in w.status.text(), w.status.text()
         updater.latest = lambda timeout=10.0: {"commit": "abc123", "date": "x", "url": "x", "size": 1}
         w._upd_task = None
         w.check_updates(manual=True)
