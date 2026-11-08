@@ -107,13 +107,14 @@ class SceneObject:
         return m
 
     def _linear_bounds(self) -> np.ndarray:
-        """Bounds of the rotated/scaled mesh, cached until rotation or scale change."""
+        """Bounds of the rotated/scaled mesh, cached until the rotation, the scale or the mesh change (a
+        repair, cut, texture or undo puts a new mesh in place)."""
         lin = self.matrix()[:3, :3]
         key = lin.tobytes()
         cache = self.__dict__.get("_bounds_cache")
-        if cache is None or cache[0] != key:
+        if cache is None or cache[0] != key or cache[2] is not self.mesh or cache[3] is not self.mesh.vertices:
             v = self.mesh.vertices @ lin.T
-            cache = (key, np.array([v.min(axis=0), v.max(axis=0)]))
+            cache = (key, np.array([v.min(axis=0), v.max(axis=0)]), self.mesh, self.mesh.vertices)
             self.__dict__["_bounds_cache"] = cache
         return cache[1]
 

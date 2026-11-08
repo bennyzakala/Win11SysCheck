@@ -20,6 +20,15 @@ def _load(path: str) -> dict:
         return {}
 
 
+def _save_json(path: str, data) -> None:
+    """Write a profile file whole or not at all (written beside it, then put in place): an interrupted save
+    left a broken file, which then read as empty - and the next save kept only its own entry."""
+    part = path + ".part"
+    with open(part, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, ensure_ascii=False)
+    os.replace(part, path)
+
+
 _extra_cache: dict = {}
 
 
@@ -163,8 +172,7 @@ def save_user_profile(kind: str, name: str, values: dict, technology: str, pid: 
         orig = (builtin(kind, pid) or {}).get("values", {})
         entry["user_keys"] = sorted(k for k, v in clean.items() if k != "technology" and orig.get(k) != v)
     data[pid] = entry
-    with open(_user_path(kind), "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, ensure_ascii=False)
+    _save_json(_user_path(kind), data)
     return pid
 
 
@@ -184,8 +192,7 @@ def add_plate(printer_id: str, name: str, width: float, depth: float, offset_x: 
     entry["plates"] = [p for p in entry.get("plates", []) if p.get("name") != name] + [
         {"name": name, "width": float(width), "depth": float(depth), "offset_x": float(offset_x), "offset_y": float(offset_y), "user": True}]
     data[printer_id] = entry
-    with open(_user_path("printers"), "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, ensure_ascii=False)
+    _save_json(_user_path("printers"), data)
 
 
 def delete_user_profile(kind: str, pid: str) -> None:
@@ -193,8 +200,7 @@ def delete_user_profile(kind: str, pid: str) -> None:
     data = _load(_user_path(kind))
     if pid in data:
         del data[pid]
-        with open(_user_path(kind), "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2, ensure_ascii=False)
+        _save_json(_user_path(kind), data)
 
 
 def export_profiles(kind: str, pids: list[str], path: str) -> None:

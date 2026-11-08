@@ -17,6 +17,21 @@ FORMAT_VERSION = 1
 
 
 def save(path: str, objects: list[SceneObject], settings_state: dict) -> None:
+    """Write the project whole or not at all: it goes beside ``path`` first and is put in place when complete
+    (a crash during an autosave left a broken project in place of the last good one)."""
+    part = path + ".part"
+    try:
+        _save(part, objects, settings_state)
+        os.replace(part, path)
+    except BaseException:
+        try:
+            os.remove(part)
+        except OSError:
+            pass
+        raise
+
+
+def _save(path: str, objects: list[SceneObject], settings_state: dict) -> None:
     meshes: dict[int, int] = {}          # id(mesh) -> index, so duplicates share one copy
     entries = []
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:

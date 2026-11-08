@@ -488,11 +488,8 @@ class Viewer(QOpenGLWidget):
         if old is not None and old["mesh"] is mesh:
             old["matrix"], old["state"] = matrix, state
         else:
-            for key in ("buffer", "buffer_lod", "defect_open", "defect_bad"):
-                if old and old.get(key):
-                    self._trash(old[key])
-            for b in (old or {}).get("region_buffers") or []:
-                self._trash(b[0])
+            if old:
+                self._trash_buffers(old)          # all of them: supports, holes and labels go with the old mesh
             self.objects[uid] = {"mesh": mesh, "buffer": None, "state": state, "matrix": matrix,
                                  "color": (old or {}).get("color")}
             _prepare_picking(mesh)
@@ -551,13 +548,19 @@ class Viewer(QOpenGLWidget):
     def remove_object(self, uid):
         obj = self.objects.pop(uid, None)
         if obj:
-            for key in ("buffer", "sup_buffer", "hole_buffer", "keep_buffer", "label_buffer", "label_cut_buffer", "buffer_lod",
-                        "sup_buffer_lod"):
-                if obj.get(key):
-                    self._trash(obj[key])
-            for b in obj.get("region_buffers") or []:
-                self._trash(b[0])
+            self._trash_buffers(obj)
         self.update()
+
+    BUFFER_KEYS = ("buffer", "buffer_lod", "sup_buffer", "sup_buffer_lod", "hole_buffer", "keep_buffer",
+                   "label_buffer", "label_cut_buffer", "defect_open", "defect_bad")
+
+    def _trash_buffers(self, obj: dict):
+        """Free every GPU buffer of a shown object (a replaced mesh or a removed object kept them before)."""
+        for key in self.BUFFER_KEYS:
+            if obj.get(key):
+                self._trash(obj[key])
+        for b in obj.get("region_buffers") or []:
+            self._trash(b[0])
 
     def set_object_holes(self, uid, mesh: Mesh | None):
         """Drain-hole markers in the object's own coordinates."""

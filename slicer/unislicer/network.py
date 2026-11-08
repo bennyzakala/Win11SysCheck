@@ -200,7 +200,12 @@ def _lenient_post(host: str, port: int, path: str, body, headers: dict, timeout:
                 break
             sock.sendall(block)
         data = b""
+        # the status broadcasts keep the line busy, so the socket timeout alone may never fire: stop waiting
+        # for the reply after ``timeout`` seconds in all (the upload itself is done by now)
+        deadline = time.monotonic() + timeout
         while True:
+            if time.monotonic() > deadline:
+                break
             try:
                 chunk = sock.recv(65536)
             except socket.timeout:

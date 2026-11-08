@@ -33,8 +33,10 @@ def latest(timeout: float = 10.0) -> dict | None:
     asset = next((a for a in data.get("assets", []) if a.get("name") == ASSET), None)
     if asset is None:
         return None
+    digest = str(asset.get("digest") or "")
     return {"commit": str(data.get("target_commitish", "")), "date": str(data.get("published_at", ""))[:10],
-            "url": asset.get("browser_download_url", ""), "size": int(asset.get("size") or 0)}
+            "url": asset.get("browser_download_url", ""), "size": int(asset.get("size") or 0),
+            "sha256": digest[7:].lower() if digest.lower().startswith("sha256:") else ""}
 
 
 def newer(info: dict | None, current: str) -> bool:
@@ -46,7 +48,12 @@ def newer(info: dict | None, current: str) -> bool:
 
 
 def download(info: dict, dest_dir: str, progress=None, cancelled=None) -> str:
-    """Fetch the installer into ``dest_dir``; returns its path. ``progress(fraction)`` while it comes."""
+    """Fetch the installer into ``dest_dir``; returns its path. ``progress(fraction)`` while it comes. The file
+    must have the SHA-256 fingerprint GitHub lists for it (when it lists one) and the listed size; with
+    neither to check against it is refused - it is run with administrator rights afterwards."""
+    import hashlib
+    if not info.get("sha256") and not info.get("size"):
+        raise OSError("the update cannot be checked (no size or fingerprint published)")
     os.makedirs(dest_dir, exist_ok=True)
     path = os.path.join(dest_dir, ASSET)
     part = path + ".part"
@@ -54,6 +61,7 @@ def download(info: dict, dest_dir: str, progress=None, cancelled=None) -> str:
     with urllib.request.urlopen(req, timeout=60) as resp, open(part, "wb") as out:
         total = int(resp.headers.get("Content-Length") or info.get("size") or 0)
         done = 0
+        sha = hashlib.sha256()
         while True:
             if cancelled is not None and cancelled():
                 raise InterruptedError
@@ -61,11 +69,15 @@ def download(info: dict, dest_dir: str, progress=None, cancelled=None) -> str:
             if not chunk:
                 break
             out.write(chunk)
+            sha.update(chunk)
             done += len(chunk)
             if progress is not None and total:
                 progress(min(1.0, done / total))
     if info.get("size") and os.path.getsize(part) != info["size"]:
         os.remove(part)
         raise OSError("the download is incomplete")
+    if info.get("sha256") and sha.hexdigest() != info["sha256"]:
+        os.remove(part)
+        raise OSError("the download does not match the published file")
     os.replace(part, path)
     return path

@@ -67,14 +67,25 @@ _TOOTH_RANGE = re.compile(rf"-{_FDI}-{_FDI}-\d{{1,2}}(?=[-_.]|$)")
 
 
 def order_text_for(path: str) -> str:
-    """Indication-related text of a 3Shape / exocad order file beside the design (patient data left out)."""
+    """Indication-related text of the 3Shape / exocad order file that belongs to this design (patient data
+    left out): the only order file in the design's folder (a case folder), or, in a folder that collects
+    several cases, the one named like the design - its name starts the design's name, or it carries the
+    design's case code - so one case's order (say, a crown) is not lent to another case's model."""
     folder = os.path.dirname(os.path.abspath(path))
     try:
-        names = [n for n in os.listdir(folder) if n.lower().endswith((".xml", ".dentalproject", ".constructioninfo"))]
+        names = sorted(n for n in os.listdir(folder) if n.lower().endswith((".xml", ".dentalproject", ".constructioninfo")))
     except OSError:
         return ""
+    stem = os.path.splitext(os.path.basename(path))[0].lower()
+    case = re.split(r"[_\-\s.]", stem)[0]
+
+    def belongs(n: str) -> bool:
+        order = os.path.splitext(n)[0].lower()
+        if len(names) == 1:
+            return True                          # a case folder with its one order file (as 3Shape exports)
+        return bool(order) and (stem.startswith(order) or (len(case) >= 4 and case in order))
     keep = []
-    for n in names[:5]:
+    for n in [n for n in names if belongs(n)][:5]:
         try:
             with open(os.path.join(folder, n), "r", encoding="utf-8", errors="ignore") as fh:
                 raw = fh.read(400_000)

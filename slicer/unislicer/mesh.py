@@ -284,14 +284,25 @@ def load_mesh(path: str) -> list[Mesh]:
 
 
 def _read_stl(path: str) -> np.ndarray:
+    """Triangles of a binary or ASCII STL. Binary files whose triangle count does not match their length
+    (a few bytes of padding at the end, or a count of 0 written by some exporters) are read too."""
     with open(path, "rb") as fh:
         data = fh.read()
-    if len(data) >= 84:
-        count = struct.unpack_from("<I", data, 80)[0]
-        if 84 + count * 50 == len(data):
-            record = np.dtype([("n", "<f4", 3), ("v", "<f4", (3, 3)), ("attr", "<u2")])
-            arr = np.frombuffer(data, dtype=record, count=count, offset=84)
-            return arr["v"].astype(np.float64)
+    record = np.dtype([("n", "<f4", 3), ("v", "<f4", (3, 3)), ("attr", "<u2")])
+    count = struct.unpack_from("<I", data, 80)[0] if len(data) >= 84 else -1
+    if count >= 0 and 84 + count * 50 == len(data):
+        return np.frombuffer(data, dtype=record, count=count, offset=84)["v"].astype(np.float64)
+    head = data[:512].lstrip().lower()
+    if not head.startswith(b"solid") or b"facet" not in data[:4096].lower():
+        # two harmless kinds of binary file only: a few bytes of padding after the triangles the count says,
+        # or a count of 0 (all whole triangles are read). Any other mismatch may hide lost triangles and is
+        # left to the repair, which says what it found.
+        fits = (len(data) - 84) // 50 if len(data) >= 134 else 0
+        n = count if 0 < count == fits else fits if count == 0 else 0
+        if n > 0:
+            v = np.frombuffer(data, dtype=record, count=n, offset=84)["v"].astype(np.float64)
+            if np.isfinite(v).all():
+                return v
     text = data.decode("utf-8", errors="ignore")
     verts = []
     for line in text.splitlines():

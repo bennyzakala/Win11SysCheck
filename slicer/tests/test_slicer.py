@@ -405,6 +405,72 @@ def test_prz_layers_are_drawn_mirrored_so_prints_are_not(tmp_path):
     assert not np.array_equal(out["prz"], out["goo"])
 
 
+def test_review_fixes_bounds_collision_stl_orders_and_files(tmp_path, monkeypatch):
+    """Fixes from the code review: a part's size follows a new mesh (undo, repair); parts closer than the
+    clearance are seen as touching even with no overlap; slightly irregular binary STLs open; another case's
+    order file is not read; print files and saved profiles are written whole or not at all; a broken
+    printer profile (screen resolution against build area) is warned about."""
+    import struct
+    from unislicer import collision, dental_cad, goo
+    from unislicer.mesh import save_stl, load_mesh
+    from unislicer.scene import SceneObject
+    # 1. bounds follow the mesh
+    o = SceneObject(primitives.box(10, 10, 5), "p")
+    small = o.state()
+    assert np.allclose(o.world_size(), [10, 10, 5])
+    o.mesh = primitives.box(30, 30, 30)
+    assert np.allclose(o.world_size(), [30, 30, 30])
+    o.restore(small)
+    assert np.allclose(o.world_size(), [10, 10, 5])
+    # 2. a 0.3 mm gap with 0.5 mm clearance touches; 3 mm does not
+    a = collision.ColumnMap(primitives.box(10, 10, 10))
+    for gap, expect in ((0.3, True), (0.45, True), (3.0, False)):
+        b = collision.ColumnMap(primitives.box(10, 10, 10).translated([10 + gap, 0, 0]))
+        assert collision.touching(a, b, 0.5) is expect and collision.touching(b, a, 0.5) is expect, gap
+    # 3. binary STL with padding, or with a triangle count of 0 (a count that is just wrong is not guessed at)
+    path = tmp_path / "c.stl"
+    save_stl(primitives.box(10, 10, 10), str(path))
+    raw = path.read_bytes()
+    (tmp_path / "pad.stl").write_bytes(raw + b"\0\0")
+    (tmp_path / "zero.stl").write_bytes(raw[:80] + struct.pack("<I", 0) + raw[84:])
+    for n in ("pad.stl", "zero.stl"):
+        m = load_mesh(str(tmp_path / n))
+        assert len((m[0] if isinstance(m, list) else m).faces) == 12, n
+    # 4. order files: in a folder of several cases, only the design's own
+    orders = tmp_path / "orders"
+    orders.mkdir()
+    (orders / "caseA.xml").write_text("<x><ItemType>Crown</ItemType></x>")
+    (orders / "ORD123.xml").write_text("<x><ItemType>Model</ItemType></x>")
+    assert dental_cad.order_text_for(str(orders / "FYQ-SOD260046892-044-P.stl")) == ""
+    assert dental_cad.order_text_for(str(orders / "ORD123_UpperJaw.stl")) == "Model"
+    # 5. a failed export keeps the file that was there and leaves no part file
+    cfg = profiles.build_config("phrozen_sonic_mini_8k_s", None, "sla_fast")
+    job = sla.prepare([placed(primitives.box(10, 10, 2), 60, 40).world_mesh()], cfg)
+    out = tmp_path / "plate.prz"
+    sla.export(job, cfg, str(out), "a")
+    good = out.read_bytes()
+    assert goo.read(str(out))["footer_ok"] and not (tmp_path / "plate.prz.part").exists()
+
+    def broken(*a, **k):
+        raise RuntimeError("disk full")
+    monkeypatch.setattr(goo, "write", broken)
+    with pytest.raises(RuntimeError):
+        sla.export(job, cfg, str(out), "a")
+    assert out.read_bytes() == good and not (tmp_path / "plate.prz.part").exists()
+    monkeypatch.undo()
+    # 6. profiles are saved through a part file
+    monkeypatch.setattr(profiles, "USER_DIR", str(tmp_path / "prof"))
+    import os
+    os.makedirs(profiles.USER_DIR, exist_ok=True)
+    profiles.save_user_profile("materials", "R1", {"exposure_time": 2.0}, "sla")
+    assert not [f for f in os.listdir(profiles.USER_DIR) if f.endswith(".part")]
+    # 7. a portrait resolution on a landscape plate is reported
+    bad = cfg.copy().update({"resolution_x": 1440, "resolution_y": 2560, "bed_x": 199.68, "bed_y": 124.8})
+    j = sla.prepare([placed(primitives.box(10, 10, 2), 60, 40).world_mesh()], bad)
+    assert any("screen resolution" in w for w in j.warnings)
+    assert not any("screen resolution" in w for w in job.warnings)
+
+
 def test_assistant_learns_orientation_preference(tmp_path):
     from unislicer import orient
     from unislicer.assistant import Assistant
@@ -5857,6 +5923,14 @@ def test_update_check_download_and_offer(tmp_path):
         with pytest.raises(OSError):                                                # truncated: refused
             updater.download({"url": url, "size": len(payload) + 1}, str(tmp_path / "dl2"))
         assert not os.path.exists(tmp_path / "dl2" / "UniSlicer-Setup.exe")
+        import hashlib
+        good = hashlib.sha256(payload).hexdigest()                                   # GitHub's fingerprint
+        assert updater.download({"url": url, "size": len(payload), "sha256": good}, str(tmp_path / "dl3"))
+        with pytest.raises(OSError):                                                # not the published file
+            updater.download({"url": url, "size": len(payload), "sha256": "0" * 64}, str(tmp_path / "dl4"))
+        assert not os.path.exists(tmp_path / "dl4" / "UniSlicer-Setup.exe")
+        with pytest.raises(OSError):                                                # nothing to check against
+            updater.download({"url": url}, str(tmp_path / "dl5"))
     finally:
         srv.shutdown()
     import subprocess, sys, textwrap

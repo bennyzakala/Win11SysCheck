@@ -450,7 +450,7 @@ def apply_template(objects: list[SceneObject], plate, tpl: dict | None) -> bool:
     else:
         plate_shape = box(*plate)
     x0, y0, x1, y1 = plate
-    saved = [(o, o.x, o.y, o.base_rotation.copy()) for o in parts]
+    saved = [(o, o.x, o.y, o.base_rotation.copy(), o.rotation.copy()) for o in parts]
     slots = sorted(tpl["slots"], key=lambda q: -q["area"])
     order = sorted(parts, key=lambda o: -footprint(o).area)
     try:
@@ -478,6 +478,6 @@ def apply_template(objects: list[SceneObject], plate, tpl: dict | None) -> bool:
     except Exception:
         ok = False
     if not ok:
-        for o, x, y, base_rot in saved:
-            o.x, o.y, o.base_rotation = x, y, base_rot
+        for o, x, y, base_rot, rot in saved:          # turns are kept in rotation too (the Rotation fields)
+            o.x, o.y, o.base_rotation, o.rotation = x, y, base_rot, rot
     return ok

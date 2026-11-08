@@ -71,29 +71,33 @@ def _dilate(lo, hi, r: int):
 
 
 def touching(a: ColumnMap, b: ColumnMap, clearance: float = 0.5) -> bool:
-    """True if the parts overlap or come closer than ``clearance`` (mm) anywhere."""
+    """True if the parts overlap or come closer than ``clearance`` (mm) anywhere - also when they come that
+    close just outside each other's grid (a gap of 0.3 mm between two parts' sides was missed before)."""
     cell = a.cell
-    # overlap of the two grids, in a's cells
-    off = np.round((b.origin - a.origin) / cell).astype(int)
-    x0, y0 = max(0, off[0]), max(0, off[1])
-    x1, y1 = min(a.shape[0], off[0] + b.shape[0]), min(a.shape[1], off[1] + b.shape[1])
     r = int(np.ceil(clearance / cell))
-    x0, y0, x1, y1 = x0 - r, y0 - r, x1 + r, y1 + r
-    x0, y0 = max(0, x0), max(0, y0)
-    x1, y1 = min(a.shape[0], x1), min(a.shape[1], y1)
+    # a's grid with r empty cells all round, so cells of b just outside it can still meet a's edge
+    alo_all = np.pad(a.lo, r, constant_values=np.inf)
+    ahi_all = np.pad(a.hi, r, constant_values=-np.inf)
+    off = np.round((b.origin - a.origin) / cell).astype(int) + r          # b's cell (0, 0) in that grid
+    x0, y0 = max(0, off[0] - r), max(0, off[1] - r)
+    x1, y1 = min(alo_all.shape[0], off[0] + b.shape[0] + r), min(alo_all.shape[1], off[1] + b.shape[1] + r)
     if x1 <= x0 or y1 <= y0:
         return False
-    alo, ahi = a.lo[x0:x1, y0:y1], a.hi[x0:x1, y0:y1]
-    # b sampled on the same cells, grown by the clearance
-    blo = np.full(alo.shape, np.inf)
-    bhi = np.full(alo.shape, -np.inf)
-    bx0, by0 = x0 - off[0], y0 - off[1]
+    alo, ahi = alo_all[x0:x1, y0:y1], ahi_all[x0:x1, y0:y1]
+    # b sampled on the window grown by r more (its cells there reach into the window when grown), grown by
+    # the clearance, then cut back to the window
+    wx0, wy0 = x0 - r, y0 - r
+    w = (x1 - x0 + 2 * r, y1 - y0 + 2 * r)
+    blo = np.full(w, np.inf)
+    bhi = np.full(w, -np.inf)
+    bx0, by0 = wx0 - off[0], wy0 - off[1]
     sx0, sy0 = max(0, bx0), max(0, by0)
-    sx1, sy1 = min(b.shape[0], bx0 + alo.shape[0]), min(b.shape[1], by0 + alo.shape[1])
+    sx1, sy1 = min(b.shape[0], bx0 + w[0]), min(b.shape[1], by0 + w[1])
     if sx1 > sx0 and sy1 > sy0:
         blo[sx0 - bx0:sx1 - bx0, sy0 - by0:sy1 - by0] = b.lo[sx0:sx1, sy0:sy1]
         bhi[sx0 - bx0:sx1 - bx0, sy0 - by0:sy1 - by0] = b.hi[sx0:sx1, sy0:sy1]
     blo, bhi = _dilate(blo, bhi, r)
+    blo, bhi = blo[r:r + alo.shape[0], r:r + alo.shape[1]], bhi[r:r + alo.shape[0], r:r + alo.shape[1]]
     both = np.isfinite(alo) & np.isfinite(blo)
     if not both.any():
         return False

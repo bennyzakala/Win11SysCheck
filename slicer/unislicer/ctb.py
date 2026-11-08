@@ -290,7 +290,8 @@ def write(path: str, layer_rle: Iterable[tuple[int, bytes]], layer_count: int, c
         fh.seek(0)
         fh.write(HEADER.pack(
             MAGIC_CTB_V4, VERSION, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], 0, 0,
-            round(layer_count * layer_height, 5), layer_height, cfg["exposure_time"], cfg["bottom_exposure_time"],
+            round(layer_z[-1] if layer_z else layer_count * layer_height, 5), layer_height, cfg["exposure_time"],
+            cfg["bottom_exposure_time"],
             cfg["light_off_delay"], bottom, int(cfg["resolution_x"]), int(cfg["resolution_y"]),
             offsets["large"], table_offset, layer_count, offsets["small"], int(print_time_s), 0,
             print_params_offset, PRINT_PARAMS.size, 1, int(cfg["light_pwm"]), int(cfg["light_pwm_bottom"]), seed,

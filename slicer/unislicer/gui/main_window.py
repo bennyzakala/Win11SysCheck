@@ -1415,10 +1415,23 @@ class MainWindow(QMainWindow):
 
     def load_parts(self, parts: list[dict]):
         self._long(True)
+        held = self._one_undo_step()
         try:
             self._load_parts(parts)
         finally:
+            self._undo_held = held
             self._long(False)
+
+    def _one_undo_step(self) -> bool:
+        """Save the plate once and hold further saves (opening many files is one Ctrl+Z, not one per part -
+        which filled the 60-step history so the plate before the load could not be had back). Returns the
+        previous hold, to put back afterwards."""
+        held = bool(getattr(self, "_undo_held", False))
+        if not held:
+            self._push_undo()
+        self._undo_held = True
+        self._held_before_load = held
+        return held
 
     def _load_parts(self, parts: list[dict]):
         """Parts from the Add parts window: each with its type (on the plate or on supports, hollow), units
@@ -1461,6 +1474,7 @@ class MainWindow(QMainWindow):
         self.arrange_objects()
         self._objects_changed()
         self.viewer.fit_objects()
+        self._undo_held = self.__dict__.get("_held_before_load", False)
         for o in added:                       # after arranging, so Ctrl+Z first undoes an automatic repair
             self._check_learned_repair(o)
         self._auto_close_holes(added)
@@ -1468,9 +1482,11 @@ class MainWindow(QMainWindow):
 
     def load_files(self, paths):
         self._long(True)
+        held = self._one_undo_step()
         try:
             self._load_files(paths)
         finally:
+            self._undo_held = held
             self._long(False)
 
     def _load_files(self, paths):
@@ -1497,6 +1513,7 @@ class MainWindow(QMainWindow):
         if added is not None:
             self.arrange_objects()
             self.viewer.fit_objects()
+        self._undo_held = self.__dict__.get("_held_before_load", False)
         for o in loaded:                      # after arranging, so Ctrl+Z first undoes an automatic repair
             self._check_learned_repair(o)
         self._auto_close_holes(loaded)
@@ -2465,7 +2482,6 @@ class MainWindow(QMainWindow):
             return
         prefs = self._label_prefs()
         lift = self._lift() if self._shows_supports(o) else 0.0
-        self._push_undo()
         hit, best = None, None
         for k, (p, _n, lab) in enumerate(o.world_labels(lift)):
             reach = max(2.0, 0.5 * len(lab["text"]) * 0.62 * lab["height"], lab["height"])
@@ -2474,6 +2490,7 @@ class MainWindow(QMainWindow):
                 hit, best = k, d
         if hit is None:
             from .. import mesh_tools
+            self._push_undo()                      # a new label (picking one to edit changes nothing)
             text = self._label_text(o, len(o.labels) + 1)
             size = prefs["height"]
             # as big as the surface there allows: a small round die gets small letters that still hug it
@@ -2519,6 +2536,8 @@ class MainWindow(QMainWindow):
         if sel is None or o is None or sel[0] != uid or sel[1] >= len(o.labels):
             return
         lift = self._lift() if self._shows_supports(o) else 0.0
+        if not getattr(self, "_label_dragged", False):
+            self._push_undo()                      # the first move of a drag: Ctrl+Z puts the label back
         o.move_label(sel[1], point, normal, lift)
         self._label_dragged = True
         self.viewer.set_object_labels(o.uid, self._label_preview(o, self.settings.config(), fit=False))
@@ -2732,9 +2751,18 @@ class MainWindow(QMainWindow):
         if not o.labels:
             return None
         lift = self._lift(cfg) if self._shows_supports(o) else 0.0
+        # in the object's own coordinates the result does not change when the part only moves: kept until its
+        # mesh, labels, turn / scale or the support lift change (every edit rebuilt all labels: ~1 s a plate)
+        key = (id(o.mesh), repr(o.labels), o.matrix()[:3, :3].tobytes(), round(lift, 6), fit)
+        cache = self.__dict__.setdefault("_label_cache", {})
+        hit = cache.get(o.uid)
+        if hit is not None and hit[0] == key and hit[2] is o.mesh:
+            return hit[1]
         up, cut = o.world_label_meshes(lift, fit=fit, look=True)
         inv = np.linalg.inv(self._display_matrix(o))
-        return (up.transform(inv) if up is not None else None, cut.transform(inv) if cut is not None else None)
+        out = (up.transform(inv) if up is not None else None, cut.transform(inv) if cut is not None else None)
+        cache[o.uid] = (key, out, o.mesh)
+        return out
 
     def clear_keepout(self):
         targets = [o for o in self._support_targets() if len(o.keepout)]
@@ -3183,6 +3211,7 @@ class MainWindow(QMainWindow):
                 self._objects_changed(refresh_list=False)
                 self._regenerate_one(o)
             elif o is not None and action == "supports":
+                self._push_undo()                         # Ctrl+Z takes the new supports away again
                 o.direct = False
                 self._regenerate_one(o)
         finally:
@@ -4969,6 +4998,7 @@ class MainWindow(QMainWindow):
     def _invalidate(self):
         if self.task is not None and self.task.isRunning():
             self.task.cancel()
+            self.__dict__.pop("_send_after_slice", None)      # that slice will not finish: nothing to send
         self._schedule_preslice()
         had = self.result is not None
         if self.result is not None:
@@ -5082,7 +5112,7 @@ class MainWindow(QMainWindow):
         meshes = [o.world_mesh() for o in models]
         kw = dict(support_points=[o.world_support_points(0.0) for o in models], direct=[o.direct for o in models],
                   keepout=[o.world_keepout(0.0) for o in models],
-                  labels=[o.world_label_meshes(0.0) if o.labels else None for o in models],
+                  labels=[self._slice_labels(o) if o.labels else None for o in models],
                   raft_labels=[self._raft_label_text(o, o.config(cfg)) for o in models],
                   holes=[o.world_drain_holes(0.0) for o in models],
                   cutters=[o.world_mesh() for o in self.objects if o.role == "cutter"],
@@ -5090,6 +5120,22 @@ class MainWindow(QMainWindow):
                              else o.material for o in models],
                   filled=[o.fill_cavity for o in models], model_settings=[o.effective_settings(cfg) or None for o in models])
         return meshes, kw
+
+    def _slice_labels(self, o: SceneObject):
+        """The part's label meshes on the plate, for slicing. Built in the part's own coordinates and kept
+        until its mesh, labels, turn or scale change, then placed where the part is now (the pre-slice after
+        every edit rebuilt all of them on the window's thread: ~0.15 s a part)."""
+        key = (id(o.mesh), repr(o.labels), o.matrix()[:3, :3].tobytes())
+        cache = self.__dict__.setdefault("_slice_label_cache", {})
+        m = o.world_matrix()
+        hit = cache.get(o.uid)
+        if hit is None or hit[0] != key or hit[2] is not o.mesh:
+            up, cut = o.world_label_meshes(0.0)
+            inv = np.linalg.inv(m)
+            hit = (key, (None if up is None else up.transform(inv), None if cut is None else cut.transform(inv)), o.mesh)
+            cache[o.uid] = hit
+        up, cut = hit[1]
+        return (None if up is None else up.transform(m), None if cut is None else cut.transform(m))
 
     # ---------------------------------------------------------------- background pre-slice
     PRESLICE_DELAY_MS = 2000
@@ -5233,6 +5279,9 @@ class MainWindow(QMainWindow):
         self.send_btn.setEnabled(self._exportable() is not None)
 
     def _on_failed(self, message):
+        # a slice that failed or was cancelled sends nothing, and leaves no fix waiting for the next one
+        self.__dict__.pop("_send_after_slice", None)
+        self.__dict__.pop("_cup_fix_pending", None)
         if message:
             QMessageBox.critical(self, tr("slice_error"), message)
             self.status.setText(tr("slice_error"))
@@ -6772,4 +6821,8 @@ class MainWindow(QMainWindow):
         self.store.setValue("geometry", self.saveGeometry())
         self._save_state()
         self.store.setValue("autosave_clean", "true")     # a normal exit: nothing to recover next time
+        # a window closed for a theme or language switch is not deleted: its timers must not keep running
+        # (its autosave wrote the old plate over the new window's every two minutes)
+        for t in self.findChildren(QTimer):
+            t.stop()
         super().closeEvent(e)

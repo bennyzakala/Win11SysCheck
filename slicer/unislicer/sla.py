@@ -1199,6 +1199,14 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     # a model with holes (open mesh) is closed on a copy for slicing: the layers come out right and slicing
     # stays on the fast path; only a model that cannot be closed this way is reported
     warnings = []
+    pitch_x = cfg["bed_x"] / max(1, int(cfg["resolution_x"]))
+    pitch_y = cfg["bed_y"] / max(1, int(cfg["resolution_y"]))
+    if cfg["sla_process"] in ("lcd", "dlp") and max(pitch_x, pitch_y) > 1.5 * min(pitch_x, pitch_y):
+        # (12K screens have pixels up to ~1.3x as tall as wide; much more is a profile error, e.g. a portrait
+        # resolution on a landscape plate - the print would come out stretched)
+        warnings.append(f"The printer's screen resolution ({int(cfg['resolution_x'])} x {int(cfg['resolution_y'])} px) "
+                        f"does not fit its build area ({cfg['bed_x']:g} x {cfg['bed_y']:g} mm): pixels of "
+                        f"{pitch_x * 1000:.0f} x {pitch_y * 1000:.0f} um. Check the printer profile before printing.")
     closed = []
     for m in meshes:
         if m.is_watertight():
@@ -1310,7 +1318,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             report("hollow", gi / len(groups))
             hkey = ("hollow", g_keys, tuple(round(p, 6) for p in planes), cfg["resolution"], cfg["xy_compensation"],
                     tuple(bool(filled and i < len(filled) and filled[i]) for i in idx), lh,
-                    tuple(gcfg[k] for k in HOLLOW_KEYS), gcfg["support_enable"])
+                    tuple(gcfg[k] for k in HOLLOW_KEYS), gcfg["support_enable"], gcfg["sla_pillar_diameter"])
             hit = _cache_get(hkey)
             if hit is None:
                 g_infill: list = []
@@ -1326,7 +1334,9 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         if gcfg["sla_cavity_pillars"] and on_plate_all[idx[0]] and gcfg["hollow_infill"] == "none" and not jetting:
             # pillars only inside the model's cavity, from the plate / inner floor up to the ceiling
             ckey = ("cavity-pillars", g_keys, tuple(round(p, 6) for p in planes), cfg["resolution"],
-                    tuple(gcfg[k] for k in HOLLOW_KEYS), cfg["xy_compensation"])
+                    tuple(gcfg[k] for k in HOLLOW_KEYS), cfg["xy_compensation"],
+                    tuple(bool(filled and i < len(filled) and filled[i]) for i in idx),     # "Fill cavity" changes the layers
+                    tuple(gcfg[k] for k in ("sla_cavity_outside", "sla_cavity_diameter", "sla_cavity_spacing")))
             hit = _cache_get(ckey)
             if hit is None:
                 cav = covered_voids(g_layers)
@@ -1375,7 +1385,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         post_key = ("post", tuple(tuple(mesh_key(models[i]) for i in idx) for idx in groups.values()),
                     tuple(round(p, 6) for p in planes), cfg["resolution"], cfg["xy_compensation"], lh,
                     tuple(bool(filled and i < len(filled) and filled[i]) for i in range(len(models))),
-                    tuple(tuple(c[k] for k in HOLLOW_KEYS) + (c["support_enable"],) for c in cfgs),
+                    tuple(tuple(c[k] for k in HOLLOW_KEYS) + (c["support_enable"], c["sla_pillar_diameter"]) for c in cfgs),
                     bool(cfg["sla_thicken_thin"]))
     post = _cache_get(post_key) if post_key else None
     base_key = post_key[:-1] + (False,) if post_key and post_key[-1] else None
@@ -1576,6 +1586,24 @@ PRINT_FLIPPED = ("prz",)     # formats whose printers need the layers drawn mirr
 
 def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
            progress: Callable[[float], None] | None = None, cancelled: Callable[[], bool] | None = None) -> str:
+    """Write the print file. It is written beside ``path`` first and put in place only when complete, so a
+    cancel or an error never leaves a half-written file - nor destroys the good one already there."""
+    import os
+    part = path + ".part"
+    try:
+        _export_file(job, cfg, part, job_name, progress, cancelled)
+        os.replace(part, path)
+    except BaseException:
+        try:
+            os.remove(part)
+        except OSError:
+            pass
+        raise
+    return path
+
+
+def _export_file(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
+                 progress: Callable[[float], None] | None = None, cancelled: Callable[[], bool] | None = None) -> str:
     fmt = cfg["sla_format"]
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in job_name) or "print"
     n = job.layer_count
@@ -1648,7 +1676,8 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
                 "layer_height_mm": job.layer_height, "resolution": [cfg["resolution_x"], cfg["resolution_y"]],
                 "display_mm": [cfg["bed_x"], cfg["bed_y"]], "volume_ml": round(job.volume_ml, 3),
                 "estimated_time_s": round(job.time_s), "settings": {k: cfg[k] for k in keys},
-                "layer_exposure_s": [round(layer_exposure(i, cfg), 3) for i in range(n)],
+                "layer_exposure_s": [round(job.exposures[i] if i < len(job.exposures) else layer_exposure(i, cfg), 3)
+                                     for i in range(n)],
             }
             zf.writestr("metadata.json", json.dumps(meta, indent=2, ensure_ascii=False))
     return path
