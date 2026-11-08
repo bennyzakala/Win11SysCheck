@@ -1571,6 +1571,9 @@ def _render_chunk(layers: list, values: dict) -> list[bytes]:
     return [_png_bytes(render_layer(g, cfg)) for g in layers]
 
 
+PRINT_FLIPPED = ("prz",)     # formats whose printers need the layers drawn mirrored (found by test prints)
+
+
 def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
            progress: Callable[[float], None] | None = None, cancelled: Callable[[], bool] | None = None) -> str:
     fmt = cfg["sla_format"]
@@ -1582,7 +1585,13 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
     if fmt in ("slc", "cli", "3mf"):
         return _export_vector(job, cfg, path, fmt, progress)
     ranges = parallel.chunk_ranges(n, 8, parallel.workers() * 4)
-    args = [(job.layers[a:b], cfg.values) for a, b in ranges]
+    values = dict(cfg.values)
+    if fmt in PRINT_FLIPPED:
+        # Phrozen's printers show PRZ layers the other way round to how they are drawn here: prints came
+        # out mirror images of the models. Drawn flipped, they print as designed (the header keeps the
+        # printer's own mirror settings).
+        values["mirror_y"] = not values.get("mirror_y", False)
+    args = [(job.layers[a:b], values) for a, b in ranges]
     if fmt in ("ctb", "goo", "prz"):
         from . import ctb, goo
         chunks = parallel.run_chunks(_rle_chunk, [a + ("ctb" if fmt == "ctb" else "goo",) for a in args],

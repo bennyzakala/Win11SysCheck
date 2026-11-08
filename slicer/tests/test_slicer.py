@@ -382,6 +382,29 @@ def test_prz_uses_goo_layout(tmp_path):
     assert f["footer_ok"] and f["header"]["layer_count"] == job.layer_count
 
 
+def test_prz_layers_are_drawn_mirrored_so_prints_are_not(tmp_path):
+    """Prints from PRZ files came out as mirror images of the models (a test plate of crowns and bridges on
+    a Phrozen Sonic XL 4K Plus): PRZ layers are drawn flipped top to bottom, relative to the same plate in
+    GOO, which uses the same layer layout; the printer's own mirror settings in the header are unchanged."""
+    from unislicer import goo
+    cfg = profiles.build_config("phrozen_sonic_mini_8k_s", None, "sla_fast")
+    assert cfg["sla_format"] == "prz"
+    # an L: asymmetric, so a mirror image cannot pass for it
+    l_shape = Mesh.merge([primitives.box(20, 4, 2), primitives.box(4, 14, 2)])
+    job = sla.prepare([placed(l_shape, 60, 40).world_mesh()], cfg)
+    res = (int(cfg["resolution_x"]), int(cfg["resolution_y"]))
+    out = {}
+    for fmt in ("prz", "goo"):
+        c = cfg.copy().update({"sla_format": fmt})
+        path = tmp_path / f"a.{fmt}"
+        sla.export(job, c, str(path), "a")
+        f = goo.read(str(path))
+        out[fmt] = goo.decode_layer(f["layers"][0]["rle"], res[0] * res[1]).reshape(res[1], res[0])
+    assert out["goo"].any()
+    assert np.array_equal(out["prz"], out["goo"][::-1, :])
+    assert not np.array_equal(out["prz"], out["goo"])
+
+
 def test_assistant_learns_orientation_preference(tmp_path):
     from unislicer import orient
     from unislicer.assistant import Assistant
