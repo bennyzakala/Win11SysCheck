@@ -3389,6 +3389,15 @@ class MainWindow(QMainWindow):
                     if m is not None and id(m) not in on_plate and len(m.__dict__) > 5:
                         m.drop_caches()
 
+    @staticmethod
+    def _engine_text(w: str, cfg) -> str:
+        """A slicer warning that carries numbers, in the program's language."""
+        if w.startswith("The printer's screen resolution"):
+            px, py = cfg["bed_x"] / max(1, int(cfg["resolution_x"])), cfg["bed_y"] / max(1, int(cfg["resolution_y"]))
+            return tr("res_mismatch").format(int(cfg["resolution_x"]), int(cfg["resolution_y"]), f"{cfg['bed_x']:g}",
+                                             f"{cfg['bed_y']:g}", f"{px * 1000:.0f}", f"{py * 1000:.0f}")
+        return w
+
     def _objects_changed(self, refresh_list: bool = True):
         cfg = self.settings.config()
         outside = {o.uid: o.name for o in out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg), region=plate_region(cfg))}
@@ -5372,7 +5381,7 @@ class MainWindow(QMainWindow):
                     self.slice_info.setToolTip(split)
             self.stat_weight.set(f"{job.weight_g:.1f} g")
             self.stat_cost.set(f"₪{job.cost:.2f}")
-            warnings = [tr(ENGINE_TEXT[w]) if w in ENGINE_TEXT else w for w in job.warnings]
+            warnings = [tr(ENGINE_TEXT[w]) if w in ENGINE_TEXT else self._engine_text(w, cfg) for w in job.warnings]
             warnings = self._print_checks(job) + warnings
             if job.saved_ml > 0:
                 warnings.insert(0, tr("saved_resin").format(job.saved_ml))

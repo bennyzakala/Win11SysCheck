@@ -1438,5 +1438,6 @@
 "Check for updates now": "التحقق من التحديثات الآن",
 "Check for updates at start": "التحقق من التحديثات عند البدء",
 "Crowns and bridges: opening up": "التيجان والجسور: الفتحة للأعلى",
-"{} crowns / bridges turned with the opening up": "تم تدوير {} من التيجان/الجسور بحيث تكون الفتحة للأعلى"
+"{} crowns / bridges turned with the opening up": "تم تدوير {} من التيجان/الجسور بحيث تكون الفتحة للأعلى",
+"The printer's screen resolution ({} x {} px) does not fit its build area ({} x {} mm): pixels of {} x {} µm. The print would come out stretched - check the printer profile before printing.": "دقة شاشة الطابعة ({} × {} بكسل) لا تناسب مساحة الطباعة ({} × {} مم): بكسل {} × {} ميكرون. ستخرج الطباعة مشوهة - تحقق من ملف تعريف الطابعة قبل الطباعة."
 }

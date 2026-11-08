@@ -1438,5 +1438,6 @@
 "Check for updates now": "Проверить обновления",
 "Check for updates at start": "Проверять обновления при запуске",
 "Crowns and bridges: opening up": "Коронки и мосты: отверстием вверх",
-"{} crowns / bridges turned with the opening up": "{} коронок/мостов повёрнуто отверстием вверх"
+"{} crowns / bridges turned with the opening up": "{} коронок/мостов повёрнуто отверстием вверх",
+"The printer's screen resolution ({} x {} px) does not fit its build area ({} x {} mm): pixels of {} x {} µm. The print would come out stretched - check the printer profile before printing.": "Разрешение экрана принтера ({} x {} пикс.) не соответствует области печати ({} x {} мм): пиксель {} x {} мкм. Печать будет искажена — проверьте профиль принтера."
 }

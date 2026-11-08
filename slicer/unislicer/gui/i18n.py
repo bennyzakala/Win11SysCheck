@@ -226,6 +226,7 @@ STRINGS = {
     "holes_partly_closed": ("רוב החורים ב-{} נסגרו; חלק מהפגמים נשארו", "Most holes in {} closed; some defects remain"),
     "holes_not_closed": ("לא ניתן היה לסגור את החורים ב-{} אוטומטית", "The holes in {} could not be closed automatically"),
     "auto_close_holes": ("סגור חורים במודלים אוטומטית בטעינה", "Close holes in models automatically on load"),
+    "res_mismatch": ("רזולוציית המסך של המדפסת ({} × {} פיקסלים) לא מתאימה לשטח ההדפסה שלה ({} × {} מ\"מ): פיקסל של {} × {} מיקרון. ההדפסה תצא מעוותת - בדוק את פרופיל המדפסת לפני הדפסה.", "The printer's screen resolution ({} x {} px) does not fit its build area ({} x {} mm): pixels of {} x {} µm. The print would come out stretched - check the printer profile before printing."),
     "open_up_menu": ("כתרים וגשרים: הפתח כלפי מעלה", "Crowns and bridges: opening up"),
     "open_up_done": ("{} כתרים/גשרים סובבו עם הפתח כלפי מעלה", "{} crowns / bridges turned with the opening up"),
     "upd_available": ("יש עדכון", "Update available"),
