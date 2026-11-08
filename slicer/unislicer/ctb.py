@@ -167,8 +167,9 @@ PREVIEW_BG = (24, 26, 32)
 
 
 def render_preview(models, supports, size: tuple[int, int]) -> Image.Image:
-    """Shaded view from the front and above, cropped to the parts, on the dark screen background. Big scans
-    are drawn from a lighter copy (the screen is a few hundred pixels wide), so it stays quick."""
+    """Shaded view from high above the front (like the program's plate view, so a plate of arches reads as
+    the plate and not as rows of teeth), cropped to the parts, on the dark screen background. Big scans are
+    drawn from a lighter copy (the screen is a few hundred pixels wide), so it stays quick."""
     from .thumbnail import render
     meshes, colours = [], []
     budget = max(15000, 240000 // max(1, len(models)))
@@ -181,7 +182,7 @@ def render_preview(models, supports, size: tuple[int, int]) -> Image.Image:
         colours.append((0.50, 0.56, 0.68))
     if not meshes:
         raise ValueError("nothing to draw")
-    img = render(meshes, colours, size[0], size[1], supersample=3)
+    img = render(meshes, colours, size[0], size[1], supersample=3, yaw=0.0, pitch=60.0)
     out = Image.new("RGB", size, PREVIEW_BG)
     out.paste(img, mask=img.split()[3])
     return out

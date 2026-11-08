@@ -25,8 +25,9 @@ def parse_sizes(text: str) -> list[tuple[int, int, str]]:
 
 
 def render(meshes: list, colours: list[tuple[float, float, float]], width: int, height: int,
-           supersample: int = 2) -> Image.Image:
-    """RGBA image of the models (``colours[i]`` is RGB 0..1 for ``meshes[i]``)."""
+           supersample: int = 2, yaw: float = 30.0, pitch: float = 35.0) -> Image.Image:
+    """RGBA image of the models (``colours[i]`` is RGB 0..1 for ``meshes[i]``), seen from the front turned
+    ``yaw`` degrees and ``pitch`` degrees above the plate."""
     sw, sh = width * supersample, height * supersample
     img = Image.new("RGBA", (sw, sh), (0, 0, 0, 0))
     tris, cols = [], []
@@ -42,8 +43,8 @@ def render(meshes: list, colours: list[tuple[float, float, float]], width: int, 
     t = np.concatenate(tris)
     c = np.concatenate(cols)
 
-    # view: from the front (-Y), 35° above, turned 30° (an iso-like view)
-    yaw, pitch = np.radians(30.0), np.radians(35.0)
+    # view: from the front (-Y), ``pitch`` above, turned ``yaw`` (35 / 30: an iso-like view)
+    yaw, pitch = np.radians(yaw), np.radians(pitch)
     rz = np.array([[np.cos(yaw), -np.sin(yaw), 0], [np.sin(yaw), np.cos(yaw), 0], [0, 0, 1]])
     rx = np.array([[1, 0, 0], [0, np.cos(pitch), -np.sin(pitch)], [0, np.sin(pitch), np.cos(pitch)]])
     rot = rx @ rz
