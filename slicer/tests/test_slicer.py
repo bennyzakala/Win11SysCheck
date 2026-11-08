@@ -5184,7 +5184,10 @@ def test_crowns_and_bridges_open_up_and_nothing_else_turns():
         assert w._open_up(objs) == 0                                     # nothing more to do
         w.store.setValue("crowns_open_up", "false")                      # More > the option off
         fresh = w.add_mesh(Mesh(cap.vertices, cap.faces, "FYQ-SOD260046892-044-P-16-16-1-00-R685_2"), rearrange=False)
-        assert w._open_up([fresh]) == 0 and np.allclose(fresh.matrix(), np.eye(4))
+        try:
+            assert w._open_up([fresh]) == 0 and np.allclose(fresh.matrix(), np.eye(4))
+        finally:
+            w.store.setValue("crowns_open_up", "true")      # on Windows settings outlive the test (registry)
         w._stop_preslice()
         print("ok")
     ''')
@@ -5221,6 +5224,7 @@ def test_add_parts_window_sets_type_and_adds_no_supports(tmp_path):
         w.store.setValue("preslice", "false")
         w.settings.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
         w.settings.set_value("support_enable", False); app.processEvents()
+        w.store.setValue("crowns_open_up", "true")
         folder = {str(tmp_path)!r}
         paths = sorted(os.path.join(folder, n) for n in os.listdir(folder) if n.endswith(".stl"))
         first = lambda p: (lambda m: m[0] if isinstance(m, list) else m)(load_mesh(p))
