@@ -182,6 +182,9 @@ def case_code(name: str) -> str:
 _KIND_CACHE: dict = {}
 
 
+OPENING_ERRORS: list = []      # the last few failures of opening_direction (shown by the tests)
+
+
 def opening_direction(mesh):
     """Which way the opening (fitting surface) of a crown or bridge faces, as a unit axis (+-X, +-Y, +-Z),
     or None when there is no clear hollow. Designs come from the CAD along their insertion axis, so the
@@ -198,7 +201,8 @@ def opening_direction(mesh):
     if hit is None or hit[0] is not mesh:
         try:
             d = _opening_direction(mesh.decimated(6000))
-        except Exception:
+        except Exception as exc:                 # no answer: the part is left as it is
+            OPENING_ERRORS[:] = (OPENING_ERRORS + [repr(exc)])[-5:]
             d = None
         hit = _KIND_CACHE[key] = (mesh, d)
     return None if hit[1] is None else hit[1].copy()
@@ -226,13 +230,19 @@ def _hole_profile(mesh, axis: int, n: int = 20):
     m = Mesh(v, mesh.faces)
     lo, hi = float(v[:, 2].min()), float(v[:, 2].max())
     zs = lo + (hi - lo) * (np.arange(n) + 0.5) / n
+    vz = np.unique(np.round(v[:, 2], 6))
+    near = np.abs(vz[np.clip(np.searchsorted(vz, zs), 0, len(vz) - 1)] - zs) < 1e-4
+    zs[near] += 3e-4 * (hi - lo) + 1e-3                         # not exactly through a row of vertices
     share, area = np.zeros(n), np.zeros(n)
     for i, g in enumerate(slice_mesh(m, zs)):
-        polys = [p for p in getattr(g, "geoms", [g]) if not p.is_empty]
-        filled = sum(Polygon(p.exterior).area for p in polys)
-        if filled > 0:
-            area[i] = max(0.0, filled - g.area)
-            share[i] = area[i] / filled
+        try:
+            polys = [p for p in getattr(g, "geoms", [g]) if p.geom_type == "Polygon" and not p.is_empty]
+            filled = sum(Polygon(p.exterior).area for p in polys)
+            if filled > 0:
+                area[i] = max(0.0, filled - sum(p.area for p in polys))
+                share[i] = area[i] / filled
+        except Exception:                                        # an odd cut: leave it out
+            continue
     return share, area
 
 

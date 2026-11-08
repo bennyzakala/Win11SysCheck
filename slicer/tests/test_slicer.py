@@ -5243,7 +5243,8 @@ def test_add_parts_window_sets_type_and_adds_no_supports(tmp_path):
         assert len(crowns) == 2 and all(not o.direct for o in crowns)
         for o in w.objects:
             if "R685" in o.name:                                       # the crown: its opening (down in the file) faces up
-                assert np.allclose(o.matrix()[:3, :3] @ [0, 0, -1], [0, 0, 1]), o.name
+                from unislicer import dental_cad
+                assert np.allclose(o.matrix()[:3, :3] @ [0, 0, -1], [0, 0, 1]), (o.name, dental_cad.OPENING_ERRORS)
             else:                                                      # any other type is not turned over
                 assert np.allclose(o.matrix()[2, :3] / o.scale[2], [0, 0, 1]), o.name   # (a turn on the plate is fine)
         assert all(o.support_points is None for o in w.objects)        # no supports added
