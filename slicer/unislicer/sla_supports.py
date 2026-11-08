@@ -35,6 +35,7 @@ def _ray_hits(tris: np.ndarray, xy: np.ndarray):
 
 
 _CASTERS: dict = {}
+CASTER_FACE_BUDGET = 4_000_000
 
 
 def caster_for(mesh: Mesh) -> "_Caster":
@@ -42,11 +43,14 @@ def caster_for(mesh: Mesh) -> "_Caster":
     placed model (each build takes ~0.5 s on a big scan). Keyed by content, so a moved or turned model
     gets a new one."""
     key = (len(mesh.faces), hash(mesh.vertices.tobytes()), hash(mesh.faces.tobytes()))
-    hit = _CASTERS.get(key)
+    hit = _CASTERS.pop(key, None)
     if hit is None:
-        if len(_CASTERS) >= 48:          # a full plate of parts: each kept (a few MB each)
-            _CASTERS.pop(next(iter(_CASTERS)))
-        hit = _CASTERS[key] = _Caster(mesh)
+        hit = _Caster(mesh)
+    _CASTERS[key] = hit                  # most recently used last
+    # a full plate of parts is kept, within a budget of triangles (~70 bytes each): 48 big jaw scans used
+    # to stay in memory, ~2 GB
+    while len(_CASTERS) > 1 and sum(k[0] for k in _CASTERS) > CASTER_FACE_BUDGET:
+        _CASTERS.pop(next(iter(_CASTERS)))
     return hit
 
 

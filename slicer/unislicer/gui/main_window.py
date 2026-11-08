@@ -3371,6 +3371,24 @@ class MainWindow(QMainWindow):
             self._added_in_job = []
             self._refresh_objects(select=[u for u in added if any(o.uid == u for o in self.objects)][-1:] or None)
 
+    PER_PART_CACHES = ("_support_cache", "_geometry_cache", "_column_maps", "_label_cache", "_slice_label_cache")
+
+    def _forget_removed(self, uids: set):
+        """Parts that left the plate (deleted, replaced, undone): their cached previews go, and the meshes
+        kept only for undo drop their worked-out data. Before, a day's plates stayed in memory: ~350 MB more
+        after every plate, 9 GB after 25."""
+        for name in self.PER_PART_CACHES:
+            cache = self.__dict__.get(name)
+            if cache:
+                for uid in [u for u in cache if u not in uids]:
+                    del cache[uid]
+        on_plate = {id(o.mesh) for o in self.objects}
+        for snap in list(getattr(self, "_undo", [])) + list(getattr(self, "_redo", [])):
+            for o, st in snap:
+                for m in (o.mesh, st[15] if len(st) > 15 else None):
+                    if m is not None and id(m) not in on_plate and len(m.__dict__) > 5:
+                        m.drop_caches()
+
     def _objects_changed(self, refresh_list: bool = True):
         cfg = self.settings.config()
         outside = {o.uid: o.name for o in out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg), region=plate_region(cfg))}
@@ -3378,6 +3396,7 @@ class MainWindow(QMainWindow):
         for uid in list(self.viewer.objects):
             if uid not in uids:
                 self.viewer.remove_object(uid)
+        self._forget_removed(uids)
         colliding = getattr(self, "_colliding", set())
         multi = self._multi_filament_view(cfg)
         for o in self.objects:

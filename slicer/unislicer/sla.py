@@ -1589,7 +1589,8 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
     """Write the print file. It is written beside ``path`` first and put in place only when complete, so a
     cancel or an error never leaves a half-written file - nor destroys the good one already there."""
     import os
-    part = path + ".part"
+    import threading
+    part = f"{path}.{os.getpid()}-{threading.get_ident()}.part"     # unique: two windows may export at once
     try:
         _export_file(job, cfg, part, job_name, progress, cancelled)
         os.replace(part, path)

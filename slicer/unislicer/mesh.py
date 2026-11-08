@@ -105,6 +105,14 @@ class Mesh:
         b = self.bounds
         return b[1] - b[0]
 
+    def drop_caches(self) -> None:
+        """Forget everything worked out from the mesh (triangles, normals, light copies, picking and outline
+        data...): about five times the mesh itself. For a mesh kept only for undo; it is all rebuilt when
+        needed again."""
+        keep = ("vertices", "faces", "name", "_watertight", "_volume")       # small, and always there
+        for k in [k for k in self.__dict__ if k not in keep]:
+            del self.__dict__[k]
+
     def face_normals(self) -> np.ndarray:
         c = self.__dict__.get("_normals")
         if c is not None and c[0] is self.vertices and c[1] is self.faces:

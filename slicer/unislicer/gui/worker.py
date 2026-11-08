@@ -48,8 +48,9 @@ class Task(QThread):
         return self._cancel
 
     def run(self):
+        fn, self._fn = self._fn, None           # the work (and the plate it captured) is let go when done
         try:
-            result = self._fn(lambda stage, f: self.progress.emit(stage, float(f)), self.cancelled)
+            result = fn(lambda stage, f: self.progress.emit(stage, float(f)), self.cancelled)
         except InterruptedError:
             self.failed.emit("")
             return

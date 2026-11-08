@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import re
 
 from .settings import SCHEMA_BY_KEY, Config
@@ -23,7 +24,7 @@ def _load(path: str) -> dict:
 def _save_json(path: str, data) -> None:
     """Write a profile file whole or not at all (written beside it, then put in place): an interrupted save
     left a broken file, which then read as empty - and the next save kept only its own entry."""
-    part = path + ".part"
+    part = f"{path}.{os.getpid()}-{threading.get_ident()}.part"     # unique: two windows may save at once
     with open(part, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, ensure_ascii=False)
     os.replace(part, path)

@@ -449,14 +449,14 @@ def test_review_fixes_bounds_collision_stl_orders_and_files(tmp_path, monkeypatc
     out = tmp_path / "plate.prz"
     sla.export(job, cfg, str(out), "a")
     good = out.read_bytes()
-    assert goo.read(str(out))["footer_ok"] and not (tmp_path / "plate.prz.part").exists()
+    assert goo.read(str(out))["footer_ok"] and not list(tmp_path.glob("*.part"))
 
     def broken(*a, **k):
         raise RuntimeError("disk full")
     monkeypatch.setattr(goo, "write", broken)
     with pytest.raises(RuntimeError):
         sla.export(job, cfg, str(out), "a")
-    assert out.read_bytes() == good and not (tmp_path / "plate.prz.part").exists()
+    assert out.read_bytes() == good and not list(tmp_path.glob("*.part"))
     monkeypatch.undo()
     # 6. profiles are saved through a part file
     monkeypatch.setattr(profiles, "USER_DIR", str(tmp_path / "prof"))
@@ -469,6 +469,45 @@ def test_review_fixes_bounds_collision_stl_orders_and_files(tmp_path, monkeypatc
     j = sla.prepare([placed(primitives.box(10, 10, 2), 60, 40).world_mesh()], bad)
     assert any("screen resolution" in w for w in j.warnings)
     assert not any("screen resolution" in w for w in job.warnings)
+
+
+def test_hebrew_long_and_network_paths(tmp_path):
+    """Lab paths: Hebrew folder and file names with spaces open, save as a project and export as a print
+    file; the print library keeps its paths within Windows' limit; on Windows the same goes through a
+    network path (\\server\share\..., here the machine's own C$ share, like a lab's mainserver drive)."""
+    import os
+    from unislicer import project, export_library
+    from unislicer.mesh import save_stl, load_mesh
+    from unislicer.scene import SceneObject
+    folders = [tmp_path / "הדפסות מעבדה" / "תיק 2026 - כתרים זמניים"]
+    if os.name == "nt":
+        drive, rest = os.path.splitdrive(str(tmp_path))
+        unc = "\\\\localhost\\" + drive.rstrip(":") + "$" + rest
+        if os.path.isdir(unc):                    # the admin share is there on the build machine
+            folders.append(type(tmp_path)(unc) / "רשת מעבדה")
+        else:
+            print("network share not reachable here:", unc)
+    cfg = profiles.build_config("phrozen_sonic_mini_8k_s", None, "sla_fast")
+    for folder in folders:
+        os.makedirs(folder, exist_ok=True)
+        stl = folder / "גשר זמני FYQ-SOD260046892-044-P-16-16-1.stl"
+        save_stl(primitives.box(10, 8, 6), str(stl))
+        m = load_mesh(str(stl))
+        m = m[0] if isinstance(m, list) else m
+        assert len(m.faces) == 12, folder
+        o = SceneObject(m, stl.stem)
+        proj = folder / ("פלטה " + project.EXTENSION)
+        project.save(str(proj), [o], {"printer": "x"})
+        back, _ = project.load(str(proj))
+        assert back and back[0].name == stl.stem
+        job = sla.prepare([placed(m, 60, 40).world_mesh()], cfg)
+        out = folder / "פלטה ראשונה.prz"
+        sla.export(job, cfg, str(out), out.stem)
+        assert out.exists() and out.stat().st_size > 1000 and not list(folder.glob("*.part"))
+        target = export_library.target_path(str(folder / "Prints"), "כתר " + "FOL-SOD260046956-Z046-E-16-16-1" * 5, ".prz")
+        assert len(target) <= export_library.MAX_PATH + 5, len(target)
+        sla.export(job, cfg, target, "x")
+        assert os.path.exists(target)
 
 
 def test_assistant_learns_orientation_preference(tmp_path):
@@ -3053,6 +3092,45 @@ def test_rotation_fields_show_every_turn():
     m0 = p.matrix()
     p.apply_world_rotation(np.eye(3))
     assert np.allclose(p.matrix(), m0) and np.allclose(p.rotation, [0, 0, 90])
+
+
+def test_deleted_parts_free_their_memory_and_undo_still_works():
+    """A day's plates stayed in memory (9 GB after 25 plates in a soak test): deleted parts kept their
+    cached previews, global tables kept every mesh alive, and the undo history kept each mesh with all its
+    worked-out data. Now a removed part's caches go, its mesh kept for undo drops that data, and Undo still
+    brings the part back whole."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, gc
+        import numpy as np
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives, dental_cad, layout
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        o = w.add_mesh(primitives.crown_cap()); app.processEvents()
+        mesh = o.mesh
+        dental_cad.kind_of("x", mesh); dental_cad.opening_direction(mesh); layout.footprint(o)
+        mesh.triangles; mesh.face_normals()
+        w._support_cache[o.uid] = ("k", None, None)
+        assert not hasattr(dental_cad, "_KIND_CACHE") and not hasattr(layout, "_FOOTPRINTS")   # no global tables
+        w._select_uid(o.uid); w.delete_selected(); app.processEvents()
+        assert not w.objects and o.uid not in w._support_cache
+        assert set(mesh.__dict__) <= {"vertices", "faces", "name", "_watertight", "_volume"}, sorted(mesh.__dict__)
+        w.undo(); app.processEvents()
+        assert len(w.objects) == 1 and w.objects[0].mesh is mesh
+        assert np.allclose(w.objects[0].world_size(), mesh.bounds[1] - mesh.bounds[0])
+        assert len(mesh.triangles) == len(mesh.faces)           # rebuilt when needed
+        w._stop_preslice()
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
 def test_rotate_tool_still_drags_the_model_with_the_left_button():

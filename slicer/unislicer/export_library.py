@@ -65,10 +65,17 @@ def safe_name(name: str, fallback: str = "print") -> str:
     return base[:120]
 
 
+MAX_PATH = 240       # Windows refuses longer paths unless long paths are switched on (they are not by default)
+
+
 def target_path(library: str, name: str, ext: str) -> str:
-    """<library>/<name>/<name><ext>; an existing file is kept and the new one becomes '<name> (2)<ext>'..."""
+    """<library>/<name>/<name><ext>; an existing file is kept and the new one becomes '<name> (2)<ext>'...
+    A long name is shortened so the whole path stays within what Windows accepts."""
     name = safe_name(name)
     ext = ext if ext.startswith(".") else "." + ext
+    room = (MAX_PATH - len(os.path.abspath(library)) - len(ext) - 8) // 2     # the name is used twice (+ " (99)")
+    if len(name) > room:
+        name = name[:max(12, room)].rstrip(". ") or "print"
     folder = os.path.join(library, name)
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, name + ext)

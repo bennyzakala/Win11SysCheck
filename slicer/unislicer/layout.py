@@ -26,7 +26,6 @@ class LayoutOptions:
     step: float = 0.0             # search grid for contour placement (mm); 0 = from the plate size
 
 
-_FOOTPRINTS: dict = {}
 
 
 def _raster_outline(m) -> Polygon:
@@ -83,8 +82,14 @@ def footprint(o: SceneObject) -> Polygon:
     """The part as seen from above, in plate coordinates: its real outline (cached; recomputed only when the
     part is turned, tilted or scaled), so concave parts such as dental arches can nest."""
     mat = o.world_matrix()
-    key = (id(o.mesh), len(o.mesh.faces), tuple(np.round(mat[:3, :3], 6).ravel()))
-    hit = _FOOTPRINTS.get(key)
+    key = tuple(np.round(mat[:3, :3], 6).ravel())
+    # kept on the mesh (a few orientations), so the outlines go with it - a global table kept every mesh
+    # ever arranged alive
+    store = o.mesh.__dict__.setdefault("_footprints", {})
+    if store.get("_v") is not o.mesh.vertices:
+        store.clear()
+        store["_v"] = o.mesh.vertices
+    hit = store.get(key)
     if hit is None:
         m = o.world_mesh()
         try:
@@ -93,10 +98,10 @@ def footprint(o: SceneObject) -> Polygon:
             shape = MultiPoint(m.vertices[:, :2]).convex_hull
         if shape.is_empty:
             shape = MultiPoint(m.vertices[:, :2]).convex_hull
-        hit = (affinity.translate(shape, -mat[0, 3], -mat[1, 3]), o.mesh)   # keep the mesh alive: id() stays valid
-        if len(_FOOTPRINTS) > 256:
-            _FOOTPRINTS.clear()
-        _FOOTPRINTS[key] = hit
+        hit = (affinity.translate(shape, -mat[0, 3], -mat[1, 3]),)
+        if len(store) > 9:                       # the latest few turns of this part
+            store.pop(next(k for k in store if k != "_v"))
+        store[key] = hit
     return affinity.translate(hit[0], mat[0, 3], mat[1, 3])
 
 

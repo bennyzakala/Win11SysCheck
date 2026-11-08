@@ -190,7 +190,15 @@ def case_code(name: str) -> str:
     return "-".join(g for g in (m.group(1), m.group(2), m.group(3)) if g)
 
 
-_KIND_CACHE: dict = {}
+def _memo(mesh, name: str, compute):
+    """A result about a mesh, kept on the mesh itself so it goes when the mesh goes (a global table of them
+    kept every mesh ever loaded alive: hundreds of MB after a day's plates)."""
+    hit = mesh.__dict__.get(name)
+    if hit is not None and hit[0] is mesh.vertices:
+        return hit[1]
+    value = compute()
+    mesh.__dict__[name] = (mesh.vertices, value)
+    return value
 
 
 OPENING_ERRORS: list = []      # the last few failures of opening_direction (shown by the tests)
@@ -207,16 +215,14 @@ def opening_direction(mesh):
       side where it is wider is the opening;
     - when that is not clear (a shallow cavity, a hole in one or two cuts only), rays from deep inside the
       hollow say which way they get out. Cached per mesh."""
-    key = ("open", id(mesh))
-    hit = _KIND_CACHE.get(key)
-    if hit is None or hit[0] is not mesh:
+    def compute():
         try:
-            d = _opening_direction(mesh.decimated(6000))
+            return _opening_direction(mesh.decimated(6000))
         except Exception as exc:                 # no answer: the part is left as it is
             OPENING_ERRORS[:] = (OPENING_ERRORS + [repr(exc)])[-5:]
-            d = None
-        hit = _KIND_CACHE[key] = (mesh, d)
-    return None if hit[1] is None else hit[1].copy()
+            return None
+    d = _memo(mesh, "_opening", compute)
+    return None if d is None else d.copy()
 
 
 def opening_directions(meshes) -> list:
@@ -352,17 +358,14 @@ def model_type_of(name: str, mesh) -> str:
 def _horseshoe(mesh) -> bool:
     """A U-shaped arch with no palate or base plate between its ends: its outline seen from above fills
     well under two thirds of its own convex hull (cached per mesh)."""
-    key = ("u", id(mesh))
-    hit = _KIND_CACHE.get(key)
-    if hit is None or hit[0] is not mesh:
+    def compute():
         try:
             from .layout import _raster_outline
             outline = _raster_outline(mesh)
-            u = bool(outline.area < 0.62 * outline.convex_hull.area)
+            return bool(outline.area < 0.62 * outline.convex_hull.area)
         except Exception:
-            u = False
-        hit = _KIND_CACHE[key] = (mesh, u)
-    return hit[1]
+            return False
+    return _memo(mesh, "_horseshoe", compute)
 
 
 def kind_of(name: str, mesh) -> str:
@@ -370,10 +373,4 @@ def kind_of(name: str, mesh) -> str:
     kind = detect_indication(name or "")
     if kind != "unknown":
         return kind
-    key = id(mesh)
-    hit = _KIND_CACHE.get(key)
-    if hit is None or hit[0] is not mesh:
-        if len(_KIND_CACHE) > 256:
-            _KIND_CACHE.clear()
-        hit = _KIND_CACHE[key] = (mesh, indication_from_shape(mesh))
-    return hit[1]
+    return _memo(mesh, "_kind", lambda: indication_from_shape(mesh))
