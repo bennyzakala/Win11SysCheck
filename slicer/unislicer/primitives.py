@@ -66,6 +66,46 @@ def sphere(radius: float, rings: int = 24, segments: int = 48, name: str = "Sphe
     return m.translated([0, 0, radius])
 
 
+def crown_cap(width: float = 9.0, height: float = 8.0, wall: float = 0.8, taper: float = 0.35,
+              segments: int = 48, name: str = "Crown") -> Mesh:
+    """A closed shell like a crown seen in profile: a rounded cap open at the bottom, its cavity narrowing
+    toward the top (as over a prepared tooth), the walls meeting at the margin ring at z = 0. Made by turning
+    a profile round the Z axis."""
+    r_out, r_in = width / 2, width / 2 - wall
+    top_in = height - 1.5 * wall
+    prof = [(0.0, height)]                                      # outer surface, top to margin
+    for k in range(1, 7):
+        a = k / 6 * np.pi / 2
+        prof.append((r_out * np.sin(a), height - (height * 0.35) * (1 - np.cos(a))))
+    prof.append((r_out, 0.0))
+    prof.append((r_in, 0.0))                                    # the margin
+    for k in range(1, 7):                                       # inner surface, margin up to the top
+        f = k / 6
+        prof.append((r_in * (1 - taper * f), top_in * f))
+    prof.append((0.0, top_in))
+    verts, rings = [], []
+    for r, z in prof:
+        if r == 0.0:
+            rings.append([len(verts)])
+            verts.append([0.0, 0.0, z])
+        else:
+            rings.append(list(range(len(verts), len(verts) + segments)))
+            verts += [[r * np.cos(2 * np.pi * s / segments), r * np.sin(2 * np.pi * s / segments), z]
+                      for s in range(segments)]
+    faces = []
+    for a, b in zip(rings[:-1], rings[1:]):
+        for s in range(segments):
+            s1 = (s + 1) % segments
+            if len(a) == 1:
+                faces.append([a[0], b[s], b[s1]])
+            elif len(b) == 1:
+                faces.append([a[s], b[0], a[s1]])
+            else:
+                faces.append([a[s], b[s], b[s1]])
+                faces.append([a[s], b[s1], a[s1]])
+    return Mesh(np.array(verts, dtype=float), np.array(faces), name)
+
+
 def prism(polygon_xy: np.ndarray, z0: float, z1: float, name: str = "Prism") -> Mesh:
     """Extrude a convex, counter-clockwise polygon between z0 and z1."""
     p = np.asarray(polygon_xy, dtype=np.float64)

@@ -1436,5 +1436,7 @@
 "Downloading the update... {}%": "جارٍ تنزيل التحديث... {}%",
 "Installer saved: {}": "تم حفظ المثبّت: {}",
 "Check for updates now": "التحقق من التحديثات الآن",
-"Check for updates at start": "التحقق من التحديثات عند البدء"
+"Check for updates at start": "التحقق من التحديثات عند البدء",
+"Crowns and bridges: opening up": "التيجان والجسور: الفتحة للأعلى",
+"{} crowns / bridges turned with the opening up": "تم تدوير {} من التيجان/الجسور بحيث تكون الفتحة للأعلى"
 }

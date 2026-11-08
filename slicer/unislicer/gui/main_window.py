@@ -469,6 +469,10 @@ class MainWindow(QMainWindow):
         self.close_holes_act.setCheckable(True)
         self.close_holes_act.setChecked(self.store.value("auto_close_holes", "true") == "true")
         self.close_holes_act.toggled.connect(lambda on: self.store.setValue("auto_close_holes", "true" if on else "false"))
+        self.open_up_act = mm.addAction(tr("open_up_menu"))
+        self.open_up_act.setCheckable(True)
+        self.open_up_act.setChecked(self.store.value("crowns_open_up", "true") == "true")
+        self.open_up_act.toggled.connect(lambda on: self.store.setValue("crowns_open_up", "true" if on else "false"))
         mm.addAction(tr("upd_check_now"), lambda: self.check_updates(manual=True))
         self.upd_auto_act = mm.addAction(tr("upd_check_start"))
         self.upd_auto_act.setCheckable(True)
@@ -1418,9 +1422,10 @@ class MainWindow(QMainWindow):
 
     def _load_parts(self, parts: list[dict]):
         """Parts from the Add parts window: each with its type (on the plate or on supports, hollow), units
-        and number of copies. Orientation is left as in the file and placement as a plain Open does; no
-        supports are added here."""
+        and number of copies. Crowns and bridges are turned opening up (see _open_up); every other part keeps
+        the file's orientation; placement as a plain Open does; no supports are added here."""
         added = []
+        kinds = {}
         for part in parts:
             path = part["path"]
             try:
@@ -1443,7 +1448,8 @@ class MainWindow(QMainWindow):
             self._breathe()
             kind = part.get("kind", "asis")
             preset = self.DENTAL.get("model" if kind == "model_hollow" else kind)
-            for o in group:                  # the type never turns the part: it comes in as in the file
+            for o in group:                  # only a crown / bridge is turned (opening up), below
+                kinds[o.uid] = "crown" if kind == "crown" else "other"
                 if preset is not None:
                     o.direct = preset[1]         # a model prints straight on the plate, a crown on supports
                 if kind == "model_hollow":
@@ -1451,6 +1457,7 @@ class MainWindow(QMainWindow):
             added += group
         if not added:
             return
+        self._open_up(added, kinds)
         self.arrange_objects()
         self._objects_changed()
         self.viewer.fit_objects()
@@ -1486,12 +1493,57 @@ class MainWindow(QMainWindow):
             self._import_project_filaments(meshes)
             loaded += new_objs
             self._breathe()
+        self._open_up(loaded)                     # crowns and bridges: opening up, before arranging
         if added is not None:
             self.arrange_objects()
             self.viewer.fit_objects()
         for o in loaded:                      # after arranging, so Ctrl+Z first undoes an automatic repair
             self._check_learned_repair(o)
         self._auto_close_holes(loaded)
+
+    def _open_up(self, objs, kinds: dict | None = None) -> int:
+        """Crowns and bridges are turned so their opening (fitting surface) faces up - only parts that are a
+        crown or bridge (``kinds``: the type chosen for each part in Add parts; otherwise the part's own model
+        type or what its name and shape say). A part whose opening already faces up stays as it is; every
+        other part keeps its orientation. More > "Crowns and bridges: opening up" turns this off. Returns
+        how many were turned."""
+        if self.store.value("crowns_open_up", "true") != "true":
+            return 0
+        from .. import dental_cad
+        from ..mesh import rotation_between
+        crowns = []
+        for o in objs:
+            if o.role == "cutter":
+                continue
+            kind = (kinds or {}).get(o.uid)
+            if kind is None:
+                own = o.settings.get("sla_model_type")
+                kind = "crown" if own == "cb" else (None if own not in (None, "auto") else
+                                                    dental_cad.kind_of(o.name, o.mesh))
+            if kind == "crown":
+                crowns.append(o)
+        if not crowns:
+            return 0
+        found = self._in_background(lambda: dental_cad.opening_directions([o.mesh for o in crowns]))
+        turned = 0
+        for o, d in zip(crowns, found):
+            if d is None:
+                continue
+            dw = o.matrix()[:3, :3] @ d
+            dw /= np.linalg.norm(dw) or 1.0
+            if dw[2] > 0.9:
+                continue                              # already open side up
+            if dw[2] < -0.9:                          # upside down: turn over about its long side
+                size = o.world_size()
+                rot = np.diag([1.0, -1.0, -1.0]) if size[0] >= size[1] else np.diag([-1.0, 1.0, -1.0])
+            else:
+                rot = rotation_between(dw, np.array([0.0, 0.0, 1.0]))
+            o.apply_world_rotation(rot)
+            self._drop_supports(o)
+            turned += 1
+        if turned:
+            self.status.setText(tr("open_up_done").format(turned))
+        return turned
 
     # ================================================================ learned repairs
     def _file_source(self, path: str) -> str:
@@ -3021,8 +3073,9 @@ class MainWindow(QMainWindow):
     # ================================================================ one-click plate
     def one_click_plate(self):
         """Recognise each part's type (from its name), arrange the plate and generate the supports in one go,
-        then show what came out with a fix next to every warning, before slicing. The parts keep their
-        orientation; the plate's support settings and each part's own type decide the supports."""
+        then show what came out with a fix next to every warning, before slicing. Crowns and bridges whose
+        opening faces down are turned opening up; every other part keeps its orientation. The plate's support
+        settings and each part's own type decide the supports."""
         if not [o for o in self.objects if o.role != "cutter"]:
             self.status.setText(tr("no_models"))
             return
@@ -3031,6 +3084,7 @@ class MainWindow(QMainWindow):
         self._undo_held = True
         try:
             self._select_uid(None)
+            self._open_up([o for o in self.objects if o.role != "cutter"])
             self.arrange_objects()
             if self.settings.config()["technology"] == "sla":
                 self.generate_supports()

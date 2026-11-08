@@ -182,6 +182,140 @@ def case_code(name: str) -> str:
 _KIND_CACHE: dict = {}
 
 
+def opening_direction(mesh):
+    """Which way the opening (fitting surface) of a crown or bridge faces, as a unit axis (+-X, +-Y, +-Z),
+    or None when there is no clear hollow. Designs come from the CAD along their insertion axis, so the
+    answer is the axis the cavity runs along:
+
+    - cross-sections across that axis are rings: the part's outline with the cavity as a hole in it; across
+      the other two axes they are not;
+    - along it the hole is widest at the opening and narrows to the inside of the biting surface, so the
+      side where it is wider is the opening;
+    - when that is not clear (a shallow cavity, a hole in one or two cuts only), rays from deep inside the
+      hollow say which way they get out. Cached per mesh."""
+    key = ("open", id(mesh))
+    hit = _KIND_CACHE.get(key)
+    if hit is None or hit[0] is not mesh:
+        try:
+            d = _opening_direction(mesh.decimated(6000))
+        except Exception:
+            d = None
+        hit = _KIND_CACHE[key] = (mesh, d)
+    return None if hit[1] is None else hit[1].copy()
+
+
+def opening_directions(meshes) -> list:
+    """opening_direction for several parts at once, on several threads (the cuts run in compiled code)."""
+    meshes = list(meshes)
+    if len(meshes) < 2:
+        return [opening_direction(m) for m in meshes]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(4, len(meshes), os.cpu_count() or 1)) as ex:
+        return list(ex.map(opening_direction, meshes))
+
+
+def _hole_profile(mesh, axis: int, n: int = 20):
+    """For each of ``n`` cross-sections across ``axis`` (low end first): the share of the outline that is hole,
+    and the hole's area (mm2)."""
+    import numpy as np
+    from shapely.geometry import Polygon
+    from .mesh import Mesh
+    from .slicing import slice_mesh
+    perm = [(axis + 1) % 3, (axis + 2) % 3, axis]               # that axis becomes the height
+    v = np.asarray(mesh.vertices)[:, perm]
+    m = Mesh(v, mesh.faces)
+    lo, hi = float(v[:, 2].min()), float(v[:, 2].max())
+    zs = lo + (hi - lo) * (np.arange(n) + 0.5) / n
+    share, area = np.zeros(n), np.zeros(n)
+    for i, g in enumerate(slice_mesh(m, zs)):
+        polys = [p for p in getattr(g, "geoms", [g]) if not p.is_empty]
+        filled = sum(Polygon(p.exterior).area for p in polys)
+        if filled > 0:
+            area[i] = max(0.0, filled - g.area)
+            share[i] = area[i] / filled
+    return share, area
+
+
+def _opening_direction(mesh):
+    import numpy as np
+    # CAD designs mostly stand along Z: holes in the cuts across Z settle it (a crown lying on its side cut
+    # across Z gives open C shapes, no hole); only otherwise are X and Y cut too
+    z = _hole_profile(mesh, 2)
+    if float(z[0].sum()) >= 1.0 and np.count_nonzero(z[0] > 0.03) >= 3:
+        axis, (prof, area) = 2, z
+    else:
+        profiles = [_hole_profile(mesh, 0), _hole_profile(mesh, 1), z]
+        totals = [float(p[0].sum()) for p in profiles]
+        axis = int(np.argmax(totals))
+        prof, area = profiles[axis]
+        if totals[axis] < 0.5:
+            return None                                          # no hollow: a solid part, a die
+    run = np.nonzero(prof > 0.03)[0]
+    if len(run) == 0:
+        return None
+    sign = 0.0
+    if len(run) >= 3:
+        # the hole is widest at the opening and narrows toward the biting side: measured both as its share of
+        # the outline and as its own area (the share also grows where the outside rounds off, the area also
+        # where a bridge's units join) - when the two agree, that settles it
+        x = (run - run.mean()) / max(1.0, float(run.max() - run.min()))
+        slopes = [float(np.polyfit(x, v[run] / max(float(v[run].max()), 1e-9), 1)[0]) for v in (prof, area)]
+        if all(abs(k) > 0.1 for k in slopes) and slopes[0] * slopes[1] > 0:
+            sign = 1.0 if slopes[0] > 0 else -1.0               # wider toward the high end: it opens there
+    if sign == 0.0:
+        up, down = _escape_votes(mesh, axis)
+        if max(up, down) < 0.15 or abs(up - down) < 0.15:
+            return None
+        sign = 1.0 if up > down else -1.0
+    d = np.zeros(3)
+    d[axis] = sign
+    return d
+
+
+def _escape_votes(mesh, axis: int, voxel: float = 0.3, samples: int = 700, reach: float = 14.0):
+    """Shares of the ways out of the hollow that point along +axis and -axis: from spots deep inside the part
+    (blocked in most directions), which open directions are left (rays against a voxel copy of the surface)."""
+    import math
+    import numpy as np
+    from .orient import _directions
+    t = mesh.triangles
+    v = np.asarray(mesh.vertices)
+    pts = np.vstack([v, t.mean(axis=1), (t[:, 0] + t[:, 1]) / 2, (t[:, 1] + t[:, 2]) / 2, (t[:, 2] + t[:, 0]) / 2])
+    lo = pts.min(axis=0) - 2 * voxel
+    idx = np.floor((pts - lo) / voxel).astype(np.int64)
+    shape = idx.max(axis=0) + 3
+    g = np.zeros(shape, dtype=bool)
+    g[idx[:, 0], idx[:, 1], idx[:, 2]] = True
+    grid = g.copy()
+    for ax in range(3):                                          # close the gaps between the samples
+        for s in (1, -1):
+            grid |= np.roll(g, s, axis=ax)
+    n, a, c = mesh.face_normals(), mesh.face_areas(), t.mean(axis=1)
+    rng = np.random.default_rng(0)
+    pick = rng.choice(len(a), min(samples, len(a)), replace=False, p=a / a.sum())
+    dirs = _directions(200)
+    steps = np.arange(1.2, reach, voxel * 0.8)
+    e_axis = np.eye(3)[axis]
+    cone = math.cos(math.radians(45))
+    up = down = 0.0
+    count = 0
+    for f in pick:
+        hemi = dirs[dirs @ n[f] > 0.05]
+        q = np.floor((c[f][None, None, :] + hemi[:, None, :] * steps[None, :, None] - lo) / voxel).astype(np.int64)
+        inside = np.all((q >= 0) & (q < shape), axis=2)
+        q = np.clip(q, 0, shape - 1)
+        blocked = (grid[q[..., 0], q[..., 1], q[..., 2]] & inside).any(axis=1)
+        if blocked.mean() <= 0.6 or blocked.all():
+            continue
+        out = hemi[~blocked] @ e_axis
+        up += float((out > cone).mean())
+        down += float((out < -cone).mean())
+        count += 1
+    if count < 0.05 * len(pick):
+        return 0.0, 0.0
+    return up / count, down / count
+
+
 def model_type_of(name: str, mesh) -> str:
     """Supports > Model type for a part: crown / bridge, guide, model or horseshoe model, splint, denture -
     from its file name (3Shape / exocad words, a lab code's tooth range); "" when the name says nothing, so

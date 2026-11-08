@@ -226,6 +226,8 @@ STRINGS = {
     "holes_partly_closed": ("רוב החורים ב-{} נסגרו; חלק מהפגמים נשארו", "Most holes in {} closed; some defects remain"),
     "holes_not_closed": ("לא ניתן היה לסגור את החורים ב-{} אוטומטית", "The holes in {} could not be closed automatically"),
     "auto_close_holes": ("סגור חורים במודלים אוטומטית בטעינה", "Close holes in models automatically on load"),
+    "open_up_menu": ("כתרים וגשרים: הפתח כלפי מעלה", "Crowns and bridges: opening up"),
+    "open_up_done": ("{} כתרים/גשרים סובבו עם הפתח כלפי מעלה", "{} crowns / bridges turned with the opening up"),
     "upd_available": ("יש עדכון", "Update available"),
     "upd_tip": ("גרסה חדשה מ-{} - לחץ להורדה והתקנה", "A new version from {} - click to download and install"),
     "upd_found": ("יש גרסה חדשה של UniSlicer ({}) - לחץ על 'יש עדכון' בשורת המצב", "A new UniSlicer version is available ({}) - click 'Update available' in the status bar"),

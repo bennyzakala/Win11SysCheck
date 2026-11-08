@@ -5140,13 +5140,68 @@ def test_mini_rafts_differ_from_a_solid_raft():
     assert out["solid"].covers(out["mini"].buffer(-0.3))                  # never past the solid outline
 
 
+def test_crowns_and_bridges_open_up_and_nothing_else_turns():
+    """The opening (fitting surface) of a crown or bridge is found whichever way the file has it - the cavity
+    runs along an axis and is widest at the opening - and the part is turned opening up; a part already open
+    side up, a die, a model and any part when the option is off are left as they are."""
+    from unislicer import dental_cad
+    cap = primitives.crown_cap()                                        # opens down, like most CAD exports
+    bridge = Mesh.merge([primitives.crown_cap().translated([k * 8.6, 0, 0]) for k in range(3)])
+    straight = primitives.crown_cap(taper=0.0, height=6.0)              # a cavity with straight walls
+    turns = {"as is": np.eye(3), "on its side": np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0.0]]),
+             "upside up": np.diag([1, -1, -1.0]), "other side": np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0.0]])}
+    assert dental_cad.opening_direction(primitives.crown_cap()) is not None
+    for name, part in (("crown", cap), ("bridge", bridge), ("straight walls", straight)):
+        for how, r in turns.items():
+            m = Mesh(np.asarray(part.vertices) @ r.T, part.faces)
+            d = dental_cad.opening_direction(m)
+            assert d is not None and np.allclose(d, r @ [0, 0, -1]), (name, how, d)
+    assert dental_cad.opening_direction(primitives.cylinder(4, 12)) is None      # a die: solid, no opening
+
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        import numpy as np
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.mesh import Mesh
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        cap = primitives.crown_cap()
+        down = Mesh(cap.vertices, cap.faces, "FYQ-SOD260046892-044-P-16-16-1-00-R685_2")
+        up = Mesh(np.asarray(cap.vertices) * [1, -1, -1], cap.faces[:, ::-1], "BHK-SOD260045947-12-P")
+        die = Mesh(primitives.cylinder(4, 12).vertices, primitives.cylinder(4, 12).faces, "XUU-48_Tooth_16")
+        jaw = Mesh(cap.vertices * 6, cap.faces, "XUU-SOD260045840-P048_UpperJaw")      # a model, even if hollow
+        objs = [w.add_mesh(m, rearrange=False) for m in (down, up, die, jaw)]
+        assert w._open_up(objs) == 1
+        opening = lambda o: o.matrix()[:3, :3] @ [0, 0, -1]
+        assert np.allclose(opening(objs[0]), [0, 0, 1])                  # turned over: opening up
+        assert np.allclose(objs[1].matrix(), np.eye(4))                  # already open side up: untouched
+        assert np.allclose(objs[2].matrix(), np.eye(4)) and np.allclose(objs[3].matrix(), np.eye(4))
+        assert w._open_up(objs) == 0                                     # nothing more to do
+        w.store.setValue("crowns_open_up", "false")                      # More > the option off
+        fresh = w.add_mesh(Mesh(cap.vertices, cap.faces, "FYQ-SOD260046892-044-P-16-16-1-00-R685_2"), rearrange=False)
+        assert w._open_up([fresh]) == 0 and np.allclose(fresh.matrix(), np.eye(4))
+        w._stop_preslice()
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_add_parts_window_sets_type_and_adds_no_supports(tmp_path):
     """Open model -> Add parts: each file gets a type (by name, else by shape), a unit and a quantity; Open
-    puts them on the plate as in their files (the type never turns them) without adding supports."""
+    puts them on the plate without adding supports. Only crowns / bridges are turned - opening up; every other
+    part stays as in its file."""
     import subprocess, sys, textwrap
     from unislicer.mesh import save_stl
-    outer, inner = primitives.box(10, 10, 8), primitives.box(8, 8, 7).translated([0, 0, -0.6])
-    cap = Mesh(np.vstack([outer.vertices, inner.vertices]), np.vstack([outer.faces, inner.faces[:, ::-1] + len(outer.vertices)]))
+    cap = primitives.crown_cap()
     files = {"XUU-SOD260045840-P048_Antag.stl": primitives.box(60, 45, 15),
              "XUU-SOD260045840-48_Tooth_16.stl": primitives.cylinder(4, 15),
              "BAH-SOD260046430-034-X-35-36-2-C2-B592_Tissue_17.stl": primitives.box(18, 20, 7),
@@ -5186,8 +5241,11 @@ def test_add_parts_window_sets_type_and_adds_no_supports(tmp_path):
         assert antag.direct and antag.settings.get("hollow_enable") is True
         crowns = [o for o in w.objects if "R685" in o.name]
         assert len(crowns) == 2 and all(not o.direct for o in crowns)
-        for o in w.objects:                                            # the type never turns a part
-            assert np.allclose(o.matrix()[2, :3] / o.scale[2], [0, 0, 1]), o.name   # not tilted (a turn on the plate is fine)
+        for o in w.objects:
+            if "R685" in o.name:                                       # the crown: its opening (down in the file) faces up
+                assert np.allclose(o.matrix()[:3, :3] @ [0, 0, -1], [0, 0, 1]), o.name
+            else:                                                      # any other type is not turned over
+                assert np.allclose(o.matrix()[2, :3] / o.scale[2], [0, 0, 1]), o.name   # (a turn on the plate is fine)
         assert all(o.support_points is None for o in w.objects)        # no supports added
         assert w.settings.config()["support_enable"] is False          # nor switched on
         w._stop_preslice()

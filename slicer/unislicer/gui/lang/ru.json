@@ -1436,5 +1436,7 @@
 "Downloading the update... {}%": "Загрузка обновления... {}%",
 "Installer saved: {}": "Установщик сохранён: {}",
 "Check for updates now": "Проверить обновления",
-"Check for updates at start": "Проверять обновления при запуске"
+"Check for updates at start": "Проверять обновления при запуске",
+"Crowns and bridges: opening up": "Коронки и мосты: отверстием вверх",
+"{} crowns / bridges turned with the opening up": "{} коронок/мостов повёрнуто отверстием вверх"
 }
