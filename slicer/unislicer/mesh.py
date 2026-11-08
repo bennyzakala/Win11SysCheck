@@ -1,6 +1,7 @@
 """Triangle meshes: loading (STL / OBJ / 3MF), welding, transforms and export."""
 from __future__ import annotations
 
+import math
 import os
 import struct
 import zipfile
@@ -233,6 +234,26 @@ def euler_matrix(rx: float, ry: float, rz: float) -> np.ndarray:
     my = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
     mz = np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]])
     return mz @ my @ mx
+
+
+def euler_angles(m: np.ndarray) -> np.ndarray:
+    """XYZ Euler angles in degrees with ``euler_matrix(*angles) == m`` for a rotation ``m`` - of the two
+    answers, the one with the smaller angles (a part turned 180 around Y reads 0, 180, 0, not 180, 0, 180)."""
+    m = np.asarray(m, dtype=float)
+    sy = -float(np.clip(m[2, 0], -1.0, 1.0))
+    ry = math.asin(sy)
+    if math.cos(ry) > 1e-7:
+        rx, rz = math.atan2(m[2, 1], m[2, 2]), math.atan2(m[1, 0], m[0, 0])
+        options = [(rx, ry, rz), (rx + math.pi, math.pi - ry, rz + math.pi)]
+    else:                                          # straight up or down: X and Z turn about the same line
+        options = [(math.atan2(-m[1, 2], m[1, 1]), ry, 0.0)]
+
+    def wrap(a):
+        d = (math.degrees(a) + 180.0) % 360.0 - 180.0
+        d = 180.0 if abs(d + 180.0) < 1e-9 else d
+        return 0.0 if abs(d) < 1e-9 else d
+    best = min(([wrap(a) for a in o] for o in options), key=lambda o: sum(abs(a) for a in o))
+    return np.array(best)
 
 
 # ------------------------------------------------------------------ loading

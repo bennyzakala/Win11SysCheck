@@ -6,10 +6,11 @@ import math
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QWidget
 
 from . import theme
+from . import i18n
 from .i18n import tr
 
 # face: (normal, label key, corner indices counter-clockwise seen from outside)
@@ -119,9 +120,28 @@ class ViewCube(QWidget):
 
     # ---------------------------------------------------------- painting
     def paintEvent(self, _e):
+        # the cube repaints with every frame of the 3D view (it sits on top of it) but only changes when the
+        # view turns or the cursor is on it: draw it once into a picture and reuse that
+        cam = self.viewer.camera
+        hover = self._hover if self._hover is None or isinstance(self._hover, str) else tuple(np.round(self._hover, 6))
+        dpr = self.devicePixelRatioF()
+        key = (round(cam.yaw, 5), round(cam.pitch, 5), hover, dpr, theme.ACCENT, theme.SURFACE, theme.TEXT,
+               self.font().key(), i18n.LANG)
+        cached = getattr(self, "_picture", None)
+        if cached is None or cached[0] != key:
+            pix = QPixmap(int(self.SIZE * dpr), int(self.SIZE * dpr))
+            pix.setDevicePixelRatio(dpr)
+            pix.fill(Qt.transparent)
+            q = QPainter(pix)
+            try:
+                self._paint(q)
+            finally:
+                q.end()
+            cached = (key, pix)
+            self._picture = cached
         p = QPainter(self)
         try:
-            self._paint(p)
+            p.drawPixmap(0, 0, cached[1])
         finally:
             p.end()             # an open painter after an error takes the whole app down on Windows
 

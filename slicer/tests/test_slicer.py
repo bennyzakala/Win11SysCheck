@@ -2833,6 +2833,139 @@ def test_section_header_click_opens_its_window_and_no_stray_selection_frame():
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_rotation_rings_follow_the_cursor_from_any_view():
+    """Dragging a rotation ring turns the model the way the cursor goes, smoothly: from the corner view, from
+    the top (the side rings seen almost edge-on) and from the front; the rings stay put during the drag; and
+    circling the cursor past half a turn keeps adding up instead of jumping back."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, math
+        import numpy as np
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import QPoint, QPointF, Qt, QEvent
+        from PySide6.QtGui import QMouseEvent
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        o = w.add_mesh(primitives.box(30, 12, 8)); app.processEvents()
+        w._select_uid(o.uid); app.processEvents()
+        v = w.viewer
+        v.tool = "rotate"
+        def mouse(kind, xy, buttons):
+            p = QPointF(float(xy[0]), float(xy[1]))
+            btn = Qt.NoButton if kind == QEvent.MouseMove else Qt.LeftButton
+            ev = QMouseEvent(kind, p, v.mapToGlobal(p), btn, buttons, Qt.NoModifier)
+            {QEvent.MouseButtonPress: v.mousePressEvent, QEvent.MouseMove: v.mouseMoveEvent,
+             QEvent.MouseButtonRelease: v.mouseReleaseEvent}[kind](ev)
+
+        got = []
+        v.rotateDragged.connect(lambda uid, axis, deg: got.append((axis, deg)))
+
+        def ring_point(axis, a):
+            c, r = v._gizmo()
+            u, vv = np.eye(3)[(axis + 1) % 3], np.eye(3)[(axis + 2) % 3]
+            p = c + r * (math.cos(a) * u + math.sin(a) * vv)
+            return p, v._to_screen(p[None, :])[0][0]
+
+        checked = 0
+        modes = []
+        for view, near in (("iso", True), ("top", True), ("front", True), ("iso", False), ("top", False)):
+            v.view_preset(view)
+            if near:
+                c0, r0 = v._gizmo()
+                v.camera.target = np.array(c0, dtype=float); v.camera.distance = r0 * 5    # the model fills the view
+            else:
+                v.fit_objects()      # far away: the rings keep a size that is easy to take
+            app.processEvents()
+            for axis in range(3):
+                # a point of the ring that shows on the screen, away from where rings cross
+                for a in np.linspace(0.3, 2 * math.pi, 23):
+                    p, xy = ring_point(axis, a)
+                    hit = v._ring_hit(QPointF(*xy))
+                    if hit is not None and hit[0] == axis and 50 < xy[0] < v.width() - 50 and 50 < xy[1] < v.height() - 50:
+                        break
+                else:
+                    continue                        # this ring is hidden in this view
+                del got[:]
+                mouse(QEvent.MouseButtonPress, xy, Qt.LeftButton)
+                assert v._rot is not None, (view, axis)
+                modes.append(v._rot["circular"])
+                frame = v._gizmo()
+                c, r = frame
+                cs = v._to_screen(c[None, :])[0][0]
+                if v._rot["circular"]:
+                    # follow the ring 200 degrees round with the cursor
+                    for t in np.radians(np.linspace(0, 200, 41))[1:]:
+                        _, q = ring_point(axis, a + t)
+                        mouse(QEvent.MouseMove, q, Qt.LeftButton)
+                        assert v._gizmo() is frame                      # the rings do not move
+                    deg = got[-1][1]
+                    assert abs(deg - 200) < 3, (view, axis, deg)        # past 180: no jump back
+                    steps = np.diff([0.0] + [d for _, d in got])
+                    assert np.all(steps > -0.5) and steps.max() < 15, (view, axis, steps)   # smooth, one way
+                else:
+                    # seen nearly edge-on: drag along the ring
+                    along = v._rot["along"]
+                    for k in range(1, 21):
+                        q = xy + along * 6 * k
+                        mouse(QEvent.MouseMove, q, Qt.LeftButton)
+                    deg = got[-1][1]
+                    assert 10 < deg < 120, (view, axis, deg)
+                    # the grabbed point starts moving the way the cursor is dragged
+                    first = c + w._axis_rotation(axis, got[0][1]) @ (p - c)
+                    assert (v._to_screen(first[None, :])[0][0] - xy) @ along > 0, (view, axis)
+                # the grabbed point of the ring, turned by what was sent, is where the cursor went (same side)
+                rot = w._axis_rotation(axis, got[-1][1])
+                moved = c + rot @ (p - c)
+                mxy = v._to_screen(moved[None, :])[0][0]
+                mouse(QEvent.MouseButtonRelease, q, Qt.NoButton)
+                app.processEvents()
+                assert v._rot is None
+                if modes[-1]:
+                    d_cursor = np.array(q) - cs
+                    d_point = mxy - cs
+                    cosang = d_cursor @ d_point / (np.linalg.norm(d_cursor) * np.linalg.norm(d_point) + 1e-9)
+                    assert cosang > 0.98 or np.linalg.norm(d_point) < 25, (view, axis, cosang)
+                checked += 1
+        assert checked >= 10 and True in modes and False in modes, (checked, modes)
+        print("ok", checked, modes)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)   # Windows reads the profile folder, not HOME
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_rotation_fields_show_every_turn():
+    """The Rotation fields show the part's whole turn after the 90-degree buttons, the rings and Auto orient
+    (these used to be kept apart and the fields stayed at 0); typing an angle then carries on from there,
+    and the part stands exactly as before the change of bookkeeping."""
+    import numpy as np
+    from unislicer import primitives
+    from unislicer.scene import SceneObject
+    from unislicer.mesh import euler_matrix
+    o = SceneObject(primitives.box(20, 10, 4), "part")
+    rz = np.array([[0.0, -1, 0], [1, 0, 0], [0, 0, 1]])
+    before = o.matrix()
+    o.apply_world_rotation(rz)
+    assert np.allclose(o.rotation, [0, 0, 90]) and np.allclose(o.base_rotation, np.eye(3))
+    assert np.allclose(o.matrix()[:3, :3], rz @ before[:3, :3])
+    c, s = np.cos(np.radians(35)), np.sin(np.radians(35))
+    o.apply_world_rotation(np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]]))
+    m = o.matrix()
+    assert np.allclose(euler_matrix(*o.rotation), m[:3, :3])
+    o.rotation[0] = 10.0                       # typing X = 10 keeps the other two
+    assert np.allclose(euler_matrix(*o.rotation), o.matrix()[:3, :3])
+    # an old project with a turn kept apart still opens the same
+    p = SceneObject(primitives.box(20, 10, 4), "old", base_rotation=rz.copy())
+    m0 = p.matrix()
+    p.apply_world_rotation(np.eye(3))
+    assert np.allclose(p.matrix(), m0) and np.allclose(p.rotation, [0, 0, 90])
+
+
 def test_rotate_tool_still_drags_the_model_with_the_left_button():
     """With the rotate tool on, pressing on the model itself (not on a ring) and dragging moves it."""
     import subprocess, sys, textwrap
@@ -5054,7 +5187,7 @@ def test_add_parts_window_sets_type_and_adds_no_supports(tmp_path):
         crowns = [o for o in w.objects if "R685" in o.name]
         assert len(crowns) == 2 and all(not o.direct for o in crowns)
         for o in w.objects:                                            # the type never turns a part
-            assert np.allclose(o.rotation, 0) and np.allclose(o.base_rotation[2], [0, 0, 1]), o.name
+            assert np.allclose(o.matrix()[2, :3] / o.scale[2], [0, 0, 1]), o.name   # not tilted (a turn on the plate is fine)
         assert all(o.support_points is None for o in w.objects)        # no supports added
         assert w.settings.config()["support_enable"] is False          # nor switched on
         w._stop_preslice()

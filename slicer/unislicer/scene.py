@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .mesh import Mesh, euler_matrix
+from .mesh import Mesh, euler_angles, euler_matrix
 
 _ids = itertools.count(1)
 
@@ -294,9 +294,12 @@ class SceneObject:
         self.support_points = None if sp is None else sp.copy()
 
     def apply_world_rotation(self, rot: np.ndarray) -> None:
-        """Turn the object by ``rot`` (in bed coordinates), keeping its other settings."""
-        e = euler_matrix(*self.rotation)
-        self.base_rotation = e.T @ rot @ e @ self.base_rotation
+        """Turn the object by ``rot`` (in bed coordinates), keeping its other settings. The whole turn is
+        kept in ``rotation`` - the angles the Rotation fields show - so after the rings, the 90-degree buttons
+        or Auto orient the fields say how the part stands, and typing an angle carries on from there."""
+        total = rot @ euler_matrix(*self.rotation) @ self.base_rotation
+        self.rotation = euler_angles(total)
+        self.base_rotation = np.eye(3)
 
     def auto_orient(self, technology: str, support_angle: float = 45.0, weights=None) -> None:
         from .orient import best_rotation

@@ -424,7 +424,7 @@ class Viewer(QOpenGLWidget):
         self._hover_timer.setSingleShot(True)
         self._hover_timer.setInterval(30)
         self._hover_timer.timeout.connect(self._hover_check)
-        self._rot = None                         # active ring drag: (uid, axis, start angle, last degrees)
+        self._rot = None                         # active ring drag (see _start_ring_drag)
         self._hover_axis = None
         self._gizmo_cache = None
         self.setMouseTracking(True)
@@ -1016,7 +1016,7 @@ class Viewer(QOpenGLWidget):
             GL.glDisable(GL.GL_BLEND)
             self._set_model(p, np.eye(4))
 
-        if not preview:
+        if not preview and self._rot is None:       # while turning, the rings show what is selected
             for uid in self.selection:
                 if uid in self.objects:
                     self._draw_selection_box(mvp, uid, primary=uid == self.selected)
@@ -1084,7 +1084,7 @@ class Viewer(QOpenGLWidget):
             GL.glUniform1f(self._u(p, "uClipZ"), 1e9)
             GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
             self._set_model(p, np.eye(4))
-            active = self._rot[1] if self._rot else self._hover_axis
+            active = self._rot["axis"] if self._rot else self._hover_axis
             for k, buf in enumerate(rings):
                 base = ((1.0, 0.35, 0.42), (0.30, 0.85, 0.55), (0.35, 0.60, 1.0))[k]
                 color = tuple(min(1.0, c * 1.35 + 0.15) for c in base) if k == active else base
@@ -1384,37 +1384,130 @@ class Viewer(QOpenGLWidget):
 
     # ---------------------------------------------------------- rotate gizmo
     def _gizmo(self):
-        """(centre, radius) of the rotation rings around the selected model, or None."""
+        """(centre, radius) of the rotation rings around the selected model, or None. While a ring is being
+        dragged they stay where the drag started: the model's box changes as it turns, and rings that moved
+        with it would shift the angle under the cursor (the model jumped and shook)."""
         if self.tool != "rotate" or self.mode != self.MODE_PREPARE or self.selected not in self.objects:
             return None
+        if self._rot is not None:
+            return self._rot["frame"]
         box = self._world_box(self.objects[self.selected])
         centre = (box[0] + box[1]) / 2
-        return centre, float(np.linalg.norm(box[1] - box[0])) * 0.55 + 2.0
+        radius = float(np.linalg.norm(box[1] - box[0])) * 0.55 + 2.0
+        # never so small on the screen that the rings are hard to take and turn (a crown seen from afar)
+        per_px = 2.0 * float(np.linalg.norm(self.camera.eye() - centre)) * math.tan(math.radians(self.camera.fov / 2)) \
+            / max(1, self.height())
+        return centre, max(radius, self.RING_MIN_PX * per_px)
+
+    def _to_screen(self, pts: np.ndarray):
+        """Pixel positions (N x 2) of world points and whether each is in front of the camera."""
+        w, h = max(1, self.width()), max(1, self.height())
+        mvp = self.camera.projection(w / h) @ self.camera.view()
+        q = np.c_[np.asarray(pts, dtype=np.float64), np.ones(len(pts))] @ mvp.T
+        ww = q[:, 3]
+        front = ww > 1e-6
+        ww = np.where(front, ww, 1.0)
+        xy = np.c_[(q[:, 0] / ww * 0.5 + 0.5) * w, (0.5 - q[:, 1] / ww * 0.5) * h]
+        return xy, front
+
+    RING_MIN_PX = 110.0          # smallest ring radius on the screen
+    RING_GRAB_PX = 10.0          # how near the cursor must be to a ring (on screen) to take it
 
     def _ring_hit(self, pos: QPointF, only_axis: int | None = None):
-        """(axis, angle, ray t) where the cursor ray meets a rotation ring, or None."""
+        """(axis, point on the ring, distance in pixels) for the ring under the cursor, or None. Measured on
+        the screen, so a ring seen almost edge-on is as easy to take as one seen face-on."""
         g = self._gizmo()
         if g is None:
             return None
         c, radius = g
-        origin, d = self._ray(pos)
+        a = np.linspace(0.0, 2.0 * math.pi, 129)
+        cur = np.array([pos.x(), pos.y()])
+        eye = self.camera.eye()
         best = None
         for k in ([only_axis] if only_axis is not None else (0, 1, 2)):
-            n = np.eye(3)[k]
-            denom = float(d @ n)
-            if abs(denom) < 1e-6:
-                continue
-            t = float((c - origin) @ n) / denom
-            if t < 0:
-                continue
-            rel = origin + d * t - c
             u, v = np.eye(3)[(k + 1) % 3], np.eye(3)[(k + 2) % 3]
-            ang = math.degrees(math.atan2(rel @ v, rel @ u))
-            if only_axis is None and abs(np.linalg.norm(rel) - radius) > radius * 0.12:
+            ring = c + radius * (np.cos(a)[:, None] * u + np.sin(a)[:, None] * v)
+            xy, front = self._to_screen(ring)
+            p0, p1 = xy[:-1], xy[1:]
+            seg = p1 - p0
+            t = np.clip(((cur - p0) * seg).sum(axis=1) / np.maximum((seg * seg).sum(axis=1), 1e-9), 0.0, 1.0)
+            d = np.linalg.norm(p0 + seg * t[:, None] - cur, axis=1)
+            d[~(front[:-1] & front[1:])] = np.inf
+            j = int(np.argmin(d))
+            if not np.isfinite(d[j]) or (only_axis is None and d[j] > self.RING_GRAB_PX):
                 continue
-            if best is None or t < best[2]:
-                best = (k, ang, t)
-        return best
+            point = ring[j] + (ring[j + 1] - ring[j]) * t[j]
+            depth = float(np.linalg.norm(point - eye))
+            # the nearest ring on screen; on a tie (where rings cross) the one in front
+            if best is None or d[j] < best[2] - 1.0 or (abs(d[j] - best[2]) <= 1.0 and depth < best[3]):
+                best = (k, point, float(d[j]), depth)
+        return None if best is None else best[:3]
+
+    def _start_ring_drag(self, axis: int, point: np.ndarray, pos: QPointF):
+        """Seen face-on enough, the model turns to where the cursor meets the ring's plane (the grabbed point
+        follows the cursor); seen nearly edge-on - where that point would race at the smallest move - a drag
+        along the ring turns it at a steady rate."""
+        frame = self._gizmo()
+        c, radius = frame
+        n = np.eye(3)[axis]
+        to_eye = self.camera.eye() - c
+        to_eye /= np.linalg.norm(to_eye) or 1.0
+        facing = float(n @ to_eye)
+        (cs,), _ = self._to_screen(c[None, :])
+        # the drag direction that turns the model forwards at the grabbed point, and pixels per degree
+        tangent = np.cross(n, point - c)
+        tangent /= np.linalg.norm(tangent) or 1.0
+        step = radius * math.radians(1.0)
+        xy, _ = self._to_screen(np.array([point, point + tangent * step]))
+        along = xy[1] - xy[0]
+        px_per_deg = float(np.linalg.norm(along))
+        edges, _ = self._to_screen(c + np.eye(3)[[(axis + 1) % 3, (axis + 2) % 3]] * radius)
+        ring_px = max(20.0, float(np.linalg.norm(edges - cs, axis=1).max()))      # the ring's size on screen
+        self._rot = {"uid": self.selected, "axis": axis, "frame": frame, "circular": abs(facing) > 0.25,
+                     "along": along / (px_per_deg or 1.0),
+                     "px_per_deg": max(px_per_deg, ring_px * math.radians(1.0) * 0.5),
+                     "angle": None, "press": np.array([pos.x(), pos.y()]), "total": 0.0, "sent": 0.0}
+        if self._rot["circular"]:
+            self._rot["angle"] = self._ring_angle(pos)
+
+    def _ring_angle(self, pos: QPointF) -> float | None:
+        """Where the cursor ray meets the dragged ring's plane, as an angle round the ring (degrees, right-hand
+        about its axis), or None when it misses or is too near the centre."""
+        r = self._rot
+        c, radius = r["frame"]
+        k = r["axis"]
+        n = np.eye(3)[k]
+        origin, d = self._ray(pos)
+        denom = float(d @ n)
+        if abs(denom) < 1e-6:
+            return None
+        t = float((c - origin) @ n) / denom
+        if t < 0:
+            return None
+        rel = origin + d * t - c
+        if np.linalg.norm(rel) < radius * 0.08:
+            return None
+        u, v = np.eye(3)[(k + 1) % 3], np.eye(3)[(k + 2) % 3]
+        return math.degrees(math.atan2(rel @ v, rel @ u))
+
+    def _drag_ring(self, pos: QPointF, snap: float) -> float | None:
+        """Degrees turned since the press (no limit: several turns add up), or None when unchanged."""
+        r = self._rot
+        if r["circular"]:
+            ang = self._ring_angle(pos)
+            if ang is None:
+                return None
+            if r["angle"] is not None:
+                r["total"] += (ang - r["angle"] + 180.0) % 360.0 - 180.0
+            r["angle"] = ang
+        else:
+            moved = np.array([pos.x(), pos.y()]) - r["press"]
+            r["total"] = float(moved @ r["along"]) / r["px_per_deg"]
+        deg = round(r["total"] / snap) * snap
+        if deg == r["sent"]:
+            return None
+        r["sent"] = deg
+        return float(deg)
 
     def _gizmo_meshes(self):
         g = self._gizmo()
@@ -1456,7 +1549,7 @@ class Viewer(QOpenGLWidget):
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.tool == "rotate":
             hit = self._ring_hit(e.position())
             if hit is not None:
-                self._rot = (self.selected, hit[0], hit[1], 0.0)
+                self._start_ring_drag(hit[0], hit[1], e.position())
                 self.rotateStarted.emit(self.selected)
                 self.update()
                 return
@@ -1583,15 +1676,12 @@ class Viewer(QOpenGLWidget):
         dx, dy = pos.x() - self._last.x(), pos.y() - self._last.y()
         self._last = pos
         if self._rot is not None and e.buttons() & Qt.LeftButton:
-            uid, axis, start, _ = self._rot
-            hit = self._ring_hit(pos, only_axis=axis)
-            if hit is not None:
-                delta = (hit[1] - start + 180.0) % 360.0 - 180.0
-                step = 15.0 if e.modifiers() & Qt.ShiftModifier else 1.0
-                delta = round(delta / step) * step
-                if delta != self._rot[3]:
-                    self._rot = (uid, axis, start, delta)
-                    self.rotateDragged.emit(uid, axis, float(delta))
+            deg = self._drag_ring(pos, 15.0 if e.modifiers() & Qt.ShiftModifier else 1.0)
+            if deg is not None:
+                self.rotateDragged.emit(self._rot["uid"], self._rot["axis"], deg)
+            if self._rot is not None:                 # the angle next to the cursor
+                self._hover_pos = pos
+                self.show_hover(f"{'XYZ'[self._rot['axis']]}  {self._rot['sent']:+.0f}°")
             return
         if getattr(self, "_label_drag", None) is not None and e.buttons() & Qt.LeftButton and self.tool == "label":
             uid, point = self.pick_hit(pos)
@@ -1711,8 +1801,9 @@ class Viewer(QOpenGLWidget):
             self.contextRequested.emit(uid, e.globalPosition().toPoint())
             return
         if self._rot is not None:
-            uid = self._rot[0]
+            uid = self._rot["uid"]
             self._rot = None
+            self.hover_label.hide()
             self.rotateFinished.emit(uid)
             self.update()
             return

@@ -2307,6 +2307,14 @@ class MainWindow(QMainWindow):
         self._rotate_group(group, axis, degrees)
         for o in group:
             self.viewer.set_object_transform(o.uid, self._display_matrix(o))
+        sel = self.selected()
+        if sel is not None:                       # the Rotation fields follow the drag
+            self._syncing = True
+            try:
+                for i in range(3):
+                    self.rot[i].setValue(float(sel.rotation[i]))
+            finally:
+                self._syncing = False
         self.status.setText(f"{'XYZ'[axis]}: {degrees:+.0f}°   ·   {tr('rotate_snap_hint')}")
 
     def _on_rotate_end(self, uid):
