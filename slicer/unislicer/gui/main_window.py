@@ -2070,7 +2070,16 @@ class MainWindow(QMainWindow):
         from .. import layout
         opts = self._layout_defaults()
         options = layout.LayoutOptions(**{k: opts[k] for k in ("strategy", "spacing", "margin", "rotation", "anchor", "sort")})
+        self._mark_raft_tabs()
         return not layout.auto_layout(self.objects, plate_area(cfg), options)
+
+    def _mark_raft_tabs(self):
+        """Tell the layout which parts get a "raft & label" crescent tab, so it keeps neighbours clear of it."""
+        cfg = self.settings.config()
+        on = cfg["technology"] == "sla" and cfg["support_enable"]
+        for o in self.objects:
+            o.__dict__["raft_tab"] = bool(on and not o.direct and o.role != "cutter"
+                                          and o.config(cfg)["sla_raft_type"] == "raft_label")
 
     def learn_layout_now(self):
         """Assistant › Learn layout: take the arrangement now on the plate as the user's own layout."""
@@ -2105,6 +2114,7 @@ class MainWindow(QMainWindow):
         opts = self._layout_defaults()
         self._push_undo()
         options = layout.LayoutOptions(**{k: opts[k] for k in ("strategy", "spacing", "margin", "rotation", "anchor", "sort")})
+        self._mark_raft_tabs()
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             added = layout.fill_plate(self.objects, self.selected(), plate_area(self.settings.config()), options)
@@ -2173,6 +2183,7 @@ class MainWindow(QMainWindow):
         plate = plate_area(cfg)
         options = layout.LayoutOptions(**{k: opts[k] for k in ("strategy", "spacing", "margin", "rotation", "scope",
                                                                "anchor", "sort")})
+        self._mark_raft_tabs()
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             if fill and self.selected():
@@ -4415,6 +4426,8 @@ class MainWindow(QMainWindow):
         """What goes on a model's raft: on teeth (crowns / bridges) the case code from the SOD number,
         e.g. 46671-044-P; otherwise the model's name when "Model name on the raft" is on."""
         from .. import dental_cad
+        if cfg["sla_raft_type"] == "raft_label":         # this raft is there to carry the code: always one
+            return dental_cad.case_code(o.name) or os.path.splitext(o.name or "")[0]
         if cfg["sla_raft_label_teeth"] and dental_cad.kind_of(o.name, o.mesh) == "crown":
             code = dental_cad.case_code(o.name)
             if code:

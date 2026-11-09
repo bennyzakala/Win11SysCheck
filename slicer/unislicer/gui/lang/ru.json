@@ -1441,5 +1441,7 @@
 "{} crowns / bridges turned with the opening up": "{} коронок/мостов повёрнуто отверстием вверх",
 "The printer's screen resolution ({} x {} px) does not fit its build area ({} x {} mm): pixels of {} x {} µm. The print would come out stretched - check the printer profile before printing.": "Разрешение экрана принтера ({} x {} пикс.) не соответствует области печати ({} x {} мм): пиксель {} x {} мкм. Печать будет искажена — проверьте профиль принтера.",
 "Gingiva masks: flat side up": "Маски десны: плоской стороной вверх",
-"{} parts turned automatically (crowns and bridges opening up, gingiva masks flat side up)": "{} деталей повёрнуто автоматически (коронки и мосты отверстием вверх, маски десны плоской стороной вверх)"
+"{} parts turned automatically (crowns and bridges opening up, gingiva masks flat side up)": "{} деталей повёрнуто автоматически (коронки и мосты отверстием вверх, маски десны плоской стороной вверх)",
+"Mini: a small pad under every support, joined to its neighbours, as in PreForm - less resin and easier to remove than a solid raft. Mini tiny: for temporary teeth - the raft follows the tooth's outline seen from above, a little smaller, never past it. Raft & label: a narrow raft along the model's outline, with a crescent tab round the model's end carrying the code, embossed": "Мини: небольшая площадка под каждой поддержкой, соединённая с соседними, как в PreForm — меньше смолы и легче снимать, чем сплошной рафт. Мини крошечный: для временных зубов — рафт повторяет контур зуба сверху, чуть меньше его и никогда не выходит за него. Плот и код: узкий плот по контуру модели, с язычком-полумесяцем у края модели, на котором выпукло стоит код",
+"Raft & label": "Плот и код (raft&label)"
 }

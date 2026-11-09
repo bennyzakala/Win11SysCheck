@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import shapely
+from shapely.ops import unary_union
 from shapely import affinity
 from shapely.geometry import MultiPoint, Polygon, box
 
@@ -156,6 +157,19 @@ def _mask(geom, x0: float, y0: float, res: float, w: int, h: int) -> np.ndarray:
     return np.asarray(img, dtype=bool)
 
 
+def with_raft_tab(o: SceneObject, shape):
+    """``shape`` (the part's outline, as turned for the layout) with the crescent tab of a "raft & label"
+    raft added when the part gets one (``o.raft_tab``, set by the window), so neighbours keep clear of it."""
+    if not o.__dict__.get("raft_tab") or shape.is_empty:
+        return shape
+    from .sla_supports import LABEL_RAFT_MARGIN, label_moon
+    try:
+        core = shape.buffer(LABEL_RAFT_MARGIN, quad_segs=6)
+        return unary_union([core, label_moon(core, shape)])
+    except Exception:
+        return shape
+
+
 def _place_contour(objs, fixed, rect, opt: LayoutOptions, region=None) -> list[SceneObject]:
     """Placement of the parts' real outlines (each grown by half the gap) on a fine grid: for every turn about Z
     all free positions are found at once (FFT correlation of the plate's occupancy with the part's shape), and
@@ -171,7 +185,7 @@ def _place_contour(objs, fixed, rect, opt: LayoutOptions, region=None) -> list[S
     if region is not None:                         # cells outside a round / ring plate are taken
         occ |= ~_mask(region.buffer(-1e-3), x0, y0, res, W, H)[:H, :W]
     for o in fixed:
-        occ |= _mask(footprint(o).buffer(half, quad_segs=4), x0, y0, res, W, H)[:H, :W]
+        occ |= _mask(with_raft_tab(o, footprint(o)).buffer(half, quad_segs=4), x0, y0, res, W, H)[:H, :W]
     target = {"center": ((x0 + x1) / 2, (y0 + y1) / 2), "front_left": (x0, y0), "back_left": (x0, y1),
               "front_right": (x1, y0), "back_right": (x1, y1)}.get(opt.anchor, ((x0 + x1) / 2, (y0 + y1) / 2))
     prints = {o.uid: footprint(o) for o in objs}
@@ -182,7 +196,7 @@ def _place_contour(objs, fixed, rect, opt: LayoutOptions, region=None) -> list[S
         occ_f = np.fft.rfft2(occ.astype(np.float32))
         best = None
         for ang in _rotations(opt.rotation):
-            shape = affinity.rotate(base, ang, origin=c).buffer(half, quad_segs=4)
+            shape = with_raft_tab(o, affinity.rotate(base, ang, origin=c)).buffer(half, quad_segs=4)
             sx0, sy0, sx1, sy1 = shape.bounds
             mw, mh = int(math.ceil((sx1 - sx0) / res)) + 1, int(math.ceil((sy1 - sy0) / res)) + 1
             if mw > W or mh > H:
@@ -210,11 +224,11 @@ def _place_contour(objs, fixed, rect, opt: LayoutOptions, region=None) -> list[S
         _, ang, (tx, ty) = best
         if ang:
             o.apply_world_rotation(_z_rotation(ang))
-        now = footprint(o).buffer(half, quad_segs=4)       # move so the box centre lands on the chosen spot
+        now = with_raft_tab(o, footprint(o)).buffer(half, quad_segs=4)   # move so the box centre lands on the chosen spot
         nx, ny = (now.bounds[0] + now.bounds[2]) / 2, (now.bounds[1] + now.bounds[3]) / 2
         o.x += tx - nx
         o.y += ty - ny
-        occ |= _mask(footprint(o).buffer(half, quad_segs=4), x0, y0, res, W, H)[:H, :W]
+        occ |= _mask(with_raft_tab(o, footprint(o)).buffer(half, quad_segs=4), x0, y0, res, W, H)[:H, :W]
     return failed
 
 
@@ -228,6 +242,9 @@ def _place_grid(objs, rect, opt: LayoutOptions) -> list[SceneObject]:
     """Equal cells sized for the largest part (good for many copies of one part)."""
     sizes = np.array([o.world_size()[:2] for o in objs])
     cw, ch = sizes.max(axis=0) + opt.spacing
+    if any(o.__dict__.get("raft_tab") for o in objs):     # room for a "raft & label" tab at either end
+        from .sla_supports import LABEL_RAFT_MARGIN, MOON_WIDTH
+        cw, ch = cw + 2 * (LABEL_RAFT_MARGIN + MOON_WIDTH), ch + 2 * (LABEL_RAFT_MARGIN + MOON_WIDTH)
     x0, y0, x1, y1 = rect
     cols, rows = max(1, int((x1 - x0) // cw)), max(1, int((y1 - y0) // ch))
     cells = [(c, r) for r in range(rows) for c in range(cols)]

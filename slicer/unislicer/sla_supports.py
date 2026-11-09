@@ -848,6 +848,8 @@ def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None, outli
            label: str = "") -> list[Mesh]:
     """Raft geometry under the support feet for the chosen raft type, with ``label`` (a tooth's case code
     or the model's name) on the raft itself: engraved, mirrored, into its underside or standing on top."""
+    if cfg["sla_raft_type"] == "raft_label":
+        return _raft_and_label(feet, cfg, pad, radii, outline_shape, label)
     plan = _raft_plan(feet, cfg, pad, radii, outline_shape)
     if plan is None:
         return []
@@ -890,6 +892,88 @@ def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None, outli
     return [body, extrude(text, raft - 0.01, raft + 0.4, "Raft label")]
 
 
+LABEL_RAFT_MARGIN = 0.8     # how far the "raft & label" raft reaches past the model's outline (mm)
+MOON_WIDTH = 5.0            # width of its crescent tab
+MOON_WRAP = 3.0             # how far back along the model's sides the crescent reaches
+
+
+def _label_raft_core(feet: list, cfg: Config, pad: float, radii: list | None, outline_shape):
+    """The "raft & label" raft without its tab: the model's outline seen from above plus a little, and a
+    pad under every foot (no foot is left standing on the plate)."""
+    default_r = max(cfg["sla_base_diameter"] / 2, pad / 2)
+    pieces = [MultiPoint([tuple(np.asarray(q)[:2])]).buffer(
+        max(radii[k] if radii is not None and k < len(radii) else default_r, 0.3) + 0.4, quad_segs=8)
+        for k, q in enumerate(feet)]
+    if outline_shape is not None and not outline_shape.is_empty:
+        pieces.append(outline_shape.buffer(LABEL_RAFT_MARGIN, quad_segs=8))
+    core = unary_union(pieces).buffer(1.0, quad_segs=8).buffer(-1.0, quad_segs=8)   # one smooth piece
+    return core.simplify(0.02) if not core.is_empty else core
+
+
+def label_moon(core, outline_shape=None):
+    """The crescent tab for the code: a band ``MOON_WIDTH`` wide hugging the end of the model's long axis,
+    reaching ``MOON_WRAP`` back along its sides, round at the tips. Empty when there is no room."""
+    body = outline_shape if outline_shape is not None and not outline_shape.is_empty else core
+    if core.is_empty or body.is_empty:
+        return ShapelyPolygon()
+    rect = body.minimum_rotated_rectangle
+    xy = np.asarray(rect.exterior.coords)[:4]
+    edges = [xy[1] - xy[0], xy[2] - xy[1]]
+    axis = max(edges, key=lambda e: float(np.hypot(*e)))
+    n = float(np.hypot(*axis))
+    if n < 1e-6:
+        return ShapelyPolygon()
+    axis = axis / n
+    if abs(axis[0]) >= abs(axis[1]):        # the same end every time: +X (or +Y on a part lying along Y)
+        axis = axis if axis[0] > 0 else -axis
+    else:
+        axis = axis if axis[1] > 0 else -axis
+    side = np.array([-axis[1], axis[0]])
+    c = np.asarray(core.centroid.coords[0])
+    end = float(np.max(np.asarray(core.exterior.coords if core.geom_type == "Polygon" else
+                                  [p for g in core.geoms for p in g.exterior.coords]) @ axis))
+    base = c + axis * (end - float(c @ axis) - MOON_WRAP)
+    far = 4 * (MOON_WIDTH + n)
+    half = ShapelyPolygon([tuple(base + side * far), tuple(base + side * far + axis * far),
+                           tuple(base - side * far + axis * far), tuple(base - side * far)])
+    ring = core.buffer(MOON_WIDTH, quad_segs=12).difference(core.buffer(-0.01))
+    moon = ring.intersection(half).buffer(-1.2, quad_segs=8).buffer(1.2, quad_segs=8)
+    if moon.is_empty:
+        return ShapelyPolygon()
+    moon = max(getattr(moon, "geoms", [moon]), key=lambda g: g.area)
+    return moon
+
+
+def _raft_and_label(feet: list, cfg: Config, pad: float, radii: list | None, outline_shape, label: str) -> list[Mesh]:
+    """The "raft & label" raft: narrow, along the model's outline, with a crescent tab at the model's end
+    carrying ``label`` embossed on top (above the long-exposed bottom layers, so it prints sharp)."""
+    from .mesh_tools import extrude
+    raft = cfg["sla_raft_thickness"]
+    if raft <= 0 or not feet:
+        return []
+    core = _label_raft_core(feet, cfg, pad, radii, outline_shape)
+    if core.is_empty:
+        return []
+    text = None
+    if label and raft >= 0.4:
+        moon = label_moon(core, outline_shape)
+        if not moon.is_empty:
+            try:
+                from PySide6.QtGui import QGuiApplication
+                if QGuiApplication.instance() is not None:   # fonts need the GUI; the command line skips the code
+                    from .mesh_tools import text_polygons
+                    base = text_polygons(label[:24], 2.0)
+                    text = fit_text(base, moon.buffer(-0.5), min_height=1.0) if not base.is_empty else None
+            except Exception:              # a label must never cost the part its supports and raft
+                text = None
+        if text is not None:
+            core = unary_union([core, moon]).buffer(0)
+    parts = [extrude(core, 0.0, raft, "Raft")]
+    if text is not None:
+        parts.append(extrude(text, raft - 0.01, raft + 0.4, "Raft label"))
+    return parts
+
+
 def _raft_plan(feet: list, cfg: Config, pad: float, radii: list | None = None, outline_shape=None):
     """(raft outline as built, the area inside its outer edge, the solid raft's hull or None) for the
     chosen raft type; None for no raft."""
@@ -897,6 +981,9 @@ def _raft_plan(feet: list, cfg: Config, pad: float, radii: list | None = None, o
     raft = cfg["sla_raft_thickness"]
     if kind == "none" or raft <= 0 or not feet:
         return None
+    if kind == "raft_label":
+        core = _label_raft_core(feet, cfg, pad, radii, outline_shape)
+        return (core, core, None) if not core.is_empty else None
     if kind == "tiny":
         # the tooth's own outline, a little smaller; feet outside it stand on the plate as they are
         if outline_shape is None or outline_shape.is_empty:
@@ -1196,7 +1283,9 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     if cfg["sla_bracing"] and len(pillars) > 1:
         parts += _braces(pillars, underside(), cfg, segs)
 
-    tiny = tooth_outline(mesh, cfg["sla_raft_tiny_inset"]) if cfg["sla_raft_type"] == "tiny" and feet else None
+    tiny = None
+    if feet and cfg["sla_raft_type"] in ("tiny", "raft_label"):
+        tiny = tooth_outline(mesh, cfg["sla_raft_tiny_inset"] if cfg["sla_raft_type"] == "tiny" else 0.0)
     # the caller chooses the text (the model's name, or a tooth's SOD case code); "" = no label
     parts += _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny, label)
     merged = Mesh.merge(list(parts), "Supports")

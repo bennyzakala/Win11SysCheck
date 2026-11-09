@@ -5727,6 +5727,50 @@ def test_raft_label_on_a_raft_in_pieces_keeps_the_supports(monkeypatch):
         assert len(used2) == len(used) and len(sup.faces) == len(plain.faces)
 
 
+def test_raft_and_label_raft_follows_the_outline_with_a_coded_tab():
+    """'Raft & label': a narrow raft along the part's outline (every foot on it) and a crescent tab past
+    the part's +X end with the code standing on it, above the bottom layers; the auto layout keeps
+    neighbours clear of the tab."""
+    from PySide6.QtGui import QGuiApplication
+    from unislicer import sla_supports, layout
+    from unislicer.slicing import slice_mesh
+    from shapely.geometry import MultiPoint
+    QGuiApplication.instance() or QGuiApplication(["test", "-platform", "offscreen"])
+    obj = placed(primitives.box(24, 9, 7), 60, 40)
+    part = obj.world_mesh().translated([0, 0, 5])
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None,
+                                {"support_enable": True, "sla_raft_type": "raft_label", "sla_raft_thickness": 1.0})
+    plain, used = sla_supports.build_supports(part, cfg)
+    sup, used2 = sla_supports.build_supports(part, cfg, label="46614-044-P")
+    assert len(used2) == len(used) > 0
+    raft_layer, code_layer = slice_mesh(sup, [0.5, 1.2])
+    outline = MultiPoint(part.vertices[:, :2]).convex_hull
+    # narrow: along the outline (+0.8 mm), not a 2 mm-margin slab - apart from the tab
+    without_tab = raft_layer.intersection(outline.buffer(3.0)).difference(
+        shapely.geometry.box(outline.bounds[2] - sla_supports.MOON_WRAP, -1e3, 1e3, 1e3))
+    assert without_tab.difference(outline.buffer(sla_supports.LABEL_RAFT_MARGIN + 0.3)).area < 2.0
+    # the tab: past the +X end, about MOON_WIDTH wide, and the code stands on it
+    assert raft_layer.bounds[2] > outline.bounds[2] + sla_supports.MOON_WIDTH
+    code_layer = code_layer.difference(slice_mesh(plain, [1.2])[0].buffer(0.05))     # not the pillars
+    assert code_layer.area > 3 and code_layer.bounds[0] > outline.bounds[2] - sla_supports.MOON_WRAP - 0.5
+    plain_raft = slice_mesh(plain, [0.5])[0]
+    assert plain_raft.bounds[2] < outline.bounds[2] + 2.0         # no code, no tab
+    # every foot stands on the raft
+    feet = sup.vertices[np.abs(sup.vertices[:, 2] - 1.0) < 1e-3][:, :2]
+    assert all(raft_layer.buffer(0.05).contains(shapely.geometry.Point(*p)) for p in feet[::7])
+    # the auto layout leaves the tab room: two parts in a row do not overlap tab and neighbour
+    a, b = placed(primitives.box(24, 9, 7), 0, 0), placed(primitives.box(24, 9, 7), 0, 0)
+    for o in (a, b):
+        o.__dict__["raft_tab"] = True
+    for strategy in ("box", "contour"):
+        failed = layout.auto_layout([a, b], (0, 0, 200, 120), layout.LayoutOptions(strategy=strategy, spacing=1.0,
+                                                                                  rotation="none"))
+        assert not failed
+        ta = layout.with_raft_tab(a, layout.footprint(a))
+        tb = layout.with_raft_tab(b, layout.footprint(b))
+        assert ta.area > layout.footprint(a).area + 20 and not ta.intersects(tb), strategy
+
+
 def test_raft_code_goes_on_the_parts_own_raft():
     """Solid, grid, hexagon and mini rafts: the case code goes on the part's own raft (engraved under it or
     standing on it) - never on an extra tab beside the raft."""

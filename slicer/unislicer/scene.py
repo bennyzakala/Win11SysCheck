@@ -369,7 +369,15 @@ def arrange(objects: list[SceneObject], bed_x: float, bed_y: float, spacing: flo
         bed_x, bed_y = rect[2] - rect[0], rect[3] - rect[1]
     else:
         ox = oy = 0.0
-    sizes = [o.world_size() for o in objects]
+    sizes = [np.array(o.world_size(), dtype=float) for o in objects]
+    # a "raft & label" raft's crescent tab sits past the part's +X end (+Y for a part lying along Y)
+    tabs = [np.zeros(2) for _ in objects]
+    for i, o in enumerate(objects):
+        if o.__dict__.get("raft_tab"):
+            from .sla_supports import LABEL_RAFT_MARGIN, MOON_WIDTH
+            ax = 0 if sizes[i][0] >= sizes[i][1] else 1
+            tabs[i][ax] = LABEL_RAFT_MARGIN + MOON_WIDTH
+            sizes[i][:2] += tabs[i]
     order = sorted(range(len(objects)), key=lambda i: -sizes[i][1])
     rows, row, row_w, row_h = [], [], 0.0, 0.0
     for i in order:
@@ -386,8 +394,8 @@ def arrange(objects: list[SceneObject], bed_x: float, bed_y: float, spacing: flo
     for row, row_w, row_h in rows:
         x = bed_x / 2 - row_w / 2
         for i, w in row:
-            objects[i].x = ox + x + w / 2
-            objects[i].y = oy + y - row_h / 2
+            objects[i].x = ox + x + w / 2 - tabs[i][0] / 2
+            objects[i].y = oy + y - row_h / 2 - tabs[i][1] / 2
             x += w
         y -= row_h
     return total_h <= bed_y and all(r[1] <= bed_x + spacing for r in rows)
