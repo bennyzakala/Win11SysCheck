@@ -1185,9 +1185,13 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             keepout: list[np.ndarray] | None = None, labels: list | None = None, raft_labels: list | None = None,
             holes: list[np.ndarray | None] | None = None, cutters: list[Mesh] | None = None,
             materials: list[str] | None = None, filled: list[bool] | None = None,
-            model_settings: list[dict | None] | None = None) -> SlaJob:
+            model_settings: list[dict | None] | None = None,
+            prebuilt_supports: list[Mesh | None] | None = None, raft_label_frames: list | None = None) -> SlaJob:
     """Slice resin models. ``support_points[i]`` holds manual contact points for ``meshes[i]``
-    (same coordinates, before elevation), or None to place supports automatically."""
+    (same coordinates, before elevation), or None to place supports automatically.
+    ``prebuilt_supports[i]``: the support structure the window already built for ``meshes[i]`` (bed
+    coordinates, raised), used as it is instead of building it again (None = build it here).
+    ``raft_label_frames[i]``: the part's own directions on the plate, where a raft & label tab goes."""
     def report(stage, f):
         if cancelled and cancelled():
             raise InterruptedError
@@ -1244,6 +1248,11 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             manual = support_points[i] if support_points and i < len(support_points) else None
             if manual is not None:
                 manual = np.asarray(manual, dtype=np.float64).reshape(-1, 3) + [0, 0, lift]
+            ready = prebuilt_supports[i] if prebuilt_supports and i < len(prebuilt_supports) else None
+            if ready is not None and manual is not None:   # what the window shows: no second build
+                parts.append(ready)
+                pts += list(manual)
+                continue
             zones = keepout[i] if keepout and i < len(keepout) else None
             if zones is not None and len(zones):
                 from .sla_supports import auto_support_points, drop_keepout
@@ -1254,12 +1263,13 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
                 label = raft_labels[i] if i < len(raft_labels) else ""
             else:
                 label = meshes[i].name if cfg["sla_raft_label"] else ""
+            frame = raft_label_frames[i] if raft_label_frames and i < len(raft_label_frames) else None
             skey = ("supports-build", mesh_key(m), None if manual is None else np.ascontiguousarray(manual).tobytes(),
-                    label, tuple(sorted((k, v) for k, v in cfgs[i].values.items()
-                                        if k.startswith(("sla_", "support")))))
+                    label, None if frame is None else np.round(np.asarray(frame, float), 6).tobytes(),
+                    tuple(sorted((k, v) for k, v in cfgs[i].values.items() if k.startswith(("sla_", "support")))))
             hit = _cache_get(skey)
             if hit is None:
-                hit = build_supports(m, cfgs[i], manual, label=label)
+                hit = build_supports(m, cfgs[i], manual, label=label, label_frame=frame)
                 _cache_put(skey, hit)
             sm, sp = hit
             parts.append(sm)

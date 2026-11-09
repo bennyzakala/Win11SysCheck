@@ -157,15 +157,21 @@ def _mask(geom, x0: float, y0: float, res: float, w: int, h: int) -> np.ndarray:
     return np.asarray(img, dtype=bool)
 
 
-def with_raft_tab(o: SceneObject, shape):
-    """``shape`` (the part's outline, as turned for the layout) with the crescent tab of a "raft & label"
-    raft added when the part gets one (``o.raft_tab``, set by the window), so neighbours keep clear of it."""
+def with_raft_tab(o: SceneObject, shape, turn: float = 0.0):
+    """``shape`` (the part's outline, turned ``turn`` degrees more for the layout) with the crescent tab of
+    a "raft & label" raft added when the part gets one (``o.raft_tab``, set by the window), so neighbours
+    keep clear of it. The tab sits at the part's own +x end, so it turns with the part."""
     if not o.__dict__.get("raft_tab") or shape.is_empty:
         return shape
     from .sla_supports import LABEL_RAFT_MARGIN, label_moon
     try:
-        core = shape.buffer(LABEL_RAFT_MARGIN, quad_segs=6)
-        return unary_union([core, label_moon(core, shape)])
+        (fx, fy) = o.plate_frame()
+        a = math.radians(turn)
+        rot = np.array([[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]])
+        frame = (rot @ np.asarray(fx), rot @ np.asarray(fy))
+        rough = shape.simplify(0.15)              # a layout outline: a coarse one is ~4x quicker to grow
+        core = rough.buffer(LABEL_RAFT_MARGIN, quad_segs=4)
+        return unary_union([core, label_moon(core, rough, frame)])
     except Exception:
         return shape
 
@@ -196,7 +202,7 @@ def _place_contour(objs, fixed, rect, opt: LayoutOptions, region=None) -> list[S
         occ_f = np.fft.rfft2(occ.astype(np.float32))
         best = None
         for ang in _rotations(opt.rotation):
-            shape = with_raft_tab(o, affinity.rotate(base, ang, origin=c)).buffer(half, quad_segs=4)
+            shape = with_raft_tab(o, affinity.rotate(base, ang, origin=c), ang).buffer(half, quad_segs=4)
             sx0, sy0, sx1, sy1 = shape.bounds
             mw, mh = int(math.ceil((sx1 - sx0) / res)) + 1, int(math.ceil((sy1 - sy0) / res)) + 1
             if mw > W or mh > H:

@@ -6332,3 +6332,88 @@ def test_user_guide_covers_every_menu_command_shortcut_and_setting():
             sub = ("en",) if lang == "en" else ()
             assert os.path.isfile(os.path.join(d, "manual_img", *sub, "main.png"))
             assert 'src="manual_img/' + ("en/" if lang == "en" else "") + 'main.png"' in open(path, encoding="utf-8").read()
+
+
+def test_duplicates_take_over_supports_instead_of_rebuilding(tmp_path):
+    """Duplicating supported crowns (raft & label) used to build every copy's supports again in the
+    background - 48 crowns were ~10 s of lag. A copy has the same mesh, points, turn and settings, so it
+    takes its original's support structure; after a setting change only one of each group is built."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        import unislicer.gui.main_window as MW
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        w.settings.set_value("sla_raft_type", "raft_label")
+        for k in range(3):
+            o = w.add_mesh(primitives.crown_cap(9.0 + k, 8.0, name=f"C{k}-SOD26001234{k}-044-P-1{k}.stl"))
+        app.processEvents()
+        w._select_uid(None); w.generate_supports(); w.wait_supports(); app.processEvents(); w.wait_supports()
+        w._arrange = lambda cfg: True                 # copies keep their turn (the layout may turn parts)
+        built = []
+        orig = MW.MainWindow._support_built
+        MW.MainWindow._support_built = lambda self, res, shared: (built.append(res[0]), orig(self, res, shared))
+        w.select_all(); w.duplicate_selected(); app.processEvents(); w.wait_supports(); app.processEvents()
+        w.select_all(); w.duplicate_selected(); app.processEvents(); w.wait_supports(); app.processEvents()
+        assert len(w.objects) == 12, len(w.objects)
+        cfg = w.settings.config()
+        assert all(w._support_cache.get(o.uid, (None,))[0] == w._support_key(o, cfg) for o in w.objects)
+        assert built == [], built                            # nothing was built again for the copies
+        w.settings.set_value("sla_raft_thickness", 1.4); w._objects_changed(refresh_list=False)
+        end = time.time() + 120
+        while time.time() < end and not all(w._support_cache.get(o.uid, (None,))[0] == w._support_key(o, w.settings.config())
+                                            for o in w.objects):
+            app.processEvents(); w.wait_supports(); time.sleep(0.02)
+        assert all(w._support_cache.get(o.uid, (None,))[0] == w._support_key(o, w.settings.config()) for o in w.objects)
+        assert len(built) == 3, built                        # one build per original shape
+        # turning a part about Z (by hand or by the layout) keeps its supports: they turn with it
+        import numpy as np
+        n0 = len(built)
+        o = w.objects[0]
+        o.apply_world_rotation(np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]))
+        w._objects_changed(refresh_list=False); app.processEvents(); w.wait_supports(); app.processEvents()
+        assert len(built) == n0, built
+        assert w._support_cache[o.uid][0] == w._support_key(o, w.settings.config())
+        # slicing takes the structures the view shows instead of building them again
+        meshes, kw = w._sla_inputs(list(w.objects))
+        assert all(p is not None for p in kw["prebuilt_supports"])
+        w._stop_preslice()
+        print("OK", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
+                       env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_raft_and_label_tab_turns_with_the_part_and_the_layout_knows_where():
+    """The raft & label tab sits at the part's own +x end: a part turned on the plate gets its tab turned
+    with it (so its supports need no rebuild), and the outline the auto layout keeps free covers it."""
+    from PySide6.QtGui import QGuiApplication
+    from unislicer import sla_supports, layout
+    from unislicer.slicing import slice_mesh
+    QGuiApplication.instance() or QGuiApplication(["test", "-platform", "offscreen"])
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None,
+                                {"support_enable": True, "sla_raft_type": "raft_label", "sla_raft_thickness": 1.0})
+    for deg in (0.0, 37.0, 90.0, 200.0):
+        o = placed(primitives.box(24, 9, 7), 70, 50)
+        a = np.radians(deg)
+        o.apply_world_rotation(np.array([[np.cos(a), -np.sin(a), 0], [np.sin(a), np.cos(a), 0], [0, 0, 1]]))
+        part = o.world_mesh().translated([0, 0, 5])
+        sup, _ = sla_supports.build_supports(part, cfg, label="46614-044-P", label_frame=o.plate_frame())
+        raft = slice_mesh(sup, [0.5])[0]
+        o.__dict__["raft_tab"] = True
+        keep = layout.with_raft_tab(o, layout.footprint(o))
+        assert raft.difference(keep.buffer(0.6)).area < 1.0, deg        # the layout reserves the real tab
+        fx = np.asarray(o.plate_frame()[0])
+        c = np.asarray(part.vertices[:, :2].mean(axis=0))
+        tip = max(np.asarray(raft.exterior.coords if raft.geom_type == "Polygon" else
+                             [q for g in raft.geoms for q in g.exterior.coords]), key=lambda q: float((q - c) @ fx))
+        assert float((tip - c) @ fx) > 12 + sla_supports.MOON_WIDTH * 0.8, deg   # the tab is at the part's +x end
+

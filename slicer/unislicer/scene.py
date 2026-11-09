@@ -106,6 +106,29 @@ class SceneObject:
         m[:3, :3] = euler_matrix(*self.rotation) @ self.base_rotation @ np.diag(self.scale * self.mirror)
         return m
 
+    def plate_turn(self) -> float:
+        """The part's turn about the vertical axis (radians): the direction, seen from above, of the first of
+        its own axes that does not stand (nearly) upright. Turning the part about Z adds exactly that turn,
+        so ``turn_free_matrix`` and ``plate_frame`` stay the same / turn along with it."""
+        m = self.matrix()[:3, :3]
+        for k in range(3):
+            v = m[:2, k]
+            if float(np.hypot(*v)) > 0.3 * max(float(np.linalg.norm(m[:, k])), 1e-9):
+                return float(np.arctan2(v[1], v[0]))
+        return 0.0
+
+    def turn_free_matrix(self) -> np.ndarray:
+        """``matrix()`` with the turn about Z taken out: the same for every turn of the part on the plate (its
+        supports, kept in the part's own coordinates, do not depend on that turn)."""
+        t = -self.plate_turn()
+        rz = np.array([[np.cos(t), -np.sin(t), 0.0], [np.sin(t), np.cos(t), 0.0], [0.0, 0.0, 1.0]])
+        return rz @ self.matrix()[:3, :3]
+
+    def plate_frame(self) -> tuple:
+        """(x, y) directions on the plate that turn with the part: where its "+X end" is (the raft & label tab)."""
+        t = self.plate_turn()
+        return (np.cos(t), np.sin(t)), (-np.sin(t), np.cos(t))
+
     def _linear_bounds(self) -> np.ndarray:
         """Bounds of the rotated/scaled mesh, cached until the rotation, the scale or the mesh change (a
         repair, cut, texture or undo puts a new mesh in place)."""

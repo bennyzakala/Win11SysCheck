@@ -845,11 +845,11 @@ def tooth_outline(mesh: Mesh, inset: float, levels: int = 16):
 
 
 def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None, outline_shape=None,
-           label: str = "") -> list[Mesh]:
+           label: str = "", frame=None) -> list[Mesh]:
     """Raft geometry under the support feet for the chosen raft type, with ``label`` (a tooth's case code
     or the model's name) on the raft itself: engraved, mirrored, into its underside or standing on top."""
     if cfg["sla_raft_type"] == "raft_label":
-        return _raft_and_label(feet, cfg, pad, radii, outline_shape, label)
+        return _raft_and_label(feet, cfg, pad, radii, outline_shape, label, frame)
     plan = _raft_plan(feet, cfg, pad, radii, outline_shape)
     if plan is None:
         return []
@@ -910,9 +910,11 @@ def _label_raft_core(feet: list, cfg: Config, pad: float, radii: list | None, ou
     return core.simplify(0.02) if not core.is_empty else core
 
 
-def label_moon(core, outline_shape=None):
+def label_moon(core, outline_shape=None, frame=None):
     """The crescent tab for the code: a band ``MOON_WIDTH`` wide hugging the end of the model's long axis,
-    reaching ``MOON_WRAP`` back along its sides, round at the tips. Empty when there is no room."""
+    reaching ``MOON_WRAP`` back along its sides, round at the tips. Empty when there is no room.
+    ``frame``: the part's own (x, y) directions on the plate (``SceneObject.plate_frame``); the tab goes at
+    its +x end (+y for a part lying along its y), so it turns with the part. None = the plate's X / Y."""
     body = outline_shape if outline_shape is not None and not outline_shape.is_empty else core
     if core.is_empty or body.is_empty:
         return ShapelyPolygon()
@@ -924,10 +926,13 @@ def label_moon(core, outline_shape=None):
     if n < 1e-6:
         return ShapelyPolygon()
     axis = axis / n
-    if abs(axis[0]) >= abs(axis[1]):        # the same end every time: +X (or +Y on a part lying along Y)
-        axis = axis if axis[0] > 0 else -axis
+    fx, fy = (np.asarray(frame[0], float), np.asarray(frame[1], float)) if frame is not None else \
+        (np.array([1.0, 0.0]), np.array([0.0, 1.0]))
+    ax, ay = float(axis @ fx), float(axis @ fy)
+    if abs(ax) >= abs(ay):                  # the same end every time: +x (or +y on a part lying along y)
+        axis = axis if ax > 0 else -axis
     else:
-        axis = axis if axis[1] > 0 else -axis
+        axis = axis if ay > 0 else -axis
     side = np.array([-axis[1], axis[0]])
     c = np.asarray(core.centroid.coords[0])
     end = float(np.max(np.asarray(core.exterior.coords if core.geom_type == "Polygon" else
@@ -944,7 +949,8 @@ def label_moon(core, outline_shape=None):
     return moon
 
 
-def _raft_and_label(feet: list, cfg: Config, pad: float, radii: list | None, outline_shape, label: str) -> list[Mesh]:
+def _raft_and_label(feet: list, cfg: Config, pad: float, radii: list | None, outline_shape, label: str,
+                    frame=None) -> list[Mesh]:
     """The "raft & label" raft: narrow, along the model's outline, with a crescent tab at the model's end
     carrying ``label`` embossed on top (above the long-exposed bottom layers, so it prints sharp)."""
     from .mesh_tools import extrude
@@ -956,7 +962,7 @@ def _raft_and_label(feet: list, cfg: Config, pad: float, radii: list | None, out
         return []
     text = None
     if label and raft >= 0.4:
-        moon = label_moon(core, outline_shape)
+        moon = label_moon(core, outline_shape, frame)
         if not moon.is_empty:
             try:
                 from PySide6.QtGui import QGuiApplication
@@ -1048,7 +1054,7 @@ def _raft_plan(feet: list, cfg: Config, pad: float, radii: list | None = None, o
 
 
 def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, owners: dict | None = None,
-                   cache: dict | None = None, label: str = ""):
+                   cache: dict | None = None, label: str = "", label_frame=None):
     """Support geometry for a model that already sits at its elevated height.
 
     ``points`` are contact points in the same coordinates (None = generate them automatically).
@@ -1287,7 +1293,7 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     if feet and cfg["sla_raft_type"] in ("tiny", "raft_label"):
         tiny = tooth_outline(mesh, cfg["sla_raft_tiny_inset"] if cfg["sla_raft_type"] == "tiny" else 0.0)
     # the caller chooses the text (the model's name, or a tooth's SOD case code); "" = no label
-    parts += _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny, label)
+    parts += _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny, label, label_frame)
     merged = Mesh.merge(list(parts), "Supports")
     if owners is not None:
         owners["faces"] = np.concatenate([np.full(len(m.faces), o, dtype=np.int64) for m, o in zip(parts, part_owner)]) \

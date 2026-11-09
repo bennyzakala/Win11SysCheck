@@ -4479,8 +4479,11 @@ class MainWindow(QMainWindow):
 
     def _support_key(self, o: SceneObject, cfg):
         keys = sorted(k for k in cfg.values if k.startswith("sla_") and not k.startswith("sla_layer"))
-        return (o.uid, o.support_points.tobytes(), o.matrix().tobytes(), tuple(cfg[k] for k in keys),
-                tuple(sorted(o.settings.items())), o.name)
+        # the turn about Z is left out: the structure is kept in the part's own coordinates and turns with it
+        # (a flat plate makes a turned structure as good as a new one), so turning a part - by hand or by
+        # the auto layout - rebuilds nothing
+        return (o.uid, o.support_points.tobytes(), np.round(o.turn_free_matrix(), 6).tobytes(),
+                tuple(cfg[k] for k in keys), tuple(sorted(o.settings.items())), o.name)
 
     def _support_preview_async(self, o: SceneObject, cfg) -> Mesh | None:
         """The support structure to draw now: the finished one, or - while a changed one is built in the
@@ -4492,10 +4495,28 @@ class MainWindow(QMainWindow):
         hit = self._support_cache.get(o.uid)
         if hit is not None and hit[0] == key:
             return hit[1]
+        twin = self._twin_supports(o, key)
+        if twin is not None:
+            return twin[1]
         if not self.async_supports:
             return self._support_preview(o, cfg)
         self._queue_support_build(o, cfg, key)
         return hit[1] if hit is not None else None
+
+    def _twin_supports(self, o: SceneObject, key):
+        """A copy's supports from the part it was copied from: a duplicate (or a copy made by Multiply,
+        Fill the plate or undo) has the same mesh, points, turn and settings, so its support structure -
+        kept in the part's own coordinates - is the same; it is taken over instead of built again (48
+        duplicated crowns once rebuilt 24 support structures in the background, and the window lagged)."""
+        tail = key[1:]
+        meshes = {x.uid: x.mesh for x in self.objects}
+        for uid, entry in self._support_cache.items():
+            if uid != o.uid and entry[0][1:] == tail and meshes.get(uid) is o.mesh:
+                entry = (key, entry[1], dict(entry[2]) if entry[2] else entry[2])
+                self._support_cache[o.uid] = entry
+                self._sup_pending.pop(o.uid, None)
+                return entry
+        return None
 
     def _queue_support_build(self, o: SceneObject, cfg, key):
         running = getattr(self, "_sup_running", None)
@@ -4512,18 +4533,31 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         self._sup_pending[o.uid] = (key, world, ocfg, o.world_support_points(lift), dict(geo), label,
-                                    self._display_matrix(o), geo)
+                                    self._display_matrix(o), geo, o.plate_frame())
         self._start_support_build()
 
     def _start_support_build(self):
         if getattr(self, "_sup_task", None) is not None or not self._sup_pending:
             return
-        uid = next(iter(self._sup_pending))
-        key, world, ocfg, pts, geo, label, disp, shared = self._sup_pending.pop(uid)
+        while self._sup_pending:
+            uid = next(iter(self._sup_pending))
+            entry = self._sup_pending.pop(uid)
+            o = next((x for x in self.objects if x.uid == uid), None)
+            twin = self._twin_supports(o, entry[0]) if o is not None else None
+            if twin is None:
+                break
+            if self._shows_supports(o) and len(o.support_points):     # a copy built already: show it
+                self.viewer.set_object_supports(uid, twin[1])
+                self._update_support_info()
+            entry = None
+        if entry is None:
+            return
+        key, world, ocfg, pts, geo, label, disp, shared, frame = entry
 
         def work(progress, cancelled):
             owners = {}
-            mesh, _ = sla_supports.build_supports(world, ocfg, pts, owners=owners, cache=geo, label=label)
+            mesh, _ = sla_supports.build_supports(world, ocfg, pts, owners=owners, cache=geo, label=label,
+                                                  label_frame=frame)
             local = mesh.transform(np.linalg.inv(disp)) if len(mesh.faces) else None
             return uid, key, local, owners, geo
 
@@ -4585,13 +4619,16 @@ class MainWindow(QMainWindow):
         hit = self._support_cache.get(o.uid)
         if hit is not None and hit[0] == key:
             return hit[1]
+        twin = self._twin_supports(o, key)
+        if twin is not None:
+            return twin[1]
         cfg = o.config(cfg)                    # the model's own support settings, if any
         lift = self._lift(cfg)
         disp = self._display_matrix(o)
         world, geo = self._support_geometry(o, lift)
         owners = {}
         mesh, _ = sla_supports.build_supports(world, cfg, o.world_support_points(lift), owners=owners, cache=geo,
-                                              label=self._raft_label_text(o, cfg))
+                                              label=self._raft_label_text(o, cfg), label_frame=o.plate_frame())
         local = mesh.transform(np.linalg.inv(disp)) if len(mesh.faces) else None
         self._support_cache[o.uid] = (key, local, owners)
         return local
@@ -5184,8 +5221,25 @@ class MainWindow(QMainWindow):
                   cutters=[o.world_mesh() for o in self.objects if o.role == "cutter"],
                   materials=[dental_shades.face_shades(len(o.mesh.faces), o.material, o.regions) if o.regions
                              else o.material for o in models],
-                  filled=[o.fill_cavity for o in models], model_settings=[o.effective_settings(cfg) or None for o in models])
+                  filled=[o.fill_cavity for o in models], model_settings=[o.effective_settings(cfg) or None for o in models],
+                  prebuilt_supports=[self._ready_world_supports(o, cfg) for o in models],
+                  raft_label_frames=[o.plate_frame() for o in models])
         return meshes, kw
+
+    def _ready_world_supports(self, o: SceneObject, cfg):
+        """The support structure already built for the view, in bed coordinates, when the slicer would build
+        exactly the same one (same points, settings and label; no shrink compensation, a closed mesh and no
+        support-free zones) - so slicing and export do not build every model's supports a second time
+        (48 crowns were 48 more builds in the background after every change). None = let the slicer build."""
+        if o.direct or o.support_points is None or not len(o.support_points) or not self._shows_supports(o):
+            return None
+        ocfg = o.config(cfg)
+        if ocfg["shrink_xy"] or ocfg["shrink_z"] or len(o.keepout) or not o.mesh.is_watertight():
+            return None
+        hit = self._support_cache.get(o.uid)
+        if hit is None or hit[1] is None or hit[0] != self._support_key(o, cfg):
+            return None
+        return hit[1].transform(self._display_matrix(o))
 
     def _slice_labels(self, o: SceneObject):
         """The part's label meshes on the plate, for slicing. Built in the part's own coordinates and kept
@@ -6459,7 +6513,7 @@ class MainWindow(QMainWindow):
                 if mode == "none" and cfg["technology"] == "sla" and cfg["support_enable"] and not o.direct:
                     lift = self._lift(cfg)
                     m = m.translated([0, 0, lift])
-                    sup, _ = sla_supports.build_supports(m, cfg, o.world_support_points(lift), label=self._raft_label_text(o, cfg))
+                    sup, _ = sla_supports.build_supports(m, cfg, o.world_support_points(lift), label=self._raft_label_text(o, cfg), label_frame=o.plate_frame())
                     m = Mesh.merge([m, sup], o.name)
                 out.append((o.name or "model", m))
             return out
@@ -6488,7 +6542,7 @@ class MainWindow(QMainWindow):
             parts = []
             for o, m in zip(models, meshes):
                 lifted = m.translated([0, 0, lift])
-                sup, _ = sla_supports.build_supports(lifted, cfg, o.world_support_points(lift), label=self._raft_label_text(o, cfg))
+                sup, _ = sla_supports.build_supports(lifted, cfg, o.world_support_points(lift), label=self._raft_label_text(o, cfg), label_frame=o.plate_frame())
                 parts += [lifted, sup]
             meshes = parts
         try:
