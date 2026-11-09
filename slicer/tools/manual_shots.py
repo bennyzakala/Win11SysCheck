@@ -1,7 +1,8 @@
 """Pictures for the user guide (unislicer/manual_img), taken in the real window with built-in shapes only
 (no customer files). Run after a visible change to the interface:
 
-    xvfb-run -a -s "-screen 0 1920x1200x24" python tools/manual_shots.py
+    xvfb-run -a -s "-screen 0 1920x1200x24" python tools/manual_shots.py        # Hebrew guide
+    xvfb-run -a -s "-screen 0 1920x1200x24" python tools/manual_shots.py en     # English guide (manual_img/en)
 """
 from __future__ import annotations
 
@@ -13,7 +14,8 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
-OUT = os.path.join(HERE, "unislicer", "manual_img")
+LANG = sys.argv[1] if len(sys.argv) > 1 else "he"
+OUT = os.path.join(HERE, "unislicer", "manual_img", *(["en"] if LANG == "en" else []))
 
 
 def main():
@@ -23,7 +25,9 @@ def main():
         setattr(QMessageBox, kind, staticmethod(lambda *a, **k: QMessageBox.Yes))
     from unislicer import primitives
     from unislicer.gui import i18n, theme
-    i18n.set_language("he")
+    i18n.set_language(LANG)
+    from PySide6.QtCore import Qt
+    app.setLayoutDirection(Qt.RightToLeft if i18n.is_rtl() else Qt.LeftToRight)
     theme.set_theme("light", "")
     theme.apply(app)
     from unislicer.gui.main_window import MainWindow
@@ -48,6 +52,7 @@ def main():
     for k, name in enumerate(("DEMO-SOD260012345-044-P-16-16-1.stl", "DEMO-SOD260012346-044-P-26-26-1.stl")):
         o = w.add_mesh(primitives.crown_cap(9.5 + k, 8.0, name=name))
         o.name = name
+        o.apply_world_rotation(np.diag([1.0, -1.0, -1.0]))     # opening up, as the program loads crowns
         crowns.append(o)
     bridge = w.add_mesh(primitives.demo_bridge())
     spin(0.5)

@@ -6284,25 +6284,15 @@ def test_update_check_download_and_offer(tmp_path):
 
 
 def test_user_guide_covers_every_menu_command_shortcut_and_setting():
-    """The user guide is built from the program: every shortcut of the window's table, every setting and
-    every printer is in it, and every command of the menu bar and the More menu is named in the chapters -
-    a new command fails here until the guide explains it."""
+    """The user guide (Hebrew and English) is built from the program: every shortcut of the window's table,
+    every setting and every printer is in it, and every command of the menu bar, the top bar and the More
+    menu is named in the chapters of both languages - a new command fails here until the guide explains it."""
+    import html as _html
     import re as _re
+    import tempfile
     from unislicer import manual, settings
     from unislicer.gui import i18n
     from unislicer.gui.shortcuts import SHORTCUTS, keys_text
-    page = manual.build_html()
-    assert page.startswith("<!doctype html>") and 'dir="rtl"' in page
-    for _id, seqs, _g, he, _en in SHORTCUTS:
-        assert he in page.replace("&quot;", '"')
-        for seq in seqs:
-            assert all(f"<kbd>{p}</kbd>" in page for p in keys_text(seq).split("+") if p), seq
-    sheet = manual.build_shortcuts_html()
-    assert all(he in sheet.replace("&quot;", "\"") for _i, _s, _g, he, _e in SHORTCUTS)
-    for s in settings.SCHEMA:
-        assert f"<b>{s.he}</b>" in page.replace("&quot;", '"').replace("&#x27;", "'"), s.key
-    for p in profiles.load("printers").values():
-        assert p["name"].replace("&", "&amp;") in page
     src = open(os.path.join(os.path.dirname(manual.__file__), "gui", "main_window.py"), encoding="utf-8").read()
     menu_src = src[src.index("def _build_menu_bar"):src.index("def _fill_recent_into")]
     more_src = src[src.index("more = tool(\"more\""):src.index("more.setMenu(mm)")]
@@ -6311,16 +6301,34 @@ def test_user_guide_covers_every_menu_command_shortcut_and_setting():
     used |= set(_re.findall(r'mm\.add(?:Action|Menu)\((?:theme\.icon\("[a-z0-9_]+"\), )?tr\("([a-z0-9_]+)"\)', more_src))
     used |= set(_re.findall(r'tool\("[a-z0-9_]+", tr\("([a-z0-9_]+)"\)', top_src))
     assert len(used) > 40
-    chapters = " ".join(b for _a, _t, b in manual.CHAPTERS)
-    missing = [k for k in sorted(used) if "{t:" + k + "}" not in chapters]
-    assert not missing, "commands the guide does not explain yet: " + ", ".join(missing)
-    for k in manual.MENU_KEYS:
-        import html as _html
-        assert k in i18n.STRINGS and _html.escape(manual._label(k)) in page
-    # the pictures it points at are there, and writing it puts them next to the page
-    for name in _re.findall(r"\{img:([^|}]+)", chapters):
-        assert os.path.isfile(os.path.join(manual.IMG_DIR, name)), name
-    import tempfile
-    with tempfile.TemporaryDirectory() as d:
-        path = manual.write(d)
-        assert os.path.isfile(path) and os.path.isfile(os.path.join(d, "manual_img", "main.png"))
+    for lang, col in (("he", 0), ("en", 1)):
+        page = manual.build_html(lang=lang)
+        flat = _html.unescape(page)
+        assert page.startswith("<!doctype html>") and (f'dir="{"rtl" if lang == "he" else "ltr"}"') in page
+        for _id, seqs, _g, he, en in SHORTCUTS:
+            assert (he, en)[col] in flat, (lang, _id)
+            for seq in seqs:
+                assert all(f"<kbd>{p}</kbd>" in page for p in keys_text(seq).split("+") if p), seq
+        sheet = _html.unescape(manual.build_shortcuts_html(lang))
+        assert all((he, en)[col] in sheet for _i, _s, _g, he, en in SHORTCUTS)
+        for s in settings.SCHEMA:
+            assert f"<b>{(s.he, s.en)[col]}</b>" in flat, (lang, s.key)
+        for p in profiles.load("printers").values():
+            assert p["name"] in flat
+        chapters = " ".join(b for _a, _t, b in manual.chapters(lang))
+        missing = [k for k in sorted(used) if "{t:" + k + "}" not in chapters]
+        assert not missing, f"commands the {lang} guide does not explain yet: " + ", ".join(missing)
+        for k in manual.MENU_KEYS:
+            assert k in i18n.STRINGS and manual._label(k, lang) in flat, (lang, k)
+        assert [a for a, *_ in manual.chapters(lang)] == [a for a, *_ in manual.CHAPTERS]   # the same chapters
+        folder = manual._img_dir(lang)
+        for name in _re.findall(r"\{img:([^|}]+)", chapters):
+            assert os.path.isfile(os.path.join(folder, name)), (lang, name)
+        assert "{t:" not in page and "{s:" not in page and "{k:" not in page
+        with tempfile.TemporaryDirectory() as d:
+            path = manual.write(d, lang)
+            assert os.path.basename(path) == manual.file_names(lang)[0]
+            assert os.path.isfile(os.path.join(d, manual.file_names(lang)[1]))
+            sub = ("en",) if lang == "en" else ()
+            assert os.path.isfile(os.path.join(d, "manual_img", *sub, "main.png"))
+            assert 'src="manual_img/' + ("en/" if lang == "en" else "") + 'main.png"' in open(path, encoding="utf-8").read()

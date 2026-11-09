@@ -1243,13 +1243,14 @@ class MainWindow(QMainWindow):
         from .. import manual
         folder = os.path.join(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation) or
                               os.path.expanduser("~"), "manual")
+        lang = "he" if i18n.LANG == "he" else "en"     # Hebrew, or English for the other languages
         try:
-            path = manual.write(folder)
+            path = manual.write(folder, lang)
         except OSError as e:
             QMessageBox.warning(self, tr("manual_menu"), str(e))
             return
         if page == "shortcuts":                     # the one-page sheet written next to the guide
-            path = os.path.join(os.path.dirname(path), "UniSlicer-shortcuts.html")
+            path = os.path.join(os.path.dirname(path), manual.file_names(lang)[1])
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     # ---------------------------------------------------------- section view / unsupported areas
