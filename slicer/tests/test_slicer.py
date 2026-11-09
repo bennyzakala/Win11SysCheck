@@ -301,6 +301,30 @@ def test_goo_roundtrip(tmp_path):
         assert out.hex() == expected
 
 
+def test_supports_reach_every_tip_that_starts_in_the_air():
+    """A test print of temporary crowns (opening up) needed supports added by hand: cusp tips a millimetre
+    from the nearest support printed their first layers in the air. Every small region that starts in the
+    air with open space under it now gets a support on its lowest point, and the sliced part has no
+    islands - while a broad flat underside is left to the grid (no extra supports at its corners)."""
+    from unislicer import sla_supports
+    from unislicer.mesh import Mesh
+    slab = primitives.box(12, 12, 3).translated([0, 0, 2.0])
+    tip = primitives.frustum(0.05, 1.2, 2.0, 24).translated([7.3, 4.9, 0.0])        # a cusp hanging below
+    part = placed(Mesh.merge([slab, tip]), 60, 40).world_mesh().translated([0, 0, 5])
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {
+        "support_enable": True, "sla_support_spacing": 4.0, "sla_support_preset": "custom"})
+    rep = {}
+    pts = sla_supports.auto_support_points(part, cfg, rep)
+    low = part.vertices[np.argmin(part.vertices[:, 2])]
+    assert np.min(np.hypot(pts[:, 0] - low[0], pts[:, 1] - low[1])) < 0.5, (low, rep)
+    job = sla.prepare([part], cfg, support_points=[pts])
+    assert job.islands == [], [(i, p.area) for i, p in job.islands]
+    flat = placed(primitives.box(30, 20, 4), 60, 40).world_mesh().translated([0, 0, 5])
+    rep = {}
+    sla_supports.auto_support_points(flat, cfg, rep)
+    assert rep.get("minima_added", 0) == 0                     # the grid holds a flat underside
+
+
 def test_tree_supports_merge_and_use_less_resin():
     from unislicer.slicing import slice_meshes
     mesh = placed(primitives.demo_bridge(), 70, 45).world_mesh()

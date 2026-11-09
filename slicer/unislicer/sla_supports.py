@@ -181,7 +181,78 @@ def auto_support_points(mesh: Mesh, cfg: Config, report: dict | None = None) -> 
         if report is not None:
             report["fit_dropped"], report["points"] = int(fit.sum()), len(pts)
         pts = pts[~fit]
+    # every part but a jaw model (whose own ledges and minima print fine: the model types skip ledges);
+    # by type, not size - a long bridge is not a jaw
+    if cfg["sla_support_minima"] and not (cfg["sla_skip_ledges"] and float(np.max(hi[:2] - lo[:2])) > 40.0):
+        extra = _island_minima(mesh, caster, cfg, pts)
+        if len(extra) and cfg["sla_avoid_fit"]:
+            extra = extra[~fitting_surface(mesh, extra)]
+        if report is not None:
+            report["minima_added"] = int(len(extra))
+        if len(extra):
+            pts = np.vstack([pts, extra])
     return pts
+
+
+TIP_AREA = 8.0           # mm2: a region starting in the air at most this big is a tip, edge or cusp
+
+
+def _island_minima(mesh: Mesh, caster: "_Caster", cfg: Config, pts: np.ndarray, near: float = 0.5) -> np.ndarray:
+    """Every place a part starts in mid-air with open space under it (the lowest point of a cusp, of a
+    pontic, of an edge), found by slicing the part at the print's layer height: a support right there unless
+    one already touches within ``near`` mm. The grid and the tip search could leave a cusp tip a millimetre
+    from its support, so its first layers printed in the air (a test print of temporary crowns needed
+    supports added by hand). Not for jaw models: their own minima print fine."""
+    from .slicing import slice_mesh
+    from .sla import find_islands
+    lo, hi = mesh.bounds
+    lh = max(0.03, float(cfg["sla_layer_height"]))
+    first = (math.floor(lo[2] / lh) + 0.5) * lh                # the print's own cut heights (from z = 0)
+    planes = [z for z in np.arange(first, hi[2], lh) if z > lo[2]]
+    if len(planes) < 2:
+        return np.zeros((0, 3))
+    try:
+        layers = slice_mesh(mesh, planes)
+    except Exception:
+        return np.zeros((0, 3))
+    out = []
+    have = np.asarray(pts, dtype=np.float64).reshape(-1, 3)
+    import shapely
+    from shapely.geometry import Point
+    verts = np.asarray(mesh.vertices)
+    for i, poly in [(0, p) for p in getattr(layers[0], "geoms", [layers[0]]) if not p.is_empty] + find_islands(layers, 0.003):
+        z = planes[i]
+        if poly.area > TIP_AREA:
+            continue                                  # a broad flat underside: the grid supports it
+        # the region's first layer can hold several low spots (its middle a millimetre from the tip that
+        # prints first): each vertex there gets a support within ``near``, lowest first, a few per region
+        x0, y0, x1, y1 = poly.bounds
+        sel = np.nonzero((verts[:, 0] >= x0 - 0.05) & (verts[:, 0] <= x1 + 0.05) & (verts[:, 1] >= y0 - 0.05)
+                         & (verts[:, 1] <= y1 + 0.05) & (verts[:, 2] <= z + lh))[0]
+        if len(sel):
+            sel = sel[shapely.contains_xy(poly.buffer(0.05), verts[sel, 0], verts[sel, 1])]
+        spots = verts[sel[np.argsort(verts[sel, 2])]] if len(sel) else \
+            np.array([[poly.representative_point().x, poly.representative_point().y, z]])
+        added = 0
+        for spot in spots:
+            if added >= 5:
+                break
+            both = np.vstack([have] + out) if out else have
+            if len(both) and np.any((np.hypot(both[:, 0] - spot[0], both[:, 1] - spot[1]) < near)
+                                    & (np.abs(both[:, 2] - spot[2]) < 0.3)):
+                continue                              # this spot is held already
+            hz, _ = caster.hits(spot[0], spot[1])
+            if np.any(hz < z - lh - 0.05):
+                continue                              # over the part itself: no support from the plate there
+            contact = underside_contact(caster, np.array([spot[0], spot[1], z + lh]))
+            if contact is None:
+                continue
+            out.append(contact[None, :])
+            added += 1
+    return np.vstack(out) if out else np.zeros((0, 3))
+
+
+NEAR_IGNORE = 0.8        # mm
 
 
 def fitting_surface(mesh: Mesh, pts: np.ndarray, reach: float = 12.0) -> np.ndarray:
@@ -222,7 +293,11 @@ def fitting_surface(mesh: Mesh, pts: np.ndarray, reach: float = 12.0) -> np.ndar
             q = np.cross(sv, a1)
             w = (q @ d) * inv
             t = np.einsum("ij,ij->i", a2, q) * inv
-            closed += bool(np.any(ok & (u >= 0) & (w >= 0) & (u + w <= 1) & (t > 1e-4) & (t < reach)))
+            # hits closer than NEAR_IGNORE do not count: on fine anatomy (cusps, fissures) the start point can
+            # lie inside the light copy of the part, which hit it at once and made a crown's biting surface
+            # (opening up) look like its inside - nearly all its supports were dropped. A hollow's walls are
+            # millimetres away.
+            closed += bool(np.any(ok & (u >= 0) & (w >= 0) & (u + w <= 1) & (t > NEAR_IGNORE) & (t < reach)))
         out[i] = closed >= need
     return out
 
