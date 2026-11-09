@@ -325,6 +325,52 @@ def test_supports_reach_every_tip_that_starts_in_the_air():
     assert rep.get("minima_added", 0) == 0                     # the grid holds a flat underside
 
 
+def test_crown_with_unjoined_margin_is_stitched_not_lidded():
+    """A CAD export with a crown's outer and inner surfaces unjoined at the margin (two rims a hair apart,
+    with different vertex counts): closing each rim with a flat lid filled every opening of an 11-unit bridge
+    with resin. The rims are now stitched together - the part comes out closed and its cavity stays open."""
+    import math
+    from unislicer import mesh_tools
+    from unislicer.mesh import Mesh
+    from unislicer.slicing import slice_mesh
+
+    def surface(profile, segments, close_top):
+        """A turned surface from (radius, z) points, open at its first ring (the margin)."""
+        verts, rings = [], []
+        for r, z in profile:
+            if r == 0.0:
+                rings.append([len(verts)]); verts.append([0.0, 0.0, z])
+            else:
+                rings.append(list(range(len(verts), len(verts) + segments)))
+                verts += [[r * math.cos(2 * math.pi * k / segments), r * math.sin(2 * math.pi * k / segments), z]
+                          for k in range(segments)]
+        faces = []
+        for a, b in zip(rings[:-1], rings[1:]):
+            for k in range(segments):
+                k1 = (k + 1) % segments
+                if len(b) == 1:
+                    faces.append([a[k], b[0], a[k1]] if close_top else [a[k], a[k1], b[0]])
+                else:
+                    faces += ([[a[k], b[k], b[k1]], [a[k], b[k1], a[k1]]] if close_top else
+                              [[a[k], b[k1], b[k]], [a[k], a[k1], b[k1]]])
+        return Mesh(np.array(verts), np.array(faces))
+    outer = surface([(4.5, 0.0), (4.6, 2.0), (4.4, 5.0), (3.0, 7.5), (0.0, 8.0)], 48, True)
+    inner = surface([(4.503, 0.002), (3.9, 2.0), (3.2, 5.0), (2.0, 6.5), (0.0, 6.8)], 61, False)
+    crown = Mesh.merge([outer, inner])
+    assert not crown.is_watertight() and len(mesh_tools._boundary_cycles(crown.faces)) == 2
+    fixed, rep, ok = mesh_tools.make_watertight(crown)
+    assert ok and rep["steps"][0][0] == "stitch", rep
+    cut = slice_mesh(fixed, [3.0])[0]
+    assert sum(len(p.interiors) for p in getattr(cut, "geoms", [cut])) == 1   # the cavity is still there
+    tri = fixed.triangles
+    volume = float(np.einsum("ij,ij->i", tri[:, 0], np.cross(tri[:, 1], tri[:, 2])).sum() / 6)
+    outer_only = math.pi * 4.5 ** 2 * 8.0
+    assert 0 < abs(volume) < 0.6 * outer_only, volume                         # a shell, not a solid
+    f = fixed.faces
+    directed = np.vstack([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]])
+    assert len(np.unique(directed, axis=0)) == len(directed)                  # the strip's faces face the same way
+
+
 def test_tree_supports_merge_and_use_less_resin():
     from unislicer.slicing import slice_meshes
     mesh = placed(primitives.demo_bridge(), 70, 45).world_mesh()

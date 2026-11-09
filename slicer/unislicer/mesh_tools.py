@@ -556,8 +556,14 @@ def _repair_fast(v: np.ndarray, f: np.ndarray, report: dict, fill_holes: bool, n
 
 
 def repair(mesh: Mesh, fill_holes: bool = True) -> tuple[Mesh, dict]:
-    """Remove duplicate/degenerate faces, make the winding consistent and outward, fill holes."""
+    """Remove duplicate/degenerate faces, make the winding consistent and outward, fill holes (rims that run
+    side by side - a crown's unjoined margin - are stitched together first, not lidded)."""
     report = {"duplicates": 0, "flipped": 0, "holes_filled": 0}
+    if fill_holes:
+        try:
+            mesh, report["rims_stitched"] = stitch_paired_rims(mesh)
+        except Exception:
+            report["rims_stitched"] = 0
     f = mesh.faces.copy()
     key = np.sort(f, axis=1)
     nv = int(f.max()) + 1 if len(f) else 1
@@ -751,6 +757,11 @@ def repair_advanced(mesh: Mesh, weld: float = 1e-4, remove_shells_below: float =
     (``remove_shells_below`` = fraction of the largest shell's faces), fix winding and normals, and
     close holes with a proper triangulation. Returns the mesh and a report with before/after counts."""
     before = analyze(mesh)
+    if fill_holes:
+        try:
+            mesh, _n = stitch_paired_rims(mesh)       # a crown's unjoined margin: stitched, not lidded
+        except Exception:
+            pass
     tris = mesh.triangles
     m = Mesh.from_triangles(tris, mesh.name, tolerance=max(weld, 1e-9))
     f = m.faces
@@ -871,6 +882,85 @@ def _repair_with_triangulated_holes(mesh: Mesh) -> tuple[Mesh, dict]:
     return fixed, rep
 
 
+def _boundary_cycles(f: np.ndarray) -> list[np.ndarray]:
+    """The open rims of a mesh as cycles of vertex indices, each in the direction of its faces' edges."""
+    d = np.vstack([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]])
+    have = set(map(tuple, d.tolist()))
+    nxt = {}
+    for a, b in d.tolist():
+        if (b, a) not in have:
+            nxt.setdefault(a, []).append(b)
+    cycles, used = [], set()
+    for start in list(nxt):
+        if start in used or len(nxt[start]) != 1:
+            continue
+        cyc, v = [], start
+        while v not in used and v in nxt and len(nxt[v]) == 1:
+            used.add(v)
+            cyc.append(v)
+            v = nxt[v][0]
+        if v == start and len(cyc) >= 3:
+            cycles.append(np.array(cyc))
+    return cycles
+
+
+def stitch_paired_rims(mesh: Mesh, gap: float = 0.1) -> tuple[Mesh, int]:
+    """Join rims that run side by side - the outer and the inner surface of a crown exported unjoined at its
+    margin, a hair apart - with a strip of triangles, instead of closing each with a flat lid (which covered
+    every opening of a bridge). Only rims whose nearest rim is each other and no more than ``gap`` mm away
+    (median) are joined. Returns (mesh, number of rims joined)."""
+    v, f = np.asarray(mesh.vertices), np.asarray(mesh.faces)
+    cycles = _boundary_cycles(f)
+    if len(cycles) < 2:
+        return mesh, 0
+    centres = np.array([v[c].mean(axis=0) for c in cycles])
+
+    def closeness(i, j):
+        """Distances from points of rim i to rim j's line (not its vertices: the two rims have different
+        vertex counts) - median and largest."""
+        a = v[cycles[i]][::max(1, len(cycles[i]) // 80)]
+        p0 = v[cycles[j]]
+        seg = np.roll(p0, -1, axis=0) - p0
+        t = np.clip(np.einsum("ijk,jk->ij", a[:, None, :] - p0[None], seg) / np.maximum((seg * seg).sum(1), 1e-18),
+                    0.0, 1.0)
+        dist = np.linalg.norm(p0[None] + t[..., None] * seg[None] - a[:, None, :], axis=2).min(axis=1)
+        return float(np.median(dist)), float(dist.max())
+    partner = {}
+    for i in range(len(cycles)):
+        order = np.argsort(np.linalg.norm(centres - centres[i], axis=1))
+        j = int(order[1]) if len(order) > 1 else -1
+        if j >= 0:
+            med, worst = closeness(i, j)
+            if med <= gap and worst <= 3 * gap:
+                partner[i] = j
+    new_faces, joined = [], 0
+    for i, j in partner.items():
+        if partner.get(j) != i or i > j:
+            continue
+        a = cycles[i]
+        b = cycles[j][::-1]                     # the two rims of one seam run opposite ways
+        k0 = int(np.argmin(np.linalg.norm(v[b] - v[a[0]], axis=1)))
+        b = np.roll(b, -k0)
+        n, m = len(a), len(b)
+        ia = ib = 0
+        tris = []
+        while ia < n or ib < m:
+            a0, a1 = a[ia % n], a[(ia + 1) % n]
+            b0, b1 = b[ib % m], b[(ib + 1) % m]
+            if ib >= m or (ia < n and np.linalg.norm(v[a1] - v[b0]) <= np.linalg.norm(v[a0] - v[b1])):
+                tris.append((a1, a0, b0))          # uses rim edge a0->a1 the other way round
+                ia += 1
+            else:
+                tris.append((b0, b1, a0))          # rim b runs reversed: its edges are b1->b0 in its faces
+                ib += 1
+        new_faces += tris
+        joined += 2
+    if not new_faces:
+        return mesh, 0
+    out = Mesh(v, np.vstack([f, np.array(new_faces, dtype=np.int64)]), mesh.name)
+    return out, joined
+
+
 def make_watertight(mesh: Mesh) -> tuple[Mesh, dict, bool]:
     """Close a mesh as far as possible: the fast repair first (holes, winding); when that leaves it open, the
     advanced repair (weld near vertices, inner double walls, non-manifold edges, holes by triangulation), then
@@ -878,6 +968,15 @@ def make_watertight(mesh: Mesh) -> tuple[Mesh, dict, bool]:
     if mesh.is_watertight():
         return mesh, {"steps": []}, True
     steps = []
+    try:                                         # rims a hair apart (a crown's margin): joined, not lidded
+        stitched, n = stitch_paired_rims(mesh)
+        if n:
+            steps.append(("stitch", {"rims": n}))
+            mesh = stitched
+            if mesh.is_watertight():
+                return mesh, {"steps": steps}, True
+    except Exception:
+        pass
     best = mesh
     try:
         fixed, rep = repair(mesh)
