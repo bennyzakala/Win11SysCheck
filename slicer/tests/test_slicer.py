@@ -510,6 +510,46 @@ def test_hebrew_long_and_network_paths(tmp_path):
         assert os.path.exists(target)
 
 
+def test_fast_mode_uses_the_makers_values_up_to_the_print_file(tmp_path):
+    """Resins with a maker's table (Phrozen DS Slicer): Fast mode takes the maker's Fast row for every
+    material, printer and layer height, and the print file carries it - e.g. Saremco Crowntec on a Sonic XL
+    4K Plus: lift 150 / retract 250 mm/min in Fast against 50 / 100 in Stable, in every layer and the header
+    of CTB and PRZ files, and the print gets shorter."""
+    from unislicer import ctb, goo
+    mats = profiles.load("materials")
+    wrong = []
+    for mid, m in mats.items():
+        for pr, layers in (m.get("layer_table") or {}).items():
+            for lh, modes in layers.items():
+                for mode in ("stable", "fast"):
+                    cfg = profiles.build_config(pr, mid, None, {"exposure_mode": mode, "sla_layer_height": float(lh)})
+                    wrong += [(mid, pr, lh, mode, k) for k, v in modes[mode].items()
+                              if k != "sla_layer_height" and k in cfg.values and cfg[k] != v]
+    assert not wrong, wrong[:5]
+    times = {}
+    for mode, lift, retract in (("stable", 50.0, 100.0), ("fast", 150.0, 250.0)):
+        cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", "phrozen_ds_saremco_crowntec", None,
+                                    {"exposure_mode": mode})
+        job = sla.prepare([placed(primitives.box(10, 10, 3), 60, 40).world_mesh()], cfg)
+        times[mode] = job.time_s
+        c = cfg.copy().update({"sla_format": "ctb"})
+        sla.export(job, c, str(tmp_path / f"{mode}.ctb"), "x")
+        f = ctb.read(str(tmp_path / f"{mode}.ctb"))
+        assert all(layer["ex"][2] == lift and layer["ex"][5] == retract for layer in f["layers"]), mode
+        params = ctb.PRINT_PARAMS.unpack_from((tmp_path / f"{mode}.ctb").read_bytes(), f["header"]["print_params"])
+        assert params[1] == lift and params[3] == lift and params[4] == retract, (mode, params)
+        c = cfg.copy().update({"sla_format": "prz"})
+        path = tmp_path / f"{mode}.prz"
+        sla.export(job, c, str(path), "x")
+        data, g = path.read_bytes(), goo.read(str(path))
+        pos = g["header"]["layer_offset"]
+        for _ in range(g["header"]["layer_count"]):
+            d = goo.LAYER_DEF.unpack_from(data, pos)
+            assert d[9] == lift and d[13] == retract, (mode, d[9], d[13])
+            pos += goo.LAYER_DEF.size + d[-1] + 2
+    assert times["fast"] < times["stable"] * 0.8, times
+
+
 def test_assistant_learns_orientation_preference(tmp_path):
     from unislicer import orient
     from unislicer.assistant import Assistant
