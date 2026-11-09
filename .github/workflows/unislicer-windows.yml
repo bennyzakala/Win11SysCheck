@@ -39,9 +39,11 @@ jobs:
         # a test that hangs prints every thread's stack and fails instead of blocking the build
         run: python -m pytest -q -v --timeout=300 --timeout-method=thread -o faulthandler_timeout=240
 
-      - name: Stamp the build (the program checks for newer builds by this commit)
+      - name: Stamp the build (the program checks for newer builds by this commit; the version shows the build number)
         run: |
           "COMMIT = `"$env:GITHUB_SHA`"" | Out-File -Encoding utf8 unislicer/_build.py
+          "VERSION = `"1.0.$env:GITHUB_RUN_NUMBER`"" | Out-File -Encoding utf8 -Append unislicer/_build.py
+          python -c "import unislicer; print('version', unislicer.__version__)"
 
       - name: Build UniSlicer.exe
         run: |
