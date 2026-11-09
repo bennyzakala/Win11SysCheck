@@ -335,7 +335,8 @@ class MainWindow(QMainWindow):
         i = bar.addMenu(tr("menu_info"))
         add(i, tr("assistant"), self._toggle_assistant, "", "sparkle")
         add(i, tr("estimate_title") + "…", self.estimate_dialog, "", "coin")
-        add(i, tr("menu_shortcuts") + "…", self.shortcuts_dialog, "", "code")
+        add(i, tr("manual_menu"), self.open_manual, "F1", "bulb")
+        add(i, tr("menu_shortcuts"), self.shortcuts_dialog, "", "code")
         i.addSeparator()
         add(i, tr("menu_updates"), self.open_updates_page, "", "download")
         add(i, tr("menu_about") + "…", self.about_dialog, "", "info")
@@ -350,17 +351,9 @@ class MainWindow(QMainWindow):
         finally:
             self.recent_menu = keep
 
-    SHORTCUTS = (("Ctrl+O", "open"), ("Ctrl+S", "save_project"), ("Ctrl+R", "slice"), ("Ctrl+E", "export_print"),
-                 ("Ctrl+Z", "undo"), ("Ctrl+Y", "redo"), ("Ctrl+A", "select_all"), ("Ctrl+D", "duplicate"),
-                 ("Del", "delete"), ("A", "layout_quick"), ("Shift+A", "auto_layout"), ("M", "tool_move"),
-                 ("R", "tool_rotate"), ("F", "tool_face"), ("H", "tool_hole"), ("D", "tool_measure"),
-                 ("S", "sup_add"), ("Shift+S", "sup_remove"), ("↑ / ↓", "menu_layer_step"),
-                 ("Ctrl+[ / Ctrl+]", "menu_panels"), ("Esc", "menu_cancel_tool"))
-
     def shortcuts_dialog(self):
-        rows = "".join(f"<tr><td style='padding:3px 14px 3px 0'><b>{k}</b></td><td>{tr(v) if v in i18n.STRINGS else v}</td></tr>"
-                       for k, v in self.SHORTCUTS)
-        QMessageBox.information(self, tr("menu_shortcuts"), f"<table>{rows}</table>")
+        """Info > Keyboard shortcuts: the guide's shortcut page (made from the same table as the shortcuts)."""
+        self.open_manual("shortcuts")
 
     UPDATES_URL = "https://github.com/bennyzakala/Win11SysCheck/releases/download/unislicer-latest/UniSlicer-Setup.exe"
 
@@ -477,6 +470,7 @@ class MainWindow(QMainWindow):
         self.tissue_up_act.setCheckable(True)
         self.tissue_up_act.setChecked(self.store.value("tissue_flat_up", "true") == "true")
         self.tissue_up_act.toggled.connect(lambda on: self.store.setValue("tissue_flat_up", "true" if on else "false"))
+        mm.addAction(theme.icon("bulb"), tr("manual_menu") + "\tF1", self.open_manual)
         mm.addAction(tr("upd_check_now"), lambda: self.check_updates(manual=True))
         self.upd_auto_act = mm.addAction(tr("upd_check_start"))
         self.upd_auto_act.setCheckable(True)
@@ -1207,35 +1201,56 @@ class MainWindow(QMainWindow):
         return panel
 
     def _install_shortcuts(self):
+        """The shortcuts of ``shortcuts.SHORTCUTS`` (the same table prints the guide's shortcut page)."""
+        from .shortcuts import SHORTCUTS, STANDARD_KEYS
+
         def via_key(name, fn):
             return lambda: self._act(name, "shortcut", fn)
 
-        for seq, fn in ((QKeySequence.Open, via_key("open", self.open_files)), (QKeySequence.Delete, self.delete_selected),
-                        (QKeySequence("A"), via_key("arrange", self.arrange_objects)),
-                        (QKeySequence("Ctrl+D"), via_key("duplicate", self.duplicate_selected)),
-                        (QKeySequence.SelectAll, self.select_all),
-                        (QKeySequence("Ctrl+["), lambda: self.toggle_panel("left")),
-                        (QKeySequence("Ctrl+]"), lambda: self.toggle_panel("right")),
-                        (QKeySequence("Shift+A"), lambda: self.auto_layout()),
-                        (QKeySequence("S"), lambda: self._set_pick_mode(None if self.viewer.pick_mode == "add" else "add")
-                         if self.supports_card.isVisible() else None),
-                        (QKeySequence("Shift+S"), lambda: self._set_pick_mode(None if self.viewer.pick_mode == "remove" else "remove")
-                         if self.supports_card.isVisible() else None),
-                        (QKeySequence("Ctrl+R"), via_key("slice", self.slice_or_cancel)),
-                        (QKeySequence("Ctrl+E"), via_key("export", self.export)),
-                        (QKeySequence("Up"), lambda: self._step_layer(1)), (QKeySequence("Down"), lambda: self._step_layer(-1)),
-                        (QKeySequence.Undo, via_key("undo", self.undo)), (QKeySequence("Ctrl+Y"), self.redo),
-                        (QKeySequence.Redo, self.redo), (QKeySequence.Save, via_key("save_project", self.save_project)), (QKeySequence("Escape"), lambda: (self._set_pick_mode(None), self.set_tool("move"))),
-                        (QKeySequence("M"), lambda: self.set_tool("move")), (QKeySequence("R"), lambda: self.set_tool("rotate")),
-                        (QKeySequence("F"), lambda: self.set_tool("face")), (QKeySequence("H"), lambda: self.set_tool("hole")),
-                        (QKeySequence("K"), lambda: self.set_tool("keepout")),
-                        (QKeySequence("L"), lambda: self.set_tool("label")),
-                        (QKeySequence("D"), lambda: self.set_tool("measure"))):
-            act = QAction(self)
-            act.setShortcut(seq)
-            act.setShortcutContext(Qt.WindowShortcut)
-            act.triggered.connect(fn)
-            self.addAction(act)
+        def pick(mode):
+            if self.supports_card.isVisible():
+                self._set_pick_mode(None if self.viewer.pick_mode == mode else mode)
+
+        actions = {
+            "open": via_key("open", self.open_files), "save_project": via_key("save_project", self.save_project),
+            "export": via_key("export", self.export), "undo": via_key("undo", self.undo), "redo": self.redo,
+            "delete": self.delete_selected, "duplicate": via_key("duplicate", self.duplicate_selected),
+            "select_all": self.select_all, "escape": lambda: (self._set_pick_mode(None), self.set_tool("move")),
+            "tool_move": lambda: self.set_tool("move"), "tool_rotate": lambda: self.set_tool("rotate"),
+            "tool_face": lambda: self.set_tool("face"), "tool_hole": lambda: self.set_tool("hole"),
+            "tool_keepout": lambda: self.set_tool("keepout"), "tool_label": lambda: self.set_tool("label"),
+            "tool_measure": lambda: self.set_tool("measure"),
+            "sup_add": lambda: pick("add"), "sup_remove": lambda: pick("remove"),
+            "arrange": via_key("arrange", self.arrange_objects), "auto_layout": lambda: self.auto_layout(),
+            "slice": via_key("slice", self.slice_or_cancel),
+            "layer_up": lambda: self._step_layer(1), "layer_down": lambda: self._step_layer(-1),
+            "panel_left": lambda: self.toggle_panel("left"), "panel_right": lambda: self.toggle_panel("right"),
+            "manual": self.open_manual,
+        }
+        for name, seqs, _group, _he, _en in SHORTCUTS:
+            for seq in seqs:
+                key = getattr(QKeySequence, seq) if seq in STANDARD_KEYS else QKeySequence(seq)
+                act = QAction(self)
+                act.setShortcut(key)
+                act.setShortcutContext(Qt.WindowShortcut)
+                act.triggered.connect(actions[name])
+                self.addAction(act)
+
+    def open_manual(self, page: str = ""):
+        """Build the user guide from the program as it is now (shortcuts, settings, printers) and open it."""
+        from PySide6.QtCore import QStandardPaths, QUrl
+        from PySide6.QtGui import QDesktopServices
+        from .. import manual
+        folder = os.path.join(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation) or
+                              os.path.expanduser("~"), "manual")
+        try:
+            path = manual.write(folder)
+        except OSError as e:
+            QMessageBox.warning(self, tr("manual_menu"), str(e))
+            return
+        if page == "shortcuts":                     # the one-page sheet written next to the guide
+            path = os.path.join(os.path.dirname(path), "UniSlicer-shortcuts.html")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     # ---------------------------------------------------------- section view / unsupported areas
     def _toggle_section(self, on: bool):

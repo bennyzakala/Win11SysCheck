@@ -1443,5 +1443,6 @@
 "Gingiva masks: flat side up": "أقنعة اللثة: الجانب المسطح للأعلى",
 "{} parts turned automatically (crowns and bridges opening up, gingiva masks flat side up)": "تم تدوير {} قطع تلقائياً (التيجان والجسور: الفتحة للأعلى، أقنعة اللثة: الجانب المسطح للأعلى)",
 "Mini: a small pad under every support, joined to its neighbours, as in PreForm - less resin and easier to remove than a solid raft. Mini tiny: for temporary teeth - the raft follows the tooth's outline seen from above, a little smaller, never past it. Raft & label: a narrow raft along the model's outline, with a crescent tab round the model's end carrying the code, embossed": "مصغّرة: قاعدة صغيرة تحت كل دعامة متصلة بجاراتها، كما في PreForm — راتنج أقل وإزالة أسهل من القاعدة الكاملة. مصغّرة جدًا: للأسنان المؤقتة — القاعدة تتبع محيط السن من الأعلى، أصغر منه قليلًا ولا تتجاوزه أبدًا. طوف ورمز: طوف ضيق على محيط النموذج، مع لسان على شكل هلال عند طرف النموذج يحمل الرمز بارزًا",
-"Raft & label": "طوف ورمز (raft&label)"
+"Raft & label": "طوف ورمز (raft&label)",
+"User guide": "دليل المستخدم"
 }

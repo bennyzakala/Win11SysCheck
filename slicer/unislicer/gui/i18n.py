@@ -6,6 +6,7 @@ LANG = "he"
 STRINGS = {
     "app_subtitle": ("סלייסר אוניברסלי למדפסות תלת-ממד", "Universal 3D printer slicer"),
     "open": ("פתח מודל", "Open model"),
+    "manual_menu": ("חוברת הדרכה", "User guide"),
     "open_tip": ("פתיחת קובצי STL / OBJ / 3MF (Ctrl+O)", "Open STL / OBJ / 3MF files (Ctrl+O)"),
     "shapes": ("צורות", "Shapes"),
     "shape_cube": ("קובייה 20 מ\"מ", "Cube 20 mm"),
