@@ -225,6 +225,25 @@ def opening_direction(mesh):
     return None if d is None else d.copy()
 
 
+def flat_side(mesh):
+    """The outward direction of a gingiva mask's flat side - its largest flat face, the cut it was made with
+    (a fifth or more of its surface; the side cuts are much smaller) - or None when it has none that big."""
+    def compute():
+        import numpy as np
+        from .orient import _flat_face_normals
+        m = mesh.decimated(20000)
+        n, a = m.face_normals(), m.face_areas()
+        total = float(a.sum()) or 1.0
+        best, share = None, 0.0
+        for d in _flat_face_normals(m, 6):
+            sh = float(a[(n @ d) > 0.996].sum()) / total
+            if sh > share:
+                best, share = d, sh
+        return None if best is None or share < 0.12 else best / np.linalg.norm(best)
+    d = _memo(mesh, "_flat_side", compute)
+    return None if d is None else d.copy()
+
+
 def opening_directions(meshes) -> list:
     """opening_direction for several parts at once, on several threads (the cuts run in compiled code)."""
     meshes = list(meshes)

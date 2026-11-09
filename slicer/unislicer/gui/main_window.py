@@ -473,6 +473,10 @@ class MainWindow(QMainWindow):
         self.open_up_act.setCheckable(True)
         self.open_up_act.setChecked(self.store.value("crowns_open_up", "true") == "true")
         self.open_up_act.toggled.connect(lambda on: self.store.setValue("crowns_open_up", "true" if on else "false"))
+        self.tissue_up_act = mm.addAction(tr("tissue_up_menu"))
+        self.tissue_up_act.setCheckable(True)
+        self.tissue_up_act.setChecked(self.store.value("tissue_flat_up", "true") == "true")
+        self.tissue_up_act.toggled.connect(lambda on: self.store.setValue("tissue_flat_up", "true" if on else "false"))
         mm.addAction(tr("upd_check_now"), lambda: self.check_updates(manual=True))
         self.upd_auto_act = mm.addAction(tr("upd_check_start"))
         self.upd_auto_act.setCheckable(True)
@@ -1462,7 +1466,7 @@ class MainWindow(QMainWindow):
             kind = part.get("kind", "asis")
             preset = self.DENTAL.get("model" if kind == "model_hollow" else kind)
             for o in group:                  # only a crown / bridge is turned (opening up), below
-                kinds[o.uid] = "crown" if kind == "crown" else "other"
+                kinds[o.uid] = kind if kind in ("crown", "gingiva") else "other"
                 if preset is not None:
                     o.direct = preset[1]         # a model prints straight on the plate, a crown on supports
                 if kind == "model_hollow":
@@ -1519,16 +1523,18 @@ class MainWindow(QMainWindow):
         self._auto_close_holes(loaded)
 
     def _open_up(self, objs, kinds: dict | None = None) -> int:
-        """Crowns and bridges are turned so their opening (fitting surface) faces up - only parts that are a
-        crown or bridge (``kinds``: the type chosen for each part in Add parts; otherwise the part's own model
-        type or what its name and shape say). A part whose opening already faces up stays as it is; every
-        other part keeps its orientation. More > "Crowns and bridges: opening up" turns this off. Returns
-        how many were turned."""
-        if self.store.value("crowns_open_up", "true") != "true":
+        """The two automatic turns, and only these: crowns and bridges with their opening (fitting surface)
+        up, and gingiva masks with their flat side up, away from the plate. Only parts of those types are
+        turned (``kinds``: the type chosen for each part in Add parts; otherwise the part's own model type or
+        what its name and shape say); a part already that way up stays as it is; every other part keeps its
+        orientation. Each is switched off under More. Returns how many parts were turned."""
+        crowns_on = self.store.value("crowns_open_up", "true") == "true"
+        tissue_on = self.store.value("tissue_flat_up", "true") == "true"
+        if not (crowns_on or tissue_on):
             return 0
         from .. import dental_cad
         from ..mesh import rotation_between
-        crowns = []
+        crowns, tissues = [], []
         for o in objs:
             if o.role == "cutter":
                 continue
@@ -1537,20 +1543,23 @@ class MainWindow(QMainWindow):
                 own = o.settings.get("sla_model_type")
                 kind = "crown" if own == "cb" else (None if own not in (None, "auto") else
                                                     dental_cad.kind_of(o.name, o.mesh))
-            if kind == "crown":
+            if kind == "crown" and crowns_on:
                 crowns.append(o)
-        if not crowns:
+            elif kind == "gingiva" and tissue_on:
+                tissues.append(o)
+        if not crowns and not tissues:
             return 0
-        found = self._in_background(lambda: dental_cad.opening_directions([o.mesh for o in crowns]))
+        found = self._in_background(lambda: dental_cad.opening_directions([o.mesh for o in crowns])
+                                    + [dental_cad.flat_side(o.mesh) for o in tissues])
         turned = 0
-        for o, d in zip(crowns, found):
+        for o, d in zip(crowns + tissues, found):
             if d is None:
                 continue
             dw = o.matrix()[:3, :3] @ d
             dw /= np.linalg.norm(dw) or 1.0
-            if dw[2] > 0.9:
-                continue                              # already open side up
-            if dw[2] < -0.9:                          # upside down: turn over about its long side
+            if dw[2] > 0.98:
+                continue                              # already that side up
+            if dw[2] < -0.98:                         # upside down: turn over about its long side
                 size = o.world_size()
                 rot = np.diag([1.0, -1.0, -1.0]) if size[0] >= size[1] else np.diag([-1.0, 1.0, -1.0])
             else:
@@ -1559,7 +1568,7 @@ class MainWindow(QMainWindow):
             self._drop_supports(o)
             turned += 1
         if turned:
-            self.status.setText(tr("open_up_done").format(turned))
+            self.status.setText(tr("auto_turn_done").format(turned))
         return turned
 
     # ================================================================ learned repairs

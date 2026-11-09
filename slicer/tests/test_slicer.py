@@ -5349,8 +5349,9 @@ def test_mini_rafts_differ_from_a_solid_raft():
 
 def test_crowns_and_bridges_open_up_and_nothing_else_turns():
     """The opening (fitting surface) of a crown or bridge is found whichever way the file has it - the cavity
-    runs along an axis and is widest at the opening - and the part is turned opening up; a part already open
-    side up, a die, a model and any part when the option is off are left as they are."""
+    runs along an axis and is widest at the opening - and the part is turned opening up; a gingiva mask is
+    turned flat side up; a part already that way up, a die, a model and any part when its option is off are
+    left as they are."""
     from unislicer import dental_cad
     cap = primitives.crown_cap()                                        # opens down, like most CAD exports
     bridge = Mesh.merge([primitives.crown_cap().translated([k * 8.6, 0, 0]) for k in range(3)])
@@ -5395,6 +5396,18 @@ def test_crowns_and_bridges_open_up_and_nothing_else_turns():
             assert w._open_up([fresh]) == 0 and np.allclose(fresh.matrix(), np.eye(4))
         finally:
             w.store.setValue("crowns_open_up", "true")      # on Windows settings outlive the test (registry)
+        # a gingiva mask: its flat side (the cut, its biggest flat face, down in the file) is turned up
+        cone = primitives.frustum(8, 4, 6, 48)
+        mask = w.add_mesh(Mesh(cone.vertices, cone.faces, "BAH-SOD260046430-034-X-35-36-2_Tissue_17"), rearrange=False)
+        assert w._open_up([mask]) == 1
+        assert np.allclose(mask.matrix()[:3, :3] @ [0, 0, -1], [0, 0, 1])
+        assert w._open_up([mask]) == 0                                   # already flat side up
+        w.store.setValue("tissue_flat_up", "false")
+        try:
+            other = w.add_mesh(Mesh(cone.vertices, cone.faces, "XYZ_Tissue_12"), rearrange=False)
+            assert w._open_up([other]) == 0 and np.allclose(other.matrix(), np.eye(4))
+        finally:
+            w.store.setValue("tissue_flat_up", "true")
         w._stop_preslice()
         print("ok")
     ''')
