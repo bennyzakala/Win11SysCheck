@@ -6417,3 +6417,50 @@ def test_raft_and_label_tab_turns_with_the_part_and_the_layout_knows_where():
                              [q for g in raft.geoms for q in g.exterior.coords]), key=lambda q: float((q - c) @ fx))
         assert float((tip - c) @ fx) > 12 + sla_supports.MOON_WIDTH * 0.8, deg   # the tab is at the part's +x end
 
+
+
+def test_language_switch_hands_the_plate_over_without_rebuilding(tmp_path):
+    """A language (or theme) switch builds a new window. It used to start bare: every model's supports
+    were built again (14 crowns: ~9 s with the parts shown without supports), and the view and undo were
+    lost. The old window now hands over its supports, history, camera and selection."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import Qt
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui import i18n
+        from unislicer.gui.main_window import MainWindow
+        import unislicer.gui.main_window as MW
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        for k in range(3):
+            w.add_mesh(primitives.crown_cap(9.0 + k, 8.0, name=f"C{k}-SOD26001234{k}-044-P-1{k}.stl"))
+        app.processEvents()
+        w._select_uid(None); w.generate_supports(); w.wait_supports(); app.processEvents(); w.wait_supports()
+        w.viewer.camera.yaw = 41.0
+        w._select_uid(w.objects[1].uid)
+        undo_depth = len(w._undo)
+        built = []
+        orig = MW.MainWindow._support_built
+        MW.MainWindow._support_built = lambda self, res, shared: (built.append(res[0]), orig(self, res, shared))
+        i18n.set_language("en")
+        carry = w.handover(); carry["direction"] = Qt.LeftToRight
+        w2 = MainWindow(w.objects, carry=carry); w2.show(); w.close(); app.processEvents()
+        w2.wait_supports(); app.processEvents()
+        cfg = w2.settings.config()
+        assert built == [], built
+        assert all(w2._support_cache[o.uid][0] == w2._support_key(o, cfg) for o in w2.objects)
+        assert abs(w2.viewer.camera.yaw - 41.0) < 1e-6
+        assert [o.uid for o in w2.selected_objects()] == [w2.objects[1].uid]
+        assert len(w2._undo) == undo_depth and w2.layoutDirection() == Qt.LeftToRight
+        w2._stop_preslice()
+        print("OK", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
+                       env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

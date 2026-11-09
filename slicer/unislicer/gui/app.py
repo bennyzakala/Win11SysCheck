@@ -155,16 +155,32 @@ def run(paths: list[str] | None = None) -> int:
                 state["software_gl"] = True       # it failed twice: the software renderer
             QTimer.singleShot(0, app.quit)
 
-    def open_window(objects=None):
+    def open_window(objects=None, old=None):
+        """The main window; ``old`` = the window it replaces (language / theme switch): the new one is built
+        while the old one stays on the screen, takes over its plate, supports, view and history, shows in
+        its place, and only then the old one closes - no empty moment, nothing built again."""
         i18n.set_language(store.value("language", default_language()))
-        app.setLayoutDirection(Qt.RightToLeft if i18n.is_rtl() else Qt.LeftToRight)
+        direction = Qt.RightToLeft if i18n.is_rtl() else Qt.LeftToRight
+        carry = None
+        if old is not None:
+            carry = old.handover()
+            carry["direction"] = direction
+            old._sup_pending.clear()                   # the new window builds what is still missing
+        else:
+            app.setLayoutDirection(direction)
         _trace("creating main window")
-        win = MainWindow(objects)
+        win = MainWindow(objects, carry=carry)
         win.languageSwitchRequested.connect(lambda code: switch_language(win, code))
         win.themeChangeRequested.connect(lambda name, logo: switch_theme(win, name, logo))
         win.viewer.glFailed.connect(on_gl_failed)
         state["window"] = win
-        win.show()
+        if carry is not None and carry.get("maximized"):
+            win.showMaximized()
+        else:
+            win.show()
+        if old is not None:
+            old.close()
+            app.setLayoutDirection(direction)          # dialogs from now on (the new window has its own)
         _trace("main window shown")
         return win
 
@@ -177,17 +193,13 @@ def run(paths: list[str] | None = None) -> int:
         mark = theme.brand_pixmap("mark", 64)
         from PySide6.QtGui import QIcon
         app.setWindowIcon(QIcon(mark) if mark is not None else theme.icon("layers", theme.ACCENT, 64))
-        objects = win.objects
-        win.close()
-        open_window(objects)
+        open_window(win.objects, old=win)
 
     def switch_language(win, code):
         if code == i18n.LANG:
             return
         store.setValue("language", code)
-        objects = win.objects
-        win.close()
-        open_window(objects)
+        open_window(win.objects, old=win)
 
     win = open_window()
     state["file_server"] = _listen_for_files(app, lambda: state["window"])     # kept alive with the app

@@ -140,8 +140,12 @@ class MainWindow(QMainWindow):
     languageSwitchRequested = Signal(str)
     themeChangeRequested = Signal(str, str)     # theme name, logo file
 
-    def __init__(self, objects: list[SceneObject] | None = None):
+    def __init__(self, objects: list[SceneObject] | None = None, carry: dict | None = None):
+        """``carry``: what the window this one replaces (a language or theme switch) hands over - see
+        ``handover`` - so the plate comes back as it was, supports and all, without building anything again."""
         super().__init__()
+        if carry and carry.get("direction") is not None:
+            self.setLayoutDirection(carry["direction"])     # set before the children are made
         self.setWindowTitle(f"UniSlicer {__version__}")
         self.setAcceptDrops(True)
         self.store = QSettings(SETTINGS_ORG, SETTINGS_ORG)
@@ -158,6 +162,11 @@ class MainWindow(QMainWindow):
         self._dragging = False
         self._support_cache: dict = {}
         self._sup_pending: dict = {}                 # uid -> a support build waiting for the background
+        if carry:                                    # the supports already built, the history, the slice
+            self._support_cache.update(carry.get("support_cache") or {})
+            self.__dict__["_geometry_cache"] = dict(carry.get("geometry_cache") or {})
+            self._undo, self._redo = list(carry.get("undo") or []), list(carry.get("redo") or [])
+            self.result, self.result_cfg = carry.get("result"), carry.get("result_cfg")
         self._fit_down: set = set()                  # parts whose fitting surface faced the plate (last generate)
         self.async_supports = os.environ.get("UNISLICER_SYNC_SUPPORTS") != "1"
         self._islands: dict = {}
@@ -227,6 +236,40 @@ class MainWindow(QMainWindow):
                 and not os.environ.get("UNISLICER_SMOKE_TEST")):
             QTimer.singleShot(5000, lambda: self.check_updates(manual=False))
         self.settings.simpleChanged.connect(lambda on: self.store.setValue("settings_simple", "true" if on else "false"))
+        if carry:
+            self._take_over(carry)
+
+    def handover(self) -> dict:
+        """What a new window needs to carry on where this one is (language / theme switch): the supports
+        already built, the geometry indexes, undo / redo, the slice, the camera, the selection and the mode.
+        Without it the new window built every model's supports again (14 crowns: ~9 s with the parts shown
+        bare meanwhile), and lost the view and the undo history."""
+        cam = self.viewer.camera
+        return {"support_cache": dict(self._support_cache),
+                "geometry_cache": dict(self.__dict__.get("_geometry_cache", {})),
+                "undo": list(self._undo), "redo": list(self._redo),
+                "result": self.result, "result_cfg": self.result_cfg,
+                "camera": (cam.target.copy(), cam.distance, cam.yaw, cam.pitch),
+                "selection": [o.uid for o in self.selected_objects()],
+                "mode": "preview" if self.preview_btn.isChecked() else "prepare",
+                "geometry": self.saveGeometry(), "maximized": self.isMaximized()}
+
+    def _take_over(self, carry: dict):
+        if carry.get("geometry") is not None:
+            self.restoreGeometry(carry["geometry"])
+        cam = carry.get("camera")
+        if cam is not None:
+            c = self.viewer.camera
+            c.target, c.distance, c.yaw, c.pitch = np.array(cam[0], dtype=float), cam[1], cam[2], cam[3]
+            self.viewer.update()
+        uids = {o.uid for o in self.objects}
+        sel = [u for u in carry.get("selection") or [] if u in uids]
+        if sel:
+            self._refresh_objects(select=sel)
+        else:
+            self._select_uid(None)
+        if carry.get("mode") == "preview" and self.result is not None:
+            QTimer.singleShot(0, lambda: self.set_mode("preview", slice_if_needed=False))
 
     # ================================================================ layout
     def _fit_to_screen(self):
