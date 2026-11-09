@@ -29,8 +29,10 @@ class FormlabsDialog(QDialog):
     """``export_meshes(mode)`` returns [(name, Mesh)] of the models to send ("auto"/"mini_rafts_on_bp": models
     alone; "none": with UniSlicer's supports)."""
 
-    def __init__(self, store, export_meshes, job_name: str, client: formlabs.Client | None = None, parent=None):
+    def __init__(self, store, export_meshes, job_name: str, client: formlabs.Client | None = None, parent=None,
+                 material: str = ""):
         super().__init__(parent)
+        self.wanted_material = material      # the Formlabs resin chosen in UniSlicer (e.g. "Grey V5")
         self.setWindowTitle(tr("fl_title"))
         self.setMinimumWidth(560)
         self.store = store
@@ -240,8 +242,25 @@ class FormlabsDialog(QDialog):
             self.material.setItemData(self.material.count() - 1, m.get("description", ""), Qt.ToolTipRole)
         self.material.blockSignals(False)
         want = str(self.store.value("formlabs_material", "") or "")
-        self.material.setCurrentIndex(max(0, self.material.findText(want)))
+        k = self._match_material(self.wanted_material) if self.wanted_material else -1
+        self.material.setCurrentIndex(k if k >= 0 else max(0, self.material.findText(want)))
         self._fill_settings()
+
+    def _match_material(self, name: str) -> int:
+        """Index of PreForm's resin named like ``name`` ("Grey V5" matches "Grey V5" or "Grey Resin V5"), -1 if none."""
+        def words(t):
+            return [w for w in "".join(ch.lower() if ch.isalnum() else " " for ch in t).split() if w != "resin"]
+        want = words(name)
+        if not want:
+            return -1
+        for k in range(self.material.count()):
+            if words(self.material.itemText(k)) == want:
+                return k
+        for k in range(self.material.count()):
+            have = words(self.material.itemText(k))
+            if all(w in have for w in want):
+                return k
+        return -1
 
     def _fill_settings(self, *_):
         self.setting.clear()

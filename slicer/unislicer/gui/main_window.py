@@ -6436,7 +6436,11 @@ class MainWindow(QMainWindow):
             return out
 
         name = os.path.splitext(self.objects[0].name or "UniSlicer")[0]
-        FormlabsDialog(self.store, meshes, name, self._formlabs, self).exec()
+        resin = ""
+        mat = profiles.load("materials").get(self.settings.material_id or "", {})
+        if mat.get("vendor") == "Formlabs":
+            resin = mat.get("values", {}).get("material_name") or mat.get("name", "")
+        FormlabsDialog(self.store, meshes, name, self._formlabs, self, material=resin).exec()
 
     def export_stl(self, selection_only: bool = False):
         if not self.objects:

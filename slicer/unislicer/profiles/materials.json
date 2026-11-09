@@ -1220,5 +1220,61 @@
   "printers": [
    "stratasys_j5_dentajet"
   ]
+ },
+ "formlabs_grey_v5": {
+  "name": "Grey V5",
+  "vendor": "Formlabs",
+  "technology": "sla",
+  "processes": [
+   "lcd",
+   "laser"
+  ],
+  "printers": [
+   "formlabs_form4",
+   "formlabs_form4b",
+   "formlabs_form4l",
+   "formlabs_form4bl",
+   "formlabs_form3_plus",
+   "formlabs_form3l"
+  ],
+  "printers_only": true,
+  "color": [
+   0.62,
+   0.63,
+   0.65
+  ],
+  "note": "Formlabs Standard resin. Formlabs printers print only jobs PreForm prepares: exposure and layers come from PreForm's own material settings (More > Send to Formlabs picks the same resin there). Density approximate; used for weight and cost estimates.",
+  "values": {
+   "material_name": "Grey V5",
+   "resin_density": 1.1
+  }
+ },
+ "formlabs_white_v5": {
+  "name": "White V5",
+  "vendor": "Formlabs",
+  "technology": "sla",
+  "processes": [
+   "lcd",
+   "laser"
+  ],
+  "printers": [
+   "formlabs_form4",
+   "formlabs_form4b",
+   "formlabs_form4l",
+   "formlabs_form4bl",
+   "formlabs_form3_plus",
+   "formlabs_form3l"
+  ],
+  "printers_only": true,
+  "color": [
+   0.93,
+   0.93,
+   0.91
+  ],
+  "note": "Formlabs Standard resin. Formlabs printers print only jobs PreForm prepares: exposure and layers come from PreForm's own material settings (More > Send to Formlabs picks the same resin there). Density approximate; used for weight and cost estimates.",
+  "values": {
+   "material_name": "White V5",
+   "resin_density": 1.1
+  }
  }
 }

@@ -4721,7 +4721,10 @@ class _FakePreFormServer:
             return 200, {"printer_types": [{"label": "Form 4", "supported_product_names": ["Form 4", "Form 4B"],
                                             "supported_machine_type_ids": ["FORM-4-0"],
                                             "materials": [{"label": "Grey V5", "description": "",
-                                                           "material_settings": [{"label": "0.1mm", "scene_settings": ss}]}]}]}
+                                                           "material_settings": [{"label": "0.1mm", "scene_settings": ss}]},
+                                                          {"label": "White V5", "description": "",
+                                                           "material_settings": [{"label": "0.1mm", "scene_settings":
+                                                                                  dict(ss, material_code="FLGPWH05")}]}]}]}
         if path == "/scene/" and method == "POST":
             if set(body) - {"machine_type", "material_code", "print_setting", "layer_thickness_mm"}:
                 return 400, {"error": {"code": "BAD_REQUEST", "message": "extra keys"}}
@@ -4989,6 +4992,50 @@ def test_text_survives_a_two_point_glyph_sliver(monkeypatch):
     monkeypatch.setattr(qtgui, "QFont", lambda *a: type("F", (), {"setPointSizeF": lambda self, v: None})())
     polys = mesh_tools.text_polygons("A", 4.0)
     assert not polys.is_empty and abs(polys.bounds[3] - polys.bounds[1] - 4.0) < 1e-6
+
+
+def test_formlabs_grey_and_white_v5_resins(tmp_path):
+    """Grey V5 and White V5 are offered on every Formlabs printer (and only there), and the Send to Formlabs
+    window picks the same resin from PreForm's list."""
+    import subprocess, sys, textwrap
+    mats = profiles.load("materials")
+    fl = [k for k, v in profiles.load("printers").items() if v.get("vendor") == "Formlabs"]
+    for key, name in (("formlabs_grey_v5", "Grey V5"), ("formlabs_white_v5", "White V5")):
+        assert mats[key]["vendor"] == "Formlabs" and mats[key]["printers_only"]
+        assert set(fl) <= set(mats[key]["printers"]) and mats[key]["values"]["material_name"] == name
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui.formlabs_dialog import FormlabsDialog
+        w = MainWindow(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        combo = w.settings.material_combo
+        w.settings.select_printer("formlabs_form4b"); app.processEvents()
+        ids = [combo.itemData(k) for k in range(combo.count())]
+        assert "formlabs_grey_v5" in ids and "formlabs_white_v5" in ids, ids
+        assert w.settings.material_id in ("formlabs_grey_v5", "formlabs_white_v5")
+        w.settings.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        assert "formlabs_grey_v5" not in [combo.itemData(k) for k in range(combo.count())]
+        st = {"scene_settings": {"material_code": "X"}, "label": "0.1mm"}
+        types = [{"label": "Form 4", "materials": [{"label": n, "settings": [st]} for n in
+                                                   ("Clear V5", "Grey V5", "White Resin V5", "Black V5")]}]
+        for want, got in (("White V5", "White Resin V5"), ("Grey V5", "Grey V5"), ("", "Black V5")):
+            w.store.setValue("formlabs_material", "Black V5")
+            d = FormlabsDialog(w.store, lambda mode: [], "job", None, w, material=want)
+            d.types = types
+            d.ptype.addItem("Form 4"); d._fill_materials()
+            assert d.material.currentText() == got, (want, d.material.currentText())
+        w._stop_preslice()
+        print("OK", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240,
+                       env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)),
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
 def test_formlabs_form4_family_in_the_printer_list():
