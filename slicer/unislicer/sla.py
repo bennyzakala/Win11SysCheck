@@ -1178,6 +1178,33 @@ def _slice_supports(mesh: Mesh, planes: list, resolution: float, **kw) -> list:
     return layers
 
 
+AUTO_FOOT = 0.2      # mm: how much the bottom layers of a part printed straight on the plate are pulled in
+
+
+def _auto_bottom_compensation(layers: list, models: list, planes: list, cfg: Config, on_plate: list) -> list:
+    """The long-exposed bottom layers of the parts printed straight on the plate pulled in by ``AUTO_FOOT``
+    (the transition layers by less and less): the strong light spreads there, so a label engraved in the base
+    filled up and printed blurred, and the base came out wider. Only those parts' own area is touched - the
+    rafts of supported parts on the same plate stay as they are. Off when a compensation is set by hand."""
+    nb, nt = int(cfg["bottom_layers"]), int(cfg["transition_layers"])
+    n = min(nb + nt, len(layers), len(planes))
+    if not on_plate or n <= 0:
+        return layers
+    from .slicing import slice_mesh
+    plate_parts = Mesh.merge([models[i] for i in on_plate])
+    sections = slice_mesh(plate_parts, planes[:n], cfg["resolution"])
+    out = list(layers)
+    for i in range(n):
+        f = AUTO_FOOT if i < nb else AUTO_FOOT * (1.0 - (i - nb + 1) / (nt + 1))
+        sec = sections[i]
+        if f <= 1e-4 or sec.is_empty or out[i].is_empty:
+            continue
+        own = out[i].intersection(sec)                  # the part's layer as it is (holes, engraving, cavity)
+        rest = out[i].difference(sec)
+        out[i] = as_multipolygon(rest.union(own.buffer(-f, join_style="mitre", mitre_limit=3)))
+    return out
+
+
 # ----------------------------------------------------------------- prepare
 def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
@@ -1439,6 +1466,10 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         for i in range(min(int(cfg["bottom_layers"]), len(layers))):
             if not layers[i].is_empty:
                 layers[i] = as_multipolygon(layers[i].buffer(-foot, join_style="mitre", mitre_limit=3))
+    elif cfg["bottom_xy_auto"] and not jetting:
+        layers = _auto_bottom_compensation(layers, models, planes, cfg,
+                                           [i for i in range(len(models)) if not cfg["support_enable"]
+                                            or (direct and i < len(direct) and direct[i])])
     job = SlaJob(layers, lh, models, supports, points, warnings=warnings)
     job.part_materials = list(materials or [])
     job.layer_z = [z for z, _ in stack]

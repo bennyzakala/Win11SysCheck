@@ -151,6 +151,9 @@ parts were arranged close together, click {t:layout_quick} ({k:arrange}) again t
 <h3>The code on other rafts</h3>
 <p>{s:sla_raft_label_teeth} puts the code on crown and bridge rafts, and {s:sla_raft_label} puts the file name. {s:sla_raft_label_side}: underside (engraved and mirrored) or top
 (embossed).</p>
+<p>{s:bottom_xy_auto} (on by default): for a part printed straight on the plate, such as a model, the bottom
+layers are pulled in by 0.2 mm so a label engraved in the base stays open and the base does not spread. Rafts are
+not touched, and a value set by hand in {s:bottom_xy_compensation} takes over.</p>
 <p class="note">The bottom layers are exposed for a long time, and the strong light tends to fill an engraving on
 the underside. If the code does not come out in the print, an embossed code on top, or raft &amp; label, works
 better.</p>

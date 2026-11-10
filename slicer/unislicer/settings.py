@@ -169,6 +169,9 @@ SCHEMA: list[Setting] = [
       tip_en="Positive grows walls, negative shrinks them (fixes holes that print too small)"),
     S("bottom_xy_compensation", "float", 0.0, "material", "sla", "פיצוי רגל פיל (שכבות תחתונות)", "Elephant-foot compensation", "mm", 0, 1, 0.01,
       tip_he="מקטין את השכבות התחתונות, שנחשפות זמן רב ומתרחבות", tip_en="Shrinks the long-exposed bottom layers that tend to spread"),
+    S("bottom_xy_auto", "bool", True, "material", "sla", "פיצוי אוטומטי לחלקים על הפלטה", "Automatic compensation for parts on the plate",
+      tip_he="חלק שמודפס ישירות על הפלטה (למשל מודל): שכבות הבסיס שלו מוקטנות ב-0.2 מ\"מ (ושכבות המעבר בהדרגה פחות), כדי שהאור החזק לא יסגור כיתוב חרוט בבסיס ולא ירחיב אותו. לא חל על רפסודות, ולא כשמוגדר פיצוי רגל פיל ידני",
+      tip_en="A part printed straight on the plate (a model, for instance): its bottom layers are pulled in by 0.2 mm (the transition layers by less and less), so the strong light does not fill a label engraved in the base nor widen it. Not applied to rafts, nor when an elephant-foot compensation is set by hand"),
     S("resin_density", "float", 1.1, "material", "sla", "צפיפות השרף", "Resin density", "g/ml", 0.8, 2.0, 0.01, advanced=True),
     S("resin_cost", "float", 150.0, "material", "sla", "מחיר לליטר", "Cost per liter", "₪", 0, 2000, 1, advanced=True),
 

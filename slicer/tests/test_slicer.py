@@ -130,7 +130,7 @@ def test_sla_export(tmp_path):
 
 
 def test_sla_mask_pixels():
-    cfg = profiles.build_config("generic_msla", None, None, {"antialiasing": "1"})
+    cfg = profiles.build_config("generic_msla", None, None, {"antialiasing": "1", "bottom_xy_auto": False})
     obj = placed(primitives.box(10, 10, 1), 60, 34)
     job = sla.prepare([obj.world_mesh()], cfg)
     img = np.asarray(sla.render_layer(job.layers[0], cfg))
@@ -419,7 +419,7 @@ def test_auto_orient():
 
 def test_compensation_and_profile_library(tmp_path, monkeypatch):
     m = placed(primitives.box(20, 20, 10), 70, 45).world_mesh()
-    base = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast"))
+    base = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", {"bottom_xy_auto": False}))
     grown = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", {"shrink_xy": 1, "bottom_xy_compensation": 0.2}))
     assert grown.layers[50].area == pytest.approx(20.2 ** 2, rel=1e-3)
     assert grown.layers[0].area < base.layers[0].area
@@ -838,7 +838,7 @@ def test_vector_formats_and_processes(tmp_path):
     from unislicer.mesh import load_mesh
     obj = placed(primitives.box(10, 8, 3), 60, 50)
     # Asiga (DLP) -> SLC contours readable back, one layer per slice, outer ring counter-clockwise
-    cfg = profiles.build_config("asiga_max2_62", None, None, {"support_enable": False})
+    cfg = profiles.build_config("asiga_max2_62", None, None, {"support_enable": False, "bottom_xy_auto": False})
     assert cfg["sla_process"] == "dlp" and cfg["sla_format"] == "slc"
     job = sla.prepare([obj.world_mesh()], cfg)
     path = sla.export(job, cfg, str(tmp_path / "part.slc"))
@@ -847,7 +847,7 @@ def test_vector_formats_and_processes(tmp_path):
     ring = f["layers"][3][1][0]
     assert sla_supports._signed_area(ring) > 0 and abs(sla_supports._signed_area(ring)) == pytest.approx(80, rel=1e-3)
     # laser SLA -> CLI with contours and hatches, time from scan length
-    cfg = profiles.build_config("generic_laser_sla", None, None, {"support_enable": False})
+    cfg = profiles.build_config("generic_laser_sla", None, None, {"support_enable": False, "bottom_xy_auto": False})
     job = sla.prepare([placed(primitives.box(10, 8, 3), 125, 125).world_mesh()], cfg)
     text = open(sla.export(job, cfg, str(tmp_path / "part.cli"))).read()
     assert text.count("$$LAYER/") == job.layer_count and "$$HATCHES/" in text and "$$POLYLINE/1,1," in text
@@ -6632,3 +6632,29 @@ def test_replaced_window_lets_go_of_the_plate():
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
                        encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_parts_on_the_plate_get_their_bottom_layers_pulled_in():
+    """A part printed straight on the plate gets its long-exposed bottom layers pulled in 0.2 mm, so a label
+    engraved in its base stays open (it printed blurred: the light filled it); a supported part's raft on
+    the same plate is left as it is; a hand-set elephant-foot value takes over."""
+    from unislicer.mesh import Mesh
+    left, right = primitives.box(10, 10, 4), primitives.box(10, 10, 4).translated([10.3, 0, 0])
+    model = Mesh.merge([left, right]).translated([60, 40, 0])          # a 0.3 mm groove, like an engraving
+    crown = placed(primitives.box(8, 8, 6), 120, 40).world_mesh()
+    base = {"support_enable": True, "sla_raft_type": "solid", "bottom_layers": 4, "transition_layers": 2}
+    def first_layer(over):
+        cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, dict(base, **over))
+        job = sla.prepare([model, crown], cfg, direct=[True, False])
+        return job.layers[0], job.layers[5], job.layers[12]
+    on, mid, above = first_layer({})
+    off, mid_off, above_off = first_layer({"bottom_xy_auto": False})
+    model_zone = shapely.geometry.box(55, 35, 85, 55)
+    gap_on = model_zone.difference(on).intersection(shapely.geometry.box(60 + 9.5, 41, 60 + 10.8, 49)).area
+    gap_off = model_zone.difference(off).intersection(shapely.geometry.box(60 + 9.5, 41, 60 + 10.8, 49)).area
+    assert gap_on > gap_off + 0.3 * 8 * 0.9, (gap_on, gap_off)               # the groove opens by ~0.4 mm
+    raft_zone = shapely.geometry.box(100, 20, 140, 60)
+    assert abs(on.intersection(raft_zone).area - off.intersection(raft_zone).area) < 1e-6   # the raft is untouched
+    assert abs(above.area - above_off.area) < 1e-6                           # layers above the base too
+    hand, _, _ = first_layer({"bottom_xy_compensation": 0.05})
+    assert hand.intersection(raft_zone).area < off.intersection(raft_zone).area   # the hand value is plate-wide
