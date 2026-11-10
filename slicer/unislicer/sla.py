@@ -1635,6 +1635,8 @@ def export(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
     try:
         _export_file(job, cfg, part, job_name, progress, cancelled)
         os.replace(part, path)
+        from .project import drop_stale_parts
+        drop_stale_parts(path)
     except BaseException:
         try:
             os.remove(part)

@@ -24,6 +24,7 @@ def save(path: str, objects: list[SceneObject], settings_state: dict) -> None:
     try:
         _save(part, objects, settings_state)
         os.replace(part, path)
+        drop_stale_parts(path)
     except BaseException:
         try:
             os.remove(part)
@@ -92,6 +93,19 @@ def load(path: str) -> tuple[list[SceneObject], dict]:
                 np.array(e.get("keepout", []), dtype=float).reshape(-1, 4),
                 [dict(lab) for lab in e.get("labels", []) or []]))
     return objects, doc.get("settings", {})
+
+
+def drop_stale_parts(path: str, age: float = 3600.0) -> None:
+    """Remove the half-written copies of ``path`` a crash or a power cut left beside it (``<path>.<pid>-<thread>.part``);
+    only old ones, as another window may be writing its own right now."""
+    import glob
+    import time
+    for stale in glob.glob(glob.escape(path) + ".*.part"):
+        try:
+            if time.time() - os.path.getmtime(stale) > age:
+                os.remove(stale)
+        except OSError:
+            pass
 
 
 def replace_retry(src: str, dst: str, tries: int = 6, delay: float = 0.25) -> bool:

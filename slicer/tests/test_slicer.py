@@ -3121,6 +3121,7 @@ def test_rotation_rings_follow_the_cursor_from_any_view():
                         break
                 else:
                     continue                        # this ring is hidden in this view
+                p = np.asarray(hit[1], dtype=float)             # the point of the ring the program took
                 del got[:]
                 mouse(QEvent.MouseButtonPress, xy, Qt.LeftButton)
                 assert v._rot is not None, (view, axis)
@@ -3141,6 +3142,9 @@ def test_rotation_rings_follow_the_cursor_from_any_view():
                 else:
                     # seen nearly edge-on: drag along the ring
                     along = v._rot["along"]
+                    eye = v.camera.eye()
+                    if abs(np.eye(3)[axis] @ (eye - c)) < 0.02 * np.linalg.norm(eye - c):   # exactly edge-on, the ring
+                        assert np.linalg.norm(p - eye) <= np.linalg.norm(c - eye) + 1e-6, (view, axis)   # lies over itself: the near half
                     for k in range(1, 21):
                         q = xy + along * 6 * k
                         mouse(QEvent.MouseMove, q, Qt.LeftButton)
@@ -6768,3 +6772,43 @@ def test_filament_printers_are_not_offered(tmp_path):
                        env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
+
+
+def test_a_crash_while_saving_never_breaks_the_project(tmp_path):
+    """The program killed in the middle of saving (a crash, a power cut): the project on disk is the last
+    complete one, never a half-written file; the half-written copy a crash leaves beside it is cleared away
+    by a later save once it is old (a fresh one may be another window's, still writing)."""
+    import random, subprocess, sys, textwrap, time
+    from unislicer import project
+    out = str(tmp_path / "plate.unislicer")
+    code = textwrap.dedent(f'''
+        from unislicer import primitives, project
+        from unislicer.scene import SceneObject
+        objs = []
+        for k in range(16):
+            o = SceneObject(primitives.crown_cap(9 + k * 0.1, 8.0, name=f"c{{k}}"), name=f"c{{k}}")
+            o.x, o.y = (k % 4) * 15, (k // 4) * 15
+            objs.append(o)
+        i = 0
+        while True:
+            i += 1
+            project.save({out!r}, objs, {{"printer": "phrozen_sonic_ls_plus", "round": i}})
+            print(i, flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    rnd = random.Random(7)
+    for _ in range(6):
+        p = subprocess.Popen([sys.executable, "-c", code], cwd=root, stdout=subprocess.PIPE, text=True)
+        try:
+            assert p.stdout.readline().strip(), "the saver did not start"
+            time.sleep(rnd.uniform(0.0, 0.4))
+        finally:
+            p.kill(); p.wait(); p.stdout.close()
+        objs, state = project.load(out)
+        assert len(objs) == 16 and state["round"] >= 1
+    old = tmp_path / "plate.unislicer.111-222.part"
+    fresh = tmp_path / "plate.unislicer.333-444.part"
+    old.write_bytes(b"half"); fresh.write_bytes(b"half")
+    os.utime(old, (time.time() - 7200, time.time() - 7200))
+    project.save(out, objs, state)
+    assert not old.exists() and fresh.exists()

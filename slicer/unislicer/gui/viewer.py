@@ -1439,6 +1439,12 @@ class Viewer(QOpenGLWidget):
             j = int(np.argmin(d))
             if not np.isfinite(d[j]) or (only_axis is None and d[j] > self.RING_GRAB_PX):
                 continue
+            # a ring seen edge-on lies over itself: of its near and far half under the cursor, take the near
+            # one (the half one sees) - the far one turns the model against the drag
+            close = np.flatnonzero(d <= d[j] + 1.0)
+            if len(close) > 1:
+                mids = (ring[close] + ring[close + 1]) / 2
+                j = int(close[np.argmin(np.linalg.norm(mids - eye, axis=1))])
             point = ring[j] + (ring[j + 1] - ring[j]) * t[j]
             depth = float(np.linalg.norm(point - eye))
             # the nearest ring on screen; on a tie (where rings cross) the one in front
