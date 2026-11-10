@@ -155,7 +155,7 @@ class MainWindow(QMainWindow):
         self.task: Task | None = None
         self._pre_task: Task | None = None           # background pre-slice (fills the slicer cache)
         # start the worker processes early, in the background: the first slice should not wait for them
-        QTimer.singleShot(1500, lambda: __import__("threading").Thread(target=self._prewarm_pool, daemon=True).start())
+        QTimer.singleShot(1500, self, lambda: __import__("threading").Thread(target=self._prewarm_pool, daemon=True).start())
         self._syncing = False
         self._undo: list = []
         self._redo: list = []
@@ -234,7 +234,7 @@ class MainWindow(QMainWindow):
         from .. import updater
         if (self.store.value("upd_auto", "true") == "true" and updater.build_commit()
                 and not os.environ.get("UNISLICER_SMOKE_TEST")):
-            QTimer.singleShot(5000, lambda: self.check_updates(manual=False))
+            QTimer.singleShot(5000, self, lambda: self.check_updates(manual=False))
         self.settings.simpleChanged.connect(lambda on: self.store.setValue("settings_simple", "true" if on else "false"))
         if carry:
             self._take_over(carry)
@@ -259,6 +259,12 @@ class MainWindow(QMainWindow):
         history, the slice, the model data in the 3D view - so it can be freed (it was kept, and every switch
         added another full plate to the memory)."""
         self._sup_pending.clear()
+        for t in self.findChildren(QTimer):            # its timers must not fire on a window that is going
+            t.stop()
+        from PySide6.QtCore import QThread
+        for t in self.findChildren(QThread):           # nor its background work outlive it (a thread deleted
+            if t.isRunning():                          # while running takes the program down)
+                t.wait(15000)
         self._support_cache = {}
         self.__dict__.pop("_geometry_cache", None)
         self._undo, self._redo = [], []
@@ -287,7 +293,7 @@ class MainWindow(QMainWindow):
         else:
             self._select_uid(None)
         if carry.get("mode") == "preview" and self.result is not None:
-            QTimer.singleShot(0, lambda: self.set_mode("preview", slice_if_needed=False))
+            QTimer.singleShot(0, self, lambda: self.set_mode("preview", slice_if_needed=False))
 
     # ================================================================ layout
     def _fit_to_screen(self):
@@ -310,7 +316,7 @@ class MainWindow(QMainWindow):
     def showEvent(self, e):
         super().showEvent(e)
         self._compact_top_bar()
-        QTimer.singleShot(0, self._fit_to_screen)
+        QTimer.singleShot(0, self, self._fit_to_screen)
 
     def _compact_top_bar(self):
         """On a narrow window (small screen, large Windows scaling) the top bar shows icons only, so it never
@@ -1155,17 +1161,17 @@ class MainWindow(QMainWindow):
         self._cad_timer = QTimer(self)
         self._cad_timer.setInterval(1500)
         self._cad_timer.timeout.connect(self._poll_cad_folder)
-        QTimer.singleShot(0, self._start_cad_watch)
+        QTimer.singleShot(0, self, self._start_cad_watch)
         from .remote_dialog import RemoteController
         self.remote = RemoteController(parent=self)
         self.remote.commandDone.connect(self._remote_command_done)
-        QTimer.singleShot(1500, self.remote.start_if_enabled)
+        QTimer.singleShot(1500, self, self.remote.start_if_enabled)
         # shared learning between the user's computers: every 15 minutes (and once soon after start)
         self._learn_sync_timer = QTimer(self)
         self._learn_sync_timer.setInterval(15 * 60 * 1000)
         self._learn_sync_timer.timeout.connect(lambda: self.sync_learning(manual=False))
         self._learn_sync_task = None
-        QTimer.singleShot(0, self._init_learning_share)      # the assistant panel is built later
+        QTimer.singleShot(0, self, self._init_learning_share)      # the assistant panel is built later
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setInterval(120000)          # autosave every 2 minutes while there are models
         self._autosave_timer.timeout.connect(lambda: self._after_job(None, self._autosave))
@@ -3944,7 +3950,7 @@ class MainWindow(QMainWindow):
 
     def _on_view_click(self, uid, flags):
         self._select_uid(uid, flags)
-        QTimer.singleShot(0, self._show_edit_bar)
+        QTimer.singleShot(0, self, self._show_edit_bar)
 
     def _show_context_menu(self, uid, pos):
         """Right click in the viewport: orientation and editing for the model under the cursor (or the selection)."""
@@ -4543,7 +4549,7 @@ class MainWindow(QMainWindow):
 
     def _on_drag_finished(self, _uid):
         self._dragging = False
-        QTimer.singleShot(0, self._show_edit_bar)
+        QTimer.singleShot(0, self, self._show_edit_bar)
         self._objects_changed(refresh_list=False)
 
     # ================================================================ supports
@@ -4703,7 +4709,7 @@ class MainWindow(QMainWindow):
         if task is not None:
             task.wait()
             task.deleteLater()
-        QTimer.singleShot(0, self._start_support_build)
+        QTimer.singleShot(0, self, self._start_support_build)
 
     def _support_built(self, res, shared: dict):
         uid, key, local, owners, geo = res
@@ -5541,7 +5547,7 @@ class MainWindow(QMainWindow):
     def _on_sliced(self, result):
         self.result = result
         if self.__dict__.pop("_send_after_slice", False):
-            QTimer.singleShot(300, self.send_to_printer)       # One-click plate > Slice & send
+            QTimer.singleShot(300, self, self.send_to_printer)       # One-click plate > Slice & send
         pending = self.__dict__.pop("_cup_fix_pending", 0)
         if pending and result[0] == "sla":
             job, cfg = result[1], result[2]
@@ -5556,10 +5562,10 @@ class MainWindow(QMainWindow):
                 self._cup_fix_pending = len(owners)
                 self._cup_fix_round = rounds + 1
                 self._objects_changed(refresh_list=False)
-                QTimer.singleShot(400, self.slice)
+                QTimer.singleShot(400, self, self.slice)
             else:
                 self.__dict__.pop("_cup_fix_round", None)
-                QTimer.singleShot(0, lambda: self.status.setText(
+                QTimer.singleShot(0, self, lambda: self.status.setText(
                     tr("cup_fixed") if not left else tr("cup_still").format(len(left))))
         warnings = []
         if result[0] == "fdm":
@@ -5837,7 +5843,7 @@ class MainWindow(QMainWindow):
             def go():
                 self._fix_slice_pending = False
                 self.slice()
-            QTimer.singleShot(400, go)
+            QTimer.singleShot(400, self, go)
 
     def fix_islands(self):
         """Print check > Fix next to the islands. With supports: a support at every island. Without supports
@@ -5959,7 +5965,7 @@ class MainWindow(QMainWindow):
                 self._objects_changed(refresh_list=False)
                 self.status.setText(tr("cup_vents_added").format(len(owners)))
                 self._cup_fix_pending = len(owners)
-                QTimer.singleShot(400, self.slice)
+                QTimer.singleShot(400, self, self.slice)
             else:
                 self._cup_no_vent_dialog(job)
         return False
@@ -6028,10 +6034,10 @@ class MainWindow(QMainWindow):
                     o.add_world_drain_hole(row[:3], row[3:], 0.0)
             self._objects_changed(refresh_list=False)
             self.status.setText(tr("cup_vents_added").format(len(owners)))
-            QTimer.singleShot(400, self.slice)    # check again (after the change debounce, which would cancel it)
+            QTimer.singleShot(400, self, self.slice)    # check again (after the change debounce, which would cancel it)
         elif chosen == drain:
             self.settings.set_value("drain_holes", 2)
-            QTimer.singleShot(400, self.slice)
+            QTimer.singleShot(400, self, self.slice)
         elif chosen == orient_a:
             from .viewer import SEL_ADD
             self._select_uid(targets[0].uid)
@@ -6137,7 +6143,7 @@ class MainWindow(QMainWindow):
             self._autosave()
         except Exception:
             pass
-        QTimer.singleShot(0, self._schedule_suggestions)
+        QTimer.singleShot(0, self, self._schedule_suggestions)
 
     def _show_crash(self, sig: str):
         from .crash_dialog import CrashDialog, entry_diagnosis, recent_crashes
@@ -6413,7 +6419,7 @@ class MainWindow(QMainWindow):
         self.assistant_panel.share_box.blockSignals(False)
         if share:
             self._learn_sync_timer.start()
-            QTimer.singleShot(90 * 1000, lambda: self.sync_learning(manual=False))
+            QTimer.singleShot(90 * 1000, self, lambda: self.sync_learning(manual=False))
         self._show_sync_status()
 
     def _on_share_toggled(self, on: bool):

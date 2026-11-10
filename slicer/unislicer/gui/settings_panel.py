@@ -130,7 +130,9 @@ class SettingRow(QWidget):
         self.label.setToolTip(tip(s) or f"{s.key}")
         self.label.setObjectName("Dim")
         head.addWidget(self.label, 1)
-        self.reset_btn = QToolButton()
+        # made inside the row: a button without a parent that is shown (a changed setting) is a window of its
+        # own for a moment - it flashed in the corner of the screen at start-up and on every language switch
+        self.reset_btn = QToolButton(self)
         self.reset_btn.setObjectName("Reset")
         self.reset_btn.setIcon(theme.icon("reset", theme.ACCENT, 14))
         self.reset_btn.setToolTip(tr("reset_setting"))
@@ -637,6 +639,9 @@ class SettingsPanel(QWidget):
                        key=lambda kv: (profiles.technology_of(kv[1]) != "fdm", kv[1].get("vendor") != "Generic",
                                        kv[1].get("vendor", ""), kv[1]["name"]))
         fav = set(self.favorites())
+        # a profile marked hidden (an unfinished template, e.g. one whose screen would print stretched) is not
+        # offered - unless it is the one in use, so a saved choice is not lost
+        items = [kv for kv in items if not kv[1].get("hidden") or kv[0] == self.printer_id]
         kind = getattr(self, "kind", None)
         if kind:
             items = [kv for kv in items if printer_kind(kv[1]) == kind]

@@ -6314,7 +6314,7 @@ def test_user_guide_covers_every_menu_command_shortcut_and_setting():
         for s in settings.SCHEMA:
             assert f"<b>{(s.he, s.en)[col]}</b>" in flat, (lang, s.key)
         for p in profiles.load("printers").values():
-            assert p["name"] in flat
+            assert p["name"] in flat or p.get("hidden")
         chapters = " ".join(b for _a, _t, b in manual.chapters(lang))
         missing = [k for k in sorted(used) if "{t:" + k + "}" not in chapters]
         assert not missing, f"commands the {lang} guide does not explain yet: " + ", ".join(missing)
@@ -6658,3 +6658,55 @@ def test_parts_on_the_plate_get_their_bottom_layers_pulled_in():
     assert abs(above.area - above_off.area) < 1e-6                           # layers above the base too
     hand, _, _ = first_layer({"bottom_xy_compensation": 0.05})
     assert hand.intersection(raft_zone).area < off.intersection(raft_zone).area   # the hand value is plate-wide
+
+
+def test_every_offered_resin_printer_has_square_pixels_and_light():
+    """Profile sanity: every resin printer offered in the list has pixels about as tall as wide (a template
+    with a portrait screen on a landscape plate - Phrozen 8K 2023 from DS Slicer - would print stretched, so
+    it is hidden) and a positive normal and bottom exposure."""
+    for pid, p in profiles.load("printers").items():
+        if p.get("hidden"):
+            continue
+        c = profiles.build_config(pid, None, None, {})
+        if c["technology"] != "sla" or c["sla_process"] not in ("lcd", "dlp"):
+            continue
+        px, py = c["bed_x"] / c["resolution_x"], c["bed_y"] / c["resolution_y"]
+        assert max(px, py) <= 1.5 * min(px, py), (pid, px, py)
+        assert c["exposure_time"] > 0 and c["bottom_exposure_time"] > 0, pid
+
+
+def test_no_stray_windows_flash_at_start_up_or_on_a_language_switch(tmp_path):
+    """A widget shown before it is put in its place is a window of its own for a moment: the Reset button
+    of a changed setting flashed in the corner of the screen at start-up and on every language switch."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication, QWidget
+        from PySide6.QtCore import QObject, QEvent, Qt
+        app = QApplication([])
+        stray = []
+        class F(QObject):
+            def eventFilter(self, obj, ev):
+                if ev.type() == QEvent.Show and isinstance(obj, QWidget) and obj.isWindow() \\
+                        and type(obj).__name__ not in ("MainWindow", "QMenu", "QDialog", "QTipLabel", "QComboBoxPrivateContainer"):
+                    stray.append((type(obj).__name__, obj.objectName()))
+                return False
+        f = F(); app.installEventFilter(f)
+        from unislicer.gui import i18n
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus"); w.settings.set_value("sla_raft_thickness", 1.3)
+        app.processEvents()
+        i18n.set_language("he")
+        carry = w.handover(); carry["direction"] = Qt.RightToLeft
+        w2 = MainWindow(w.objects, carry=carry); w2.show(); w.close(); w.release(); app.processEvents()
+        assert not stray, stray
+        w2._stop_preslice()
+        print("OK", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
+                       env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

@@ -989,7 +989,7 @@
  "phrozen_8k_2023": {
   "name": "Phrozen 8K 2023",
   "vendor": "Phrozen",
-  "note": "From Phrozen DS Slicer 4.4's factory export, where this printer is still a template: build area 199.68 x 124.8 x 140 mm and a screen of 1440 x 2560 px, one default resin, no file format set. Check the screen resolution and the output format against your printer before printing.",
+  "note": "From Phrozen DS Slicer 4.4's factory export, where this printer is still a template: build area 199.68 x 124.8 x 140 mm and a screen of 1440 x 2560 px, one default resin, no file format set. Check the screen resolution and the output format against your printer before printing. Hidden from the printer list: its screen (1440 x 2560 px on 199.68 x 124.8 mm) gives 139 x 49 um pixels, which would print stretched.",
   "values": {
    "technology": "sla",
    "sla_process": "lcd",
@@ -1001,7 +1001,8 @@
    "sla_format": "prz",
    "sla_layer_height": 0.05,
    "bottom_layers": 6
-  }
+  },
+  "hidden": true
  },
  "phrozen_sonic_4k_2022": {
   "name": "Phrozen Sonic 4K 2022",

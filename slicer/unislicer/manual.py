@@ -450,6 +450,7 @@ def _printers_page() -> str:
     printers = profiles.load("printers")
     mats = profiles.load("materials")
     by_vendor: dict[str, list] = {}
+    printers = {pid: p for pid, p in printers.items() if not p.get("hidden")}
     for pid, p in printers.items():
         by_vendor.setdefault(p.get("vendor", "Generic"), []).append((pid, p))
     out = [f'<h2 id="printers" class="page">{_u("app_d")}</h2>',
