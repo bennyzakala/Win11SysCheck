@@ -4609,7 +4609,9 @@ class MainWindow(QMainWindow):
         # the auto layout - rebuilds nothing
         # the height above the plate and the mesh itself are in it: a part lifted with Move to... got its
         # old structure floating under it, and a repaired / closed mesh kept the one built on the open one
-        return (o.uid, o.support_points.tobytes(), np.round(o.turn_free_matrix(), 6).tobytes(),
+        # (rounded, and -0.0 made 0.0: a turn by exactly 90 degrees left -1e-17 here on Windows, whose bytes
+        # differ from 0.0, and the supports were rebuilt)
+        return (o.uid, o.support_points.tobytes(), (np.round(o.turn_free_matrix(), 5) + 0.0).tobytes(),
                 tuple(cfg[k] for k in keys), tuple(sorted(o.settings.items())), o.name,
                 round(float(o.z), 4), id(o.mesh), id(o.mesh.vertices))
 
