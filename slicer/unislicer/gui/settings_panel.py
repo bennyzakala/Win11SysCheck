@@ -14,7 +14,25 @@ from ..settings import (CATEGORIES, MODEL_TYPE_KEYS, SCHEMA_BY_KEY, SIMPLE_KEYS,
                         applies_to_process, visible_settings)
 
 PROCESS_BADGE = {"lcd": "LCD", "dlp": "DLP", "laser": "SLA", "polyjet": "POLYJET"}
-KINDS = ("filament", "resin", "uv")
+# UniSlicer is for resin printers only: filament (FDM) printers, materials and settings are not offered
+# (the FDM engine stays in the code, out of reach of the interface)
+FDM_ENABLED = False
+KINDS = ("filament", "resin", "uv") if FDM_ENABLED else ("resin", "uv")
+DEFAULT_PRINTER = "phrozen_sonic_ls_plus"
+
+
+def offered(printer_id: str, printers: dict | None = None) -> bool:
+    """Whether a printer is offered in the interface (a resin printer, unless FDM is enabled)."""
+    printers = printers if printers is not None else profiles.load("printers")
+    p = printers.get(printer_id)
+    return p is not None and (FDM_ENABLED or profiles.technology_of(p) != "fdm")
+
+
+def default_printer() -> str:
+    printers = profiles.load("printers")
+    if offered(DEFAULT_PRINTER, printers):
+        return DEFAULT_PRINTER
+    return next((pid for pid in printers if offered(pid, printers) and not printers[pid].get("hidden")), DEFAULT_PRINTER)
 
 
 def printer_kind(printer: dict) -> str:
@@ -309,7 +327,7 @@ class SettingsPanel(QWidget):
 
     def __init__(self, printer: str, material: str | None, quality: str | None, overrides: dict, show_advanced: bool):
         super().__init__()
-        self.printer_id = printer if printer in profiles.load("printers") else "generic_fdm"
+        self.printer_id = printer if offered(printer) else default_printer()
         self.material_id = material
         self.quality_id = quality
         self.overrides = {k: v for k, v in (overrides or {}).items() if k in SCHEMA_BY_KEY}
@@ -576,7 +594,7 @@ class SettingsPanel(QWidget):
     def select_printer(self, pid: str) -> bool:
         """Choose a printer from code (switches the printer family tab when needed)."""
         printers = profiles.load("printers")
-        if pid not in printers:
+        if not offered(pid, printers):
             return False
         kind = printer_kind(printers[pid])
         if kind != self.kind:
@@ -641,7 +659,8 @@ class SettingsPanel(QWidget):
         fav = set(self.favorites())
         # a profile marked hidden (an unfinished template, e.g. one whose screen would print stretched) is not
         # offered - unless it is the one in use, so a saved choice is not lost
-        items = [kv for kv in items if not kv[1].get("hidden") or kv[0] == self.printer_id]
+        loaded = dict(items)
+        items = [kv for kv in items if (not kv[1].get("hidden") or kv[0] == self.printer_id) and offered(kv[0], loaded)]
         kind = getattr(self, "kind", None)
         if kind:
             items = [kv for kv in items if printer_kind(kv[1]) == kind]
@@ -913,10 +932,11 @@ class SettingsPanel(QWidget):
             else:
                 self.material_id = dlg.selected_id
                 self._drop_overrides_for("materials", self.material_id)
-        if self.printer_id not in profiles.load("printers"):
-            self.printer_id = "generic_fdm"
+        if not offered(self.printer_id):
+            self.printer_id = default_printer()
         self.kind = printer_kind(profiles.load("printers")[self.printer_id])     # the library may pick another family
-        self.kind_buttons[self.kind].setChecked(True)
+        if self.kind in self.kind_buttons:
+            self.kind_buttons[self.kind].setChecked(True)
         self._fill_printers()
         self._fill_dependent()
         self.rebuild()
@@ -951,7 +971,7 @@ class SettingsPanel(QWidget):
                 if QMessageBox.question(self, tr("delete_profile"), f"{tr('delete_profile')}: {pid}?") == QMessageBox.Yes:
                     profiles.delete_user_profile(kind, pid)
                     if kind == "printers":
-                        self.printer_id = "generic_fdm"
+                        self.printer_id = default_printer()
                         self._fill_printers()
                     else:
                         self.material_id = None
@@ -967,7 +987,7 @@ class SettingsPanel(QWidget):
     def load_state(self, state: dict):
         printers = profiles.load("printers")
         old_tech = self.technology
-        if state.get("printer") in printers:
+        if offered(state.get("printer") or "", printers):
             self.printer_id = state["printer"]
         self.material_id = state.get("material")
         self.quality_id = state.get("quality")

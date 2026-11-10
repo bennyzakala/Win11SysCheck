@@ -2347,16 +2347,16 @@ def test_cfs_slots_mapping_and_reading_from_the_printer(monkeypatch):
         network.creality_cfs_slots("10.0.0.7")
 
 
-def test_printer_families_and_filament_panel():
-    """The printer list is split into FILAMENT / RESIN / UV (PolyJet); switching family goes back to the last printer
-    used in it. The filament panel edits colours, types, slots and the number of filaments."""
+def test_printer_families_resin_and_uv():
+    """The printer list is split into RESIN / UV (PolyJet) - filament printers are not offered (UniSlicer is for
+    resin printers only); switching family goes back to the last printer used in it."""
     import subprocess, sys, textwrap
     from unislicer import profiles
-    from unislicer.gui.settings_panel import printer_kind
+    from unislicer.gui.settings_panel import printer_kind, KINDS
     printers = profiles.load("printers")
     kinds = {pid: printer_kind(p) for pid, p in printers.items()}
-    assert kinds["creality_sparkx_i7"] == "filament" and kinds["stratasys_j5_dentajet"] == "uv"
-    assert kinds["elegoo_mars3"] == "resin" and set(kinds.values()) == {"filament", "resin", "uv"}
+    assert kinds["stratasys_j5_dentajet"] == "uv" and kinds["elegoo_mars3"] == "resin"
+    assert KINDS == ("resin", "uv")
     code = textwrap.dedent('''
         import os
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
@@ -2365,32 +2365,19 @@ def test_printer_families_and_filament_panel():
         from unislicer import profiles
         from unislicer.gui.settings_panel import SettingsPanel, printer_kind
         printers = profiles.load("printers")
-        p = SettingsPanel("creality_sparkx_i7", None, None, {}, False)
+        p = SettingsPanel("elegoo_mars3", None, None, {}, False)
+        assert set(p.kind_buttons) == {"resin", "uv"}
         listed = [p.printer_combo.itemData(i) for i in range(p.printer_combo.count()) if p.printer_combo.itemData(i)]
-        assert listed and all(printer_kind(printers[x]) == "filament" for x in listed)
-        assert p.filament_panel.isVisibleTo(p)
-        p.kind_buttons["resin"].click()
-        assert p.technology == "sla" and p.config()["sla_process"] != "polyjet" and not p.filament_panel.isVisibleTo(p)
-        listed = [p.printer_combo.itemData(i) for i in range(p.printer_combo.count()) if p.printer_combo.itemData(i)]
-        assert all(printer_kind(printers[x]) == "resin" for x in listed)
+        assert listed and all(printer_kind(printers[x]) == "resin" for x in listed)
+        assert p.technology == "sla" and not p.filament_panel.isVisibleTo(p)
         p.kind_buttons["uv"].click()
         assert p.config()["sla_process"] == "polyjet"
-        p.kind_buttons["filament"].click()
-        assert p.printer_id == "creality_sparkx_i7"
-        fp = p.filament_panel
-        fp.add(); fp.add()
-        assert p.config()["filament_count"] == 3
-        fp.set_colour(1, "#00ff00")
-        fp.set_type(2, "petg")
-        assert p.config()["filament_colors"].split(";")[1] == "#00FF00" and p.config()["filament_types"].split(";")[2] == "PETG"
-        fp.set_cfs_slots([{"slot": "1D", "colour": "#FF69B4", "type": "TPU", "name": "", "vendor": "", "loaded": True}])
-        fp.set_slot(0, "1D")
-        cfg = p.config()
-        assert cfg["filament_slots"].split(";")[0] == "1D" and cfg["filament_colors"].startswith("#FF69B4") \\
-            and cfg["filament_types"].startswith("TPU")
-        fp.remove(1)
-        assert p.config()["filament_count"] == 2
-        assert fp.use_printer_slots() and p.config()["filament_count"] == 1 and p.config()["filament_slots"] == "1D"
+        listed = [p.printer_combo.itemData(i) for i in range(p.printer_combo.count()) if p.printer_combo.itemData(i)]
+        assert all(printer_kind(printers[x]) == "uv" for x in listed)
+        p.kind_buttons["resin"].click()
+        assert p.printer_id == "elegoo_mars3" and p.config()["sla_process"] != "polyjet"
+        q = SettingsPanel("creality_sparkx_i7", None, None, {}, False)     # a filament printer from before
+        assert q.technology == "sla" and printer_kind(printers[q.printer_id]) == "resin"
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -2904,8 +2891,9 @@ def test_export_print_file_goes_to_the_central_library(tmp_path):
         w.store.setValue("export_library", {lib!r})
         opened = []
         w._reveal = opened.append
-        w.settings.select_printer("creality_ender3v2"); app.processEvents()
+        w.settings.select_printer("elegoo_mars3"); w.settings.set_value("support_enable", False); app.processEvents()
         o = w.add_mesh(primitives.box(10, 10, 5)); o.name = "my part"
+        o.direct = True                         # on the plate: no 'no supports' question
         import time
         settle = time.time() + 1.0                       # let pending settings / collision timers fire first:
         while time.time() < settle:                      # a late settings change would clear the result
@@ -2917,7 +2905,11 @@ def test_export_print_file_goes_to_the_central_library(tmp_path):
             app.processEvents()
             time.sleep(0.01)
         w.export()
-        p = os.path.join({lib!r}, "my part", "my part.gcode")
+        e = time.time() + 120                            # resin files are written on their own thread
+        while any(t.isRunning() for t in getattr(w, "_export_tasks", [])) and time.time() < e:
+            app.processEvents(); time.sleep(0.02)
+        app.processEvents()
+        p = os.path.join({lib!r}, "my part", "my part.ctb")
         assert os.path.isfile(p) and os.path.getsize(p) > 1000, os.listdir({lib!r})
         assert opened == [p]                              # the folder opens with the file
         w.store.setValue("export_library", "")
@@ -2996,8 +2988,11 @@ def test_align_lock_fill_cavity_and_layer_playback(tmp_path):
         from unislicer import primitives
         from unislicer.gui.main_window import MainWindow
         w = MainWindow(); w.show(); app.processEvents()
-        w.settings.select_printer("creality_ender3v2"); app.processEvents()
+        w.settings.select_printer("elegoo_mars3"); w.settings.set_value("support_enable", False); app.processEvents()
         a = w.add_mesh(primitives.box(10, 10, 4)); b = w.add_mesh(primitives.box(10, 10, 4))
+        a.direct = b.direct = True                         # on the plate: no 'no supports' question
+        from PySide6.QtWidgets import QMessageBox           # aligned left, the boxes touch: slice anyway
+        QMessageBox.warning = staticmethod(lambda *a, **k: QMessageBox.Yes)
         w._select_uid(a.uid); w._set_locked(True)
         x0 = a.x
         w._on_drag(a.uid, 5.0, 0.0)
@@ -3440,8 +3435,9 @@ def test_job_report_pdf_is_written_beside_the_export(tmp_path):
         from unislicer.gui.main_window import MainWindow
         w = MainWindow(); w.show(); app.processEvents()
         w.store.setValue("export_library", {lib!r}); w._reveal = lambda p: None
-        w.settings.select_printer("creality_ender3v2"); app.processEvents()
+        w.settings.select_printer("elegoo_mars3"); w.settings.set_value("support_enable", False); app.processEvents()
         o = w.add_mesh(primitives.box(10, 10, 5)); o.name = "part"
+        o.direct = True                         # on the plate: no 'no supports' question
         settle = time.time() + 1.0
         while time.time() < settle:
             app.processEvents(); time.sleep(0.01)
@@ -3452,12 +3448,16 @@ def test_job_report_pdf_is_written_beside_the_export(tmp_path):
         info = w.slice_info.text()                       # print time and material next to Slice
         assert w.slice_info.isVisibleTo(w) and info.startswith("⏱ ") and " m" in info, info
         w.export()
+        e = time.time() + 120                            # resin files are written on their own thread
+        while any(t.isRunning() for t in getattr(w, "_export_tasks", [])) and time.time() < e:
+            app.processEvents(); time.sleep(0.02)
+        app.processEvents()
         pdf = os.path.join({lib!r}, "part", "part - report.pdf")
         assert os.path.isfile(pdf) and open(pdf, "rb").read(5) == b"%PDF-", os.listdir(os.path.join({lib!r}, "part"))
         from unislicer import project
         proj = os.path.join({lib!r}, "part", "part" + project.EXTENSION)
         objs, state = project.load(proj)                 # the plate is saved as a project beside the print file
-        assert [o.name for o in objs] == ["part"] and state["printer"] == "creality_ender3v2"
+        assert [o.name for o in objs] == ["part"] and state["printer"] == "elegoo_mars3"
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -3504,8 +3504,9 @@ def test_print_queue_window_sends_the_next_job(tmp_path):
         from unislicer.gui.main_window import MainWindow
         w = MainWindow(); w.show(); app.processEvents()
         w.store.setValue("export_library", {lib!r}); w._reveal = lambda p: None
-        w.settings.select_printer("creality_ender3v2"); app.processEvents()
+        w.settings.select_printer("elegoo_mars3"); w.settings.set_value("support_enable", False); app.processEvents()
         o = w.add_mesh(primitives.box(10, 10, 5)); o.name = "crown"
+        o.direct = True                         # on the plate: no 'no supports' question
         settle = time.time() + 1.0
         while time.time() < settle:
             app.processEvents(); time.sleep(0.01)
@@ -3516,6 +3517,10 @@ def test_print_queue_window_sends_the_next_job(tmp_path):
         dlg = w.queue_dialog(); app.processEvents()
         pid = dlg.printers[0].id
         w.add_plate_to_queue(pid, dlg); app.processEvents()
+        e = time.time() + 120                            # resin files are written on their own thread
+        while any(t.isRunning() for t in getattr(w, "_export_tasks", [])) and time.time() < e:
+            app.processEvents(); time.sleep(0.02)
+        app.processEvents()
         jobs = dlg.queue.for_printer(pid)
         assert len(jobs) == 1 and os.path.isfile(jobs[0].path) and jobs[0].time_s > 0, jobs
         QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
@@ -3524,7 +3529,7 @@ def test_print_queue_window_sends_the_next_job(tmp_path):
         while dlg.queue.for_printer(pid)[0].state in ("waiting", "sending") and time.time() < end:
             app.processEvents(); time.sleep(0.02)
         assert dlg.queue.for_printer(pid)[0].state == "sent", dlg.queue.for_printer(pid)[0]
-        assert os.listdir({drop!r}) == ["crown.gcode"], os.listdir({drop!r})
+        assert os.listdir({drop!r}) == ["crown.ctb"], os.listdir({drop!r})
         assert print_queue.Queue().for_printer(pid)[0].state == "sent"
         print("ok")
     ''')
@@ -6300,6 +6305,9 @@ def test_user_guide_covers_every_menu_command_shortcut_and_setting():
     used = set(_re.findall(r'add\(\w, tr\("([a-z0-9_]+)"\)', menu_src)) | set(_re.findall(r'bar\.addMenu\(tr\("([a-z0-9_]+)"\)', menu_src))
     used |= set(_re.findall(r'mm\.add(?:Action|Menu)\((?:theme\.icon\("[a-z0-9_]+"\), )?tr\("([a-z0-9_]+)"\)', more_src))
     used |= set(_re.findall(r'tool\("[a-z0-9_]+", tr\("([a-z0-9_]+)"\)', top_src))
+    from unislicer.gui.settings_panel import FDM_ENABLED
+    if not FDM_ENABLED:
+        used.discard("fil_title")                  # the filaments window: filament printing is not offered
     assert len(used) > 40
     for lang, col in (("he", 0), ("en", 1)):
         page = manual.build_html(lang=lang)
@@ -6312,9 +6320,10 @@ def test_user_guide_covers_every_menu_command_shortcut_and_setting():
         sheet = _html.unescape(manual.build_shortcuts_html(lang))
         assert all((he, en)[col] in sheet for _i, _s, _g, he, en in SHORTCUTS)
         for s in settings.SCHEMA:
-            assert f"<b>{(s.he, s.en)[col]}</b>" in flat, (lang, s.key)
+            if s.tech != "fdm":                                  # resin only: filament is not offered
+                assert f"<b>{(s.he, s.en)[col]}</b>" in flat, (lang, s.key)
         for p in profiles.load("printers").values():
-            assert p["name"] in flat or p.get("hidden")
+            assert p["name"] in flat or p.get("hidden") or profiles.technology_of(p) == "fdm"
         chapters = " ".join(b for _a, _t, b in manual.chapters(lang))
         missing = [k for k in sorted(used) if "{t:" + k + "}" not in chapters]
         assert not missing, f"commands the {lang} guide does not explain yet: " + ", ".join(missing)
@@ -6710,3 +6719,52 @@ def test_no_stray_windows_flash_at_start_up_or_on_a_language_switch(tmp_path):
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
                        env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_filament_printers_are_not_offered(tmp_path):
+    """UniSlicer is for resin printers only: no FILAMENT tab, no filament printer in the list, no filaments
+    menu, a saved filament printer (an old setting or project) falls back to a resin one, and the guide has
+    no filament chapter."""
+    import subprocess, sys, textwrap
+    from unislicer import manual
+    assert all(a != "fdm" for a, *_ in manual.CHAPTERS) and all(a != "fdm" for a, *_ in manual.chapters("en"))
+    assert "Creality Ender" not in manual.build_html(lang="en")
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from PySide6.QtCore import QSettings
+        from unislicer import profiles
+        from unislicer.gui.main_window import MainWindow, SETTINGS_ORG
+        QSettings(SETTINGS_ORG, SETTINGS_ORG).setValue("printer", "creality_ender3v2")      # saved from before
+        w = MainWindow(); w.show(); app.processEvents(); w.store.setValue("preslice", "false")
+        sp = w.settings
+        printers = profiles.load("printers")
+        listed = [sp.printer_combo.itemData(k) for k in range(sp.printer_combo.count()) if sp.printer_combo.itemData(k)]
+        assert listed and not [p for p in listed if profiles.technology_of(printers[p]) == "fdm"], listed
+        assert "filament" not in sp.kind_buttons
+        assert sp.technology == "sla", sp.printer_id
+        assert not sp.select_printer("creality_ender3v2") and sp.technology == "sla"
+        sp.load_state({"printer": "creality_ender3v2"}); app.processEvents()
+        assert sp.technology == "sla"
+        from unislicer.gui import i18n
+        texts = []
+        def walk(menu):
+            for a in menu.actions():
+                texts.append(a.text())
+                if a.menu(): walk(a.menu())
+        for m in w.findChildren(type(w.menuBar())):
+            pass
+        from PySide6.QtWidgets import QMenu
+        for m in w.findChildren(QMenu):
+            walk(m)
+        assert not [t for t in texts if i18n.tr("fil_title") in t], texts
+        w._stop_preslice()
+        print("OK", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
+                       env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+

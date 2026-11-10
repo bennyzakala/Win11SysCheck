@@ -27,7 +27,7 @@ CHAPTERS = (
     ("intro", "ברוכים הבאים ל-UniSlicer", """
 <p>UniSlicer מכינה מודלים תלת-ממדיים להדפסה: פותחים את הקבצים, מסדרים אותם על הפלטה, מוסיפים תמיכות
 ורפסודה, חותכים לשכבות ושולחים למדפסת. התוכנה מותאמת במיוחד למעבדות שיניים - כתרים וגשרים זמניים,
-מודלים, מסכות חניכיים, סדים ומדריכים כירורגיים - ומתאימה גם להדפסת פילמנט (FDM).</p>
+מודלים, מסכות חניכיים, סדים ומדריכים כירורגיים.</p>
 {img:main.png|המסך הראשי: למעלה סרגל הכלים, מימין המודלים והמיקום, באמצע תצוגת התלת-ממד ומשמאל ההגדרות}
 <h3>סדר העבודה הרגיל</h3>
 <ol>
@@ -75,7 +75,7 @@ CHAPTERS = (
 ({k:tool_measure}). למעלה: {t:view_iso}, {t:view_top}, {t:view_front}, {t:view_side} ו{t:view_fit},
 וגם {t:overhangs}, הצגת משטחים שאין להם תמיכה ותצוגת חתך. הקובייה בפינה מסובבת את המבט בלחיצה על פאה.</p>
 <h3>לוח ההגדרות (משמאל)</h3>
-<p>למעלה בוחרים משפחת מדפסות: FILAMENT (FDM), RESIN (LCD / DLP / SLA) או UV (PolyJet). מתחת:
+<p>למעלה בוחרים משפחת מדפסות: RESIN (LCD / DLP / SLA) או UV (PolyJet). מתחת:
 {t:printer} והמשטח שלה, {t:material}, {t:quality} ומצב יציב / מהיר, ואחריהם תיבת חיפוש הגדרות, מעבר בין
 תצוגה פשוטה למלאה וכל ההגדרות לפי נושאים. {t:model_settings} (בתפריט {t:menu_edit}) נותן למודל אחד
 הגדרות משלו. ליד כל הגדרה שהשתנתה
@@ -195,7 +195,7 @@ CHAPTERS = (
 """),
     ("export", "ייצוא ושליחה למדפסת", """
 <p>{t:export_print} ({k:export}) שומר את קובץ ההדפסה בפורמט של המדפסת: PRZ ל-Phrozen, CTB, GOO ל-Elegoo,
-SL1, ZIP של CHITUBOX, SLC / CLI ל-SLA תעשייתי, 3MF ל-PreForm / GrabCAD, ו-G-code ל-FDM. הקובץ נשמר
+SL1, ZIP של CHITUBOX, SLC / CLI ל-SLA תעשייתי, ו-3MF ל-PreForm / GrabCAD. הקובץ נשמר
 ב<b>ספריית ההדפסות</b> ({t:export_library_open} / {t:export_library_choose}), ו{t:export_as} שומר
 למקום אחר. אם הפלטה שונתה אחרי החיתוך, חותכים שוב לפני הייצוא (אחרת מיוצא החיתוך האחרון, עם הודעה).</p>
 <ul>
@@ -222,11 +222,6 @@ SL1, ZIP של CHITUBOX, SLC / CLI ל-SLA תעשייתי, 3MF ל-PreForm / GrabCA
 <p>{t:assistant} בודק את המודלים ברקע, לומד מהשינויים שלך (סידורים, תיקוני תמיכות, הגדרות) ומציע שיפורים
 בלוח העוזר. סידור פלטה שלימדת אותו מופעל ב{t:auto_layout}.</p>
 """),
-    ("fdm", "הדפסת פילמנט (FDM)", """
-<p>בבחירת מדפסת FDM מופיעות הגדרות הקירות, המילוי, הטמפרטורה, המהירות והנסיגה. {t:fil_title} מגדיר כמה
-פילמנטים והחלפת צבעים (כולל Creality CFS), וכל מודל מקבל פילמנט משלו. הקובץ היוצא הוא G-code עם תמונה
-מקדימה.</p>
-"""),
     ("trouble", "פתרון בעיות", """
 <table class="grid">
 <tr><th>הבעיה</th><th>מה עושים</th></tr>
@@ -251,7 +246,7 @@ MENU_KEYS = ("open", "shapes", "add_text", "void_title", "ocp_button", "auto_pre
              "report_auto", "project_auto", "auto_close_holes", "open_up_menu", "tissue_up_menu",
              "upd_check_now", "upd_check_start", "mouse_menu", "ap_show_menu", "show_defects", "export_as",
              "export_library_open", "export_library_choose", "net_title", "fl_menu", "queue_title",
-             "remote_title", "fil_title", "cad_title", "multiply", "cut_height", "split_parts", "repair_mesh",
+             "remote_title", "cad_title", "multiply", "cut_height", "split_parts", "repair_mesh",
              "repair_advanced", "texture_title", "pixel_edit", "prepare", "preview", "assistant", "theme",
              "manual_menu", "menu_file", "menu_edit", "menu_info", "menu_exit", "select_all", "center", "move_to",
              "scale_to", "rename", "model_settings", "merge_models", "hide_models", "show_all_models",
@@ -298,8 +293,7 @@ UI = {
            "always": "הטבלה נבנית מהתוכנה עצמה, כך שהיא תמיד מעודכנת.", "key": "מקש", "action": "פעולה",
            "what": "מה קורה", "default": " (ברירת מחדל)", "rings": "סיבוב מודל", "label": "כיתוב",
            "switch": "מחליפים שיטה ב{t:more} ← {t:mouse_menu}.",
-           "settings_tip": "ההגדרות וההסברים נלקחים מהתוכנה. קודם הגדרות השרף (SLA / DLP / LCD / PolyJet), אחריהן "
-                           "הגדרות הפילמנט (FDM). הגדרות שמשותפות לשתיהן מופיעות בחלק של השרף.",
+           "settings_tip": "ההגדרות וההסברים נלקחים מהתוכנה (מדפסות שרף: SLA / DLP / LCD / PolyJet).",
            "resin": "הגדרות שרף", "fdm": "הגדרות פילמנט (FDM)", "options": "אפשרויות: ",
            "printers_tip": '{} מדפסות. "שרפים מותאמים" = שרפים שנבדקו למדפסת ומופיעים עם ★.',
            "maker": "יצרן", "printer": "מדפסת", "kind": "סוג", "linked": "שרפים מותאמים",
@@ -312,8 +306,7 @@ UI = {
            "always": "This table is made from the program itself, so it is always up to date.", "key": "Keys",
            "action": "Action", "what": "What happens", "default": " (default)", "rings": "Turning a model",
            "label": "Labels", "switch": "Switch the scheme in {t:more} → {t:mouse_menu}.",
-           "settings_tip": "The settings and their explanations come from the program. Resin settings "
-                           "(SLA / DLP / LCD / PolyJet) first, then filament (FDM). Settings both share are under resin.",
+           "settings_tip": "The settings and their explanations come from the program (resin printers: SLA / DLP / LCD / PolyJet).",
            "resin": "Resin settings", "fdm": "Filament (FDM) settings", "options": "Options: ",
            "printers_tip": '{} printers. "Tested resins" = resins tested on the printer, shown with ★.',
            "maker": "Maker", "printer": "Printer", "kind": "Type", "linked": "Tested resins",
@@ -427,7 +420,9 @@ def _settings_page() -> str:
     from .settings import CATEGORIES, SCHEMA
     he = _LANG == "he"
     out = [f'<h2 id="settings" class="page">{_u("app_c")}</h2>', f'<p class="tip">{_u("settings_tip")}</p>']
-    for techs, title in ((("sla", "both"), _u("resin")), (("fdm",), _u("fdm"))):
+    from .gui.settings_panel import FDM_ENABLED
+    parts = ((("sla", "both"), _u("resin")),) + (((("fdm",), _u("fdm")),) if FDM_ENABLED else ())
+    for techs, title in parts:
         out.append(f"<h3 class='part'>{title}</h3>")
         for cat, cat_he, cat_en, _icon in CATEGORIES:
             rows = [s for s in SCHEMA if s.category == cat and s.tech in techs]
@@ -450,7 +445,8 @@ def _printers_page() -> str:
     printers = profiles.load("printers")
     mats = profiles.load("materials")
     by_vendor: dict[str, list] = {}
-    printers = {pid: p for pid, p in printers.items() if not p.get("hidden")}
+    from .gui.settings_panel import offered
+    printers = {pid: p for pid, p in printers.items() if not p.get("hidden") and offered(pid, printers)}
     for pid, p in printers.items():
         by_vendor.setdefault(p.get("vendor", "Generic"), []).append((pid, p))
     out = [f'<h2 id="printers" class="page">{_u("app_d")}</h2>',

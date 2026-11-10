@@ -568,7 +568,9 @@ class MainWindow(QMainWindow):
         mm.addAction(theme.icon("wifi"), tr("fl_menu"), self.send_to_formlabs)
         mm.addAction(theme.icon("layers"), tr("queue_title") + "…", self.queue_dialog)
         mm.addAction(theme.icon("wifi"), tr("remote_title") + "…", self.remote_control)
-        mm.addAction(theme.icon("layers"), tr("fil_title") + "…", self.filaments_dialog)
+        from .settings_panel import FDM_ENABLED
+        if FDM_ENABLED:                                  # filament printing is not offered (resin only)
+            mm.addAction(theme.icon("layers"), tr("fil_title") + "…", self.filaments_dialog)
         mm.addAction(theme.icon("sparkle"), tr("cad_title") + "…", self.dental_cad_dialog)
         mm.addAction(theme.icon("copy"), tr("multiply"), self.multiply_selected)
         mm.addSeparator()

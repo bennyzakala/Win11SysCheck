@@ -6,8 +6,7 @@ CHAPTERS = (
     ("intro", "Welcome to UniSlicer", """
 <p>UniSlicer prepares 3D models for printing: you open the files, arrange them on the plate, add supports
 and a raft, slice them into layers and send them to the printer. It is made especially for dental labs -
-temporary crowns and bridges, models, gingiva masks, splints and surgical guides - and also prints with
-filament (FDM).</p>
+temporary crowns and bridges, models, gingiva masks, splints and surgical guides.</p>
 {img:main.png|The main window: the toolbar on top, the models and their placement on the left, the 3D view in the middle and the settings on the right}
 <h3>The usual way of working</h3>
 <ol>
@@ -60,7 +59,7 @@ Measure ({k:tool_measure}). On top: {t:view_iso}, {t:view_top}, {t:view_front}, 
 plus {t:overhangs}, showing surfaces without supports, and the section view. The cube in the corner turns the
 view when you click one of its faces.</p>
 <h3>The settings panel</h3>
-<p>At the top you pick the printer family: FILAMENT (FDM), RESIN (LCD / DLP / SLA) or UV (PolyJet). Below:
+<p>At the top you pick the printer family: RESIN (LCD / DLP / SLA) or UV (PolyJet). Below:
 the {t:printer} and its plate, the {t:material}, the {t:quality} and Stable / Fast mode, then a settings search
 box, a switch between the simple and the full view, and every setting by topic. {t:model_settings} (in the
 {t:menu_edit} menu) gives one model settings of its own. A setting you changed gets a reset button, and
@@ -188,7 +187,7 @@ the weight and the cost; the details are in {t:more} → {t:estimate_title}.</p>
 """),
     ("export", "Export and sending to the printer", """
 <p>{t:export_print} ({k:export}) saves the print file in the printer's format: PRZ for Phrozen, CTB, GOO for
-Elegoo, SL1, CHITUBOX ZIP, SLC / CLI for industrial SLA, 3MF for PreForm / GrabCAD, and G-code for FDM. The file
+Elegoo, SL1, CHITUBOX ZIP, SLC / CLI for industrial SLA, and 3MF for PreForm / GrabCAD. The file
 goes to the <b>print library</b> ({t:export_library_open} / {t:export_library_choose}), and {t:export_as} saves it
 somewhere else. If the plate changed after slicing, slice again before exporting (otherwise the last slice is
 exported, with a message).</p>
@@ -219,11 +218,6 @@ and {t:theme_logo} to show your lab's logo.</p>
 <p>The {t:assistant} checks the models in the background, learns from your changes (layouts, support corrections,
 settings) and suggests improvements in the assistant panel. A plate layout you taught it is used by
 {t:auto_layout}.</p>
-"""),
-    ("fdm", "Filament printing (FDM)", """
-<p>With an FDM printer the settings for walls, infill, temperature, speed and retraction appear.
-{t:fil_title} sets several filaments and colour changes (Creality CFS included), and each model gets a filament
-of its own. The output is G-code with a preview picture.</p>
 """),
     ("trouble", "Troubleshooting", """
 <table class="grid">
