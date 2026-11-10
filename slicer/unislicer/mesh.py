@@ -194,9 +194,18 @@ class Mesh:
             out._volume = self._volume * abs(det)
         return out
 
+    # results kept on a mesh (dental_cad's part type, a crown's opening, a mask's flat side, the arch test,
+    # the repair fingerprint) that moving it does not change: a moved copy keeps them (loading centres every
+    # model, and the crowns' openings were worked out a second time - 1.7 s for 14 crowns)
+    MOVE_SAFE = ("_opening", "_flat_side", "_horseshoe", "_kind", "_repair_fp")
+
     def translated(self, offset) -> "Mesh":
         out = Mesh(self.vertices + np.asarray(offset, dtype=np.float64), self.faces, self.name)
         out._watertight, out._volume = self._watertight, self._volume
+        for key in self.MOVE_SAFE:
+            hit = self.__dict__.get(key)
+            if hit is not None and hit[0] is self.vertices:
+                out.__dict__[key] = (out.vertices, hit[1])
         return out
 
     def lay_flat_rotation(self) -> np.ndarray:

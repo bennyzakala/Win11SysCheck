@@ -7,7 +7,7 @@ the guide shows as its Windows keys."""
 from __future__ import annotations
 
 # QKeySequence.StandardKey names used below -> the keys they mean on Windows (shown in the guide)
-STANDARD_KEYS = {"Open": "Ctrl+O", "Save": "Ctrl+S", "Undo": "Ctrl+Z", "Redo": "Ctrl+Shift+Z",
+STANDARD_KEYS = {"New": "Ctrl+N", "Open": "Ctrl+O", "Save": "Ctrl+S", "Undo": "Ctrl+Z", "Redo": "Ctrl+Shift+Z",
                  "Delete": "Del", "SelectAll": "Ctrl+A"}
 _SHOWN = {"Up": "↑", "Down": "↓", "Escape": "Esc"}
 
@@ -22,6 +22,7 @@ GROUPS = (
 )
 
 SHORTCUTS = (
+    ("new_project", ("New",), "file", "פרויקט חדש - מנקה את כל המשטח (Ctrl+Z מחזיר)", "New project - clears the whole plate (Ctrl+Z brings it back)"),
     ("open", ("Open",), "file", "פתיחת קובצי מודל (STL / OBJ / 3MF / PLY / AMF / ZIP)", "Open model files"),
     ("save_project", ("Save",), "file", "שמירת הפרויקט", "Save the project"),
     ("export", ("Ctrl+E",), "file", "ייצוא קובץ ההדפסה", "Export the print file"),

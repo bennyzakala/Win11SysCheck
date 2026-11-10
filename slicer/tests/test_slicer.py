@@ -6464,3 +6464,39 @@ def test_language_switch_hands_the_plate_over_without_rebuilding(tmp_path):
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
                        env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_new_project_clears_the_plate_and_undo_brings_it_back(tmp_path):
+    """File > New project (Ctrl+N) empties the plate - nothing of it can still be exported - and keeps the
+    printer and settings; one Ctrl+Z gives every model back."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        for k in range(3):
+            w.add_mesh(primitives.box(10 + k, 10, 5))
+        app.processEvents()
+        w._last_result = ("sla", object(), None)
+        printer = w.settings.printer_id
+        w.new_project(); app.processEvents()
+        assert w.objects == [] and not w.viewer.objects and w._exportable() is None
+        assert w.settings.printer_id == printer
+        w.undo(); app.processEvents()
+        assert len(w.objects) == 3, len(w.objects)
+        w.new_project(); w.new_project(); app.processEvents()        # an empty plate: nothing to do
+        w.undo(); app.processEvents()
+        assert len(w.objects) == 3
+        w._stop_preslice()
+        print("OK", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
+                       env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

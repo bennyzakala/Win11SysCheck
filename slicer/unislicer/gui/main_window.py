@@ -327,6 +327,7 @@ class MainWindow(QMainWindow):
             return act
 
         f = bar.addMenu(tr("menu_file"))
+        add(f, tr("new_project"), self.new_project, "Ctrl+N", "square")
         add(f, tr("open"), lambda: self._act("open", "menu", self.open_files), "Ctrl+O", "open")
         add(f, tr("open_project"), self.open_project, "", "open")
         recent = f.addMenu(theme.icon("clock"), tr("recent_files"))
@@ -485,6 +486,7 @@ class MainWindow(QMainWindow):
         self.redo_btn = tool("redo", "", tr("redo") + " (Ctrl+Y)", self.redo)
         more = tool("more", tr("more"), tr("more"), None)
         mm = QMenu(self)
+        mm.addAction(theme.icon("square"), tr("new_project") + "\tCtrl+N", self.new_project)
         mm.addAction(theme.icon("open"), tr("open_project"), self.open_project)
         self.recent_menu = mm.addMenu(theme.icon("clock"), tr("recent_files"))
         self.recent_menu.aboutToShow.connect(self._fill_recent)
@@ -1255,6 +1257,7 @@ class MainWindow(QMainWindow):
                 self._set_pick_mode(None if self.viewer.pick_mode == mode else mode)
 
         actions = {
+            "new_project": self.new_project,
             "open": via_key("open", self.open_files), "save_project": via_key("save_project", self.save_project),
             "export": via_key("export", self.export), "undo": via_key("undo", self.undo), "redo": self.redo,
             "delete": self.delete_selected, "duplicate": via_key("duplicate", self.duplicate_selected),
@@ -1502,16 +1505,16 @@ class MainWindow(QMainWindow):
         the file's orientation; placement as a plain Open does; no supports are added here."""
         added = []
         kinds = {}
+        paths = list(dict.fromkeys(p["path"] for p in parts))
+        read = dict(zip(paths, self._read_files(paths)))       # all files at once, in the background
         for part in parts:
             path = part["path"]
-            try:
-                meshes = load_mesh(path)
-            except Exception as exc:
-                meshes = self._rescue_model(path, exc)
+            meshes, source = read[path]
+            if isinstance(meshes, Exception):
+                meshes = self._rescue_model(path, meshes)
                 if not meshes:
                     continue
             meshes = meshes if isinstance(meshes, list) else [meshes]
-            source = self._file_source(path)
             group = []
             for m in meshes:
                 if part.get("unit") == "inch":
@@ -1552,17 +1555,57 @@ class MainWindow(QMainWindow):
             self._undo_held = held
             self._long(False)
 
-    def _load_files(self, paths):
-        added = None
-        loaded = []
-        for path in paths:
+    def _read_files(self, paths) -> list:
+        """[(meshes or the error, source)] for each file, read on several threads in the background with
+        what loading asks of each mesh worked out there too (closed or not, the part type, a crown's
+        opening, a mask's flat side, the repair fingerprint): one file after another, on the window's
+        thread, 14 crowns took ~7 s with the window frozen up to 1.3 s at a time."""
+        from concurrent.futures import ThreadPoolExecutor
+        from .. import dental_cad
+        crowns_on = self.store.value("crowns_open_up", "true") == "true"
+        tissue_on = self.store.value("tissue_flat_up", "true") == "true"
+        learned = bool(self.assistant.enabled and self.assistant.data.get("repair", {}).get("by_sig"))
+
+        def one(path):
             try:
                 meshes = load_mesh(path)
             except Exception as exc:
-                meshes = self._rescue_model(path, exc)     # the assistant tries to recover the file
+                return exc, ""
+            source = self._file_source(path)
+            for m in meshes:
+                try:
+                    closed = m.is_watertight()
+                    kind = dental_cad.kind_of(m.name, m)
+                    if kind == "crown" and crowns_on:
+                        dental_cad.opening_direction(m)        # kept on the mesh for the turn after loading
+                    elif kind == "gingiva" and tissue_on:
+                        dental_cad.flat_side(m)
+                    if learned and not (closed and len(m.faces) > 150_000):
+                        from .. import mesh_tools
+                        from ..assistant import repair_fingerprint
+                        m.__dict__["_repair_fp"] = (m.vertices, repair_fingerprint(mesh_tools.analyze(m), source))
+                except Exception:
+                    pass                                         # worked out again later, as before
+            return meshes, source
+
+        paths = list(paths)
+        if len(paths) <= 1:
+            return [one(p) for p in paths]
+        workers = max(1, min(len(paths), (os.cpu_count() or 2), 8))
+
+        def all_files():
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                return list(ex.map(one, paths))
+        return self._in_background(all_files)
+
+    def _load_files(self, paths):
+        added = None
+        loaded = []
+        for path, (meshes, source) in zip(paths, self._read_files(paths)):
+            if isinstance(meshes, Exception):
+                meshes = self._rescue_model(path, meshes)     # the assistant tries to recover the file
                 if not meshes:
                     continue
-            source = self._file_source(path)
             new_objs = []
             for m in meshes:
                 added = self.add_mesh(m, rearrange=False)
@@ -1644,6 +1687,9 @@ class MainWindow(QMainWindow):
         return f"{ext}|{prog}"
 
     def _repair_fingerprint(self, o) -> str:
+        hit = o.mesh.__dict__.get("_repair_fp")             # worked out while the file was read
+        if hit is not None and hit[0] is o.mesh.vertices:
+            return hit[1]
         from .. import mesh_tools
         from ..assistant import repair_fingerprint
         return repair_fingerprint(mesh_tools.analyze(o.mesh), self._model_source.get(o.uid, ""))
@@ -2114,6 +2160,23 @@ class MainWindow(QMainWindow):
             cfg = self.settings.config()
             self._arrange(cfg)
             self._refresh_objects(select=[d.uid for d in dups])
+
+    def new_project(self):
+        """File > New project (Ctrl+N): an empty plate - every model goes; the printer, the material and the
+        settings stay. One Ctrl+Z brings the whole plate back."""
+        if not self.objects:
+            self.status.setText(tr("new_project_empty"))
+            return
+        self._push_undo()
+        if self.preview_btn.isChecked():
+            self.set_mode("prepare")
+        for o in list(self.objects):
+            self.viewer.remove_object(o.uid)
+        self.objects = []
+        self._invalidate()
+        self.__dict__.pop("_last_result", None)        # nothing of the old plate can be exported any more
+        self._refresh_objects(select=None)
+        self.status.setText(tr("new_project_done"))
 
     def delete_selected(self):
         group = self.selected_objects()

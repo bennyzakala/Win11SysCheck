@@ -41,7 +41,7 @@ to the program gets a new number.</p>
 </ul>
 <h3>The menu bar</h3>
 <ul>
-<li>{t:menu_file}: {t:open}, {t:open_project}, {t:recent_files}, {t:save_project}, {t:slice}, {t:export_print},
+<li>{t:menu_file}: {t:new_project} ({k:new_project}), {t:open}, {t:open_project}, {t:recent_files}, {t:save_project}, {t:slice}, {t:export_print},
 {t:export_as}, {t:export_stl}, {t:report_save}, the print library, {t:net_title}, {t:queue_title} and {t:menu_exit}.</li>
 <li>{t:menu_edit}: {t:undo}, {t:redo}, {t:select_all}, {t:duplicate}, {t:multiply}, {t:delete}, arranging and
 aligning, {t:center}, {t:move_to}, {t:scale_to}, {t:rename}, {t:model_settings}, {t:merge_models}, {t:hide_models}
@@ -200,7 +200,8 @@ loaded, recognised by job type and prepared automatically (orientation, supports
 </ul>
 """),
     ("projects", "Projects, undo and preferences", """
-<p>{t:save_project} ({k:save_project}) saves the whole plate - models, positions, supports and settings;
+<p>{t:new_project} ({k:new_project}) clears the whole plate for a new job; the printer, the material and the
+settings stay, and {k:undo} brings every model back. {t:save_project} ({k:save_project}) saves the whole plate - models, positions, supports and settings;
 {t:open_project} opens it. {t:undo} ({k:undo}) and {t:redo} ({k:redo}) work for every action, supports and
 loading included.</p>
 <p>{t:mouse_menu}: {t:mouse_chitubox} or {t:mouse_classic} (appendix B). {t:theme}: light, dark, a branded theme

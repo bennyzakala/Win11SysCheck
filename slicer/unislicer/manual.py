@@ -58,7 +58,7 @@ CHAPTERS = (
 </ul>
 <h3>שורת התפריטים</h3>
 <ul>
-<li>{t:menu_file}: {t:open}, {t:open_project}, {t:recent_files}, {t:save_project}, {t:slice}, {t:export_print},
+<li>{t:menu_file}: {t:new_project} ({k:new_project}), {t:open}, {t:open_project}, {t:recent_files}, {t:save_project}, {t:slice}, {t:export_print},
 {t:export_as}, {t:export_stl}, {t:report_save}, ספריית ההדפסות, {t:net_title}, {t:queue_title} ו{t:menu_exit}.</li>
 <li>{t:menu_edit}: {t:undo}, {t:redo}, {t:select_all}, {t:duplicate}, {t:multiply}, {t:delete}, הסידור והיישור,
 {t:center}, {t:move_to}, {t:scale_to}, {t:rename}, {t:model_settings}, {t:merge_models}, {t:hide_models} ו{t:show_all_models}.</li>
@@ -206,7 +206,8 @@ SL1, ZIP של CHITUBOX, SLC / CLI ל-SLA תעשייתי, 3MF ל-PreForm / GrabCA
 </ul>
 """),
     ("projects", "פרויקטים, ביטול והעדפות", """
-<p>{t:save_project} ({k:save_project}) שומר את כל הפלטה - מודלים, מיקומים, תמיכות והגדרות; {t:open_project}
+<p>{t:new_project} ({k:new_project}) מנקה את כל המשטח לעבודה חדשה; המדפסת, החומר וההגדרות נשארים, ו-{k:undo}
+מחזיר את כל המודלים. {t:save_project} ({k:save_project}) שומר את כל הפלטה - מודלים, מיקומים, תמיכות והגדרות; {t:open_project}
 פותח אותו. {t:undo} ({k:undo}) ו{t:redo} ({k:redo}) עובדים על כל פעולה, כולל תמיכות וטעינה.</p>
 <p>{t:mouse_menu}: {t:mouse_chitubox} או {t:mouse_classic} (נספח ב׳). {t:theme}: בהיר, כהה, ערכה ממותגת
 ו{t:theme_logo} להצגת הלוגו של המעבדה.</p>
