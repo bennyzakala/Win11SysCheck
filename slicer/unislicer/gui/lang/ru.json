@@ -1447,5 +1447,7 @@
 "User guide": "Руководство пользователя",
 "New project": "Новый проект",
 "New project: the plate is empty (Ctrl+Z brings every model back)": "Новый проект: стол очищен (Ctrl+Z вернёт все модели)",
-"The plate is already empty": "Стол уже пуст"
+"The plate is already empty": "Стол уже пуст",
+"Mini: a small pad under every support, joined to its neighbours, as in PreForm - less resin and easier to remove than a solid raft. Mini tiny: for temporary teeth - the raft follows the tooth's outline seen from above, a little smaller, never past it. Raft & label: a narrow raft along the model's outline, with a crescent tab round the model's end carrying the code, embossed. Solid lite: a solid raft along the model's outline that reaches ~2 mm further out round every small round part standing out of the outline (a ball at a bridge's end)": "Мини: небольшая площадка под каждой поддержкой, соединённая с соседними, как в PreForm — меньше смолы и легче снимать, чем сплошной рафт. Мини крошечный: для временных зубов — рафт повторяет контур зуба сверху, чуть меньше его и никогда не выходит за него. Плот и код: узкий плот по контуру модели, с язычком-полумесяцем у края модели, на котором выпукло стоит код. Сплошной лёгкий: сплошной плот по контуру модели, выступающий примерно на 2 мм наружу вокруг каждой небольшой круглой части, выступающей из контура (шарик на краю моста)",
+"Solid lite": "Сплошной лёгкий (SOLID LITE)"
 }

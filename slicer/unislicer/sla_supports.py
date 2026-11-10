@@ -910,6 +910,64 @@ def _label_raft_core(feet: list, cfg: Config, pad: float, radii: list | None, ou
     return core.simplify(0.02) if not core.is_empty else core
 
 
+KNOB_BULGE = 2.2          # how far a "solid lite" raft reaches past a small round part of the outline (mm)
+
+
+def round_knobs(outline, max_r: float = 5.0, min_turn: float = 100.0, step: float = 0.2, win: float = 0.8,
+                min_len: float = 2.5) -> list:
+    """Stretches of a part's outline (seen from above) that stand out in a small round bulge - a ball at the
+    edge of a bridge, a round pontic: convex, curving tighter than ``max_r`` mm, turning ``min_turn`` degrees
+    or more (a plain corner turns 90) along at least ``min_len`` mm, and not the whole outline (a small round
+    crown is not a bulge). Each as a LineString along the outline."""
+    out = []
+    for poly in getattr(outline.simplify(0.005), "geoms", [outline.simplify(0.005)]):
+        if poly.is_empty or poly.geom_type != "Polygon":
+            continue
+        ring = poly.exterior
+        coords = list(ring.coords) if ring.is_ccw else list(ring.coords)[::-1]
+        line = LineString(coords)
+        length = line.length
+        n = max(16, int(length / step))
+        if n < 16:
+            continue
+        pts = np.array([line.interpolate(i * length / n).coords[0] for i in range(n)])
+        d = np.roll(pts, -1, axis=0) - pts
+        ang = np.unwrap(np.arctan2(d[:, 1], d[:, 0]))
+        turn = np.diff(np.r_[ang, ang[0] + 2 * math.pi])          # ccw: + where the outline bends outward
+        seg = length / n
+        k = max(1, int(win / seg))
+        smooth = np.convolve(np.r_[turn[-k:], turn, turn[:k]], np.ones(2 * k + 1) / (2 * k + 1), "same")[k:-k]
+        mark = (smooth > 0) & (seg / np.maximum(smooth, 1e-9) < max_r)
+        if mark.all() or not mark.any():
+            continue
+        start = int(np.argmin(mark))                   # from a sample outside every bulge: runs never wrap
+        run = []
+        for i in list(np.roll(np.arange(n), -start)) + [start]:
+            if mark[i]:
+                run.append(i)
+                continue
+            if run and len(run) >= 2 and math.degrees(float(turn[run].sum())) >= min_turn \
+                    and len(run) * seg >= min_len and math.degrees(float(turn[run].sum())) <= 300:
+                out.append(LineString(pts[run]))
+            run = []
+    return out
+
+
+def _solid_lite(feet: list, cfg: Config, pad: float, radii: list | None, outline_shape):
+    """The "solid lite" raft: solid, along the part's outline (+0.8 mm, a pad under every foot), reaching
+    ``KNOB_BULGE`` mm further out around each small round part of the outline, so a ball at the edge stands
+    well inside the raft instead of over its edge."""
+    core = _label_raft_core(feet, cfg, pad, radii, outline_shape)
+    if core.is_empty or outline_shape is None or outline_shape.is_empty:
+        return core
+    knobs = round_knobs(outline_shape)
+    if not knobs:
+        return core
+    bulge = unary_union([k.buffer(KNOB_BULGE + LABEL_RAFT_MARGIN, quad_segs=12) for k in knobs])
+    shape = unary_union([core, bulge]).buffer(0.6, quad_segs=8).buffer(-0.6, quad_segs=8)
+    return shape.simplify(0.02) if not shape.is_empty else core
+
+
 def label_moon(core, outline_shape=None, frame=None):
     """The crescent tab for the code: a band ``MOON_WIDTH`` wide hugging the end of the model's long axis,
     reaching ``MOON_WRAP`` back along its sides, round at the tips. Empty when there is no room.
@@ -990,6 +1048,9 @@ def _raft_plan(feet: list, cfg: Config, pad: float, radii: list | None = None, o
     if kind == "raft_label":
         core = _label_raft_core(feet, cfg, pad, radii, outline_shape)
         return (core, core, None) if not core.is_empty else None
+    if kind == "solid_lite":
+        shape = _solid_lite(feet, cfg, pad, radii, outline_shape)
+        return (shape, shape, None) if not shape.is_empty else None
     if kind == "tiny":
         # the tooth's own outline, a little smaller; feet outside it stand on the plate as they are
         if outline_shape is None or outline_shape.is_empty:
@@ -1290,7 +1351,7 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
         parts += _braces(pillars, underside(), cfg, segs)
 
     tiny = None
-    if feet and cfg["sla_raft_type"] in ("tiny", "raft_label"):
+    if feet and cfg["sla_raft_type"] in ("tiny", "raft_label", "solid_lite"):
         tiny = tooth_outline(mesh, cfg["sla_raft_tiny_inset"] if cfg["sla_raft_type"] == "tiny" else 0.0)
     # the caller chooses the text (the model's name, or a tooth's SOD case code); "" = no label
     parts += _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny, label, label_frame)

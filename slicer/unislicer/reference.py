@@ -98,7 +98,7 @@ def _spans(z: np.ndarray) -> np.ndarray:
 
 
 # the configurations every part is checked with: both support shapes, the raft types that differ most
-CONFIGS = (("tree", "solid"), ("tree", "tiny"), ("tree", "raft_label"), ("pillar", "mini"), ("pillar", "none"))
+CONFIGS = (("tree", "solid"), ("tree", "tiny"), ("tree", "raft_label"), ("tree", "solid_lite"), ("pillar", "mini"), ("pillar", "none"))
 
 
 def config_for(base: Config, shape: str, raft: str, model_type: str = "") -> Config:

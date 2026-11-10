@@ -6500,3 +6500,35 @@ def test_new_project_clears_the_plate_and_undo_brings_it_back(tmp_path):
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
                        env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_solid_lite_raft_bulges_round_parts_only():
+    """'Solid lite': a solid raft along the outline that reaches ~2 mm further out round a small round part
+    standing out of the outline (a ball at the edge) - not at plain corners, nor round a whole small crown."""
+    from shapely.geometry import Point, box
+    from shapely.ops import unary_union
+    from unislicer import sla_supports
+    from unislicer.slicing import slice_mesh
+    body = box(0, 0, 22, 8)
+    for r in (1.6, 2.0, 3.2, 4.5):
+        knobs = sla_supports.round_knobs(unary_union([body, Point(11, 0).buffer(r, quad_segs=32)]))
+        assert len(knobs) == 1, r
+        assert abs(knobs[0].centroid.x - 11) < 0.6 and knobs[0].centroid.y < 0, r
+    assert sla_supports.round_knobs(body) == []                                  # corners are not bulges
+    assert sla_supports.round_knobs(body.buffer(2.0)) == []                      # nor rounded corners
+    assert sla_supports.round_knobs(Point(0, 0).buffer(4.0)) == []               # nor a small round crown
+    # the raft: a box with a ball at its edge, standing on a few supports
+    from shapely.geometry import Polygon
+    part = primitives.box(22, 8, 6)
+    ball = primitives.sphere(3.0, 24, 48)
+    shape = unary_union([body, Point(11, 0).buffer(3.0, quad_segs=32)])
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None,
+                                {"support_enable": True, "sla_raft_type": "solid_lite", "sla_raft_thickness": 1.0})
+    feet = [(4.0, 4.0, 1.0), (18.0, 4.0, 1.0), (11.0, 0.0, 1.0)]
+    plan = sla_supports._raft_plan(feet, cfg, 1.0, None, shape)
+    raft = plan[0]
+    lowest = min(y for x, y in raft.exterior.coords)
+    assert lowest < -3.0 - sla_supports.LABEL_RAFT_MARGIN - 1.5                 # it bulges out past the ball
+    corner_gap = raft.exterior.distance(Point(22, 8))
+    assert corner_gap < sla_supports.LABEL_RAFT_MARGIN + 0.6                     # and not at a plain corner
+    assert all(raft.buffer(0.01).contains(Point(x, y)) for x, y, _z in feet)

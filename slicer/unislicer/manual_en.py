@@ -135,7 +135,12 @@ supports only once direct printing is turned off.</p>
 """),
     ("raft", "The raft and the case code", """
 <p>Raft types ({s:sla_raft_type}): solid, cross grid, hexagonal, mini (a small pad for each group of
-supports), mini tiny (inside the tooth outline), <b>raft &amp; label</b> and none.</p>
+supports), mini tiny (inside the tooth outline), <b>raft &amp; label</b>, <b>solid lite</b> and none.</p>
+<h3>Solid lite</h3>
+<p>A solid raft along the model's outline, 0.8 mm around it, with every support foot on it. Round every small
+round part standing out of the outline - a ball at a bridge's end, for instance - the raft reaches about 2 mm
+further out, so the round part stands inside the raft instead of over its edge. Plain corners and the rounded
+outline of a whole tooth get no bulge.</p>
 <h3>Raft &amp; label</h3>
 <p>A narrow raft along the model's outline, 0.8 mm around it, with every support foot on it. At the model's end
 (toward the right of the plate, or the back for a part lying along the plate) there is a crescent tab 5 mm wide
