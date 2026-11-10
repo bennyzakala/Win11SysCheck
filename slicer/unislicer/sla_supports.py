@@ -968,6 +968,21 @@ def _solid_lite(feet: list, cfg: Config, pad: float, radii: list | None, outline
     return shape.simplify(0.02) if not shape.is_empty else core
 
 
+def tab_direction(outline, frame=None) -> np.ndarray:
+    """Which way (a unit vector on the plate) a raft & label tab sticks out: along the part's own x, or its
+    own y when the part is clearly longer that way, toward + (``frame`` = ``SceneObject.plate_frame``;
+    None = the plate's X / Y). Taken from the outline's extent along those two directions only, so the
+    auto layout (a coarse outline) and the support build (the exact one) pick the same end."""
+    fx, fy = (np.asarray(frame[0], float), np.asarray(frame[1], float)) if frame is not None else \
+        (np.array([1.0, 0.0]), np.array([0.0, 1.0]))
+    pts = np.asarray([c for g in getattr(outline, "geoms", [outline]) if not g.is_empty
+                      for c in g.exterior.coords]) if not outline.is_empty else np.zeros((0, 2))
+    if len(pts) < 3:
+        return fx
+    ext_x, ext_y = float(np.ptp(pts @ fx)), float(np.ptp(pts @ fy))
+    return fy if ext_y > 1.15 * ext_x else fx
+
+
 def label_moon(core, outline_shape=None, frame=None):
     """The crescent tab for the code: a band ``MOON_WIDTH`` wide hugging the end of the model's long axis,
     reaching ``MOON_WRAP`` back along its sides, round at the tips. Empty when there is no room.
@@ -976,21 +991,11 @@ def label_moon(core, outline_shape=None, frame=None):
     body = outline_shape if outline_shape is not None and not outline_shape.is_empty else core
     if core.is_empty or body.is_empty:
         return ShapelyPolygon()
-    rect = body.minimum_rotated_rectangle
-    xy = np.asarray(rect.exterior.coords)[:4]
-    edges = [xy[1] - xy[0], xy[2] - xy[1]]
-    axis = max(edges, key=lambda e: float(np.hypot(*e)))
-    n = float(np.hypot(*axis))
+    axis = tab_direction(body, frame)       # the same end every time: +x (or +y on a part lying along y)
+    lo, hi = np.asarray(body.bounds[:2]), np.asarray(body.bounds[2:])
+    n = float(np.hypot(*(hi - lo)))
     if n < 1e-6:
         return ShapelyPolygon()
-    axis = axis / n
-    fx, fy = (np.asarray(frame[0], float), np.asarray(frame[1], float)) if frame is not None else \
-        (np.array([1.0, 0.0]), np.array([0.0, 1.0]))
-    ax, ay = float(axis @ fx), float(axis @ fy)
-    if abs(ax) >= abs(ay):                  # the same end every time: +x (or +y on a part lying along y)
-        axis = axis if ax > 0 else -axis
-    else:
-        axis = axis if ay > 0 else -axis
     side = np.array([-axis[1], axis[0]])
     c = np.asarray(core.centroid.coords[0])
     end = float(np.max(np.asarray(core.exterior.coords if core.geom_type == "Polygon" else

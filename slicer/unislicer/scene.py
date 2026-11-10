@@ -393,14 +393,19 @@ def arrange(objects: list[SceneObject], bed_x: float, bed_y: float, spacing: flo
     else:
         ox = oy = 0.0
     sizes = [np.array(o.world_size(), dtype=float) for o in objects]
-    # a "raft & label" raft's crescent tab sits past the part's +X end (+Y for a part lying along Y)
+    # a "raft & label" raft's crescent tab sits past the part's own +x end (+y for a part lying along its
+    # y): the same end the support build picks (sla_supports.tab_direction), turned with the part
+    # (the box of the outline with the tab, which also wraps round the end's sides); tabs[i] = how far
+    # that box's centre sits from the part's own
     tabs = [np.zeros(2) for _ in objects]
     for i, o in enumerate(objects):
         if o.__dict__.get("raft_tab"):
-            from .sla_supports import LABEL_RAFT_MARGIN, MOON_WIDTH
-            ax = 0 if sizes[i][0] >= sizes[i][1] else 1
-            tabs[i][ax] = LABEL_RAFT_MARGIN + MOON_WIDTH
-            sizes[i][:2] += tabs[i]
+            from .layout import footprint, with_raft_tab
+            body = footprint(o)
+            grown = with_raft_tab(o, body)
+            gb, bb = np.asarray(grown.bounds), np.asarray(body.bounds)
+            sizes[i][:2] = np.maximum(sizes[i][:2], gb[2:] - gb[:2])
+            tabs[i] = 2 * ((gb[:2] + gb[2:]) / 2 - (bb[:2] + bb[2:]) / 2)
     order = sorted(range(len(objects)), key=lambda i: -sizes[i][1])
     rows, row, row_w, row_h = [], [], 0.0, 0.0
     for i in order:

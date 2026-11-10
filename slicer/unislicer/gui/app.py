@@ -180,6 +180,8 @@ def run(paths: list[str] | None = None) -> int:
             win.show()
         if old is not None:
             old.close()
+            old.release()                              # its plate data is the new window's now: let it go
+            old.deleteLater()                          # a closed window stayed in memory (~1 GB a full plate)
             app.setLayoutDirection(direction)          # dialogs from now on (the new window has its own)
         _trace("main window shown")
         return win

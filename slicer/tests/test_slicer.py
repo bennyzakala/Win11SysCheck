@@ -6532,3 +6532,103 @@ def test_solid_lite_raft_bulges_round_parts_only():
     corner_gap = raft.exterior.distance(Point(22, 8))
     assert corner_gap < sla_supports.LABEL_RAFT_MARGIN + 0.6                     # and not at a plain corner
     assert all(raft.buffer(0.01).contains(Point(x, y)) for x, y, _z in feet)
+
+
+def test_support_reuse_follows_height_mesh_and_the_slice_survives_a_switch(tmp_path):
+    """Found in review: a part lifted with Move to... kept the structure built at the old height (the view's
+    supports, now also used for slicing, floated 4 mm above the plate); a repaired mesh kept the structure
+    of the open one; a language switch lost the slice."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import Qt
+        app = QApplication([])
+        import numpy as np
+        from unislicer import primitives
+        from unislicer.mesh import Mesh
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        o = w.add_mesh(primitives.crown_cap(9.0, 8.0, name="C-SOD260012345-044-P-16.stl")); app.processEvents()
+        w._select_uid(None); w.generate_supports(); w.wait_supports(); app.processEvents(); w.wait_supports()
+        cfg = w.settings.config()
+        ready = w._ready_world_supports(o, cfg)
+        assert ready is not None and abs(float(ready.vertices[:, 2].min())) < 1e-6
+        o.z = 4.0; w._objects_changed(refresh_list=False); app.processEvents(); w.wait_supports(); app.processEvents()
+        ready = w._ready_world_supports(o, cfg)
+        assert ready is not None and abs(float(ready.vertices[:, 2].min())) < 1e-6, ready.vertices[:, 2].min()
+        key = w._support_key(o, cfg)
+        o.mesh = Mesh(o.mesh.vertices.copy(), o.mesh.faces.copy(), o.mesh.name)   # a repair puts a new mesh in
+        assert w._support_key(o, cfg) != key
+        w.result = ("sla", object(), cfg)
+        carry = w.handover(); carry["direction"] = Qt.LeftToRight
+        w2 = MainWindow(w.objects, carry=carry); w2.show(); w.close(); app.processEvents()
+        assert w2.result is carry["result"]
+        w2._stop_preslice()
+        print("OK", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
+                       env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_box_layout_reserves_the_raft_and_label_tab_where_it_is_built():
+    """Found in review: the shelf (box) layout reserved the tab at the plate's +X end while it is built at
+    the part's own +x end - a part turned 180 or 90 degrees had its tab in the neighbour."""
+    from unislicer import layout
+    for deg in (0.0, 90.0, 180.0, 270.0):
+        parts = []
+        for _ in range(3):
+            o = placed(primitives.box(24, 9, 7), 0, 0)
+            a = np.radians(deg)
+            o.apply_world_rotation(np.array([[np.cos(a), -np.sin(a), 0], [np.sin(a), np.cos(a), 0], [0, 0, 1]]))
+            o.__dict__["raft_tab"] = True
+            parts.append(o)
+        assert not layout.auto_layout(parts, (0, 0, 200, 120), layout.LayoutOptions(strategy="box", spacing=1.0, rotation="none"))
+        shapes = [layout.with_raft_tab(o, layout.footprint(o)) for o in parts]
+        for i in range(3):
+            for j in range(i + 1, 3):
+                assert shapes[i].intersection(shapes[j]).area < 0.5, (deg, i, j)
+
+
+def test_damaged_stl_with_nan_corner_loads_without_it(tmp_path):
+    """A triangle with a NaN / infinite corner (a damaged file) is left out: one such corner made every
+    bound, layout and slice of the plate NaN."""
+    import struct
+    from unislicer.mesh import load_mesh, save_stl
+    path = str(tmp_path / "part.stl")
+    save_stl(primitives.box(10, 10, 5), path)
+    data = bytearray(open(path, "rb").read())
+    struct.pack_into("<f", data, 84 + 12, float("nan"))            # first triangle, first corner x
+    open(path, "wb").write(bytes(data))
+    m = load_mesh(path)[0]
+    assert np.isfinite(m.vertices).all() and len(m.faces) == len(primitives.box(10, 10, 5).faces) - 1
+
+
+def test_replaced_window_lets_go_of_the_plate():
+    """After a language / theme switch the old window drops the plate, supports, history and slice it
+    handed over (each switch kept another full plate in memory)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents(); w.store.setValue("preslice", "false")
+        w.add_mesh(primitives.box(10, 10, 5)); w.add_mesh(primitives.box(8, 8, 5)); app.processEvents()
+        w.result = ("sla", object(), None)
+        w.release()
+        assert w.objects == [] and w._support_cache == {} and w._undo == [] and w.result is None
+        assert not w.viewer.objects
+        print("OK", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

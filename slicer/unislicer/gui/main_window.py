@@ -254,9 +254,27 @@ class MainWindow(QMainWindow):
                 "mode": "preview" if self.preview_btn.isChecked() else "prepare",
                 "geometry": self.saveGeometry(), "maximized": self.isMaximized()}
 
+    def release(self):
+        """A window replaced by a language / theme switch drops what it held - the plate, its supports, the
+        history, the slice, the model data in the 3D view - so it can be freed (it was kept, and every switch
+        added another full plate to the memory)."""
+        self._sup_pending.clear()
+        self._support_cache = {}
+        self.__dict__.pop("_geometry_cache", None)
+        self._undo, self._redo = [], []
+        self.result = None
+        self.__dict__.pop("_last_result", None)
+        for uid in list(self.viewer.objects):
+            self.viewer.remove_object(uid)
+        self.objects = []
+
     def _take_over(self, carry: dict):
         if carry.get("geometry") is not None:
             self.restoreGeometry(carry["geometry"])
+        if carry.get("result") is not None:            # building the window cleared it: the slice comes back
+            self.result, self.result_cfg = carry["result"], carry.get("result_cfg")
+            self.export_btn.setEnabled(self._exportable() is not None)
+            self.send_btn.setEnabled(self._exportable() is not None)
         cam = carry.get("camera")
         if cam is not None:
             c = self.viewer.camera
@@ -2173,6 +2191,7 @@ class MainWindow(QMainWindow):
         for o in list(self.objects):
             self.viewer.remove_object(o.uid)
         self.objects = []
+        self._sup_pending.clear()                      # no support builds for parts that are gone
         self._invalidate()
         self.__dict__.pop("_last_result", None)        # nothing of the old plate can be exported any more
         self._refresh_objects(select=None)
@@ -4588,8 +4607,11 @@ class MainWindow(QMainWindow):
         # the turn about Z is left out: the structure is kept in the part's own coordinates and turns with it
         # (a flat plate makes a turned structure as good as a new one), so turning a part - by hand or by
         # the auto layout - rebuilds nothing
+        # the height above the plate and the mesh itself are in it: a part lifted with Move to... got its
+        # old structure floating under it, and a repaired / closed mesh kept the one built on the open one
         return (o.uid, o.support_points.tobytes(), np.round(o.turn_free_matrix(), 6).tobytes(),
-                tuple(cfg[k] for k in keys), tuple(sorted(o.settings.items())), o.name)
+                tuple(cfg[k] for k in keys), tuple(sorted(o.settings.items())), o.name,
+                round(float(o.z), 4), id(o.mesh), id(o.mesh.vertices))
 
     def _support_preview_async(self, o: SceneObject, cfg) -> Mesh | None:
         """The support structure to draw now: the finished one, or - while a changed one is built in the

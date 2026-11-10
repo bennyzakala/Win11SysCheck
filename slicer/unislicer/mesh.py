@@ -41,6 +41,9 @@ class Mesh:
     def from_triangles(cls, triangles, name: str = "", tolerance: float = WELD_TOLERANCE) -> "Mesh":
         """Build an indexed mesh from a (F, 3, 3) triangle soup, welding coincident vertices."""
         tris = np.asarray(triangles, dtype=np.float64).reshape(-1, 3, 3)
+        finite = np.isfinite(tris).all(axis=(1, 2))
+        if not finite.all():                  # a damaged file: a NaN corner made every bound and slice NaN
+            tris = tris[finite]
         if len(tris) == 0:
             return cls(np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64), name)
         points = tris.reshape(-1, 3)
@@ -294,10 +297,25 @@ def load_mesh(path: str) -> list[Mesh]:
         meshes = model_rescue._read_any(data, name, [])
     else:
         raise ValueError(f"Unsupported file type: {ext}")
+    meshes = [_finite_only(m) for m in meshes]
     meshes = [m for m in meshes if len(m.faces)]
     if not meshes:
         raise ValueError("The file contains no triangles")
     return meshes
+
+
+def _finite_only(mesh: "Mesh") -> "Mesh":
+    """The mesh without triangles that touch a NaN / infinite corner (a damaged file): one such corner made
+    every bound, layout and slice of the plate NaN."""
+    bad = ~np.isfinite(mesh.vertices).all(axis=1)
+    if not bad.any():
+        return mesh
+    keep = ~bad[mesh.faces].any(axis=1)
+    out = Mesh.from_triangles(mesh.vertices[mesh.faces[keep]], mesh.name) if keep.any() else \
+        Mesh(np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64), mesh.name)
+    if "material" in mesh.__dict__:
+        out.material = mesh.material
+    return out
 
 
 def _read_stl(path: str) -> np.ndarray:
