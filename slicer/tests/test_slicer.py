@@ -7039,7 +7039,7 @@ def test_a_slice_of_the_plate_before_a_change_never_comes_back_as_current(tmp_pa
         app = QApplication([])
         from unislicer import primitives
         from unislicer.gui.main_window import MainWindow
-        w = MainWindow()
+        w = MainWindow(); w.show(); app.processEvents()
         w.store.setValue("preslice", "false")
         o = w.add_mesh(primitives.box(20, 10, 5)); app.processEvents()
         o.direct = True
@@ -7055,8 +7055,10 @@ def test_a_slice_of_the_plate_before_a_change_never_comes_back_as_current(tmp_pa
         while w.result is None and time.time() < end:
             app.processEvents(); time.sleep(0.02)
         assert w.result is not None
-        print("ok")
-        os._exit(0)
+        if w.task is not None:
+            w.task.wait()
+        w._stop_preslice()
+        print("ok", flush=True)
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     _home = str(tmp_path / "home")
@@ -7112,3 +7114,13 @@ def test_export_draws_the_report_picture_off_the_window_thread(tmp_path):
     env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_two_exports_of_one_name_never_get_the_same_file(tmp_path):
+    """The print file appears only when its export is complete: a second export of the same name started
+    meanwhile was given the same path and silently replaced the first. A path handed out is reserved."""
+    from unislicer import export_library
+    lib = str(tmp_path / "prints")
+    a = export_library.target_path(lib, "case 12", ".ctb")
+    b = export_library.target_path(lib, "case 12", ".ctb")
+    assert a != b and b.endswith("case 12 (2).ctb"), (a, b)

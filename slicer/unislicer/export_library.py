@@ -68,6 +68,12 @@ def safe_name(name: str, fallback: str = "print") -> str:
 MAX_PATH = 240       # Windows refuses longer paths unless long paths are switched on (they are not by default)
 
 
+import threading as _threading
+
+_HANDED_OUT: set = set()
+_HANDED_OUT_LOCK = _threading.Lock()
+
+
 def target_path(library: str, name: str, ext: str) -> str:
     """<library>/<name>/<name><ext>; an existing file is kept and the new one becomes '<name> (2)<ext>'...
     A long name is shortened so the whole path stays within what Windows accepts."""
@@ -80,7 +86,11 @@ def target_path(library: str, name: str, ext: str) -> str:
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, name + ext)
     k = 2
-    while os.path.exists(path):
-        path = os.path.join(folder, f"{name} ({k}){ext}")
-        k += 1
+    with _HANDED_OUT_LOCK:
+        # a path handed out is reserved: the print file appears only when its export is complete, so a
+        # second export of the same name started meanwhile got the same path and replaced the first
+        while os.path.exists(path) or os.path.normcase(os.path.abspath(path)) in _HANDED_OUT:
+            path = os.path.join(folder, f"{name} ({k}){ext}")
+            k += 1
+        _HANDED_OUT.add(os.path.normcase(os.path.abspath(path)))
     return path
