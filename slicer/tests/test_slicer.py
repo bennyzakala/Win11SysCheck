@@ -7124,3 +7124,20 @@ def test_two_exports_of_one_name_never_get_the_same_file(tmp_path):
     a = export_library.target_path(lib, "case 12", ".ctb")
     b = export_library.target_path(lib, "case 12", ".ctb")
     assert a != b and b.endswith("case 12 (2).ctb"), (a, b)
+
+
+def test_print_check_does_not_call_an_engraved_label_thin():
+    """The print check's "thinner than 0.3 mm" counted the strips between the letters of a label engraved in a
+    model's side - every layer through the label (39 layers of a lab antagonist, 16 of a lab model) - and its
+    Fix thickened them, filling the label. Strips touching the model's own narrow grooves are left out; a thin
+    wall standing out and a thin ring (a crown's margin) are still reported."""
+    from shapely.geometry import box as sbox, Point
+    wall = sbox(0, 0, 30, 10)
+    grooves = shapely.union_all([sbox(5 + k * 0.7, 0, 5 + k * 0.7 + 0.4, 0.4) for k in range(12)])
+    label = sla.as_multipolygon(wall.difference(grooves))
+    assert sla._thin_chunk([label], 0.15, 0.05)[0].area < 0.05
+    pin = sbox(40, 0, 40.2, 6)
+    with_pin = shapely.MultiPolygon([*sla.polygons_of(label), pin])
+    assert sla._thin_chunk([with_pin], 0.15, 0.05)[0].area > 1.0
+    margin = sla.as_multipolygon(Point(60, 60).buffer(5, 64).difference(Point(60, 60).buffer(4.8, 64)))
+    assert sla._thin_chunk([margin], 0.15, 0.05)[0].area > 0.5 * margin.area

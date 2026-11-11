@@ -237,8 +237,26 @@ def _thin_chunk(layers: list, r: float, min_area: float = 0.0) -> list:
         if g.area - opened.area < min_area:
             out.append(EMPTY)
             continue
-        out.append(as_multipolygon(g.difference(opened.buffer(0.01, quad_segs=4))))
+        thin = as_multipolygon(g.difference(opened.buffer(0.01, quad_segs=4)))
+        out.append(_without_groove_walls(thin, g, r))
     return out
+
+
+def _without_groove_walls(thin, g, r: float):
+    """The thin parts that are features of their own: not the strips of material between the narrow grooves
+    of the model itself - the letters of a label engraved in its side are 0.3-0.5 mm apart, so every layer
+    through the label read as "thinner than 0.3 mm" and the print check offered to thicken them (which
+    filled the label). A strip touching such a groove (a gap a little wider than the growth would fill) is
+    left out; a thin wall or margin standing out is still reported."""
+    if thin.is_empty:
+        return thin
+    c = r * 2.5
+    grooves = g.buffer(c, join_style="mitre").buffer(-c, join_style="mitre").difference(g)
+    if grooves.is_empty or grooves.area < 1e-4:
+        return thin
+    near = grooves.buffer(0.02, quad_segs=2)
+    kept = [p for p in polygons_of(thin) if not p.intersects(near)]
+    return as_multipolygon(shapely.union_all(kept)) if kept else EMPTY
 
 
 def _thicken_chunk(layers: list, r: float, min_area: float = 0.05) -> list:
