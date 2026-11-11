@@ -1201,6 +1201,12 @@ def _auto_bottom_compensation(layers: list, models: list, planes: list, cfg: Con
     from .slicing import slice_mesh
     plate_parts = Mesh.merge([models[i] for i in on_plate])
     sections = slice_mesh(plate_parts, planes[:n], cfg["resolution"])
+    xy = float(cfg["xy_compensation"])
+    if xy > 0:
+        # the layers were grown by the XY compensation already: grown the same, the parts' sections hold that
+        # rim too (it fell outside them, stayed as it was and stood apart as a separate ring)
+        sections = [sec.buffer(xy, join_style="mitre", mitre_limit=3).buffer(1e-3) if not sec.is_empty else sec
+                    for sec in sections]
     out = list(layers)
     for i in range(n):
         f = AUTO_FOOT if i < nb else AUTO_FOOT * (1.0 - (i - nb + 1) / (nt + 1))
@@ -1380,6 +1386,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             # pillars only inside the model's cavity, from the plate / inner floor up to the ceiling
             ckey = ("cavity-pillars", g_keys, tuple(round(p, 6) for p in planes), cfg["resolution"],
                     tuple(gcfg[k] for k in HOLLOW_KEYS), cfg["xy_compensation"],
+                    gcfg["support_enable"], gcfg["sla_pillar_diameter"],     # the hollowing's pillars depend on them
                     tuple(bool(filled and i < len(filled) and filled[i]) for i in idx),     # "Fill cavity" changes the layers
                     tuple(gcfg[k] for k in ("sla_cavity_outside", "sla_cavity_diameter", "sla_cavity_spacing")))
             hit = _cache_get(ckey)
@@ -1431,6 +1438,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
                     tuple(round(p, 6) for p in planes), cfg["resolution"], cfg["xy_compensation"], lh,
                     tuple(bool(filled and i < len(filled) and filled[i]) for i in range(len(models))),
                     tuple(tuple(c[k] for k in HOLLOW_KEYS) + (c["support_enable"], c["sla_pillar_diameter"]) for c in cfgs),
+                    jetting,                                   # PolyJet is never hollowed: not the LCD run's layers
                     bool(cfg["sla_thicken_thin"]))
     post = _cache_get(post_key) if post_key else None
     base_key = post_key[:-1] + (False,) if post_key and post_key[-1] else None
@@ -1562,7 +1570,9 @@ def render_layer(geom: MultiPolygon, cfg: Config) -> Image.Image:
     rx, ry = int(cfg["resolution_x"]), int(cfg["resolution_y"])
     aa = int(cfg["antialiasing"])
     image = Image.new("L", (rx, ry), 0)
-    polys = sorted(polygons_of(geom), key=lambda p: -p.area)
+    # outermost first, by the area its outline encloses (not its own area): a thin ring (a shell's wall)
+    # painted after a solid part sitting in its hole cleared that part with its hole
+    polys = sorted(polygons_of(geom), key=lambda p: -shapely.Polygon(p.exterior).area)
     if not polys:
         return image
     sx = rx / cfg["bed_x"]
@@ -1592,7 +1602,7 @@ def render_layer(geom: MultiPolygon, cfg: Config) -> Image.Image:
         px, py = to_px(coords)
         return list(zip(((px - x0) * aa).tolist(), ((py - y0) * aa).tolist()))
 
-    for p in polys:  # largest first, so islands inside holes are painted after the hole
+    for p in polys:  # outermost first, so islands inside holes are painted after the hole
         draw.polygon(ring(p.exterior.coords), fill=255)
         for hole in p.interiors:
             draw.polygon(ring(hole.coords), fill=0)

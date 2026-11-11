@@ -5238,6 +5238,9 @@ class MainWindow(QMainWindow):
 
     # ================================================================ slicing
     def _invalidate(self):
+        # the plate changed: a slice of the old plate that is done but not yet handed over must not come back
+        # as the current one (its result was queued while the window was busy: Export wrote the old plate)
+        self._plate_gen = self.__dict__.get("_plate_gen", 0) + 1
         if self.task is not None and self.task.isRunning():
             self.task.cancel()
             self.__dict__.pop("_send_after_slice", None)      # that slice will not finish: nothing to send
@@ -5507,9 +5510,15 @@ class MainWindow(QMainWindow):
         return box.clickedButton() is anyway
 
     def _start_task(self, fn, on_done, busy_text):
-        self.task = Task(fn, self)
+        task = self.task = Task(fn, self)
+        gen = self.__dict__.get("_plate_gen", 0)
+
+        def done(result):
+            # only the current task's result, and only for the plate as it was sliced
+            if task is self.task and self.__dict__.get("_plate_gen", 0) == gen:
+                on_done(result)
         self.task.progress.connect(self._on_progress)
-        self.task.succeeded.connect(on_done)
+        self.task.succeeded.connect(done)
         self.task.failed.connect(self._on_failed)
         self.task.finished.connect(self._on_task_finished)
         self.progress.setValue(0)

@@ -6955,3 +6955,111 @@ def test_model_gingiva_is_a_gingiva_mask_turned_flat_side_up():
     d2 = dental_cad.flat_side(two)
     assert d2 is not None and abs(d2[2]) > 0.99, d2                  # the seat, not the flank
     assert dental_cad.flat_side(primitives.box(18, 20, 7))[2] > 0.99   # top and bottom alike: the one up stays
+
+
+def test_a_part_inside_a_thin_rings_hole_is_drawn():
+    """The layer image painted the parts largest-area first: a thin ring (a shell's wall) painted after a
+    solid part standing in its hole cleared that part with its hole - it was missing from every print file."""
+    from shapely.geometry import Point
+    from unislicer.slicing import as_multipolygon
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {})
+    ring = Point(60, 60).buffer(10, 64).difference(Point(60, 60).buffer(9.5, 64))     # 30.6 mm2
+    rod = Point(60, 60).buffer(4, 64)                                                    # 50.3 mm2, inside it
+    g = as_multipolygon(ring.union(rod))
+    img = np.asarray(sla.render_layer(g, cfg))
+    sx, sy = cfg["resolution_x"] / cfg["bed_x"], cfg["resolution_y"] / cfg["bed_y"]
+    assert img[int((cfg["bed_y"] - 60) * sy), int(60 * sx)] == 255
+    assert abs((img > 127).sum() - g.area * sx * sy) < 0.03 * g.area * sx * sy
+
+
+def test_slice_caches_keep_process_supports_and_xy_compensation_apart():
+    """Three slice results that came out wrong: with an XY compensation the automatic bottom compensation left
+    the grown rim as a ring standing apart (the base not pulled in); a PolyJet slice took the LCD run's hollowed
+    layers from the cache; supports switched off kept the cavity pillars of the run with supports."""
+    from unislicer.slicing import polygons_of
+    m = primitives.box(10, 10, 3).translated([50, 50, 0])
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": False, "xy_compensation": 0.05,
+                                "bottom_xy_auto": True, "bottom_xy_compensation": 0.0, "sla_island_pillars": False})
+    job = sla.prepare([m], cfg)
+    ps = polygons_of(job.layers[0])
+    assert len(ps) == 1 and not ps[0].interiors and job.layers[0].bounds[0] > 50.0, (len(ps), job.layers[0].bounds)
+    m2 = primitives.box(20, 20, 6).translated([50, 50, 0])
+    base = {"support_enable": False, "hollow_enable": True, "hollow_wall": 1.5, "sla_island_pillars": False}
+    sla.clear_cache()
+    lcd = sla.prepare([m2], profiles.build_config("phrozen_sonic_ls_plus", None, None, dict(base, sla_process="lcd")))
+    jet = sla.prepare([m2], profiles.build_config("phrozen_sonic_ls_plus", None, None, dict(base, sla_process="polyjet")))
+    assert jet.layers[60].area > lcd.layers[60].area * 2                 # solid, not the LCD run's shell
+    pil = {"hollow_enable": True, "hollow_wall": 1.5, "sla_island_pillars": False, "hollow_infill": "none",
+           "sla_cavity_pillars": True, "sla_internal_supports": True, "drain_holes": 0}
+    sla.clear_cache()
+    off = sla.prepare([m2], profiles.build_config("phrozen_sonic_ls_plus", None, None, dict(pil, support_enable=False)), direct=[True])
+    sla.prepare([m2], profiles.build_config("phrozen_sonic_ls_plus", None, None, dict(pil, support_enable=True)), direct=[True])
+    again = sla.prepare([m2], profiles.build_config("phrozen_sonic_ls_plus", None, None, dict(pil, support_enable=False)), direct=[True])
+    assert abs(again.layers[60].area - off.layers[60].area) < 1e-6
+
+
+def test_closing_a_horseshoes_open_base_adds_no_web_between_its_arms():
+    """A dental arch scanned with an open base: the hole was lidded with a fan from its centre, which lies
+    between the arms - the closed model had a web of resin across the horseshoe (64 mm2 at the plate).
+    A hole the fan cannot cover is ear-clipped. And the advanced repair of a file with every face twice took a
+    minute (a search per duplicate)."""
+    import time
+    import shapely as sh
+    from shapely.geometry import Point
+    from unislicer import mesh_tools
+    outer, inner = Point(0, 0).buffer(25, quad_segs=32), Point(0, 0).buffer(15, quad_segs=32)
+    U = sh.segmentize(outer.difference(inner).intersection(sh.box(-30, -2, 30, 30)), 1.0)
+    closed = mesh_tools.extrude(U, 0.0, 10.0)
+    v = closed.vertices.copy()
+    v[:, 2] += 1.5 * np.sin(v[:, 0] / 4.0) * (1 - v[:, 2] / 10.0)          # a scan's base edge is not flat
+    n = Mesh(v, closed.faces).face_normals()
+    bottom = (n[:, 2] < -0.5) & (v[closed.faces][:, :, 2].max(axis=1) < 2)
+    open_scan = Mesh(v, closed.faces[~bottom])
+    fixed, _steps, ok = mesh_tools.make_watertight(open_scan)
+    assert ok
+    for g in slice_mesh(fixed, [0.0, 0.5, 1.0]):
+        assert g.difference(U.buffer(0.05)).area < 0.5, g.difference(U.buffer(0.05)).area
+    ball = primitives.sphere(20, 120, 240)
+    twice = Mesh(ball.vertices, np.vstack([ball.faces, ball.faces]), "twice")
+    t0 = time.time()
+    r, rep = mesh_tools.repair_advanced(twice)
+    assert rep["duplicates_removed"] == len(ball.faces) and rep["after"]["watertight"]
+    assert time.time() - t0 < 20
+
+
+def test_a_slice_of_the_plate_before_a_change_never_comes_back_as_current(tmp_path):
+    """A slice that finished while the window was busy had its result queued; the user moved a part before it
+    was handled, and the old plate's slice still became the current one - the window went to preview and
+    Export wrote the old plate. A result for the plate as it was is dropped."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow()
+        w.store.setValue("preslice", "false")
+        o = w.add_mesh(primitives.box(20, 10, 5)); app.processEvents()
+        o.direct = True
+        w._objects_changed()
+        w.slice()
+        w.task.wait()                                 # done; its result waits in the queue
+        w._push_undo(); o.x += 30; w._objects_changed()
+        for _ in range(30):
+            app.processEvents(); time.sleep(0.02)
+        assert w.result is None and w.viewer.mode != "preview", (w.result is not None, w.viewer.mode)
+        w.slice()                                     # a fresh slice of the plate as it is now still comes in
+        end = time.time() + 60
+        while w.result is None and time.time() < end:
+            app.processEvents(); time.sleep(0.02)
+        assert w.result is not None
+        print("ok")
+        os._exit(0)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1", UNISLICER_WORKERS="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

@@ -492,6 +492,39 @@ def _vertex_components(n_vertices: int, f: np.ndarray) -> np.ndarray:
     return lab
 
 
+def _lid(v: np.ndarray, loop: list, centre_index: int):
+    """Faces that close one hole ``loop`` (vertex indices, in the order that faces it): a fan from its centre
+    (index ``centre_index``, a new vertex at the loop's mean) when every fan triangle faces the way the hole
+    does - else the fan folds over itself (a horseshoe-shaped open base: a web of resin between its arms)
+    and the loop is ear-clipped. Returns (faces, uses_centre)."""
+    pts = v[loop]
+    c = pts.mean(axis=0)
+    try:
+        _, _, vt = np.linalg.svd(pts - c)
+        u, w = vt[0], vt[1]
+        p2 = np.column_stack([(pts - c) @ u, (pts - c) @ w])
+        q = np.roll(p2, -1, axis=0)
+        cross = p2[:, 0] * q[:, 1] - p2[:, 1] * q[:, 0]          # each fan triangle (centre, k, k+1), twice its area
+        total = cross.sum()
+        star = abs(total) > 1e-12 and np.all(cross * np.sign(total) > -1e-9 * abs(total))
+    except Exception:
+        star = True
+    if star or len(loop) > 2000:                                  # (a huge loop: ear clipping would take too long)
+        return [[loop[k], loop[(k + 1) % len(loop)], centre_index] for k in range(len(loop))], True
+    tris = _triangulate_loop(pts)
+    faces = [[loop[a], loop[b], loop[cc]] for a, b, cc in tris]
+    # ear clipping works in the loop's own winding: keep the winding the fan would have had
+    if faces:
+        a, b, cc = faces[0]
+        n_tri = np.cross(v[b] - v[a], v[cc] - v[a])
+        ref = np.zeros(3)
+        for k in range(len(loop)):
+            ref += np.cross(v[loop[k]] - c, v[loop[(k + 1) % len(loop)]] - c)
+        if n_tri @ ref < 0:
+            faces = [[x, z, y] for x, y, z in faces]
+    return faces, False
+
+
 def _repair_fast(v: np.ndarray, f: np.ndarray, report: dict, fill_holes: bool, name: str):
     """``repair`` for the usual case, vectorised: every edge shared by at most two faces that already wind
     consistently (a scan with holes). Returns None when the mesh needs the general repair."""
@@ -543,13 +576,15 @@ def _repair_fast(v: np.ndarray, f: np.ndarray, report: dict, fill_holes: bool, n
             cur = nxt[cur][0]
         if len(loop) >= 3 and cur == start:
             centre = len(v) + len(extra)
-            extra.append(v[loop].mean(axis=0))
-            for k in range(len(loop)):
-                new_faces.append([loop[k], loop[(k + 1) % len(loop)], centre])
+            faces, fanned = _lid(v, loop, centre)
+            if fanned:
+                extra.append(v[loop].mean(axis=0))
+            new_faces += faces
             report["holes_filled"] += 1
     if new_faces:
         f = np.vstack([f, np.array(new_faces)])
-        v = np.vstack([v, np.array(extra)])
+        if extra:
+            v = np.vstack([v, np.array(extra)])
     out = Mesh(v, f, name)
     out.remove_degenerate()
     return out
@@ -662,9 +697,10 @@ def repair(mesh: Mesh, fill_holes: bool = True) -> tuple[Mesh, dict]:
             cur = nxt[cur][0]
         if len(loop) >= 3 and cur == start:
             centre = len(verts)
-            verts.append(v[loop].mean(axis=0))
-            for k in range(len(loop)):
-                new_faces.append([loop[k], loop[(k + 1) % len(loop)], centre])
+            faces, fanned = _lid(v, loop, centre)
+            if fanned:
+                verts.append(v[loop].mean(axis=0))
+            new_faces += faces
             report["holes_filled"] += 1
     if new_faces:
         f = np.vstack([f, np.array(new_faces)])
@@ -799,8 +835,12 @@ def repair_advanced(mesh: Mesh, weld: float = 1e-4, remove_shells_below: float =
             first[g] = i
     # a group of 2 with opposite winding is an internal wall: drop both; otherwise keep one
     walls = 0
+    # the faces of each repeated group, found once by sorting (a search per group was quadratic: a file with
+    # every triangle twice took a minute)
+    by_group = np.argsort(inv, kind="stable")
+    starts = np.concatenate([[0], np.cumsum(cnt)])
     for g in np.flatnonzero(cnt > 1):
-        members = np.flatnonzero(inv == g)
+        members = by_group[starts[g]:starts[g + 1]]
         a, b = f[members[0]], f[members[1]]
         opposite = len(members) == 2 and ({(a[0], a[1]), (a[1], a[2]), (a[2], a[0])}
                                          & {(b[1], b[0]), (b[2], b[1]), (b[0], b[2])})
