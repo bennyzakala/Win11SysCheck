@@ -84,6 +84,13 @@ BRAND_IMAGE = ""      # built-in brand artwork in gui/brand/ (e.g. "prodentix")
 BRAND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brand")
 
 
+def app_icon() -> QIcon:
+    """The program's icon (the Prodentix fox on UniSlicer's layers - tools/make_icon.py), the same in every
+    theme: the window, the taskbar and the Alt+Tab list show what the exe and the shortcuts show."""
+    path = os.path.join(BRAND_DIR, "app_icon.png")
+    return QIcon(path) if os.path.isfile(path) else icon("layers", ACCENT, 64)
+
+
 def brand_pixmap(part: str, height: int) -> QPixmap | None:
     """Built-in brand artwork (``part`` = mark | wordmark | logo) scaled to ``height`` px, or None."""
     if not BRAND_IMAGE:

@@ -133,10 +133,7 @@ def run(paths: list[str] | None = None) -> int:
     store = QSettings(SETTINGS_ORG, SETTINGS_ORG)
     theme.set_theme(str(store.value("theme", "dark")), str(store.value("logo_file", "")))
     theme.apply(app)
-    app.setWindowIcon(theme.icon("layers", theme.ACCENT, 64))
-    if theme.brand_pixmap("mark", 64) is not None:
-        from PySide6.QtGui import QIcon
-        app.setWindowIcon(QIcon(theme.brand_pixmap("mark", 64)))
+    app.setWindowIcon(theme.app_icon())
     _trace(f"QApplication ready, platform={app.platformName()}")
     from .crash_dialog import CrashReporter
     reporter = CrashReporter(lambda: state["window"], app)
@@ -192,9 +189,6 @@ def run(paths: list[str] | None = None) -> int:
         store.setValue("logo_file", logo)
         theme.set_theme(name, logo)
         theme.apply(app)
-        mark = theme.brand_pixmap("mark", 64)
-        from PySide6.QtGui import QIcon
-        app.setWindowIcon(QIcon(mark) if mark is not None else theme.icon("layers", theme.ACCENT, 64))
         open_window(win.objects, old=win)
 
     def switch_language(win, code):

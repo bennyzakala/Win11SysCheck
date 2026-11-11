@@ -6812,3 +6812,28 @@ def test_a_crash_while_saving_never_breaks_the_project(tmp_path):
     os.utime(old, (time.time() - 7200, time.time() - 7200))
     project.save(out, objs, state)
     assert not old.exists() and fresh.exists()
+
+
+def test_the_program_icon_is_the_prodentix_one_everywhere():
+    """One icon - the Prodentix fox on the layers (tools/make_icon.py) - for the exe and the installer (every
+    size Windows asks for), the running window in every theme, and the phone control page."""
+    from PIL import Image
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ico = Image.open(os.path.join(root, "packaging", "unislicer.ico"))
+    assert {(16, 16), (24, 24), (32, 32), (48, 48), (256, 256)} <= set(ico.ico.sizes())
+    app_png = Image.open(os.path.join(root, "unislicer", "gui", "brand", "app_icon.png")).convert("RGB")
+    px = np.asarray(app_png, dtype=int).reshape(-1, 3)
+    pink = (np.abs(px - [235, 26, 145]).sum(axis=1) < 60).mean()
+    assert pink > 0.03                                 # the Prodentix magenta is in it
+    for name, size in (("icon-192.png", 192), ("icon-512.png", 512), ("icon-maskable-512.png", 512)):
+        assert Image.open(os.path.join(root, "remote_web", name)).size == (size, size)
+    import subprocess, sys
+    code = ("import os; os.environ['QT_QPA_PLATFORM'] = 'offscreen'\n"
+            "from PySide6.QtWidgets import QApplication; app = QApplication([])\n"
+            "from unislicer.gui import theme\n"
+            "for name in ('dark', 'light', 'prodentix'):\n"
+            "    theme.set_theme(name, '')\n"
+            "    assert not theme.app_icon().isNull() and theme.app_icon().availableSizes(), name\n"
+            "print('ok')\n")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-1000:] + r.stderr[-2000:]
