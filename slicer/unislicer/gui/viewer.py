@@ -1776,17 +1776,40 @@ class Viewer(QOpenGLWidget):
             self.update()
 
     def objects_in_rect(self, rect) -> list:
-        """uids whose bounding-box centre projects inside the widget rectangle ``rect``."""
-        mvp = self.camera.projection(self.width() / max(1, self.height())) @ self.camera.view()
+        """uids of the parts the box-selection frame ``rect`` touches - any bit of the part as drawn on the
+        screen, as in Windows Explorer and CHITUBOX. Only parts whose box centre fell inside were taken: a
+        frame over half an arch, or across a row of crowns, missed them."""
+        import shapely
+        x0, y0, x1, y1 = rect.left(), rect.top(), rect.right(), rect.bottom()
+        frame = shapely.box(x0, y0, x1, y1)
         out = []
         for uid, obj in self.objects.items():
-            box = self._world_box(obj)
-            c = mvp @ np.append((box[0] + box[1]) / 2, 1.0)
-            if c[3] <= 0:
+            if obj.get("hidden"):
                 continue
-            x = (c[0] / c[3] * 0.5 + 0.5) * self.width()
-            y = (0.5 - c[1] / c[3] * 0.5) * self.height()
-            if rect.contains(int(x), int(y)):
+            lo, hi = self._world_box(obj)
+            corners = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])])
+            cxy, cfront = self._to_screen(corners)
+            if cfront.all() and (cxy[:, 0].max() < x0 or cxy[:, 0].min() > x1 or cxy[:, 1].max() < y0
+                                 or cxy[:, 1].min() > y1):
+                continue                                      # nowhere near the frame
+            mesh = obj["mesh"]
+            light = mesh.decimated(20000) if len(mesh.faces) > 20000 else mesh
+            m = obj["matrix"]
+            world = light.vertices @ m[:3, :3].T + m[:3, 3]
+            xy, front = self._to_screen(world)
+            inside = front & (xy[:, 0] >= x0) & (xy[:, 0] <= x1) & (xy[:, 1] >= y0) & (xy[:, 1] <= y1)
+            if inside.any():
+                out.append(uid)
+                continue
+            # a thin frame across the part with no corner of it inside: its triangles
+            f = light.faces[front[light.faces].all(axis=1)]
+            if not len(f):
+                continue
+            t = xy[f]
+            near = ((t[:, :, 0].max(axis=1) >= x0) & (t[:, :, 0].min(axis=1) <= x1)
+                    & (t[:, :, 1].max(axis=1) >= y0) & (t[:, :, 1].min(axis=1) <= y1))
+            t = t[near]
+            if len(t) and shapely.intersects(shapely.polygons(np.concatenate([t, t[:, :1]], axis=1)), frame).any():
                 out.append(uid)
         return out
 

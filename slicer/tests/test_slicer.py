@@ -7596,3 +7596,53 @@ def test_raft_and_support_density_change_only_the_selected_models(tmp_path):
     env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_the_selection_frame_takes_every_part_it_touches(tmp_path):
+    """Box selection took only parts whose box centre fell inside the frame: a frame over half an arch, or
+    across a row of crowns, took nothing (reported from the lab). Any part the frame touches is taken - also
+    a thin frame crossing a part with none of its corners inside; a frame over empty plate takes nothing."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        import numpy as np, shapely
+        from shapely.geometry import Point
+        from PySide6.QtCore import QRect
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives, mesh_tools
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        shape = Point(0, 0).buffer(25, 48).difference(Point(0, 0).buffer(18, 48)).intersection(shapely.box(-30, -2, 30, 30))
+        arch = w.add_mesh(mesh_tools.extrude(shape, 0.0, 10.0), rearrange=False)
+        crowns = [w.add_mesh(primitives.box(7, 7, 6), rearrange=False) for _ in range(4)]
+        arch.x, arch.y = 70.0, 70.0
+        for k, c in enumerate(crowns):
+            c.x, c.y = 50.0 + 12.0 * k, 30.0
+        w._objects_changed(); app.processEvents()
+        v = w.viewer
+        v.view_preset("top"); v.fit_objects(); app.processEvents()
+        def px(x, y, z=0.0):
+            xy, _ = v._to_screen(np.array([[x, y, z]]))
+            return int(xy[0][0]), int(xy[0][1])
+        def frame(xa, ya, xb, yb):
+            (ax, ay), (bx, by) = px(xa, ya), px(xb, yb)
+            return QRect(min(ax, bx), min(ay, by), abs(bx - ax) + 1, abs(by - ay) + 1)
+        ab = arch.world_bounds()
+        got = v.objects_in_rect(frame(ab[0][0] - 3, ab[0][1] - 3, ab[0][0] + 4, ab[0][1] + 3))   # the end of one arm
+        assert got == [arch.uid], got
+        cb = [c.world_bounds() for c in crowns]
+        ymid = (cb[0][0][1] + cb[0][1][1]) / 2
+        got = v.objects_in_rect(frame(cb[0][0][0] - 3, ymid - 0.3, cb[-1][1][0] + 3, ymid + 0.3))  # a thin strip
+        assert sorted(got) == sorted(c.uid for c in crowns), got
+        got = v.objects_in_rect(frame(150, 100, 170, 110))                                         # empty plate
+        assert got == [], got
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
