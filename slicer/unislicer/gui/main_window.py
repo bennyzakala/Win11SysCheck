@@ -4408,6 +4408,37 @@ class MainWindow(QMainWindow):
             o.settings.pop(key, None)
         self._refresh_objects(select=[o.uid for o in self.selected_objects()])
 
+    def _needs_supports(self, group, cfg=None):
+        """The parts of ``group`` a raft choice has nothing to show on yet: standing on the plate or with no
+        supports, and a raft chosen for them. A raft stands under supports, so these get supports."""
+        cfg = cfg or self.settings.config()
+        return [o for o in group if o.role != "cutter"
+                and (o.direct or o.support_points is None or not len(o.support_points))
+                and o.config(cfg)["sla_raft_type"] != "none"]
+
+    def _generate_for(self, parts, keep=None):
+        """Supports for exactly ``parts`` (parts on the plate leave it), as one step with the change before it;
+        the selection is put back after."""
+        if not parts:
+            return
+        keep = [o.uid for o in self.selected_objects()] if keep is None else keep
+        self._syncing = True
+        self.object_list.clearSelection()
+        self.object_list.setCurrentItem(None)
+        for i, o in enumerate(parts):
+            it = self._item(o.uid)
+            if it is not None:
+                if i == 0:
+                    self.object_list.setCurrentItem(it)
+                it.setSelected(True)
+        self._syncing = False
+        held, self._undo_held = getattr(self, "_undo_held", False), True
+        try:
+            self._generate_supports()
+        finally:
+            self._undo_held = held
+        self._refresh_objects(select=keep)
+
     def set_selected_support_preset(self, preset):
         """Supports light / medium / heavy for the selected models only (their own setting; None: back to the
         plate's); models that had supports get new ones at once. The side panel's preset is the plate's."""
@@ -4424,21 +4455,11 @@ class MainWindow(QMainWindow):
                 o.settings["sla_support_preset"] = preset
             for k in ("sla_support_spacing", "support_angle", "sla_tip_diameter", "sla_pillar_diameter", "sla_density"):
                 o.settings.pop(k, None)          # the preset sets these: an older own value would hide it
-        if had:
-            keep = [o.uid for o in group]
-            self._syncing = True
-            self.object_list.clearSelection()
-            for o in had:
-                it = self._item(o.uid)
-                if it is not None:
-                    it.setSelected(True)
-            self._syncing = False
-            self._undo_held = True               # one Ctrl+Z for the whole change
-            try:
-                self._generate_supports()
-            finally:
-                self._undo_held = False
-            self._refresh_objects(select=keep)
+        # supports chosen for these parts: they get them - also parts on the plate or with none yet (they leave
+        # the plate); back to the plate's density rebuilds only the parts that had supports
+        todo = had if preset is None else group
+        if todo:
+            self._generate_for(todo, keep=[o.uid for o in group])     # one Ctrl+Z for the whole change
         else:
             self._objects_changed(refresh_list=False)
         self.status.setText(tr("sup_density_done").format(len(group)))
@@ -5058,6 +5079,9 @@ class MainWindow(QMainWindow):
                 self._push_undo()
                 for o in group:
                     o.settings[key] = value          # the support mesh is rebuilt from the model's own settings
+                if key == "sla_raft_type":
+                    # a raft chosen for parts on the plate / with no supports yet: they get supports and the raft
+                    self._generate_for(self._needs_supports(group))
             else:
                 self.settings.set_value(key, value)
             fill()
@@ -5408,6 +5432,12 @@ class MainWindow(QMainWindow):
         if action == "supports":
             self.generate_supports()
             self.status.setText(tr("applied_supports").format(name))
+        elif action == "raft" and self._scope_group() and key == "sla_raft_type" \
+                and self._needs_supports(self._scope_group()):
+            # the selected parts' raft: those on the plate or with no supports get supports and the raft
+            self._generate_for(self._needs_supports(self._scope_group()))
+            self._update_raft_view(self.settings.config())
+            self.status.setText(tr("applied_raft").format(name))
         elif action == "raft":
             if not any(o.support_points is not None and len(o.support_points) for o in self.objects):
                 self.generate_supports()             # a raft stands under supports

@@ -7653,6 +7653,62 @@ def test_a_blocked_learning_sync_is_a_network_message_not_a_program_bug(tmp_path
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_a_raft_or_supports_chosen_for_parts_on_the_plate_gives_them_supports_and_raft(tmp_path):
+    """Lab: models standing on the plate (no supports) were selected and given Solid lite - nothing appeared on
+    them. A raft or supports chosen for selected parts is what is done: they leave the plate and get supports
+    with their raft (from the raft window, the side panel or the density menu); the other parts stay as they are."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui.settings_panel import SettingRow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus")
+        import time
+        end = time.time() + 1.0
+        while time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        w.settings.set_simple(False); w.settings._on_advanced(True); app.processEvents()
+        parts = [w.add_mesh(primitives.box(14, 12, 8)) for _ in range(4)]
+        for o in parts:
+            o.direct = True; o.support_points = None
+        a, b, c, d = parts
+        w._objects_changed(); app.processEvents()
+        has = lambda o: (not o.direct) and o.support_points is not None and len(o.support_points) > 0
+        undo0 = len(w._undo)
+        w._select_uid(a.uid); app.processEvents()
+        w.raft_menu(); app.processEvents()
+        rows = {r.setting.key: r for r in w._raft_dialog.findChildren(SettingRow)}
+        rows["sla_raft_type"].changed.emit("sla_raft_type", "solid_lite"); app.processEvents()
+        w._raft_dialog.close()
+        assert has(a) and a.settings["sla_raft_type"] == "solid_lite", (a.direct, a.support_points)
+        assert not has(b) and b.direct and not has(c) and not has(d)
+        assert len(w._undo) == undo0 + 1                                  # one Ctrl+Z
+        w._select_uid(b.uid); app.processEvents()                         # the side panel
+        row = w.settings._rows["sla_raft_type"]
+        row.changed.emit("sla_raft_type", "grid"); row.applied.emit("sla_raft_type"); app.processEvents()
+        assert has(b) and b.config(w.settings.config())["sla_raft_type"] == "grid"
+        assert not has(c) and c.direct
+        w._select_uid(c.uid); app.processEvents()                         # the density menu
+        w.set_selected_support_preset("heavy"); app.processEvents()
+        assert has(c) and not has(d) and d.direct
+        assert w.settings.config()["sla_raft_type"] != "grid"             # the plate kept its raft
+        w.undo(); app.processEvents()
+        assert c.direct and not c.settings.get("sla_support_preset")
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_side_panel_raft_and_support_type_change_only_the_selected_models(tmp_path):
     """With models selected, the raft type and support type picked in the side panel changed the plate - every
     model. Now they go to the selected models only (their own settings, the panel says so and shows their
