@@ -38,12 +38,27 @@ def printer_ready(status: dict | None) -> bool:
     return st in IDLE_STATES
 
 
+_STARTED: set = set()           # queue files already loaded by this run of the program
+_SHARED: dict = {}
+
+
 class Queue:
     def __init__(self, folder: str | None = None):
         self.folder = folder or profiles.USER_DIR
         self.path = os.path.join(self.folder, FILE_NAME)
         self.jobs: list[Job] = []
         self.load()
+
+    @classmethod
+    def shared(cls, folder: str | None = None) -> "Queue":
+        """The one queue the whole program works on: every queue window and the window's exports use it.
+        A queue window reopened during an upload made its own copy from the file - it offered the job being
+        sent as waiting (sent twice) and, when the old window's upload ended, its save dropped the new jobs."""
+        key = os.path.normcase(os.path.abspath(os.path.join(folder or profiles.USER_DIR, FILE_NAME)))
+        q = _SHARED.get(key)
+        if q is None:
+            q = _SHARED[key] = cls(folder)
+        return q
 
     def load(self) -> None:
         try:
@@ -52,13 +67,16 @@ class Queue:
         except (OSError, ValueError):
             rows = []
         self.jobs = []
+        key = os.path.normcase(os.path.abspath(self.path))
+        first = key not in _STARTED
+        _STARTED.add(key)
         for r in rows if isinstance(rows, list) else []:
             try:
                 job = Job(**{k: v for k, v in r.items() if k in Job.__dataclass_fields__})
             except TypeError:
                 continue
-            if job.state == "sending":        # interrupted (app closed while uploading): try again
-                job.state = "waiting"
+            if job.state == "sending" and first:   # interrupted (app closed while uploading): try again -
+                job.state = "waiting"                  # only at start; later "sending" is an upload running now
             self.jobs.append(job)
 
     def save(self) -> None:

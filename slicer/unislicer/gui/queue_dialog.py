@@ -122,7 +122,7 @@ class QueueDialog(QDialog):
     def __init__(self, main, queue: print_queue.Queue | None = None):
         super().__init__(main)
         self.main = main
-        self.queue = queue or print_queue.Queue()
+        self.queue = queue or print_queue.Queue.shared()
         self.printers = network.load_printers()
         self.setWindowTitle(tr("queue_title"))
         self.resize(min(1300, 320 * max(1, len(self.printers)) + 60), 620)
@@ -249,7 +249,8 @@ class QueueDialog(QDialog):
             self.poll()
 
         def failed(msg):
-            self.queue.mark(job.id, "failed", msg)
+            # cancelled (no message): back in line as it was; a real failure says why
+            self.queue.mark(job.id, "failed" if msg else "waiting", msg)
             self.refresh()
         self._send_task = Task(work, self)
         self._send_task.succeeded.connect(done)

@@ -3489,6 +3489,7 @@ def test_print_queue_order_moves_and_states(tmp_path):
     q.move_to(a.id, "p2")
     assert [j.id for j in q.for_printer("p2")] == [c.id, a.id]
     q.mark(b.id, "sending")
+    print_queue._STARTED.clear()                               # the program started again after a crash
     q2 = print_queue.Queue(str(tmp_path))                     # reopened after a crash mid-upload
     assert q2.get(b.id).state == "waiting"
     q2.mark(b.id, "sent", "ok")
@@ -7164,3 +7165,88 @@ def test_neon_theme_lights_the_models_and_keeps_the_others_as_they_were():
         assert np.allclose(d["uRim"], np.array([0.55, 0.72, 1.0]) * 0.22, atol=1e-3)   # as the shader had it
     finally:
         theme.set_theme("dark")
+
+
+def test_a_damaged_obj_loads_what_it_can_and_says_plainly_when_nothing():
+    """An OBJ file with a face naming a vertex it does not have was refused with "index 8 is out of bounds for
+    axis 0 with size 2". The faces it can read load; with none, it says the file has no triangles."""
+    p = __import__("tempfile").mkdtemp()
+    good = os.path.join(p, "part.obj")
+    with open(good, "w") as fh:
+        fh.write("v 0 0 0\nv 10 0 0\nv 0 10 0\nv 0 0 10\nf 1 2 3\nf 1 2 4\nf 1 3 4\nf 2 3 4\nf 1 2 9\nv x y\n")
+    m = Mesh.merge(load_mesh(good))
+    assert len(m.faces) == 4
+    bad = os.path.join(p, "bad.obj")
+    with open(bad, "w") as fh:
+        fh.write("v 0 0 0\nv 1 0 0\nf 1 2 9\n")
+    with pytest.raises(ValueError, match="no triangles"):
+        load_mesh(bad)
+
+
+def test_a_reopened_queue_window_never_sends_a_job_twice_nor_loses_one(tmp_path):
+    """The queue window closed during a long upload and opened again made its own copy of the queue from the
+    file: it showed the job being sent as waiting (Send would print it twice), and when the old upload
+    finished, the old copy's save dropped the job added meanwhile. Every window works on the one queue; a job
+    left "sending" is put back to waiting only when the program starts."""
+    from unislicer import print_queue
+    folder = str(tmp_path / "q")
+    q1 = print_queue.Queue.shared(folder)                     # the first queue window
+    a = q1.add("P1", "/prints/a.ctb"); q1.add("P1", "/prints/b.ctb")
+    q1.mark(a.id, "sending")                                  # a long upload; the window is closed
+    q2 = print_queue.Queue.shared(folder)                     # opened again
+    assert q2 is q1 and q2.get(a.id).state == "sending" and q2.next_for("P1").name == "b.ctb"
+    q2.add("P1", "/prints/c.ctb")
+    q1.mark(a.id, "sent")                                     # the old window's upload finishes
+    on_disk = [(j.name, j.state) for j in print_queue.Queue(folder).jobs]
+    assert on_disk == [("a.ctb", "sent"), ("b.ctb", "waiting"), ("c.ctb", "waiting")], on_disk
+    other = str(tmp_path / "restart")
+    q = print_queue.Queue(other); j = q.add("P1", "/prints/x.ctb"); q.mark(j.id, "sending")
+    print_queue._STARTED.discard(os.path.normcase(os.path.abspath(os.path.join(other, print_queue.FILE_NAME))))
+    assert print_queue.Queue(other).get(j.id).state == "waiting"      # a new start: the interrupted job again
+
+
+def test_sending_cancelled_or_failed_leaves_nothing_behind_and_says_what_happened(tmp_path):
+    """Sending to a printer: a cancel was reported as "the printer does not answer" and kept the print file
+    open (Windows could not clear it away); a cancelled or failed copy to a folder left a half-written
+    "<name>.part" on the share and a same-named file there was replaced; a PrusaLink printer with a password
+    could never take a file - asked for the password, the upload was sent again with no bytes and timed out."""
+    import http.server, threading, base64
+    from unislicer import network
+    src = tmp_path / "job.ctb"
+    src.write_bytes(os.urandom(300_000))
+    drop = tmp_path / "share"; drop.mkdir()
+    (drop / "job.ctb").write_bytes(b"another case")
+    folder = network.NetPrinter("Lab folder", "folder", str(drop))
+    network.send(folder, str(src), "job.ctb")
+    assert (drop / "job.ctb").read_bytes() == b"another case" and (drop / "job (2).ctb").stat().st_size == 300_000
+    with pytest.raises(InterruptedError):
+        network.send(folder, str(src), "big.ctb", cancelled=lambda: True)
+    assert not list(drop.glob("*.part")) and not (drop / "big.ctb").exists()
+    seen = []
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_PUT(self):
+            n = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(n) if n else b""
+            ok = self.headers.get("Authorization") == "Basic " + base64.b64encode(b"maker:secret").decode()
+            seen.append((ok, len(body)))
+            if not ok:
+                self.send_response(401); self.send_header("WWW-Authenticate", 'Basic realm="x"')
+                self.send_header("Content-Length", "0"); self.end_headers(); return
+            self.send_response(201); self.send_header("Content-Length", "0"); self.end_headers()
+
+        do_POST = do_PUT
+
+        def do_GET(self):
+            self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"{}")
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        prusa = network.NetPrinter("MK4", "prusalink", f"127.0.0.1:{srv.server_address[1]}", user="maker", password="secret")
+        network.send(prusa, str(src), "job.sl1")
+        assert seen and seen[-1] == (True, 300_000), seen          # the whole file, with the password
+    finally:
+        srv.shutdown()

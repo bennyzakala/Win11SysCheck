@@ -7021,7 +7021,7 @@ class MainWindow(QMainWindow):
         pieces, made = self._report_pieces(), {}
 
         def finish(p):
-            queue = dialog.queue if dialog is not None else print_queue.Queue()
+            queue = dialog.queue if dialog is not None else print_queue.Queue.shared()
             queue.add(printer_id, p, os.path.basename(p), est.time_s, f"{est.total_ml:.1f} {unit}")
             self._report_with_export(p, made)
             self.status.setText(tr("queue_added").format(os.path.basename(p)))

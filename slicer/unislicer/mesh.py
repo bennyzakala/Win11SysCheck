@@ -353,17 +353,25 @@ def _read_obj(path: str, name: str) -> Mesh:
     verts, faces = [], []
     with open(path, "r", encoding="utf-8", errors="ignore") as fh:
         for line in fh:
-            if line.startswith("v "):
-                p = line.split()
-                verts.append([float(p[1]), float(p[2]), float(p[3])])
-            elif line.startswith("f "):
-                idx = []
-                for token in line.split()[1:]:
-                    i = int(token.split("/")[0])
-                    idx.append(i - 1 if i > 0 else len(verts) + i)
-                for k in range(1, len(idx) - 1):  # fan triangulation
-                    faces.append([idx[0], idx[k], idx[k + 1]])
-    mesh = Mesh(np.array(verts), np.array(faces, dtype=np.int64), name)
+            # a damaged line is skipped, not the whole file (it failed with "index 8 is out of bounds")
+            try:
+                if line.startswith("v "):
+                    p = line.split()
+                    verts.append([float(p[1]), float(p[2]), float(p[3])])
+                elif line.startswith("f "):
+                    idx = []
+                    for token in line.split()[1:]:
+                        i = int(token.split("/")[0])
+                        idx.append(i - 1 if i > 0 else len(verts) + i)
+                    for k in range(1, len(idx) - 1):  # fan triangulation
+                        faces.append([idx[0], idx[k], idx[k + 1]])
+            except (ValueError, IndexError):
+                continue
+    f = np.array(faces, dtype=np.int64).reshape(-1, 3)
+    f = f[np.all((f >= 0) & (f < len(verts)), axis=1)]      # faces naming a vertex the file does not have
+    if not len(f):
+        raise ValueError("The file contains no triangles")
+    mesh = Mesh(np.array(verts, dtype=float).reshape(-1, 3), f, name)
     return Mesh.from_triangles(mesh.triangles, name)
 
 

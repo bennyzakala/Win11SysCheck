@@ -114,9 +114,22 @@ class _Body:
     def __len__(self):
         return self.total
 
+    def close(self) -> None:
+        if self._fh is not None and not self._fh.closed:
+            self._fh.close()
+
+    def _rewind(self) -> None:
+        self.close()
+        self._i, self._fh, self._left, self._buf, self.sent, self._done = 0, None, 0, b"", 0, False
+
     def read(self, n: int = 65536) -> bytes:
         if self.cancelled and self.cancelled():
+            self.close()
             raise InterruptedError()
+        if getattr(self, "_done", False):
+            # read again after the end: the request is being sent again (the printer asked for the user and
+            # password first) - from the start, or it went with no bytes and waited for the time-out
+            self._rewind()
         while not self._buf and not self._left and self._i < len(self.parts):
             part = self.parts[self._i]
             self._i += 1
@@ -135,6 +148,7 @@ class _Body:
                 self._fh.close()
         else:
             out = b""
+            self._done = True
         self.sent += len(out)
         if self.progress and self.total:
             self.progress(self.sent / self.total)
@@ -171,14 +185,21 @@ def _open(p: NetPrinter, method: str, path: str, body=None, headers=None, timeou
         with opener.open(req, timeout=timeout) as r:
             raw = r.read()
             return r.status, raw
+    except InterruptedError:
+        raise                                 # cancelled by the user: not "the printer does not answer"
     except urllib.error.HTTPError as e:
         raw = e.read() if hasattr(e, "read") else b""
         if e.code in (401, 403):
             raise NetworkError("auth") from e
         raise NetworkError(f"HTTP {e.code}: {raw[:200].decode('utf-8', 'replace')}") from e
     except (urllib.error.URLError, socket.timeout, ConnectionError, OSError) as e:
+        if isinstance(getattr(e, "reason", None), InterruptedError):
+            raise e.reason
         reason = getattr(e, "reason", e)
         raise NetworkError(f"unreachable: {reason}") from e
+    finally:
+        if hasattr(body, "close"):
+            body.close()                      # the print file is not held open (Windows could not delete it)
 
 
 def _lenient_post(host: str, port: int, path: str, body, headers: dict, timeout: float = 60.0) -> tuple[int, bytes]:
@@ -223,10 +244,14 @@ def _lenient_post(host: str, port: int, path: str, body, headers: dict, timeout:
                         length = int(v.strip() or 0)
                 if length is not None and len(rest) >= length:
                     break
+    except InterruptedError:
+        raise                                 # cancelled by the user
     except OSError as e:
         raise NetworkError(f"unreachable: {e}") from e
     finally:
         sock.close()
+        if hasattr(body, "close"):
+            body.close()
     start = data.find(b"HTTP/1.")
     if start < 0:
         raise NetworkError("no HTTP reply from the printer")
@@ -887,17 +912,31 @@ class _Folder:
     def upload(self, path, name, progress=None, cancelled=None, start=False):
         self.test()
         dest = os.path.join(self.p.host, name)
+        stem, ext = os.path.splitext(name)
+        k = 2
+        while os.path.exists(dest):           # never over a print file already there (another case's)
+            dest = os.path.join(self.p.host, f"{stem} ({k}){ext}")
+            k += 1
         size = max(1, os.path.getsize(path))
         done = 0
-        with open(path, "rb") as src, open(dest + ".part", "wb") as out:
-            for block in iter(lambda: src.read(1 << 20), b""):
-                if cancelled and cancelled():
-                    raise InterruptedError()
-                out.write(block)
-                done += len(block)
-                if progress:
-                    progress(done / size)
-        os.replace(dest + ".part", dest)
+        part = dest + ".part"
+        try:
+            with open(path, "rb") as src, open(part, "wb") as out:
+                for block in iter(lambda: src.read(1 << 20), b""):
+                    if cancelled and cancelled():
+                        raise InterruptedError()
+                    out.write(block)
+                    done += len(block)
+                    if progress:
+                        progress(done / size)
+            os.replace(part, dest)
+        except BaseException:
+            # cancelled, the drive full, the share or the stick gone: no half-written file left behind
+            try:
+                os.remove(part)
+            except OSError:
+                pass
+            raise
 
     def status(self):
         return {"state": "folder", "file": "", "percent": None}
