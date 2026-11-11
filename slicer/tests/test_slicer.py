@@ -7359,22 +7359,19 @@ def test_a_repair_of_a_file_that_loaded_open_is_learned_for_that_file(tmp_path):
         w = MainWindow(); w.show(); app.processEvents()
         w.store.setValue("preslice", "false")
         w.assistant.data["repair"]["auto"] = False
+        w.store.setValue("auto_close_holes", "false")              # its worker process is not the point here:
+        from unislicer import mesh_tools                          # it is done by hand, as it would be
         w.load_files([{str(tmp_path / "a.stl")!r}])
         o = w.objects[-1]
-        t = time.time()                                           # the closing runs in a worker process:
-        while (w._closing_holes() or not o.mesh.is_watertight()) and time.time() - t < 90:   # it may not
-            app.processEvents(); time.sleep(0.05)                 # have started yet (slow on Windows)
-        app.processEvents()
-        assert o.mesh.is_watertight()                              # closed after loading
+        assert not o.mesh.is_watertight()
+        o.mesh = mesh_tools.make_watertight(o.mesh)[0]             # what the closing after loading does
+        assert o.mesh.is_watertight()
         w._select_uid(o.uid)
         w.repair_selected()                                       # the user repairs it as always
         assert w.assistant.data["repair"]["by_sig"] == {{"holes|.stl|-": {{'{{"mode": "basic"}}': 1}}}}, w.assistant.data["repair"]["by_sig"]
         w.load_files([{str(tmp_path / "b.stl")!r}])
         o2 = w.objects[-1]
         assert w._repair_offers.get(o2.uid) == {{"mode": "basic"}}, w._repair_offers
-        t = time.time()
-        while w._closing_holes() and time.time() - t < 60:
-            app.processEvents(); time.sleep(0.05)
         print("ok", flush=True)
         from unislicer import parallel
         if parallel._pool is not None:
