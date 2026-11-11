@@ -237,9 +237,12 @@ def _thin_chunk(layers: list, r: float, min_area: float = 0.0) -> list:
         if g.area - opened.area < min_area:
             out.append(EMPTY)
             continue
-        thin = as_multipolygon(g.difference(opened.buffer(0.01, quad_segs=4)))
-        out.append(_without_groove_walls(thin, g, r))
-    return out
+        try:
+            thin = as_multipolygon(g.difference(opened.buffer(0.01, quad_segs=4)))
+            out.append(_without_groove_walls(thin, g, r))
+        except shapely.errors.GEOSException:
+            out.append(EMPTY)                # a check only: a layer the geometry library cannot read is not
+    return out                               # reported - it never stops the slice
 
 
 def _without_groove_walls(thin, g, r: float):
@@ -250,13 +253,31 @@ def _without_groove_walls(thin, g, r: float):
     left out; a thin wall or margin standing out is still reported."""
     if thin.is_empty:
         return thin
-    c = r * 2.5
-    grooves = g.buffer(c, join_style="mitre").buffer(-c, join_style="mitre").difference(g)
-    if grooves.is_empty or grooves.area < 1e-4:
+    grooves = _own_grooves(g, r * 2.5)
+    if grooves is None or grooves.is_empty or grooves.area < 1e-4:
         return thin
-    near = grooves.buffer(0.02, quad_segs=2)
-    kept = [p for p in polygons_of(thin) if not p.intersects(near)]
+    try:
+        near = grooves.buffer(0.02, quad_segs=2)
+        kept = [p for p in polygons_of(thin) if not p.intersects(near)]
+    except shapely.errors.GEOSException:
+        return thin                       # a check only: never let it stop the slice
     return as_multipolygon(shapely.union_all(kept)) if kept else EMPTY
+
+
+def _own_grooves(g, c: float):
+    """The model's own narrow grooves and gaps in a layer (what a closing by ``c`` fills), or None when the
+    geometry library cannot work it out. A scan's outline with an edge doubled onto itself made GEOS fail
+    ("non-noded intersection") and the whole slice stopped (reported from a lab: "Slicing failed"); the
+    layer is made valid and tried again, and if that fails too the groove rule is simply not applied."""
+    for shape in (g, None):
+        try:
+            if shape is None:
+                shape = shapely.make_valid(g).buffer(0)
+            closed = shape.buffer(c, join_style="mitre").buffer(-c, join_style="mitre")
+            return closed.difference(shape)
+        except shapely.errors.GEOSException:
+            continue
+    return None
 
 
 def _thicken_chunk(layers: list, r: float, min_area: float = 0.05) -> list:
@@ -283,10 +304,12 @@ def _thicken_chunk(layers: list, r: float, min_area: float = 0.05) -> list:
         # never into the model's own narrow grooves: the strips between the letters of an engraved label are
         # "thin" too, and grown they filled the letters (the label printed blurred); a groove or a gap a
         # little wider than the growth is kept open, the part grows outwards only
-        c = r * 2.5
-        grooves = g.buffer(c, join_style="mitre").buffer(-c, join_style="mitre").difference(g)
-        if not grooves.is_empty:
-            grown = grown.difference(grooves)
+        grooves = _own_grooves(g, r * 2.5)
+        if grooves is not None and not grooves.is_empty:
+            try:
+                grown = grown.difference(grooves)
+            except shapely.errors.GEOSException:
+                pass                      # grown as before rather than no slice at all
         out.append(as_multipolygon(g.union(grown)))
     return out
 

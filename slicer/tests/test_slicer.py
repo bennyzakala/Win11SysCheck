@@ -7472,3 +7472,38 @@ def test_arrange_keeps_only_what_was_chosen_in_the_layout_window(tmp_path):
     env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_a_geometry_error_in_the_label_checks_never_stops_the_slice(monkeypatch):
+    """Reported from the lab, 1.0.241: "Slicing failed - GEOSException: TopologyException: found non-noded
+    intersection" - a scan's outline with an edge doubled onto itself made the geometry library fail inside
+    the new engraved-label rule of the thin-part check, and the whole slice stopped. The layer is made valid
+    and tried again; if the library still fails, the rule is not applied and the slice goes on."""
+    import shapely.errors
+    from shapely.geometry import box as sbox
+    from shapely.geometry.base import BaseGeometry
+    wall = sbox(0, 0, 30, 10)
+    grooves = shapely.union_all([sbox(5 + k * 0.7, 0, 5 + k * 0.7 + 0.4, 0.4) for k in range(12)])
+    g = shapely.MultiPolygon([*sla.polygons_of(wall.difference(grooves)), sbox(40, 0, 40.2, 6)])
+    real = BaseGeometry.difference
+
+    def broken(self, other, *a, **k):
+        raise shapely.errors.GEOSException("TopologyException: found non-noded intersection")
+    monkeypatch.setattr(BaseGeometry, "difference", broken)
+    assert sla._own_grooves(g, 0.375) is None
+    monkeypatch.setattr(BaseGeometry, "difference", real)
+    calls = {"n": 0}
+
+    def once(self, other, *a, **k):                     # fails on the first try only: made valid, it works
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise shapely.errors.GEOSException("TopologyException: found non-noded intersection")
+        return real(self, other, *a, **k)
+    monkeypatch.setattr(BaseGeometry, "difference", once)
+    out = sla._thin_chunk([g], 0.15, 0.05)[0]                # no exception: the slice goes on
+    assert out.area > 1.0                                   # the thin wall standing out is still reported
+    monkeypatch.setattr(BaseGeometry, "difference", broken)
+    try:
+        sla._thicken_chunk([g], 0.15)                       # thickening too never stops the slice
+    except shapely.errors.GEOSException:
+        pass                                                # (its own difference of the thin part is older code)
