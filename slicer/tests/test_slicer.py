@@ -7361,9 +7361,9 @@ def test_a_repair_of_a_file_that_loaded_open_is_learned_for_that_file(tmp_path):
         w.assistant.data["repair"]["auto"] = False
         w.load_files([{str(tmp_path / "a.stl")!r}])
         o = w.objects[-1]
-        t = time.time()
-        while w._closing_holes() and time.time() - t < 60:
-            app.processEvents(); time.sleep(0.05)
+        t = time.time()                                           # the closing runs in a worker process:
+        while (w._closing_holes() or not o.mesh.is_watertight()) and time.time() - t < 90:   # it may not
+            app.processEvents(); time.sleep(0.05)                 # have started yet (slow on Windows)
         app.processEvents()
         assert o.mesh.is_watertight()                              # closed after loading
         w._select_uid(o.uid)
