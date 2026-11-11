@@ -7406,3 +7406,69 @@ def test_shared_learning_never_brings_back_what_was_reset(tmp_path):
     a.learn_repair("holes|.stl|3Shape", {"mode": "basic"})            # what is learned after it is shared
     b.data = learning_sync.merge(b.data, [a.data])
     assert b.repair_recipe("holes|.stl|3Shape") == {"mode": "basic"}
+
+
+def test_learning_seed_and_learned_supports_as_the_lab_chose(tmp_path):
+    """The lab's choices for the assistant: a new install starts at the resin profile's support angle (the
+    seed held -25 degrees, the floor - from the fault that moved it 16 degrees a click) and with repairs only
+    offered, not done by themselves; an install already at the floor is set back once; what was learned about
+    supports applies on top of a crown's or a model's own preset (laid under it, the preset replaced it)."""
+    import json as _json
+    from unislicer.assistant import Assistant, SEED_FILE
+    seed = _json.load(open(SEED_FILE, encoding="utf-8"))
+    assert seed["supports"]["angle_offset"] == 0.0 and seed["repair"]["auto"] is False
+    folder = tmp_path / "old"; folder.mkdir()
+    old = dict(seed); old["supports"] = dict(seed["supports"], angle_offset=-25.0)
+    (folder / "learning.json").write_text(_json.dumps(old), encoding="utf-8")
+    a = Assistant(str(folder))
+    assert a.data["supports"]["angle_offset"] == 0.0
+    a.data["supports"]["angle_offset"] = -25.0; a.save()
+    assert Assistant(str(folder)).data["supports"]["angle_offset"] == -25.0      # set back once only
+    b = Assistant(str(tmp_path / "b"))
+    b.data["supports"].update(spacing_scale=0.8, angle_offset=-3.0)
+    from unislicer.scene import SceneObject
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True})
+    crown = SceneObject(primitives.crown_cap(10, 8.0), name="DEMO-SOD26-001-044-P-14-14-1")
+    crown.settings["sla_model_type"] = "cb"
+    plain = crown.config(cfg)
+    learned = b.learned_config(crown.config(cfg))
+    assert abs(learned["sla_support_spacing"] - plain["sla_support_spacing"] * 0.8) < 1e-6
+    assert abs(learned["support_angle"] - (plain["support_angle"] - 3.0)) < 1e-6
+
+
+def test_arrange_keeps_only_what_was_chosen_in_the_layout_window(tmp_path):
+    """The layout window stored every option, chosen or not: after one use, Arrange never again used what
+    the assistant learned from the user's own arrangements. Only what was changed in the window is kept as
+    the user's choice; the rest comes from the learning. (An older install's stored defaults are cleared once.)"""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, json
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.add_mesh(primitives.box(10, 10, 5)); w.add_mesh(primitives.box(10, 10, 5))
+        before = w._layout_defaults()
+        def dialog(opts):
+            out = dict(opts); out["anchor"] = "front_left"          # the user changes one option only
+            return out, False
+        w._layout_dialog = dialog
+        w.auto_layout(dialog=True); app.processEvents()
+        stored = json.loads(w.store.value("layout_options", "{}"))
+        assert stored == {"anchor": "front_left"}, stored
+        w.assistant.learned_layout = lambda base: dict(base, spacing=7.5, margin=3.5)   # learned from arrangements
+        now = w._layout_defaults()
+        assert now["anchor"] == "front_left" and now["spacing"] == 7.5 and now["margin"] == 3.5, now
+        print("ok", flush=True)
+        from unislicer import parallel
+        if parallel._pool is not None:
+            parallel._pool.shutdown(wait=True, cancel_futures=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

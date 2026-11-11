@@ -2340,6 +2340,13 @@ class MainWindow(QMainWindow):
             last = json.loads(self.store.value("layout_options", "{}"))
         except (TypeError, ValueError):
             last = {}
+        last = last if isinstance(last, dict) else {}
+        if self.store.value("layout_defaults_v3", "") != "1":
+            # once: the window stored every option, chosen or not; a value equal to the plain default was not
+            # a choice - left out, so the layouts learned from the user's own arrangements apply again
+            last = {k: v for k, v in last.items() if not (k in base and v == base[k])}
+            self.store.setValue("layout_options", json.dumps(last))
+            self.store.setValue("layout_defaults_v3", "1")
         for k in base:
             if k in last:
                 out[k] = last[k]
@@ -2374,6 +2381,7 @@ class MainWindow(QMainWindow):
         if not self.objects:
             return
         opts = self._layout_defaults()
+        shown = dict(opts)                     # what the layout window opened with
         opts["scope"] = scope or ("selected" if len(self.selected_objects()) > 1 and dialog else "all")
         fill = False
         if dialog:
@@ -2405,8 +2413,17 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
         if dialog:
             self.assistant.record_layout_choice(opts)
-            self.store.setValue("layout_options", json.dumps({k: opts[k] for k in ("strategy", "spacing", "margin",
-                                                                                   "rotation", "anchor", "sort")}))
+            # only what the user changed in the window is kept as their choice: every option was stored, so
+            # one use of the window and the layouts learned from their own arrangements never applied again
+            try:
+                last = json.loads(self.store.value("layout_options", "{}"))
+            except (TypeError, ValueError):
+                last = {}
+            last = last if isinstance(last, dict) else {}
+            for k in ("strategy", "spacing", "margin", "rotation", "anchor", "sort"):
+                if opts.get(k) != shown.get(k):
+                    last[k] = opts[k]
+            self.store.setValue("layout_options", json.dumps(last))
         self._layout_pending = True            # the final arrangement at slicing time is a lesson
         self._refresh_objects(select=[o.uid for o in self.selected_objects()] or None)
         if failed:
@@ -4864,7 +4881,6 @@ class MainWindow(QMainWindow):
         self._push_undo()
         self._ensure_supports_enabled()
         cfg = self.settings.config()
-        learned_plate = self.assistant.learned_config(cfg)   # density and angle learned from earlier edits
         lift = self._lift(cfg)
         chosen = self.selected_objects()
         skipped = 0
@@ -4885,7 +4901,10 @@ class MainWindow(QMainWindow):
             # the window's thread (a jaw model takes ~0.5 s); the window waits without input meanwhile
             out = []
             for o, mesh, matrix in jobs:
-                ocfg = o.config(learned_plate)
+                # the part's own settings (a crown's or a model's preset) with the density and angle learned
+                # from earlier edits on top: laid under them, the preset replaced what was learned and dental
+                # parts never got it
+                ocfg = self.assistant.learned_config(o.config(cfg))
                 world = mesh.transform(matrix).translated([0, 0, lift])
                 report = {}
                 out.append((sla_supports.auto_support_points(world, ocfg, report), report, ocfg))

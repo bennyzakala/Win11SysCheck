@@ -23,7 +23,7 @@
  },
  "supports": {
   "spacing_scale": 1.0336702448577093,
-  "angle_offset": -25.0,
+  "angle_offset": 0.0,
   "adds": 5,
   "removes": 9,
   "sessions": 4
@@ -1018,7 +1018,7 @@
  "repair": {
   "by_sig": {},
   "learned": 0,
-  "auto": true,
+  "auto": false,
   "auto_applied": 0
  },
  "seed": {

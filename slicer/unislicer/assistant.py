@@ -141,6 +141,12 @@ class Assistant:
                 except OSError:
                     pass
             self.data = _default_data()
+        sup = self.data.get("supports") or {}
+        if not self.data.get("angle_fix_v1") and float(sup.get("angle_offset", 0) or 0) <= -24.9:
+            # once: an angle at the very floor came from a fault (one support placed on a wall moved it up
+            # to 25 degrees) - set back to the resin profile's angle, learned again slowly from here
+            sup["angle_offset"] = 0.0
+        self.data["angle_fix_v1"] = True
 
     # ------------------------------------------------------------- storage
     def export_to(self, path: str) -> None:
