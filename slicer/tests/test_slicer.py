@@ -7504,3 +7504,95 @@ def test_a_geometry_error_in_the_label_checks_never_stops_the_slice(monkeypatch)
         sla._thicken_chunk([g], 0.15)                       # thickening too never stops the slice
     except shapely.errors.GEOSException:
         pass                                                # (its own difference of the thin part is older code)
+
+
+def test_clicking_takes_the_part_under_the_cursor_not_the_one_whose_box_is_there(tmp_path):
+    """Selecting on a full plate was imprecise: a click that missed every surface took the first part whose
+    box the ray entered - dental arches' boxes overlap, so a click between an arch's arms or on a crown
+    standing inside another arch's box took the arch. The part under the cursor, or the surface nearest it
+    within a few pixels (thin parts), or for a part tiny on the screen its box; empty plate takes nothing."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        import numpy as np, shapely
+        from shapely.geometry import Point
+        from PySide6.QtCore import QPointF
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives, mesh_tools
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        arch_shape = Point(0, 0).buffer(25, 48).difference(Point(0, 0).buffer(18, 48)).intersection(shapely.box(-30, -2, 30, 30))
+        arch = w.add_mesh(mesh_tools.extrude(arch_shape, 0.0, 10.0), rearrange=False)
+        crown = w.add_mesh(primitives.box(6, 6, 5), rearrange=False)
+        pin = w.add_mesh(primitives.box(0.6, 12, 6), rearrange=False)
+        arch.x, arch.y = 90.0, 60.0
+        crown.x, crown.y = 90.0, 56.0                      # between the arch's arms, inside its box
+        pin.x, pin.y = 150.0, 60.0                         # a thin part
+        w._objects_changed(); app.processEvents()
+        v = w.viewer
+        v.view_preset("top"); v.fit_objects(); app.processEvents()
+        def at(x, y, z):
+            xy, _ = v._to_screen(np.array([[x, y, z]]))
+            return QPointF(float(xy[0][0]), float(xy[0][1]))
+        cb, ab, pb = crown.world_bounds(), arch.world_bounds(), pin.world_bounds()
+        c = (cb[0] + cb[1]) / 2
+        assert v.pick(at(c[0], c[1], cb[1][2])) == crown.uid           # the crown, not the arch around it
+        assert v.pick(at(c[0] + 12.0, ab[0][1] + 3.0, 0.0)) is None, "empty space inside the arch's box"
+        p = at(pb[1][0], (pb[0][1] + pb[1][1]) / 2, pb[1][2])
+        assert v.pick(QPointF(p.x() + 2.0, p.y())) == pin.uid          # a hair off the thin part still takes it
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_raft_and_support_density_change_only_the_selected_models(tmp_path):
+    """Changing the raft of the selected models changed every model's (the raft window always set the plate's
+    raft, even from a model's right-click menu), and the support density could only be set for the plate.
+    With models selected both apply to those models only; with none, to the plate."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui.settings_panel import SettingRow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        a = w.add_mesh(primitives.box(10, 10, 6)); b = w.add_mesh(primitives.box(10, 10, 6)); app.processEvents()
+        plate_raft = w.settings.config()["sla_raft_type"]
+        new = "tiny" if plate_raft != "tiny" else "solid"
+        w._select_uid(a.uid); app.processEvents()
+        w.raft_menu(); app.processEvents()
+        rows = {r.setting.key: r for r in w._raft_dialog.findChildren(SettingRow)}
+        rows["sla_raft_type"].changed.emit("sla_raft_type", new); app.processEvents()
+        cfg = w.settings.config()
+        assert cfg["sla_raft_type"] == plate_raft                       # the plate is as it was
+        assert a.config(cfg)["sla_raft_type"] == new and b.config(cfg)["sla_raft_type"] == plate_raft
+        w._raft_dialog.close()
+        w.set_selected_support_preset("heavy"); app.processEvents()
+        cfg = w.settings.config()
+        assert a.config(cfg)["sla_support_preset"] == "heavy" and b.config(cfg)["sla_support_preset"] == cfg["sla_support_preset"]
+        w.set_selected_support_preset(None); app.processEvents()
+        assert "sla_support_preset" not in a.settings
+        w._select_uid(None); app.processEvents()
+        w.raft_menu(); app.processEvents()                            # nothing selected: the plate's raft
+        rows = {r.setting.key: r for r in w._raft_dialog.findChildren(SettingRow)}
+        rows["sla_raft_type"].changed.emit("sla_raft_type", new); app.processEvents()
+        assert w.settings.config()["sla_raft_type"] == new
+        w._raft_dialog.close()
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

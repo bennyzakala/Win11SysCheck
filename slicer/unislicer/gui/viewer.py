@@ -1338,18 +1338,34 @@ class Viewer(QOpenGLWidget):
         k = idx[np.argmin(dist[idx])]
         return float(dist[k]), int(order[near[k]])
 
-    def pick(self, pos: QPointF, supports: bool = True):
-        """The object under the cursor: its surface, its supports, or failing that its bounding box
-        (so small or thin parts are easy to grab)."""
+    PICK_NEAR_PX = (3.0, 6.0, 10.0)      # a miss by this much still takes the part (thin parts, edges)
+    PICK_BOX_MAX_PX = 24.0               # parts this small on the screen can also be taken by their box
+
+    def pick(self, pos: QPointF, supports: bool = True, near=None):
+        """The object under the cursor: its surface or its supports; else the surface nearest the cursor
+        within a few pixels (thin parts and edges stay easy to grab); else, for a part tiny on the screen,
+        its box. The box of any part caught every click inside it - on a full plate of dental arches the
+        boxes overlap, and a click between an arch's arms or on a crown inside another arch's box took the
+        wrong part."""
         uid, _ = self.pick_hit(pos, supports=supports)
         if uid is not None:
             return uid
+        for r in (self.PICK_NEAR_PX if near is None else near):
+            for k in range(8):
+                a = k * math.pi / 4
+                uid, _ = self.pick_hit(QPointF(pos.x() + r * math.cos(a), pos.y() + r * math.sin(a)), supports=supports)
+                if uid is not None:
+                    return uid
         origin, direction = self._ray(pos)
         best, best_t = None, np.inf
         for k, obj in self.objects.items():
             if obj.get("hidden"):
                 continue
             lo, hi = self._world_box(obj)
+            corners = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])])
+            xy, front = self._to_screen(corners)
+            if not front.all() or float(np.max(np.ptp(xy, axis=0))) > self.PICK_BOX_MAX_PX:
+                continue                                     # only a part tiny on the screen
             lo, hi = lo - 0.5, hi + 0.5
             with np.errstate(divide="ignore", invalid="ignore"):
                 inv = 1.0 / direction
@@ -1658,7 +1674,7 @@ class Viewer(QOpenGLWidget):
             try:
                 # the model itself only: a support mesh is rebuilt whenever its model moves, and preparing a new
                 # one for picking cost ~150 ms on the next hover (clicks still find supports)
-                uid = self.pick(self._hover_pos, supports=False)
+                uid = self.pick(self._hover_pos, supports=False, near=self.PICK_NEAR_PX[:1])
             except Exception:
                 uid = None
         self._set_hover_uid(uid)

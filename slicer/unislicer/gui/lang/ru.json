@@ -1453,5 +1453,9 @@
 "Automatic compensation for parts on the plate": "Автоматическая компенсация для деталей на столе",
 "A part printed straight on the plate (a model, for instance): its bottom layers are pulled in by 0.2 mm (the transition layers by less and less), so the strong light does not fill a label engraved in the base nor widen it. Not applied to rafts, nor when an elephant-foot compensation is set by hand": "Деталь, печатаемая прямо на столе (например, модель): её нижние слои уменьшаются на 0,2 мм (переходные слои — постепенно меньше), чтобы сильный свет не заливал гравированную надпись в основании и не расширял его. Не применяется к плотам и при ручной компенсации «слоновьей ноги»",
 "Left open with these options - closed with a further pass (a coarser weld)": "С этими параметрами осталась открытой — закрыта ещё одним проходом (более грубая сварка)",
-"Neon (animated film)": "Неон (анимационный фильм)"
+"Neon (animated film)": "Неон (анимационный фильм)",
+"For the {} selected models only (the rest of the plate stays as it is). With nothing selected: the whole plate.": "Только для {} выбранных моделей (остальная платформа не меняется). Без выбора — вся платформа.",
+"Support density for the selected models": "Плотность поддержек для выбранных моделей",
+"As the plate": "Как у платформы",
+"Support density set for {} models": "Плотность поддержек задана для {} моделей"
 }

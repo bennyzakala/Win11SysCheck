@@ -3402,8 +3402,9 @@ class MainWindow(QMainWindow):
         unsupported = [(o.uid, o.name or "model") for o in supported
                        if sla_mode and (o.support_points is None or len(o.support_points) == 0)]
         codes = 0
-        if sla_mode and cfg["sla_raft_type"] != "none":
-            codes = sum(1 for o in supported if self._raft_label_text(o, o.config(cfg)))
+        if sla_mode:
+            codes = sum(1 for o in supported if o.config(cfg)["sla_raft_type"] != "none"
+                        and self._raft_label_text(o, o.config(cfg)))
         est = None
         try:
             e = self.plate_estimate()
@@ -3863,6 +3864,12 @@ class MainWindow(QMainWindow):
         sup_menu.addAction(theme.icon("shield"), tr("tool_keepout") + "\tK", lambda: self.set_tool("keepout"))
         sup_menu.addAction(tr("keepout_clear"), self.clear_keepout)
         sup_menu.addAction(theme.icon("grid"), tr("raft_menu") + "…", self.raft_menu)
+        dens = sup_menu.addMenu(tr("sup_density_selected"))
+        for key, he, en in SCHEMA_BY_KEY["sla_support_preset"].options:
+            if key != "custom":
+                dens.addAction(i18n.pick(he, en), lambda k=key: self.set_selected_support_preset(k))
+        dens.addSeparator()
+        dens.addAction(tr("sup_density_plate"), lambda: self.set_selected_support_preset(None))
         self.edit_sup_btn = button("pillar", tr("supports_card"), menu=sup_menu)
         button("drop", tr("shade_menu"), self.dental_shades_dialog)
         button("trash", tr("delete"), self.delete_selected)
@@ -4298,7 +4305,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ per-model settings (GrabCAD model-level)
     MODEL_KEYS_SLA = ("sla_model_type", "sla_avoid_fit", "sla_support_preset", "sla_support_spacing", "support_angle", "sla_support_type",
                       "sla_tip_diameter", "sla_pillar_diameter", "sla_density", "hollow_enable", "hollow_wall",
-                      "hollow_mode", "hollow_infill", "hollow_infill_spacing", "hollow_infill_thickness", "drain_holes")
+                      "hollow_mode", "hollow_infill", "hollow_infill_spacing", "hollow_infill_thickness", "drain_holes",
+                      "sla_raft_type", "sla_raft_thickness", "sla_raft_margin", "sla_raft_label_teeth")
 
     def model_settings_dialog(self):
         """Right-click > Model settings: supports and hollowing / infill for the selected models only, over the
@@ -4354,6 +4362,41 @@ class MainWindow(QMainWindow):
             return
         values = {key: row.editor_value() for key, (check, row) in rows.items() if check.isChecked()}
         self.set_model_settings(group, values)
+
+    def set_selected_support_preset(self, preset):
+        """Supports light / medium / heavy for the selected models only (their own setting; None: back to the
+        plate's); models that had supports get new ones at once. The side panel's preset is the plate's."""
+        group = [o for o in self.selected_objects() if o.role != "cutter"]
+        if not group:
+            self.status.setText(tr("select_first"))
+            return
+        self._push_undo()
+        had = [o for o in group if o.support_points is not None and len(o.support_points)]
+        for o in group:
+            if preset is None:
+                o.settings.pop("sla_support_preset", None)
+            else:
+                o.settings["sla_support_preset"] = preset
+            for k in ("sla_support_spacing", "support_angle", "sla_tip_diameter", "sla_pillar_diameter", "sla_density"):
+                o.settings.pop(k, None)          # the preset sets these: an older own value would hide it
+        if had:
+            keep = [o.uid for o in group]
+            self._syncing = True
+            self.object_list.clearSelection()
+            for o in had:
+                it = self._item(o.uid)
+                if it is not None:
+                    it.setSelected(True)
+            self._syncing = False
+            self._undo_held = True               # one Ctrl+Z for the whole change
+            try:
+                self._generate_supports()
+            finally:
+                self._undo_held = False
+            self._refresh_objects(select=keep)
+        else:
+            self._objects_changed(refresh_list=False)
+        self.status.setText(tr("sup_density_done").format(len(group)))
 
     def set_model_settings(self, group, values: dict):
         self._push_undo()
@@ -4945,9 +4988,19 @@ class MainWindow(QMainWindow):
         note.setWordWrap(True)
         lay.addWidget(note)
         rows = {}
+        # models selected: the raft of those models only (their own settings, as Model settings); none: the
+        # plate's. It always changed the plate - every model's raft - even from a model's right-click menu
+        group = [o for o in self.selected_objects() if o.role != "cutter"]
+        if group:
+            dlg.setWindowTitle(tr("raft_menu") + " · " + (group[0].name if len(group) == 1 else tr("group_n").format(len(group))))
+            note.setText(tr("raft_menu_selected").format(len(group)))
+
+        def view_cfg():
+            cfg = self.settings.config()
+            return group[0].config(cfg) if group else cfg
 
         def fill():
-            cfg = self.settings.config()
+            cfg = view_cfg()
             kind = cfg["sla_raft_type"]
             for key, row in rows.items():
                 row.setVisible(not ((key in ("sla_raft_bar_spacing", "sla_raft_bar_width") and kind not in ("grid", "hexagon"))
@@ -4956,15 +5009,33 @@ class MainWindow(QMainWindow):
 
         def changed(key, value):
             self._ensure_supports_enabled()
-            self.settings.set_value(key, value)
+            if group and key != "sla_elevation":
+                self._push_undo()
+                for o in group:
+                    o.settings[key] = value          # the support mesh is rebuilt from the model's own settings
+            else:
+                self.settings.set_value(key, value)
             fill()
             self._objects_changed(refresh_list=False)
-        cfg = self.settings.config()
+
+        def reset(k):
+            if group and k != "sla_elevation":
+                self._push_undo()
+                for o in group:
+                    o.settings.pop(k, None)          # back to the plate's raft
+                self._objects_changed(refresh_list=False)
+            else:
+                self.settings.set_value(k, self.settings.base_config()[k])
+            dlg.close()
+            self.raft_menu()
+        cfg = view_cfg()
         for key in self.RAFT_KEYS:
-            row = SettingRow(SCHEMA_BY_KEY[key], cfg[key], key in self.settings.overrides, cfg, staged=True)
+            own = (key in group[0].settings) if group and key != "sla_elevation" else key in self.settings.overrides
+            row = SettingRow(SCHEMA_BY_KEY[key], cfg[key], own, cfg, staged=True)
             row.changed.connect(changed)
-            row.applied.connect(self.apply_setting)
-            row.reset.connect(lambda k: (self.settings.set_value(k, self.settings.base_config()[k]), dlg.close(), self.raft_menu()))
+            if not group:
+                row.applied.connect(self.apply_setting)
+            row.reset.connect(reset)
             lay.addWidget(row)
             rows[key] = row
         fill()
@@ -5192,8 +5263,10 @@ class MainWindow(QMainWindow):
         return (x0 + x1) / 2, (y0 + y1) / 2
 
     def _update_raft_view(self, cfg):
-        raft = cfg["technology"] == "sla" and cfg["support_enable"] and cfg["sla_raft_type"] != "none"
-        self.viewer.set_raft_top(cfg["sla_raft_thickness"] if raft else 0.0)
+        tops = [c["sla_raft_thickness"] for c in [o.config(cfg) for o in self.objects if o.role != "cutter"]
+                + [cfg] if c["sla_raft_type"] != "none"]
+        raft = cfg["technology"] == "sla" and cfg["support_enable"] and bool(tops)
+        self.viewer.set_raft_top(max(tops) if raft else 0.0)
 
     def _apply_printer(self):
         cfg = self.settings.config()
