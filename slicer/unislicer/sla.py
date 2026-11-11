@@ -261,7 +261,15 @@ def _thicken_chunk(layers: list, r: float, min_area: float = 0.05) -> list:
         # round growth a bit past r: a thin part becomes at least 2·1.25·r wide everywhere, so a disc of
         # radius r fits in every part of it and the thin check (an opening with r) keeps all of it
         # (square corners and a growth of exactly r left spikes and slivers that still read as thin)
-        out.append(as_multipolygon(g.union(thin.buffer(r * 1.25, quad_segs=8))))
+        grown = thin.buffer(r * 1.25, quad_segs=8)
+        # never into the model's own narrow grooves: the strips between the letters of an engraved label are
+        # "thin" too, and grown they filled the letters (the label printed blurred); a groove or a gap a
+        # little wider than the growth is kept open, the part grows outwards only
+        c = r * 2.5
+        grooves = g.buffer(c, join_style="mitre").buffer(-c, join_style="mitre").difference(g)
+        if not grooves.is_empty:
+            grown = grown.difference(grooves)
+        out.append(as_multipolygon(g.union(grown)))
     return out
 
 

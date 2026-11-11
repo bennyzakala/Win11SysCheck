@@ -6837,3 +6837,45 @@ def test_the_program_icon_is_the_prodentix_one_everywhere():
             "print('ok')\n")
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-1000:] + r.stderr[-2000:]
+
+
+def test_parts_with_no_room_wait_beside_the_plate_never_on_each_other():
+    """More parts than the plate holds: Auto layout fills the plate and sets the rest out beside it, each
+    clear of the others - they were left where they were, piled on and inside one another."""
+    from unislicer import layout
+    from unislicer.scene import SceneObject
+    plate = (0.0, 0.0, 120.0, 70.0)
+    objs = [SceneObject(primitives.box(28 + (k % 3) * 6, 18 + (k % 2) * 8, 5), name=f"p{k}") for k in range(22)]
+    for o in objs:
+        o.x, o.y = 60.0, 35.0                         # all dropped in one heap, as loading many files does
+    for strategy in ("contour", "box"):
+        for o in objs:
+            o.x, o.y = 60.0, 35.0
+        failed = layout.auto_layout(objs, plate, layout.LayoutOptions(strategy=strategy, spacing=2.0, margin=2.0))
+        assert 0 < len(failed) < len(objs), strategy
+        inside = shapely.box(*plate)
+        shapes = {o.uid: layout.footprint(o) for o in objs}
+        for o in failed:
+            assert not shapes[o.uid].intersects(inside), (strategy, o.name)       # wholly off the plate
+        placed = [o for o in objs if o not in failed]
+        for o in placed:
+            assert inside.buffer(1e-6).contains(shapes[o.uid]), (strategy, o.name)
+        for i, a in enumerate(objs):
+            for b in objs[i + 1:]:
+                assert shapes[a.uid].intersection(shapes[b.uid]).area < 1e-6, (strategy, a.name, b.name)
+
+
+def test_thickening_thin_parts_never_fills_an_engraved_label():
+    """"Thicken thin features" (the print check's fix for thin parts): the strips of material between the
+    grooves of a label engraved in a model's side are thin too, and grown into the grooves they filled the
+    letters - the label printed blurred. The grooves stay open; a thin part standing out still grows."""
+    from shapely.geometry import box as sbox
+    wall = sbox(0, 0, 30, 10)
+    grooves = shapely.union_all([sbox(5 + k * 0.7, 0, 5 + k * 0.7 + 0.4, 0.4) for k in range(12)])  # 0.4 wide, 0.3 apart
+    layer = wall.difference(grooves)
+    pin = sbox(40, 0, 40.2, 6)                           # a 0.2 mm wall standing on its own
+    g = shapely.MultiPolygon([*sla.polygons_of(layer), pin])
+    r = 0.15
+    out = sla._thicken_chunk([g], r)[0]
+    assert out.intersection(grooves).area < 0.02 * grooves.area      # the letters stay open
+    assert out.intersection(sbox(39, -1, 41.5, 7)).area > pin.area * 1.5   # the thin wall grew

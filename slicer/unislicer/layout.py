@@ -302,18 +302,44 @@ def auto_layout(objects: list[SceneObject], plate, opt: LayoutOptions,
     if not movable:
         return []
     if region is not None:                  # round plate / ring tray: true footprints inside the shape
-        return _place_with_fallback(movable, fixed, rect, opt, region)
-    if opt.strategy == "grid" and not fixed:
-        return _place_grid(_order(movable, opt.sort, {o.uid: footprint(o) for o in movable}), rect, opt)
-    if opt.strategy == "box" and not fixed:
+        failed = _place_with_fallback(movable, fixed, rect, opt, region)
+    elif opt.strategy == "grid" and not fixed:
+        failed = _place_grid(_order(movable, opt.sort, {o.uid: footprint(o) for o in movable}), rect, opt)
+    elif opt.strategy == "box" and not fixed:
         if opt.rotation != "none":           # stand long parts across the rows
             for o in movable:
                 s = o.world_size()
                 if s[1] > s[0] * 1.15:
                     o.apply_world_rotation(_z_rotation(90))
         ok = arrange(movable, x1 - x0, y1 - y0, opt.spacing, rect=rect)
-        return [] if ok else [o for o in movable if not box(*plate).contains(footprint(o))]
-    return _place_with_fallback(movable, fixed, rect, opt)
+        failed = [] if ok else [o for o in movable if not box(*plate).contains(footprint(o))]
+    else:
+        failed = _place_with_fallback(movable, fixed, rect, opt)
+    if failed:
+        park_outside(failed, plate, opt.spacing)
+    return failed
+
+
+def park_outside(parts: list[SceneObject], plate, spacing: float = 2.0) -> None:
+    """The parts that found no room: set out beside the plate (to its right), in columns, each clear of
+    the others - never one on or inside another, as the ones left where they were did. They wait there
+    for a second plate or for room to be made (Auto layout > "only parts off the plate")."""
+    if not parts:
+        return
+    x0, y0, x1, y1 = plate
+    gap = max(2.0, spacing)
+    shapes = [with_raft_tab(o, footprint(o)) for o in parts]
+    order = sorted(range(len(parts)), key=lambda i: -(shapes[i].bounds[3] - shapes[i].bounds[1]))
+    col_x, y, col_w = x1 + max(10.0, 3 * gap), y0, 0.0
+    for i in order:
+        bx0, by0, bx1, by1 = shapes[i].bounds
+        w, h = bx1 - bx0, by1 - by0
+        if y > y0 and y + h > y1:                     # this column is as deep as the plate: start the next one
+            col_x, y, col_w = col_x + col_w + gap, y0, 0.0
+        parts[i].x += col_x - bx0
+        parts[i].y += y - by0
+        y += h + gap
+        col_w = max(col_w, w)
 
 
 def _place_with_fallback(movable, fixed, rect, opt: LayoutOptions, region=None) -> list[SceneObject]:
