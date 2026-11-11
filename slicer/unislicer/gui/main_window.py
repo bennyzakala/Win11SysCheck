@@ -1193,6 +1193,10 @@ class MainWindow(QMainWindow):
         self.settings.filamentEditRequested.connect(self.filaments_dialog)
         self.settings.cfsSyncRequested.connect(self.sync_cfs)
         self.settings.settingApplied.connect(self.apply_setting)
+        # models selected: the panel's supports / raft settings are theirs only (the plate keeps its values)
+        self.settings.scope = lambda: self.selected_objects() if self.settings.technology == "sla" else []
+        self.settings.scopeEdited.connect(self._scope_edit)
+        self.settings.scopeReset.connect(self._scope_reset)
         lay.addWidget(self.settings, 1)
 
         action = _card()
@@ -3343,6 +3347,7 @@ class MainWindow(QMainWindow):
         self._syncing = False
         self._objects_changed(refresh_list=False)
         self._sync_transform()
+        self.settings.show_scope()
 
     # ================================================================ one-click plate
     def one_click_plate(self):
@@ -3778,6 +3783,7 @@ class MainWindow(QMainWindow):
         self.viewer.set_selected(sel.uid if sel else None, [o.uid for o in self.selected_objects()])
         self.transform_card.setEnabled(sel is not None)
         self._sync_transform()
+        self.settings.show_scope()                   # supports / raft rows: the selected models' values
 
     def _item(self, uid):
         for i in range(self.object_list.count()):
@@ -4362,6 +4368,45 @@ class MainWindow(QMainWindow):
             return
         values = {key: row.editor_value() for key, (check, row) in rows.items() if check.isChecked()}
         self.set_model_settings(group, values)
+
+    def _scope_group(self):
+        return [o for o in self.selected_objects() if o.role != "cutter"]
+
+    def _scope_edit(self, key, value):
+        """A supports / raft value from the side panel with models selected: those models' own setting only
+        (as Model settings); the plate and every other model keep theirs. Its Apply then rebuilds them."""
+        from ..settings import MODEL_TYPE_KEYS, SUPPORT_PRESETS
+        group = self._scope_group()
+        if not group:
+            return
+        self._push_undo()
+        self._scope_step = True                      # the Apply that follows is part of this one Ctrl+Z
+        QTimer.singleShot(0, lambda: setattr(self, "_scope_step", False))
+        cfg = self.settings.config()
+        for o in group:
+            o.settings[key] = value
+            if key == "sla_support_preset":          # the preset supplies tip / pillar / spacing
+                for k in SUPPORT_PRESETS["medium"]:
+                    o.settings.pop(k, None)
+            elif key in SUPPORT_PRESETS["medium"] and o.config(cfg)["sla_support_preset"] != "custom":
+                o.settings["sla_support_preset"] = "custom"
+            if key == "sla_model_type":              # the model type supplies its supports
+                for k in MODEL_TYPE_KEYS:
+                    o.settings.pop(k, None)
+            elif key in MODEL_TYPE_KEYS and o.config(cfg)["sla_model_type"] != "plate":
+                o.settings["sla_model_type"] = "plate"
+        self._refresh_objects(select=[o.uid for o in self.selected_objects()])   # the list marks them ⚙
+        self.status.setText(tr("scope_selected").format(len(group)))
+
+    def _scope_reset(self, key):
+        """A selected model's own supports / raft value dropped: back to the plate's."""
+        group = [o for o in self._scope_group() if key in o.settings]
+        if not group:
+            return
+        self._push_undo()
+        for o in group:
+            o.settings.pop(key, None)
+        self._refresh_objects(select=[o.uid for o in self.selected_objects()])
 
     def set_selected_support_preset(self, preset):
         """Supports light / medium / heavy for the selected models only (their own setting; None: back to the
@@ -5346,6 +5391,13 @@ class MainWindow(QMainWindow):
         spacing re-arranges the plate, hollowing / infill slices so the honeycomb shows."""
         if self._settings_timer.isActive():
             self._settings_timer.stop()
+        if getattr(self, "_scope_step", False):      # the selected models' own value: one Ctrl+Z with it
+            self._scope_step = False
+            held, self._undo_held = getattr(self, "_undo_held", False), True
+            try:
+                return self.apply_setting(key)
+            finally:
+                self._undo_held = held
         self._on_settings_changed()                  # stores the value (kept after a restart too)
         setting = SCHEMA_BY_KEY.get(key)
         name = setting_label(setting) if setting is not None else key
@@ -6625,10 +6677,16 @@ class MainWindow(QMainWindow):
         text = learning_sync.snapshot(self.assistant.data)
 
         def work(progress, cancelled):
-            return agent.sync_learning(text)
+            try:
+                return agent.sync_learning(text)
+            except remote.RemoteError as e:          # offline, a blocked or inspected connection: not a bug
+                return remote.RemoteError(str(e))
 
         def done(others):
             import time as _t
+            if isinstance(others, remote.RemoteError):
+                failed(str(others))
+                return
             try:
                 seen = json.loads(self.store.value("learning_sync_seen", "{}") or "{}")
             except ValueError:

@@ -3001,6 +3001,10 @@ def test_align_lock_fill_cavity_and_layer_playback(tmp_path):
         from unislicer.gui.main_window import MainWindow
         w = MainWindow(); w.show(); app.processEvents()
         w.settings.select_printer("elegoo_mars3"); w.settings.set_value("support_enable", False); app.processEvents()
+        import time
+        settle = time.time() + 1.0                         # the printer switch reaches the plate after a short
+        while time.time() < settle:                        # wait; landing later it moves every model with the
+            app.processEvents(); time.sleep(0.01)          # plate (the lock included), as if align had moved it
         a = w.add_mesh(primitives.box(10, 10, 4)); b = w.add_mesh(primitives.box(10, 10, 4))
         a.direct = b.direct = True                         # on the plate: no 'no supports' question
         from PySide6.QtWidgets import QMessageBox           # aligned left, the boxes touch: slice anyway
@@ -7589,6 +7593,114 @@ def test_raft_and_support_density_change_only_the_selected_models(tmp_path):
         rows["sla_raft_type"].changed.emit("sla_raft_type", new); app.processEvents()
         assert w.settings.config()["sla_raft_type"] == new
         w._raft_dialog.close()
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_a_blocked_learning_sync_is_a_network_message_not_a_program_bug(tmp_path):
+    """Lab report (1.0.247): the background learning sync hit an intercepted connection (a certificate for
+    another name - an antivirus' HTTPS scanning or an internet filter) and it was logged and shown as "A program
+    bug" with the raw error. It is a network problem: nothing goes to the crash log, the assistant says what
+    blocks the connection, and the diagnosis of such an error anywhere else names the network too."""
+    from unislicer import diagnose, remote
+    err = ("offline: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostname mismatch, certificate "
+           "is not valid for 'x-default-rtdb.europe-west1.firebasedatabase.app'. (_ssl.c:1010)")
+    try:
+        raise remote.RemoteError(err)
+    except remote.RemoteError as e:
+        d = diagnose.diagnose(e)
+    assert d.kind == "network" and "program bug" not in d.title[1].lower()
+    assert "firebasedatabase.app" in remote.explain("RemoteError: " + err, "en").split("\n")[0]
+    assert remote.explain("RemoteError: offline: timed out", "en").startswith("No internet")
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import diagnose, remote
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        class Agent:
+            state = "linked"
+            def running(self): return True
+            def sync_learning(self, text):
+                raise remote.RemoteError("offline: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+                                         "Hostname mismatch")
+        w.remote.agent = Agent()
+        assert w.assistant.enabled
+        before = len(diagnose.CrashLog().entries())
+        w.sync_learning(manual=False)
+        end = time.time() + 20
+        while time.time() < end and w._learn_sync_task.isRunning():
+            app.processEvents(); time.sleep(0.01)
+        for _ in range(20):
+            app.processEvents()
+        assert len(diagnose.CrashLog().entries()) == before, "logged as a program fault"
+        shown = w.assistant_panel.sync_status.text()
+        assert "firebasedatabase.app" in shown and "RemoteError" not in shown.split("(")[0], shown
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_side_panel_raft_and_support_type_change_only_the_selected_models(tmp_path):
+    """With models selected, the raft type and support type picked in the side panel changed the plate - every
+    model. Now they go to the selected models only (their own settings, the panel says so and shows their
+    values, one Ctrl+Z undoes it); with nothing selected the panel edits the plate as before."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus"); app.processEvents()
+        w.settings.set_simple(False); w.settings._on_advanced(True); app.processEvents()
+        a = w.add_mesh(primitives.box(10, 10, 6)); b = w.add_mesh(primitives.box(10, 10, 6)); app.processEvents()
+        p = w.settings
+        plate = p.config()
+        raft = "solid_lite" if plate["sla_raft_type"] != "solid_lite" else "grid"
+        sup = "pillar" if plate["sla_support_type"] != "pillar" else "tree"
+        w._select_uid(a.uid); app.processEvents()
+        def edit(key, value):
+            row = p._rows[key]
+            row.changed.emit(key, value); row.applied.emit(key); app.processEvents()
+        undo_before = len(w._undo)
+        edit("sla_raft_type", raft)
+        edit("sla_support_type", sup)
+        for _ in range(50):
+            app.processEvents()
+        cfg = p.config()
+        assert cfg["sla_raft_type"] == plate["sla_raft_type"], "the plate's raft changed"
+        assert cfg["sla_support_type"] == plate["sla_support_type"], "the plate's supports changed"
+        assert a.config(cfg)["sla_raft_type"] == raft and a.config(cfg)["sla_support_type"] == sup
+        assert b.config(cfg)["sla_raft_type"] == plate["sla_raft_type"]
+        assert b.config(cfg)["sla_support_type"] == plate["sla_support_type"]
+        assert p._rows["sla_raft_type"].editor_value() == raft          # the panel shows the selected model's
+        assert p._scope_banner.isVisibleTo(p) and "1" in p._scope_banner.text()
+        assert len(w._undo) == undo_before + 2, len(w._undo) - undo_before   # one Ctrl+Z per change
+        w._select_uid(None); app.processEvents()
+        assert p._rows["sla_raft_type"].editor_value() == plate["sla_raft_type"]
+        assert not p._scope_banner.isVisibleTo(p)
+        w._select_uid(a.uid); app.processEvents()
+        w.undo(); app.processEvents()
+        assert a.settings.get("sla_support_type") is None and a.settings.get("sla_raft_type") == raft
+        w._select_uid(None); app.processEvents()
+        edit("sla_raft_type", raft)                                       # nothing selected: the plate
+        assert p.config()["sla_raft_type"] == raft
         print("ok", flush=True)
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

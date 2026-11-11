@@ -776,6 +776,7 @@ STRINGS = {
     "layout_done": ("הסידור הושלם", "Layout done"),
     "layout_done_learned": ("הסידור הושלם לפי ההעדפות שנלמדו", "Layout done with your learned preferences"),
     "repair_closed_further": ("נשאר פתוח בהגדרות האלה - נסגר במעבר נוסף (ריתוך גס יותר)", "Left open with these options - closed with a further pass (a coarser weld)"),
+    "scope_selected": ("תמיכות ו-RAFT כאן חלים רק על {} המודלים המסומנים. לחיצה על מקום ריק בפלטה – עריכה לכל הפלטה.", "Supports and raft here apply to the {} selected models only. Click an empty spot on the plate to edit the whole plate."),
     "raft_menu_selected": ("רק ל-{} המודלים שנבחרו (שאר הפלטה לא משתנה). בלי בחירה – כל הפלטה.", "For the {} selected models only (the rest of the plate stays as it is). With nothing selected: the whole plate."),
     "sup_density_selected": ("צפיפות תמיכות למודלים שנבחרו", "Support density for the selected models"),
     "sup_density_plate": ("כמו בפלטה", "As the plate"),

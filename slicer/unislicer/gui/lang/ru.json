@@ -1457,5 +1457,6 @@
 "For the {} selected models only (the rest of the plate stays as it is). With nothing selected: the whole plate.": "Только для {} выбранных моделей (остальная платформа не меняется). Без выбора — вся платформа.",
 "Support density for the selected models": "Плотность поддержек для выбранных моделей",
 "As the plate": "Как у платформы",
-"Support density set for {} models": "Плотность поддержек задана для {} моделей"
+"Support density set for {} models": "Плотность поддержек задана для {} моделей",
+"Supports and raft here apply to the {} selected models only. Click an empty spot on the plate to edit the whole plate.": "Поддержки и рафт здесь применяются только к {} выбранным моделям. Щёлкните по пустому месту платформы, чтобы изменить всю платформу."
 }

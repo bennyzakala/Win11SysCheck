@@ -577,8 +577,19 @@ def explain(err: str, lang: str = "he") -> str:
         "auth_failed": ("ההתחברות ל-Firebase נכשלה. בדוק שהפעלת Anonymous ו-Google ב-Authentication › Sign-in method.",
                         "Signing in to Firebase failed. Check that Anonymous and Google are on in Authentication › Sign-in method."),
     }
+    err = re.sub(r"^RemoteError:\s*", "", err or "")
     if err in table:
         return table[err][0 if he else 1]
+    if err.startswith("offline") and "certificate" in err.lower():
+        # the answer came with a certificate for another name: something on the way (an antivirus' HTTPS
+        # scanning, a company / ISP filter, a public Wi-Fi login page) stands between this computer and Firebase
+        return ("החיבור ל-Firebase נחסם או יורט ברשת (אישור אבטחה לא תואם). בדרך כלל זה אנטי-וירוס עם \"סריקת HTTPS\" "
+                "או סינון אינטרנט (של הספק / החברה). הוסף את firebasedatabase.app ו-googleapis.com לחריגים באנטי-וירוס "
+                "או בסינון, או נסה ברשת אחרת. ננסה שוב אוטומטית." if he else
+                "The connection to Firebase was blocked or intercepted on the network (the security certificate does not "
+                "match). This is usually an antivirus with \"HTTPS scanning\" or an internet filter (the provider's or "
+                "the company's). Add firebasedatabase.app and googleapis.com to its exceptions, or try another network. "
+                "Retrying automatically.") + f"\n({err})"
     if err.startswith("offline"):
         return ("אין חיבור לאינטרנט או ש-Firebase לא זמין. ננסה שוב אוטומטית." if he else
                 "No internet connection or Firebase is unreachable. Retrying automatically.") + f"\n({err})"

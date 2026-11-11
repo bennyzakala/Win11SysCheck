@@ -173,6 +173,22 @@ def _rule(exc_type: str, msg: str, tb: str, area_key: str):
                  "A profile saved by an older version lacks a setting this version needs."),
                 [("פתח את מנהל הפרופילים ושמור את הפרופיל מחדש, או בחר את פרופיל היצרן.", "Open the profile manager and save the profile again, or pick the vendor profile."),
                  REPORT])
+    if (exc_type in ("RemoteError", "URLError", "SSLError", "SSLCertVerificationError", "TimeoutError", "timeout",
+                     "ConnectionError", "ConnectionResetError", "ConnectionRefusedError", "ConnectionAbortedError",
+                     "gaierror") or "certificate verify failed" in low) and \
+            (exc_type != "RemoteError" or low.startswith("offline")):
+        cert = "certificate" in low
+        return ("network", ("אין חיבור לשירות המקוון", "No connection to the online service"),
+                (("החיבור יורט ברשת: התקבל אישור אבטחה של שם אחר. בדרך כלל אנטי-וירוס עם \"סריקת HTTPS\" או סינון "
+                  "אינטרנט של הספק / החברה." if cert else
+                  "המחשב לא הצליח להגיע לשרת: אין אינטרנט, או שחומת אש / סינון חוסמים את החיבור."),
+                 ("The connection was intercepted on the network: a security certificate for another name came back. "
+                  "Usually an antivirus with \"HTTPS scanning\" or the provider's / company's internet filter." if cert else
+                  "The computer could not reach the server: no internet, or a firewall / filter blocks the connection.")),
+                [("זו לא תקלה בתוכנה - העבודה לא נפגעה, והסנכרון ינסה שוב לבד.",
+                  "This is not a program fault - your work is fine, and the sync retries by itself."),
+                 ("הוסף את firebasedatabase.app ו-googleapis.com לחריגים באנטי-וירוס / בסינון, או נסה ברשת אחרת.",
+                  "Add firebasedatabase.app and googleapis.com to the antivirus / filter exceptions, or try another network.")])
     if exc_type == "RecursionError":
         return ("mesh", ("המודל מורכב מדי לפעולה", "The model is too complex for this operation"),
                 ("הפעולה נכנסה לעומק גדול מדי - בדרך כלל רשת עם מאות אלפי חלקים נפרדים.",

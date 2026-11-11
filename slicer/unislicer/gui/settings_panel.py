@@ -324,6 +324,13 @@ class SettingsPanel(QWidget):
     cfsSyncRequested = Signal()
     settingApplied = Signal(str)           # a row's "Apply": that one setting should take effect now
     simpleChanged = Signal(bool)           # Simple / Full switched
+    scopeEdited = Signal(str, object)      # a support / raft value for the selected models only
+    scopeReset = Signal(str)               # a selected model's own support / raft value dropped
+
+    # with models selected these go to those models (their own settings), not to the plate; the elevation and
+    # the on / off switches stay the plate's (the models stand on one floor)
+    PLATE_ONLY = frozenset({"sla_elevation", "support_enable", "sla_internal_supports", "sla_internal_spacing",
+                            "sla_cavity_pillars", "sla_cavity_outside", "sla_cavity_spacing", "sla_cavity_diameter"})
 
     def __init__(self, printer: str, material: str | None, quality: str | None, overrides: dict, show_advanced: bool):
         super().__init__()
@@ -335,6 +342,8 @@ class SettingsPanel(QWidget):
         self.filter_text = ""
         self._building = False
         self._expanded: dict[str, bool] = {}
+        self.scope = None                  # callable: the selected models (support / raft edits go to them)
+        self._scope_banner = None
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -1032,6 +1041,8 @@ class SettingsPanel(QWidget):
             self.rebuild()
             return
         row.set_value(self.config()[key])
+        if self.scoped_key(key):
+            self.show_scope()                # a selected model's own value stays on show
 
     def _set_linked(self, key, value):
         """Change a setting that follows another one (no assistant learning, the row is refreshed)."""
@@ -1044,8 +1055,55 @@ class SettingsPanel(QWidget):
             row.set_value(value)
             row.reset_btn.setVisible(key in self.overrides)
 
+    def scoped_key(self, key) -> bool:
+        """A support / raft setting a selected model can have as its own."""
+        s = SCHEMA_BY_KEY.get(key)
+        return (self.technology == "sla" and s is not None and s.category in ("support", "raft")
+                and key not in self.PLATE_ONLY)
+
+    def scope_group(self) -> list:
+        try:
+            return [o for o in (self.scope() if self.scope else []) if getattr(o, "role", None) != "cutter"]
+        except Exception:
+            return []
+
+    def show_scope(self):
+        """The support / raft rows show the first selected model's values (its own ones marked), or the
+        plate's with nothing selected; a note on top says which."""
+        group = self.scope_group() if self.technology == "sla" else []
+        rows = getattr(self, "_rows", {})
+        cfg = self.config()
+        # only when the selection, its own values, the plate or the rows changed: ~25 ms on a full panel, and
+        # it would drop a value being typed in a row whenever the plate is refreshed
+        memo = (id(rows), tuple(o.uid for o in group), repr(sorted(group[0].settings.items())) if group else "",
+                getattr(self, "_cfg_cache", (None,))[0])
+        if memo == getattr(self, "_scope_memo", None):
+            return
+        self._scope_memo = memo
+        view = group[0].config(cfg) if group else cfg
+        for key, row in rows.items():
+            if not self.scoped_key(key):
+                continue
+            own = (key in group[0].settings) if group else key in self.overrides
+            row.set_value(view[key])
+            row.reset_btn.setVisible(own)
+            row.label.setStyleSheet(f"color: {theme.TEXT}; font-weight: 600;" if own else "")
+        b = self._scope_banner
+        if b is not None:
+            try:
+                b.setVisible(bool(group))
+                if group:
+                    b.setText(tr("scope_selected").format(len(group)))
+            except RuntimeError:             # the panel was rebuilt
+                self._scope_banner = None
+
     def _on_changed(self, key, value):
         if self._building:
+            return
+        if self.scoped_key(key) and not getattr(self, "_programmatic", False) and self.scope_group():
+            # models selected: their supports / raft only - the plate (every other model) keeps its values
+            self.scopeEdited.emit(key, value)
+            QTimer.singleShot(0, self.show_scope)
             return
         # an internal infill needs a hollow model: picking one turns hollowing on, turning hollowing off drops it
         if key == "hollow_infill" and value != "none" and not self.config()["hollow_enable"]:
@@ -1085,6 +1143,10 @@ class SettingsPanel(QWidget):
         self.changed.emit()
 
     def _on_reset(self, key):
+        if self.scoped_key(key) and self.scope_group():
+            self.scopeReset.emit(key)
+            self.show_scope()
+            return
         self.overrides.pop(key, None)
         self.rebuild()
         self.changed.emit()
@@ -1243,5 +1305,15 @@ class SettingsPanel(QWidget):
             v.addWidget(sec)
             self._sections[cat[0]] = sec
         v.addStretch(1)
+        banner = QLabel()
+        banner.setObjectName("ScopeBanner")
+        banner.setWordWrap(True)
+        banner.setStyleSheet(f"background: {theme.ACCENT}; color: {theme.ON_ACCENT}; border-radius: 6px; padding: 6px 8px;"
+                             " font-weight: 600;")
+        banner.setVisible(False)
+        v.insertWidget(0, banner)
+        self._scope_banner = banner
         theme.replace_scroll_widget(self.scroll, container)
         self._building = False
+        self._scope_memo = None              # new rows: show the selection's values on them
+        self.show_scope()

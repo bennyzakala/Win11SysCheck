@@ -1457,5 +1457,6 @@
 "For the {} selected models only (the rest of the plate stays as it is). With nothing selected: the whole plate.": "لـ {} من النماذج المحددة فقط (بقية المنصة لا تتغير). بدون تحديد: المنصة كلها.",
 "Support density for the selected models": "كثافة الدعامات للنماذج المحددة",
 "As the plate": "كما في المنصة",
-"Support density set for {} models": "تم ضبط كثافة الدعامات لـ {} نماذج"
+"Support density set for {} models": "تم ضبط كثافة الدعامات لـ {} نماذج",
+"Supports and raft here apply to the {} selected models only. Click an empty spot on the plate to edit the whole plate.": "الدعامات والقاعدة هنا تُطبَّق فقط على {} من النماذج المحددة. انقر على مكان فارغ في المنصة لتعديل المنصة كلها."
 }
