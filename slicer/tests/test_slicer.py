@@ -6923,8 +6923,35 @@ def test_a_model_base_named_with_its_teeth_is_a_model_not_a_bridge():
     for name in ("SOD260046871-003-16-15-14-modelbase.stl", "SOD260046871-003-44-45-46-modelbase.stl",
                  "case-modeltop.stl"):
         assert dental_cad.detect_indication(name) == "model", name
-    assert dental_cad.detect_indication("SOD260046871-003-16-15-modelgingiva.stl") == "denture"    # as before
+    assert dental_cad.detect_indication("SOD260046871-003-16-15-modelgingiva.stl") == "gingiva"
     for name in ("WMJ-SOD260043945-044-P-43-46-4-A3-.stl", "KVZ-SOD260044993-044-P-35-46-11-A1-000.stl",
                  "LAH-SOD260047907-044-E-15-15-1-E.stl"):
         assert dental_cad.detect_indication(name) == "crown", name
     assert dental_cad.detect_indication("EGI-SOD260046764-114-Z-14-14-1-00-V227_Tooth_14.stl") == "die"
+
+
+def test_model_gingiva_is_a_gingiva_mask_turned_flat_side_up():
+    """exocad's model builder names the removable gum of a model "...-modelgingiva": it was read as a
+    denture ("gingiva") and loaded as it lay. It is a gingiva mask, turned flat side up. Its flat side is one
+    plane - faces facing one way at several heights (the steps of a small mask's flank) no longer add up to
+    beat the real cut - and of two real cuts the one the mask sits on (facing down in the CAD file) wins
+    over a cut on its flank."""
+    from unislicer import dental_cad
+    assert dental_cad.detect_indication("SOD260046871-003-44-modelgingiva.stl") == "gingiva"
+    assert dental_cad.detect_indication("SOD260046871-003-16-15-modelgingiva.stl") == "gingiva"
+    assert dental_cad.detect_indication("BAH-SOD260046430-034-X-35-36-2-C2-B592_Tissue_17.stl") == "gingiva"
+    base = primitives.box(12, 12, 3)                                  # its seat: 144 mm2, flat
+    # a flank in steps: 8 faces of 8 x 6 mm facing +x, each 1 mm further out - together 384 mm2 that way
+    steps = [primitives.box(1.0, 8, 6).translated(np.array([6.5 + 1.0 * k, 0.0, 0.0])) for k in range(8)]
+    m = Mesh.merge([base] + steps, "mask")
+    d = dental_cad.flat_side(m)
+    assert d is not None and abs(d[2]) > 0.99, d                     # the seat, not the steps
+    # a flank cut a bit larger than the seat, tilted: the seat (down) still wins
+    from unislicer.mesh import rotation_between
+    wedge = primitives.box(14, 13, 3)
+    r = rotation_between(np.array([0.0, 0.0, -1.0]), np.array([-0.8, 0.5, -0.3]))
+    flank = Mesh(wedge.vertices @ r.T + np.array([20.0, 0, 0]), wedge.faces, "flank")
+    two = Mesh.merge([primitives.box(13, 13, 3), flank], "two cuts")
+    d2 = dental_cad.flat_side(two)
+    assert d2 is not None and abs(d2[2]) > 0.99, d2                  # the seat, not the flank
+    assert dental_cad.flat_side(primitives.box(18, 20, 7))[2] > 0.99   # top and bottom alike: the one up stays

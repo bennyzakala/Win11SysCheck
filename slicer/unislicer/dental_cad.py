@@ -22,7 +22,7 @@ MODEL_EXTS = (".stl", ".3mf", ".obj", ".ply", ".amf")
 INDICATIONS = (
     # gingiva mask (3Shape: "..._Tissue_17"), before denture: "gingiva mask" must not read as a denture's gingiva
     ("gingiva", ("tissue", "soft tissue", "gingiva mask", "gingivamask", "gingival mask", "gum mask", "gummask",
-                 "gingiva shell")),
+                 "gingiva shell", "modelgingiva", "model gingiva")),   # exocad's model builder: "...-modelgingiva"
     ("denture", ("denture", "full denture", "partial denture", "gingiva", "denturebase", "denture base",
                  "dentureteeth", "monolithic")),
     ("guide", ("surgical guide", "surgicalguide", "implant guide", "drill guide", "guide")),
@@ -238,13 +238,31 @@ def flat_side(mesh):
         from .orient import _flat_face_normals
         m = mesh.decimated(20000)
         n, a = m.face_normals(), m.face_areas()
+        c = m.vertices[m.faces].mean(axis=1)
         total = float(a.sum()) or 1.0
         best, share = None, 0.0
         for d in _flat_face_normals(m, 6):
-            sh = float(a[(n @ d) > 0.996].sum()) / total
-            if sh > share:
-                best, share = d, sh
-        return None if best is None or share < 0.12 else best / np.linalg.norm(best)
+            on = (n @ d) > 0.996
+            if not on.any():
+                continue
+            # one plane, not every face that happens to face that way: faces at several heights (steps of a
+            # small mask's side) summed up beat its real cut. The 0.5 mm band holding the most area counts
+            off, w = c[on] @ d, a[on]
+            order = np.argsort(off)
+            off, w = off[order], np.cumsum(w[order])
+            end = np.searchsorted(off, off + 0.5, side="right") - 1
+            band = w[end] - np.concatenate([[0.0], w[:-1]])
+            sh = float(band.max()) / total
+            if sh < 0.12:
+                continue
+            # the CAD exports the model standing upright, so the side of the mask that sits on it lies flat
+            # (down, or up once turned); a cut of the same size on the mask's flank (a small segment,
+            # "...-44-modelgingiva") is its edge. Of two about equal, the one already up: nothing to turn
+            dz = float(d[2]) / (float(np.linalg.norm(d)) or 1.0)
+            score = sh * (1.0 + abs(dz))
+            if best is None or score > share * 1.02 or (score > share * 0.98 and dz > float(best[2]) / (float(np.linalg.norm(best)) or 1.0)):
+                best, share = d, max(score, share)
+        return None if best is None else best / np.linalg.norm(best)
     d = _memo(mesh, "_flat_side", compute)
     return None if d is None else d.copy()
 
