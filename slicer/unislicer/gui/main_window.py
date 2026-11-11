@@ -1749,11 +1749,12 @@ class MainWindow(QMainWindow):
     def _apply_repair_recipe(self, o, recipe: dict) -> dict:
         """Repair a model the way the user repaired similar ones (quick repair, or the advanced options)."""
         from .. import mesh_tools
+        mesh = o.mesh
         if recipe.get("mode") == "advanced":
-            fixed, rep = mesh_tools.repair_advanced_closed(o.mesh, recipe["weld"], recipe["shells"],
-                                                           recipe["nonmanifold"], recipe["holes"])
+            fixed, rep = self._in_background(lambda: mesh_tools.repair_advanced_closed(
+                mesh, recipe["weld"], recipe["shells"], recipe["nonmanifold"], recipe["holes"]))
         else:
-            fixed, rep = mesh_tools.repair(o.mesh)
+            fixed, rep = self._in_background(lambda: mesh_tools.repair(mesh))
         o.mesh = fixed
         o.regions = []                    # faces changed: shaded regions / filament parts no longer apply
         o.filament_parts = []
@@ -3099,9 +3100,11 @@ class MainWindow(QMainWindow):
                 prints = {o.uid: self._repair_fingerprint(o) for o in targets}
             finally:
                 QApplication.restoreOverrideCursor()
-        for o in targets:
+        meshes = [o.mesh for o in targets]
+        # on a background thread: a full plate of scans froze the window for tens of seconds
+        results = self._in_background(lambda: [mesh_tools.repair(m) for m in meshes])
+        for o, (fixed, rep) in zip(targets, results):
             self._repair_offers.pop(o.uid, None)
-            fixed, rep = mesh_tools.repair(o.mesh)
             o.mesh = fixed
             o.regions = []                        # faces changed: shaded regions no longer apply
             for k in totals:
@@ -3189,10 +3192,11 @@ class MainWindow(QMainWindow):
         try:
             if self.assistant.enabled:
                 prints = {o.uid: self._repair_fingerprint(o) for o in targets}
-            for o in targets:
+            opts = (weld.value(), shells.value() / 100.0, nonman.isChecked(), holes.isChecked())
+            meshes = [o.mesh for o in targets]
+            results = self._in_background(lambda: [mesh_tools.repair_advanced_closed(m, *opts) for m in meshes])
+            for o, (fixed, rep) in zip(targets, results):
                 self._repair_offers.pop(o.uid, None)
-                fixed, rep = mesh_tools.repair_advanced_closed(o.mesh, weld.value(), shells.value() / 100.0,
-                                                               nonman.isChecked(), holes.isChecked())
                 o.mesh = fixed
                 o.regions = []                    # faces changed: shaded regions no longer apply
                 self._drop_supports(o)
