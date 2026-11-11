@@ -6912,3 +6912,19 @@ def test_repair_never_turns_a_good_scan_inside_out():
     closed, rep3 = mesh_tools.repair_advanced_closed(m)
     assert rep3["flipped"] == 0 and rep3["after"]["watertight"], rep3["after"]
     assert abs(closed.volume() - ball.volume()) < 0.001 * ball.volume()
+
+
+def test_a_model_base_named_with_its_teeth_is_a_model_not_a_bridge():
+    """exocad's model builder names the base of a model with the teeth on it ("SOD...-003-16-15-14-modelbase"):
+    one word "modelbase", and teeth 16-15-14 that read like a lab order's range and unit count - it was taken
+    for a bridge and loaded turned over, opening up. It is a model and keeps the file's orientation; lab
+    orders with a tooth range are still crowns / bridges, and the other parts keep their types."""
+    from unislicer import dental_cad
+    for name in ("SOD260046871-003-16-15-14-modelbase.stl", "SOD260046871-003-44-45-46-modelbase.stl",
+                 "case-modeltop.stl"):
+        assert dental_cad.detect_indication(name) == "model", name
+    assert dental_cad.detect_indication("SOD260046871-003-16-15-modelgingiva.stl") == "denture"    # as before
+    for name in ("WMJ-SOD260043945-044-P-43-46-4-A3-.stl", "KVZ-SOD260044993-044-P-35-46-11-A1-000.stl",
+                 "LAH-SOD260047907-044-E-15-15-1-E.stl"):
+        assert dental_cad.detect_indication(name) == "crown", name
+    assert dental_cad.detect_indication("EGI-SOD260046764-114-Z-14-14-1-00-V227_Tooth_14.stl") == "die"

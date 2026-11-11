@@ -55,6 +55,10 @@ def detect_indication(path: str, order_text: str = "") -> str:
                 kw = " " + k + " "
                 if kw in w or (len(k) > 5 and " " not in k and k in squashed):
                     return kind
+        # one word that starts with "model" (exocad's model builder: "...-16-15-14-modelbase"): a model -
+        # not read as a bridge by its tooth numbers below, which turned the base over, opening up
+        if _MODEL_WORD.search(w):
+            return "model"
     # a lab order name with a tooth range and a unit count and nothing else said ("...-044-P-14-24-8-A3-",
     # teeth 14 to 24, 8 units): the restoration itself - a crown or bridge, however long the bridge
     if _TOOTH_RANGE.search(os.path.basename(path)):
@@ -63,6 +67,7 @@ def detect_indication(path: str, order_text: str = "") -> str:
 
 
 _FDI = r"(?:[1-4][1-8]|[5-8][1-5])"
+_MODEL_WORD = re.compile(r" model[a-z]+ ")
 _TOOTH_RANGE = re.compile(rf"-{_FDI}-{_FDI}-\d{{1,2}}(?=[-_.]|$)")
 
 
