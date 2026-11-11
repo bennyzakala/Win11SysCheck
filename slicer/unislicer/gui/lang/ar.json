@@ -1034,7 +1034,7 @@
 "{} layers updated. Export will use the edited layers": "حُدّثت {} طبقات. سيستخدم التصدير الطبقات المعدّلة",
 "{} models": "{} نماذج",
 "{} models selected · {:.2f} cm³": "{} نماذج محددة · {:.2f} سم³",
-"{} parts did not fit and were left where they were": "لم تتسع {} قطع وبقيت في مكانها",
+"{} parts did not fit and were set out beside the plate": "{} أجزاء لم تتسع ووُضعت بجانب المنصة",
 "{} parts overlap and would print fused. Auto layout?": "{} قطع متداخلة وستُطبع ملتحمة. ترتيب تلقائي؟",
 "{} prints reported, {} succeeded": "طباعات مُبلَّغ عنها: {}، الناجحة: {}",
 "{} small holes in the mesh were closed": "أُغلق {} ثقب صغير في الشبكة",

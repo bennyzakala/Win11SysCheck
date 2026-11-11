@@ -3333,7 +3333,11 @@ def test_learn_layout_button_and_arrange_repeat_it():
         from unislicer.gui.main_window import MainWindow
         w = MainWindow(); w.resize(1600, 1000); w.show(); app.processEvents()
         w.settings.select_printer("phrozen_sonic_xl_4k_plus"); app.processEvents()
+        import time
         objs = [w.add_mesh(primitives.box(30, 12, 5)) for _ in range(3)]
+        settle = time.time() + 1.0                     # the new printer's plate is taken up on a timer: a late
+        while time.time() < settle:                    # one brought the parts along and re-arranged them
+            app.processEvents(); time.sleep(0.01)
         for o, (x, y) in zip(objs, ((40, 30), (100, 30), (160, 90))):
             o.x, o.y = x, y
         w._objects_changed()
@@ -3341,8 +3345,10 @@ def test_learn_layout_button_and_arrange_repeat_it():
         keep = [(o.x, o.y) for o in objs]
         for o in objs:
             o.x, o.y = 60, 60
+        taught = w.status.text()
         w.arrange_objects(); app.processEvents()
-        assert all(abs(o.x - k[0]) < 0.6 and abs(o.y - k[1]) < 0.6 for o, k in zip(objs, keep))
+        assert all(abs(o.x - k[0]) < 0.6 and abs(o.y - k[1]) < 0.6 for o, k in zip(objs, keep)), (
+            taught, w.status.text(), keep, [(round(o.x, 2), round(o.y, 2)) for o in objs])
         print("ok")
     """)
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

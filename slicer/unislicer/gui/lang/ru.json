@@ -1034,7 +1034,7 @@
 "{} layers updated. Export will use the edited layers": "Обновлено слоёв: {}. Экспорт использует изменённые слои",
 "{} models": "Моделей: {}",
 "{} models selected · {:.2f} cm³": "Выбрано моделей: {} · {:.2f} см³",
-"{} parts did not fit and were left where they were": "Не поместилось деталей: {} — они оставлены на месте",
+"{} parts did not fit and were set out beside the plate": "Не поместилось деталей: {} — они выставлены рядом с платформой",
 "{} parts overlap and would print fused. Auto layout?": "{} деталей перекрываются и напечатаются сросшимися. Авторасстановка?",
 "{} prints reported, {} succeeded": "Отмечено печатей: {}, успешных: {}",
 "{} small holes in the mesh were closed": "Закрыто мелких дыр в сетке: {}",
