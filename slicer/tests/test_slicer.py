@@ -7063,3 +7063,52 @@ def test_a_slice_of_the_plate_before_a_change_never_comes_back_as_current(tmp_pa
     env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1", UNISLICER_WORKERS="1")
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_export_draws_the_report_picture_off_the_window_thread(tmp_path):
+    """After an export the job report's picture of the plate was drawn on the window's thread: with a full
+    plate of lab models the window froze for 11 s. It is made by the export's background work, with the
+    project file; the report still comes out beside the print file."""
+    import subprocess, sys, textwrap
+    lib = str(tmp_path / "prints")
+    code = textwrap.dedent(f'''
+        import os, time, threading
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives, report, project
+        from unislicer.gui.main_window import MainWindow
+        where = []
+        real = report.plate_picture_png
+        report.plate_picture_png = lambda objs: (where.append(threading.current_thread() is threading.main_thread()), real(objs))[1]
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.store.setValue("export_library", {lib!r}); w._reveal = lambda p: None
+        w.settings.select_printer("elegoo_mars3"); w.settings.set_value("support_enable", False); app.processEvents()
+        o = w.add_mesh(primitives.box(10, 10, 5)); o.name = "part"; o.direct = True
+        settle = time.time() + 1.0
+        while time.time() < settle:
+            app.processEvents(); time.sleep(0.01)
+        w.slice()
+        end = time.time() + 120
+        while (w.result is None or (w.task is not None and w.task.isRunning())) and time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        w.export()
+        end = time.time() + 120
+        while any(t.isRunning() for t in getattr(w, "_export_tasks", [])) and time.time() < end:
+            app.processEvents(); time.sleep(0.02)
+        app.processEvents()
+        folder = os.path.join({lib!r}, "part")
+        assert os.path.isfile(os.path.join(folder, "part - report.pdf")), os.listdir(folder)
+        assert os.path.isfile(os.path.join(folder, "part" + project.EXTENSION)), os.listdir(folder)
+        assert where == [False], where
+        print("ok")
+        from unislicer import parallel
+        if parallel._pool is not None:
+            parallel._pool.shutdown(wait=True, cancel_futures=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

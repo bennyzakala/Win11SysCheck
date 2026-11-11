@@ -1643,12 +1643,31 @@ class MainWindow(QMainWindow):
             self._breathe()
         self._open_up(loaded)                     # crowns and bridges: opening up, before arranging
         if added is not None:
+            self._warm_outlines(self.objects)
             self.arrange_objects()
             self.viewer.fit_objects()
         self._undo_held = self.__dict__.get("_held_before_load", False)
         for o in loaded:                      # after arranging, so Ctrl+Z first undoes an automatic repair
             self._check_learned_repair(o)
         self._auto_close_holes(loaded)
+
+    def _warm_outlines(self, objs):
+        """The parts' outlines seen from above, which the layout needs, worked out on background threads
+        before it runs (kept with each mesh): on the window's thread they froze it for seconds after loading
+        a full plate."""
+        from .. import layout
+        todo = [o for o in objs if o.role != "cutter"]
+        if len(todo) < 2:
+            return
+
+        def work():
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(4, len(todo), os.cpu_count() or 1)) as ex:
+                list(ex.map(lambda o: layout.footprint(o), todo))
+        try:
+            self._in_background(work)
+        except Exception:
+            pass                                  # the layout works them out itself
 
     def _open_up(self, objs, kinds: dict | None = None) -> int:
         """The two automatic turns, and only these: crowns and bridges with their opening (fitting surface)
@@ -6769,14 +6788,16 @@ class MainWindow(QMainWindow):
         self._estimate_dialog = dlg
         dlg.exec()
 
-    def write_job_report(self, path: str, file_path: str = "") -> str:
-        """The job report of the plate as a PDF at ``path`` (returns the path)."""
+    def write_job_report(self, path: str, file_path: str = "", png: bytes | None = None) -> str:
+        """The job report of the plate as a PDF at ``path`` (returns the path); ``png``: the plate's picture
+        when already made."""
         from PySide6.QtCore import QMarginsF, QUrl
         from PySide6.QtGui import QImage, QPageLayout, QPageSize, QPdfWriter, QTextDocument
         from .. import report
         est = self.plate_estimate()
         cfg = self.settings.config()
-        png = report.plate_picture_png(self.objects)
+        if png is None:
+            png = report.plate_picture_png(self.objects)
         printer = self.settings.printer_combo.currentText() if hasattr(self.settings, "printer_combo") else cfg.get("printer_model", "")
         material = self.settings.material_combo.currentText() if hasattr(self.settings, "material_combo") else ""
         name = (self.objects[0].name if self.objects else "print") or "print"
@@ -6813,20 +6834,48 @@ class MainWindow(QMainWindow):
         self.status.setText(tr("report_saved").format(path))
         return path
 
-    def _report_with_export(self, print_path: str):
+    def _report_with_export(self, print_path: str, made: dict | None = None):
         """After an export: the job report and the project file beside the print file
-        (More › Save job report / project file with each export)."""
+        (More › Save job report / project file with each export). ``made``: what the export's own background
+        work already made (the plate picture, the project saved) - drawn here on the window's thread it froze
+        the window for seconds with a full plate."""
+        made = made or {}
         base = os.path.splitext(print_path)[0]
         if self.store.value("export_report", "true") == "true":
             try:
-                self.write_job_report(base + " - report.pdf", file_path=print_path)
+                self.write_job_report(base + " - report.pdf", file_path=print_path, png=made.get("png"))
             except Exception:
                 pass
-        if self.store.value("export_project", "true") == "true":
+        if self.store.value("export_project", "true") == "true" and not made.get("project"):
             try:                              # the plate as a project: open it later to change and export again
                 project.save(base + project.EXTENSION, self.objects, self.settings.state())
             except Exception:
                 pass
+
+    def _report_pieces(self):
+        """A function for the export's background work that makes the slow parts of the report and project
+        beside the print file, from the plate as it is now: (print path) -> what it made."""
+        want_png = self.store.value("export_report", "true") == "true"
+        want_project = self.store.value("export_project", "true") == "true"
+        objs, state = list(self.objects), self.settings.state()
+
+        def make(print_path: str) -> dict:
+            from .. import report
+            out = {}
+            base = os.path.splitext(print_path)[0]
+            if want_png:
+                try:
+                    out["png"] = report.plate_picture_png(objs)
+                except Exception:
+                    pass
+            if want_project:
+                try:
+                    project.save(base + project.EXTENSION, objs, state)
+                    out["project"] = True
+                except Exception:
+                    pass
+            return out
+        return make
 
     def export_library(self) -> str:
         """The central folder every print file is exported to (chosen in More › Export folder)."""
@@ -6907,11 +6956,15 @@ class MainWindow(QMainWindow):
             result = res
             base = os.path.splitext(os.path.basename(path))[0]
 
+            pieces, made = self._report_pieces(), {}
+
             def work(progress, cancelled):
-                return sla.export(job, cfg, path, base, lambda f: progress("export", f), cancelled)
+                p = sla.export(job, cfg, path, base, lambda f: progress("export", f), cancelled)
+                made.update(pieces(p if isinstance(p, str) and p else path))
+                return p
 
             def done(p):
-                self._report_with_export(p if isinstance(p, str) and p else path)
+                self._report_with_export(p if isinstance(p, str) and p else path, made)
                 self.status.setText(tr("export_done").format(p))
                 self._reveal(p if isinstance(p, str) and p else path)
                 self._ask_print_feedback()
@@ -6961,10 +7014,12 @@ class MainWindow(QMainWindow):
         unit = "ml" if est.technology == "sla" else "cm³"
         result = res
 
+        pieces, made = self._report_pieces(), {}
+
         def finish(p):
             queue = dialog.queue if dialog is not None else print_queue.Queue()
             queue.add(printer_id, p, os.path.basename(p), est.time_s, f"{est.total_ml:.1f} {unit}")
-            self._report_with_export(p)
+            self._report_with_export(p, made)
             self.status.setText(tr("queue_added").format(os.path.basename(p)))
             if dialog is not None:
                 dialog.refresh()
@@ -6980,8 +7035,11 @@ class MainWindow(QMainWindow):
             return
         job, cfg = result[1], result[2]
         base = os.path.splitext(os.path.basename(path))[0]
-        self._bg_export(lambda progress, cancelled: sla.export(job, cfg, path, base, lambda f: progress("export", f), cancelled),
-                         lambda p: finish(p if isinstance(p, str) and p else path), tr("exporting"))
+        def work(progress, cancelled):
+            p = sla.export(job, cfg, path, base, lambda f: progress("export", f), cancelled)
+            made.update(pieces(p if isinstance(p, str) and p else path))
+            return p
+        self._bg_export(work, lambda p: finish(p if isinstance(p, str) and p else path), tr("exporting"))
         res = result
 
     # ================================================================ network printers
