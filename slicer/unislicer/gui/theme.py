@@ -44,6 +44,45 @@ THEMES = {
         MODEL_COLOR=(0.80, 0.80, 0.83), MODEL_SELECTED=(0.92, 0.10, 0.57), MODEL_OUTSIDE=(0.95, 0.55, 0.20),
         SUPPORT_COLOR=(0.55, 0.56, 0.62), BED_COLOR=(0.90, 0.90, 0.93), GRID_COLOR=(0.66, 0.66, 0.72),
         LOGO_GRADIENT=("#eb1a91", "#0b0b0c"), DARK=False, BRAND="Prodentix", BRAND_IMAGE="prodentix"),
+    # Neon: an animated film's dusk - deep violet night, neon cyan light, a magenta creature, lime hills
+    "neon": dict(
+        BG="#0e0b2b", SURFACE="#171343", SURFACE_2="#201a55", SURFACE_3="#2b2368", BORDER="#3b3184",
+        BORDER_HOVER="#6a55d8", TEXT="#f6f2ff", TEXT_DIM="#c3b8f2", TEXT_FAINT="#8a7fc6",
+        ACCENT="#ff3fb4", ACCENT_HOVER="#ff6cc8", ACCENT_PRESSED="#e0219b", ACCENT_SOFT="#3d1f66",
+        ACCENT_DISABLED="#4b2f74", ACCENT_DISABLED_TEXT="#c2a6e6", ON_ACCENT="#ffffff",
+        SUCCESS="#8ef26b", WARNING="#ffc861", DANGER="#ff5a7a", OVERLAY=(23, 19, 67),
+        VIEW_BG_TOP=(0.24, 0.15, 0.48), VIEW_BG_BOTTOM=(0.035, 0.045, 0.17),
+        MODEL_COLOR=(0.30, 0.86, 1.00), MODEL_SELECTED=(1.00, 0.30, 0.74), MODEL_OUTSIDE=(1.00, 0.62, 0.25),
+        SUPPORT_COLOR=(0.62, 0.55, 0.95), BED_COLOR=(0.09, 0.08, 0.27), GRID_COLOR=(0.22, 0.62, 0.95),
+        LOGO_GRADIENT=("#36d6ff", "#ff3fb4"), DARK=True,
+        GLOW="#36d6ff", HILL="#8ef26b",
+        # an animated film's light: a warm key (the ring light), a cyan fill, a strong magenta rim, violet shade
+        LIGHT={"uKey": (0.86, 0.78, 0.72), "uFill": (0.18, 0.42, 0.62), "uRim": (0.95, 0.30, 0.78),
+               "uAmbLo": (0.16, 0.10, 0.30), "uAmbHi": (0.30, 0.28, 0.46)},
+        EXTRA_QSS="""
+QMainWindow, QDialog {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0b0a26, stop:0.55 #15103f, stop:1 #241153); }}
+QFrame#TopBar {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1a1350, stop:0.5 #231a66, stop:1 #3a1764);
+                 border-bottom: 2px solid qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {GLOW}, stop:1 {ACCENT}); }}
+QFrame#SideBar {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1b1550, stop:1 #120e38); }}
+QFrame#Card, QWidget#Card {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #221b5e, stop:1 #191347);
+                             border: 1px solid #4a3ca0; border-radius: 16px; }}
+QPushButton {{ border-radius: 12px; }}
+QPushButton:hover {{ border-color: {GLOW}; }}
+QPushButton#Primary, QPushButton#Success {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {GLOW}, stop:0.5 #9a5cff, stop:1 {ACCENT});
+                     color: #ffffff; border: 1px solid rgba(255,255,255,0.35); border-radius: 14px; }}
+QPushButton#Primary:hover, QPushButton#Success:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6fe4ff, stop:0.5 #b07cff, stop:1 {ACCENT_HOVER}); }}
+QPushButton#Primary:pressed, QPushButton#Success:pressed {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1fb6e0, stop:1 {ACCENT_PRESSED}); }}
+QPushButton:checked {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ff3fb4, stop:1 #b44cff); color: #ffffff; border: 1px solid #ff9ad8; }}
+QToolButton:checked {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #2a66d8, stop:1 #ff3fb4); border: 1px solid {GLOW}; border-radius: 10px; }}
+QProgressBar::chunk {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {GLOW}, stop:0.5 {HILL}, stop:1 {ACCENT}); border-radius: 6px; }}
+QSlider::sub-page:horizontal, QSlider::add-page:vertical {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {GLOW}, stop:1 {ACCENT}); border-radius: 3px; }}
+QSlider::handle {{ background: #ffffff; border: 2px solid {ACCENT}; }}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{ border: 1px solid {GLOW}; }}
+QListWidget::item:selected, QTreeWidget::item:selected {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(255,63,180,0.42), stop:1 rgba(54,214,255,0.22)); color: #ffffff; border-radius: 8px; }}
+QLabel#AppTitle {{ color: #ffffff; }}
+QLabel#SectionTitle {{ color: {GLOW}; }}
+QScrollBar::handle {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6a55d8, stop:1 #ff3fb4); border-radius: 5px; }}
+"""),
 }
 THEME_NAMES = tuple(THEMES)
 # the active theme's colours (filled in by set_theme)
@@ -109,9 +148,37 @@ def set_theme(name: str, logo_file: str = "") -> None:
     values = THEMES[CURRENT]
     BRAND = values.get("BRAND", "")
     LOGO_FILE = logo_file if logo_file and os.path.isfile(logo_file) else ""
-    globals().update({k: v for k, v in values.items() if k not in ("BRAND", "BRAND_IMAGE")})
+    globals().update({k: v for k, v in values.items() if k not in ("BRAND", "BRAND_IMAGE", "EXTRA_QSS")})
     global BRAND_IMAGE
     BRAND_IMAGE = values.get("BRAND_IMAGE", "")
+
+
+# the light on the models in the 3D view (white key and fill, a cool rim): every theme unless it sets its own
+DEFAULT_LIGHT = {"uKey": (0.72, 0.72, 0.72), "uFill": (0.28, 0.28, 0.28), "uRim": (0.121, 0.158, 0.22),
+                 "uAmbLo": (0.14, 0.15, 0.18), "uAmbHi": (0.30, 0.32, 0.36)}
+
+
+def light() -> dict:
+    return {**DEFAULT_LIGHT, **THEMES.get(CURRENT, {}).get("LIGHT", {})}
+
+
+def decorate(root) -> None:
+    """Theme touches a stylesheet cannot do: in a theme with a glow colour (Neon), the main buttons get a
+    soft coloured glow round them - only those few, so the window stays as quick to draw."""
+    glow = THEMES.get(CURRENT, {}).get("GLOW")
+    if not glow or root is None:
+        return
+    from PySide6.QtWidgets import QGraphicsDropShadowEffect, QPushButton
+    for i, b in enumerate(root.findChildren(QPushButton)):
+        if b.objectName() not in ("Primary", "Success") or b.graphicsEffect() is not None:
+            continue
+        fx = QGraphicsDropShadowEffect(b)
+        c = QColor(glow if b.objectName() == "Primary" else ACCENT)
+        c.setAlpha(170)
+        fx.setColor(c)
+        fx.setBlurRadius(26)
+        fx.setOffset(0, 3)
+        b.setGraphicsEffect(fx)
 
 
 def overlay(alpha: float) -> str:
@@ -141,6 +208,15 @@ def feature_rgb(kind: str) -> tuple[float, float, float]:
 
 
 def stylesheet() -> str:
+    """The application's style: the shared rules, then the active theme's own (gradients, glows) if it has any."""
+    extra = THEMES.get(CURRENT, {}).get("EXTRA_QSS", "")
+    if extra:
+        names = {k: v for k, v in globals().items() if k.isupper() and isinstance(v, str)}
+        extra = extra.format(**names)
+    return _base_stylesheet() + extra
+
+
+def _base_stylesheet() -> str:
     return f"""
 * {{ outline: none; }}
 QWidget {{ background: {BG}; color: {TEXT}; font-size: 13px; }}

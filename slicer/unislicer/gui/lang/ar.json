@@ -1452,5 +1452,6 @@
 "Solid lite": "صلب خفيف (SOLID LITE)",
 "Automatic compensation for parts on the plate": "تعويض تلقائي للأجزاء على اللوح",
 "A part printed straight on the plate (a model, for instance): its bottom layers are pulled in by 0.2 mm (the transition layers by less and less), so the strong light does not fill a label engraved in the base nor widen it. Not applied to rafts, nor when an elephant-foot compensation is set by hand": "جزء يُطبع مباشرة على اللوح (مثل نموذج): تُصغَّر طبقاته السفلية بمقدار 0.2 مم (وطبقات الانتقال تدريجيًا أقل)، حتى لا يملأ الضوء القوي الكتابة المحفورة في القاعدة ولا يوسّعها. لا يُطبَّق على الأطواف ولا عند ضبط تعويض «قدم الفيل» يدويًا",
-"Left open with these options - closed with a further pass (a coarser weld)": "بقيت مفتوحة بهذه الإعدادات - أُغلقت بمرور إضافي (لحام أخشن)"
+"Left open with these options - closed with a further pass (a coarser weld)": "بقيت مفتوحة بهذه الإعدادات - أُغلقت بمرور إضافي (لحام أخشن)",
+"Neon (animated film)": "نيون (فيلم رسوم متحركة)"
 }

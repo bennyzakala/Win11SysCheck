@@ -7141,3 +7141,26 @@ def test_print_check_does_not_call_an_engraved_label_thin():
     assert sla._thin_chunk([with_pin], 0.15, 0.05)[0].area > 1.0
     margin = sla.as_multipolygon(Point(60, 60).buffer(5, 64).difference(Point(60, 60).buffer(4.8, 64)))
     assert sla._thin_chunk([margin], 0.15, 0.05)[0].area > 0.5 * margin.area
+
+
+def test_neon_theme_lights_the_models_and_keeps_the_others_as_they_were():
+    """Neon (an animated film's dusk: violet night, neon cyan, magenta, lime): its own gradients and glow, and
+    its own light on the models in the 3D view; the other themes keep exactly the light they had. Its colours
+    are written so Qt reads them as meant (an 8-digit #RRGGBBAA is #AARRGGBB to Qt: pink came out green)."""
+    import re
+    from unislicer.gui import theme
+    try:
+        theme.set_theme("neon")
+        sheet = theme.stylesheet()
+        assert "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #36d6ff" in sheet     # filled in: the gradient buttons
+        assert "{GLOW}" not in sheet and "{ACCENT}" not in sheet
+        assert not re.findall(r"#[0-9a-fA-F]{8}\b", theme.THEMES["neon"]["EXTRA_QSS"])
+        assert theme.light()["uRim"][0] > 0.9                       # a magenta rim
+        for name in ("dark", "light", "prodentix"):
+            theme.set_theme(name)
+            assert theme.light() == theme.DEFAULT_LIGHT
+            assert "EXTRA" not in theme.stylesheet()
+        d = theme.DEFAULT_LIGHT
+        assert np.allclose(d["uRim"], np.array([0.55, 0.72, 1.0]) * 0.22, atol=1e-3)   # as the shader had it
+    finally:
+        theme.set_theme("dark")

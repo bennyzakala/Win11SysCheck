@@ -211,8 +211,8 @@ loaded, recognised by job type and prepared automatically (orientation, supports
 settings stay, and {k:undo} brings every model back. {t:save_project} ({k:save_project}) saves the whole plate - models, positions, supports and settings;
 {t:open_project} opens it. {t:undo} ({k:undo}) and {t:redo} ({k:redo}) work for every action, supports and
 loading included.</p>
-<p>{t:mouse_menu}: {t:mouse_chitubox} or {t:mouse_classic} (appendix B). {t:theme}: light, dark, a branded theme
-and {t:theme_logo} to show your lab's logo.</p>
+<p>{t:mouse_menu}: {t:mouse_chitubox} or {t:mouse_classic} (appendix B). {t:theme}: light, dark, a branded theme,
+{t:theme_neon} - a violet night, neon light and a pink glow, like an animated film - and {t:theme_logo} to show your lab's logo.</p>
 """),
     ("assistant", "The assistant", """
 <p>The {t:assistant} checks the models in the background, learns from your changes (layouts, support corrections,

@@ -31,6 +31,7 @@ uniform mat4 uMVP; uniform mat4 uModel; uniform mat3 uNormalMat; out vec3 vNorma
 void main(){ vec4 w = uModel * vec4(aPos, 1.0); vNormal = uNormalMat * aNormal; vPos = w.xyz; gl_Position = uMVP * w; }"""
 MESH_FS = """#version 330 core
 in vec3 vNormal; in vec3 vPos; out vec4 frag;
+uniform vec3 uKey; uniform vec3 uFill; uniform vec3 uRim; uniform vec3 uAmbLo; uniform vec3 uAmbHi;   // the theme's light
 uniform vec3 uColor; uniform vec3 uEye; uniform float uOverhang; uniform int uShowOverhang; uniform float uClipZ; uniform float uAlpha;
 // section view: cut along X (0), Y (1) or Z (2); uClipSign -1 keeps the other side
 uniform int uClipAxis; uniform float uClipSign;
@@ -61,12 +62,12 @@ void main(){
   if (inside) base = vec3(0.95, 0.55, 0.25);
   if (uBound == 1 && outsidePlate(vPos)) base = vec3(0.62, 0.28, 0.95);     // purple: off the plate
   vec3 l1 = normalize(vec3(0.45, -0.55, 0.75)); vec3 l2 = normalize(vec3(-0.6, 0.6, 0.35));
-  float d = max(dot(n, l1), 0.0) * 0.72 + max(dot(n, l2), 0.0) * 0.28;
+  vec3 d = max(dot(n, l1), 0.0) * uKey + max(dot(n, l2), 0.0) * uFill;
   float hemi = 0.5 + 0.5 * n.z;
-  vec3 amb = mix(vec3(0.14, 0.15, 0.18), vec3(0.30, 0.32, 0.36), hemi);
+  vec3 amb = mix(uAmbLo, uAmbHi, hemi);
   vec3 h = normalize(l1 + v); float spec = pow(max(dot(n, h), 0.0), 48.0) * 0.30;
-  float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.22;
-  vec3 c = base * (amb + d) + vec3(spec) + rim * vec3(0.55, 0.72, 1.0);
+  float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0);
+  vec3 c = base * (amb + d) + vec3(spec) + rim * uRim;
   frag = vec4(c, uAlpha);
 }"""
 
@@ -891,6 +892,7 @@ class Viewer(QOpenGLWidget):
         clip = self.clip_z if preview else self.section_z
         p = self._mesh_prog
         GL.glUseProgram(p)
+        self._set_light(p)
         GL.glUniformMatrix4fv(self._u(p, "uMVP"), 1, GL.GL_TRUE, mvp)
         GL.glUniform3f(self._u(p, "uEye"), *eye)
         GL.glUniform1f(self._u(p, "uOverhang"), self.overhang_sin)
@@ -1127,6 +1129,7 @@ class Viewer(QOpenGLWidget):
         p = self._mesh_prog
         GL.glDisable(GL.GL_DEPTH_TEST)
         GL.glUseProgram(p)
+        self._set_light(p)
         GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
         GL.glUniform1f(self._u(p, "uClipZ"), 1e9)
         self._set_model(p, np.eye(4))
@@ -1197,6 +1200,12 @@ class Viewer(QOpenGLWidget):
             GL.glDepthMask(GL.GL_TRUE)
             GL.glDisable(GL.GL_BLEND)
         GL.glDisable(GL.GL_POLYGON_OFFSET_FILL)
+
+    def _set_light(self, p):
+        """The theme's light on the models: key, fill and rim colours and the ambient (below / above)."""
+        light = theme.light()
+        for name in ("uKey", "uFill", "uRim", "uAmbLo", "uAmbHi"):
+            GL.glUniform3f(self._u(p, name), *light[name])
 
     def _draw_selection_box(self, mvp, uid, primary: bool = True):
         box = self._world_box(self.objects[uid])

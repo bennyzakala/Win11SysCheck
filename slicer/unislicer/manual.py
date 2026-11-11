@@ -215,8 +215,8 @@ SL1, ZIP של CHITUBOX, SLC / CLI ל-SLA תעשייתי, ו-3MF ל-PreForm / Gra
 <p>{t:new_project} ({k:new_project}) מנקה את כל המשטח לעבודה חדשה; המדפסת, החומר וההגדרות נשארים, ו-{k:undo}
 מחזיר את כל המודלים. {t:save_project} ({k:save_project}) שומר את כל הפלטה - מודלים, מיקומים, תמיכות והגדרות; {t:open_project}
 פותח אותו. {t:undo} ({k:undo}) ו{t:redo} ({k:redo}) עובדים על כל פעולה, כולל תמיכות וטעינה.</p>
-<p>{t:mouse_menu}: {t:mouse_chitubox} או {t:mouse_classic} (נספח ב׳). {t:theme}: בהיר, כהה, ערכה ממותגת
-ו{t:theme_logo} להצגת הלוגו של המעבדה.</p>
+<p>{t:mouse_menu}: {t:mouse_chitubox} או {t:mouse_classic} (נספח ב׳). {t:theme}: בהיר, כהה, ערכה ממותגת,
+{t:theme_neon} – לילה סגול, אור ניאון וזוהר ורוד כמו בסרט אנימציה – ו{t:theme_logo} להצגת הלוגו של המעבדה.</p>
 """),
     ("assistant", "העוזר", """
 <p>{t:assistant} בודק את המודלים ברקע, לומד מהשינויים שלך (סידורים, תיקוני תמיכות, הגדרות) ומציע שיפורים

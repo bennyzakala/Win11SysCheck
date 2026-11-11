@@ -170,6 +170,7 @@ def run(paths: list[str] | None = None) -> int:
         win.languageSwitchRequested.connect(lambda code: switch_language(win, code))
         win.themeChangeRequested.connect(lambda name, logo: switch_theme(win, name, logo))
         win.viewer.glFailed.connect(on_gl_failed)
+        theme.decorate(win)
         state["window"] = win
         if carry is not None and carry.get("maximized"):
             win.showMaximized()

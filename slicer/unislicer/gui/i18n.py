@@ -808,6 +808,7 @@ STRINGS = {
     "theme_dark": ("כהה", "Dark"),
     "theme_light": ("בהיר", "Light"),
     "theme_prodentix": ("PRODENTIX", "PRODENTIX"),
+    "theme_neon": ("ניאון (סרט אנימציה)", "Neon (animated film)"),
     "theme_logo": ("בחר קובץ לוגו…", "Choose logo file…"),
     "theme_logo_clear": ("הסר לוגו", "Remove logo"),
     "ctx_orientation": ("אוריינטציה", "Orientation"),
