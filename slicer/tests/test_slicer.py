@@ -646,6 +646,14 @@ def test_assistant_supports_prints_and_suggestions(tmp_path):
     a.learn_support_edits(auto_count=20, added_angles=[30, 35, 40], removed=0, threshold=50)
     learned = a.learned_config(cfg)
     assert learned["sla_support_spacing"] < base and learned["support_angle"] < cfg["support_angle"]
+    # at most 1 degree a session, and a support placed on a wall or a top face (angle 0 or less) teaches
+    # nothing about the angle - one such click moved it 16 degrees, two 25 (50 -> 25)
+    b = Assistant(str(tmp_path / "b"))
+    b.learn_support_edits(auto_count=20, added_angles=[-5.0], removed=0, threshold=50)
+    b.learn_support_edits(auto_count=20, added_angles=[-5.0, 0.0], removed=0, threshold=50)
+    assert b.learned_config(cfg)["support_angle"] == cfg["support_angle"]
+    b.learn_support_edits(auto_count=20, added_angles=[10.0], removed=0, threshold=50)
+    assert cfg["support_angle"] - 1.0 <= b.learned_config(cfg)["support_angle"] < cfg["support_angle"]
     tips = a.record_print("fail_supports", "sla", cfg)
     assert tips and tips[0].action_args == {"sla_support_preset": "heavy"}
     for _ in range(3):
@@ -2504,14 +2512,18 @@ def test_assistant_learns_model_repairs_and_repairs_on_load(tmp_path):
     adv = {"mode": "advanced", "weld": 0.001, "shells": 0.02, "nonmanifold": True, "holes": True}
     assert a.learn_repair(fp, adv) and not a.learn_repair("clean|.stl|-", adv)
     assert a.repair_recipe(fp) == adv
-    assert a.repair_recipe("holes|.obj|Blender") == adv                    # same problems from elsewhere
+    assert a.repair_recipe("holes|.obj|Blender") == dict(adv, shells=0.0)   # same problems from elsewhere: never
+    # its "drop small parts" - a recipe learned on a broken scan deleted the die of an intact jaw
+    a.learn_repair("holes+nonmanifold+shells|.stl|exocad", adv)
+    assert a.repair_recipe("shells|.stl|3Shape") is None                   # a jaw and its die: nothing to repair
+    assert a.repair_recipe("holes+shells|.stl|3Shape") is None             # problems only included: not used
     assert a.repair_recipe("holes+dirty|.stl|3Shape") is None              # more problems than it has seen fixed
     a.learn_repair("holes|.stl|exocad", {"mode": "basic"})
     a.learn_repair("holes|.stl|exocad", {"mode": "basic"})
     assert a.repair_recipe("holes|.stl|exocad") == {"mode": "basic"}       # the exact source wins
     assert a.repair_recipe(fp) == adv
     assert Assistant(str(tmp_path / "a")).repair_recipe(fp) == adv           # remembered
-    assert a.summary()["repairs_learned"] == 3
+    assert a.summary()["repairs_learned"] == 4
 
     from unislicer.mesh import save_stl
     for k in range(3):
@@ -7297,3 +7309,100 @@ def test_arrange_works_on_copies_off_the_window_thread_with_the_same_result(tmp_
     env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_a_damaged_learning_file_never_stops_the_program_nor_vanishes(tmp_path):
+    """The assistant's learning file: one that is valid JSON but not a learning file (a list) stopped the
+    program from starting; a part of the wrong kind ("layout": null) broke it later; one cut short loaded as
+    nothing learned and the next click wrote over it, with no copy kept."""
+    import json as _json
+    from unislicer.assistant import Assistant
+    folder = tmp_path / "l"; folder.mkdir()
+    f = folder / "learning.json"
+    f.write_text("[1, 2, 3]", encoding="utf-8")
+    a = Assistant(str(folder))
+    assert a.enabled and isinstance(a.data["layout"], dict)
+    assert (folder / "learning.json.bad").read_text(encoding="utf-8") == "[1, 2, 3]"
+    good = Assistant(str(tmp_path / "g"))
+    good.learn_repair("holes|.stl|3Shape", {"mode": "basic"})
+    text = (tmp_path / "g" / "learning.json").read_text(encoding="utf-8")
+    f.write_text(text[: len(text) // 2], encoding="utf-8")           # cut short
+    b = Assistant(str(folder))
+    b.record_action("arrange", "button")                             # the next click saves
+    assert (folder / "learning.json.bad").read_text(encoding="utf-8") == text[: len(text) // 2]
+    data = _json.loads(text)
+    data["layout"] = None
+    data["orient"]["sla"]["weights"] = [1.0, 2.0, 3.0]               # an older version's weights
+    f.write_text(_json.dumps(data), encoding="utf-8")
+    c = Assistant(str(folder))
+    assert isinstance(c.data["layout"], dict) and len(c.data["orient"]["sla"]["weights"]) > 3
+    assert c.repair_recipe("holes|.stl|3Shape") == {"mode": "basic"}   # the rest is kept
+    c.record_layout_choice({"strategy": "box"})                       # and works
+
+
+def test_a_repair_of_a_file_that_loaded_open_is_learned_for_that_file(tmp_path):
+    """A file that loads with holes is closed right after loading; the repair the user then ran was learned
+    for the closed copy ("clean") - never - so the next file like it got no offer. It is learned for what was
+    wrong with the file as read."""
+    import subprocess, sys, textwrap
+    from unislicer.mesh import save_stl
+    ball = primitives.sphere(8, 40, 80)
+    keep = np.ones(len(ball.faces), bool); keep[[10, 500, 2000]] = False          # three small holes
+    for n in ("a.stl", "b.stl"):
+        save_stl(Mesh(ball.vertices, ball.faces[keep], n), str(tmp_path / n))
+    code = textwrap.dedent(f'''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.assistant.data["repair"]["auto"] = False
+        w.load_files([{str(tmp_path / "a.stl")!r}])
+        o = w.objects[-1]
+        t = time.time()
+        while w._closing_holes() and time.time() - t < 60:
+            app.processEvents(); time.sleep(0.05)
+        app.processEvents()
+        assert o.mesh.is_watertight()                              # closed after loading
+        w._select_uid(o.uid)
+        w.repair_selected()                                       # the user repairs it as always
+        assert w.assistant.data["repair"]["by_sig"] == {{"holes|.stl|-": {{'{{"mode": "basic"}}': 1}}}}, w.assistant.data["repair"]["by_sig"]
+        w.load_files([{str(tmp_path / "b.stl")!r}])
+        o2 = w.objects[-1]
+        assert w._repair_offers.get(o2.uid) == {{"mode": "basic"}}, w._repair_offers
+        t = time.time()
+        while w._closing_holes() and time.time() - t < 60:
+            app.processEvents(); time.sleep(0.05)
+        print("ok", flush=True)
+        from unislicer import parallel
+        if parallel._pool is not None:
+            parallel._pool.shutdown(wait=True, cancel_futures=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_shared_learning_never_brings_back_what_was_reset(tmp_path):
+    """Learning shared between the lab's computers takes the largest count seen, so after a reset (or an
+    import) on one computer the others gave every old count back - a wrongly learned repair could not be
+    removed while sharing was on. A reset starts a new generation; older learning is left out."""
+    from unislicer import learning_sync
+    from unislicer.assistant import Assistant
+    a, b = Assistant(str(tmp_path / "a")), Assistant(str(tmp_path / "b"))
+    bad = {"mode": "advanced", "weld": 0.001, "shells": 0.2, "nonmanifold": True, "holes": True}
+    a.learn_repair("holes|.stl|exocad", bad)
+    b.data = learning_sync.merge(b.data, [a.data])                    # B has it too now
+    assert b.repair_recipe("holes|.stl|exocad") == bad
+    a.reset()
+    a.data = learning_sync.merge(a.data, [b.data])                    # A's next sync
+    assert a.repair_recipe("holes|.stl|exocad") is None
+    b.data = learning_sync.merge(b.data, [a.data])                    # and B follows the reset
+    assert b.repair_recipe("holes|.stl|exocad") is None
+    a.learn_repair("holes|.stl|3Shape", {"mode": "basic"})            # what is learned after it is shared
+    b.data = learning_sync.merge(b.data, [a.data])
+    assert b.repair_recipe("holes|.stl|3Shape") == {"mode": "basic"}

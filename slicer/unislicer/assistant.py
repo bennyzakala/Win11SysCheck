@@ -46,6 +46,7 @@ class Suggestion:
 def _default_data() -> dict:
     return {
         "version": 1,
+        "epoch": 0.0,               # when the learning was last reset / imported (shared learning starts again)
         "enabled": True,
         "orient": {t: {"weights": DEFAULT_WEIGHTS[t].tolist(), "examples": 0} for t in DEFAULT_WEIGHTS},
         "supports": {"spacing_scale": 1.0, "angle_offset": 0.0, "adds": 0, "removes": 0, "sessions": 0},
@@ -58,6 +59,33 @@ def _default_data() -> dict:
         # model repairs learned from the user: problem fingerprint -> the repair they ran (and how often)
         "repair": {"by_sig": {}, "learned": 0, "auto": False, "auto_applied": 0},
     }
+
+
+def _merge_saved(data: dict, saved) -> None:
+    """A saved learning file over the defaults, part by part, each checked for its kind: a file that is not
+    a learning file stopped the program from starting ("list has no attribute items"), and a part of the
+    wrong kind ("layout": null) broke it later. Orientation weights of another length (an older version)
+    are left at the defaults. Raises ValueError when the file is no learning file at all."""
+    if not isinstance(saved, dict):
+        raise ValueError("not a learning file")
+    for k, v in saved.items():
+        base = data.get(k)
+        if isinstance(base, dict):
+            if isinstance(v, dict):
+                if k == "orient":
+                    for tech, row in v.items():
+                        if (tech in base and isinstance(row, dict) and isinstance(row.get("weights"), list)
+                                and len(row["weights"]) == len(base[tech]["weights"])):
+                            base[tech].update(row)
+                else:
+                    base.update(v)
+        elif isinstance(base, list):
+            if isinstance(v, list):
+                data[k] = v
+        elif base is None or isinstance(v, type(base)) or (
+                isinstance(base, (int, float)) and not isinstance(base, bool)
+                and isinstance(v, (int, float)) and not isinstance(v, bool)):
+            data[k] = v
 
 
 REPAIR_FLAGS = ("holes", "nonmanifold", "dirty", "shells")
@@ -100,13 +128,19 @@ class Assistant:
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 saved = json.load(fh)
-            for k, v in saved.items():
-                if isinstance(v, dict) and isinstance(self.data.get(k), dict):
-                    self.data[k].update(v)
-                else:
-                    self.data[k] = v
-        except (OSError, ValueError):
+            _merge_saved(self.data, saved)
+        except OSError:
             pass
+        except ValueError:
+            # damaged (cut short, not a learning file): start from the defaults, but keep the file aside - the
+            # next save wrote over it and what was learned was gone
+            if path == self.path:
+                try:
+                    import shutil
+                    shutil.copyfile(path, path + ".bad")
+                except OSError:
+                    pass
+            self.data = _default_data()
 
     # ------------------------------------------------------------- storage
     def export_to(self, path: str) -> None:
@@ -134,6 +168,7 @@ class Assistant:
             elif k in data or k in ("seed",):
                 data[k] = v
         data["enabled"] = enabled
+        data["epoch"] = time.time()                # replaces the shared learning too
         self.data = data
         self.save()
         return True
@@ -141,9 +176,11 @@ class Assistant:
     def save(self) -> None:
         try:
             os.makedirs(self.folder, exist_ok=True)
-            tmp = self.path + ".tmp"
+            tmp = f"{self.path}.{os.getpid()}.tmp"          # two programs never write the same temporary file
             with open(tmp, "w", encoding="utf-8") as fh:
                 json.dump(self.data, fh, indent=1, ensure_ascii=False)
+                fh.flush()
+                os.fsync(fh.fileno())                        # on disk before it replaces the good one
             os.replace(tmp, self.path)
         except OSError:
             pass  # learning is best effort; never disturb the user over it
@@ -152,6 +189,7 @@ class Assistant:
         enabled = self.data.get("enabled", True)
         self.data = _default_data()
         self.data["enabled"] = enabled
+        self.data["epoch"] = time.time()          # the other computers' older learning does not come back
         self.save()
 
     @property
@@ -210,9 +248,13 @@ class Assistant:
         s = self.data["supports"]
         rate = (len(added_angles) - removed) / auto_count
         s["spacing_scale"] = float(np.clip(s["spacing_scale"] * math.exp(-0.5 * rate), 0.5, 1.6))
-        for a in added_angles:
-            if a < threshold:   # auto-support skipped this surface: lower the angle a bit
-                s["angle_offset"] = float(np.clip(s["angle_offset"] + 0.3 * (a - threshold), -25, 10))
+        # a support added on a slope the automatic supports skipped: lower the angle a little - by at most
+        # 1 degree a session. A spot on a wall or a top face (an angle of 0 or less, a support placed by hand
+        # for another reason) says nothing about the angle: one such click moved it 16 degrees, two 25
+        missed = [a for a in added_angles if 0.0 < a < threshold]
+        if missed:
+            step = float(np.clip(0.3 * (float(np.median(missed)) - threshold), -1.0, 0.0))
+            s["angle_offset"] = float(np.clip(s["angle_offset"] + step, -25, 10))
         s["adds"] += len(added_angles)
         s["removes"] += removed
         s["sessions"] += 1
@@ -474,22 +516,24 @@ class Assistant:
             return None
         table = self.data.get("repair", {}).get("by_sig", {})
         problems = set(fingerprint.split("|")[0].split("+"))
-        score: dict[str, float] = {}
+        if problems <= {"shells", ""}:
+            return None             # several parts in one file (a jaw and its die) is no fault to repair
+        # the same problems from the same source first; else the same problems from anywhere - never a file
+        # whose problems only include these (a recipe learned on a broken scan, with "drop small parts", was
+        # applied to an intact jaw with its die and deleted the die), and counts never outweigh a closer match
+        exact = table.get(fingerprint, {})
+        same: dict[str, int] = {}
         for other, recipes in table.items():
-            oprob = set(other.split("|")[0].split("+"))
-            if other == fingerprint:
-                w = 4.0
-            elif oprob == problems:
-                w = 2.0
-            elif problems <= oprob:
-                w = 1.0
-            else:
-                continue
-            for key, n in recipes.items():
-                score[key] = score.get(key, 0.0) + w * n
-        if not score:
+            if other != fingerprint and set(other.split("|")[0].split("+")) == problems:
+                for key, n in recipes.items():
+                    same[key] = same.get(key, 0) + n
+        pool, is_exact = (exact, True) if exact else (same, False)
+        if not pool:
             return None
-        return json.loads(max(score.items(), key=lambda kv: kv[1])[0])
+        recipe = json.loads(max(pool.items(), key=lambda kv: kv[1])[0])
+        if not is_exact and recipe.get("shells"):
+            recipe["shells"] = 0.0      # removing parts only where it was learned: the same kind of file
+        return recipe
 
     @property
     def auto_repair(self) -> bool:

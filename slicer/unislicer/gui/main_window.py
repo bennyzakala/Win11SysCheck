@@ -1606,7 +1606,9 @@ class MainWindow(QMainWindow):
                         dental_cad.opening_direction(m)        # kept on the mesh for the turn after loading
                     elif kind == "gingiva" and tissue_on:
                         dental_cad.flat_side(m)
-                    if learned and not (closed and len(m.faces) > 150_000):
+                    # also for every open file: it is closed right after loading, and a repair the user then
+                    # runs must be learned for what was wrong with the file, not for the closed copy
+                    if (learned or not closed) and not (closed and len(m.faces) > 150_000):
                         from .. import mesh_tools
                         from ..assistant import repair_fingerprint
                         m.__dict__["_repair_fp"] = (m.vertices, repair_fingerprint(mesh_tools.analyze(m), source))
@@ -1634,8 +1636,13 @@ class MainWindow(QMainWindow):
                     continue
             new_objs = []
             for m in meshes:
+                hit = m.__dict__.get("_repair_fp")
                 added = self.add_mesh(m, rearrange=False)
                 self._model_source[added.uid] = source
+                if hit is not None:
+                    # what was wrong with the file itself: the automatic hole closing right after loading
+                    # changes the mesh, and a repair run after it was learned as "clean" - never matched
+                    self.__dict__.setdefault("_file_fp", {})[added.uid] = hit[1]
                 new_objs.append(added)
                 self.status.setText(tr("loaded").format(m.name, len(m.faces)))
             self._import_project_filaments(meshes)
@@ -1732,6 +1739,9 @@ class MainWindow(QMainWindow):
         return f"{ext}|{prog}"
 
     def _repair_fingerprint(self, o) -> str:
+        known = self.__dict__.get("_file_fp", {}).get(o.uid)    # the file as it was read
+        if known is not None:
+            return known
         hit = o.mesh.__dict__.get("_repair_fp")             # worked out while the file was read
         if hit is not None and hit[0] is o.mesh.vertices:
             return hit[1]

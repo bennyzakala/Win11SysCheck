@@ -46,6 +46,12 @@ def merge(local: dict, others: list[dict]) -> dict:
     """``local`` (this computer's data) with the other computers' snapshots merged in."""
     out = copy.deepcopy(local)
     every = [local] + [o for o in others if isinstance(o, dict)]
+    # a reset or an import starts a new generation: what the computers learned before it never comes back
+    # (counts take the largest value seen, so a reset computer got every old count - a wrong learned repair
+    # included - straight back from the others, and nothing learned could be cleared while sharing was on)
+    newest = max(float(d.get("epoch", 0) or 0) for d in every)
+    every = [d for d in every if float(d.get("epoch", 0) or 0) >= newest]
+    out["epoch"] = newest
     # orientation habits: weights averaged by examples
     for tech in set().union(*[set((d.get("orient") or {}).keys()) for d in every]):
         rows = [d["orient"][tech] for d in every if tech in (d.get("orient") or {})
