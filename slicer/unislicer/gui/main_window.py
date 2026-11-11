@@ -2240,7 +2240,32 @@ class MainWindow(QMainWindow):
         opts = self._layout_defaults()
         options = layout.LayoutOptions(**{k: opts[k] for k in ("strategy", "spacing", "margin", "rotation", "anchor", "sort")})
         self._mark_raft_tabs()
-        return not layout.auto_layout(self.objects, plate_area(cfg), options)
+        return not self._layout_off_thread(lambda objs, sel: layout.auto_layout(objs, plate_area(cfg), options))
+
+    def _layout_off_thread(self, run):
+        """``run(parts, selected)`` - a layout - on copies of the parts, on a background thread, then their new
+        places and turns are put on the parts: on the window's thread a full plate froze it ~3 s at every
+        Arrange, duplicate and load. Copies, so nothing the window draws or checks meanwhile moves halfway.
+        Returns what ``run`` returned, with copies in it changed back to the parts."""
+        parts = list(self.objects)
+        selected = {id(o) for o in self.selected_objects()}
+        twins = []
+        for o in parts:
+            c = o.duplicate()
+            c.locked = o.locked
+            c.__dict__["raft_tab"] = o.__dict__.get("raft_tab", False)
+            twins.append(c)
+        back = {id(c): o for c, o in zip(twins, parts)}
+        sel = [c for c, o in zip(twins, parts) if id(o) in selected]
+        result = self._in_background(lambda: run(twins, sel))
+        for c, o in zip(twins, parts):
+            if (c.x, c.y) != (o.x, o.y) or not np.array_equal(c.rotation, o.rotation) or \
+                    not np.array_equal(c.base_rotation, o.base_rotation):
+                o.x, o.y = c.x, c.y
+                o.rotation, o.base_rotation = c.rotation.copy(), c.base_rotation.copy()
+        if isinstance(result, list):
+            return [back.get(id(c), c) for c in result]
+        return result
 
     def _mark_raft_tabs(self):
         """Tell the layout which parts get a "raft & label" crescent tab, so it keeps neighbours clear of it."""
@@ -2360,11 +2385,12 @@ class MainWindow(QMainWindow):
                 self.objects += added
                 failed = []
                 self.status.setText(tr("fill_done").format(len(added)))
-            elif options.scope == "all" and layout.apply_template(self.objects, plate, self.assistant.taught_layout()):
+            elif options.scope == "all" and self._layout_off_thread(
+                    lambda objs, sel: layout.apply_template(objs, plate, self.assistant.taught_layout())):
                 failed = []                     # the user's own taught layout
                 learned = "taught"
             else:
-                failed = layout.auto_layout(self.objects, plate, options, self.selected_objects())
+                failed = self._layout_off_thread(lambda objs, sel: layout.auto_layout(objs, plate, options, sel))
         finally:
             QApplication.restoreOverrideCursor()
         if dialog:

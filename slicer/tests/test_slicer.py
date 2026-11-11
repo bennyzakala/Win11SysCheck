@@ -7250,3 +7250,50 @@ def test_sending_cancelled_or_failed_leaves_nothing_behind_and_says_what_happene
         assert seen and seen[-1] == (True, 300_000), seen          # the whole file, with the password
     finally:
         srv.shutdown()
+
+
+def test_arrange_works_on_copies_off_the_window_thread_with_the_same_result(tmp_path):
+    """Arrange, the layout after adding parts and the taught layout ran on the window's thread (a full plate
+    froze it ~3 s at every Arrange and duplicate). They run on copies on a background thread now and only the
+    places and turns are put back: the same layout as before, locked parts untouched, parts with no room
+    beside the plate."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        import numpy as np
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives, layout
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.scene import plate_area
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        settle = time.time() + 1.0
+        while time.time() < settle:
+            app.processEvents(); time.sleep(0.01)
+        objs = [w.add_mesh(primitives.box(50 + (k % 3) * 8, 34, 6), rearrange=False) for k in range(20)]
+        for o in objs:
+            o.x, o.y = 60.0, 40.0
+        objs[3].x, objs[3].y = 20.0, 20.0; objs[3].locked = True
+        twins = [o.duplicate() for o in objs]
+        twins[3].locked = True
+        cfg = w.settings.config()
+        opts = w._layout_defaults()
+        options = layout.LayoutOptions(**{k: opts[k] for k in ("strategy", "spacing", "margin", "rotation", "anchor", "sort")})
+        expected_failed = layout.auto_layout(twins, plate_area(cfg), options)
+        w._arrange(cfg); app.processEvents()
+        for o, t in zip(objs, twins):
+            assert abs(o.x - t.x) < 1e-6 and abs(o.y - t.y) < 1e-6 and np.allclose(o.rotation, t.rotation), (o.x, o.y, t.x, t.y)
+        assert (objs[3].x, objs[3].y) == (20.0, 20.0)
+        assert expected_failed, "the test needs parts with no room"
+        print("ok", flush=True)
+        from unislicer import parallel
+        if parallel._pool is not None:
+            parallel._pool.shutdown(wait=True, cancel_futures=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
