@@ -1731,8 +1731,8 @@ class MainWindow(QMainWindow):
         """Repair a model the way the user repaired similar ones (quick repair, or the advanced options)."""
         from .. import mesh_tools
         if recipe.get("mode") == "advanced":
-            fixed, rep = mesh_tools.repair_advanced(o.mesh, recipe["weld"], recipe["shells"], recipe["nonmanifold"],
-                                                    recipe["holes"])
+            fixed, rep = mesh_tools.repair_advanced_closed(o.mesh, recipe["weld"], recipe["shells"],
+                                                           recipe["nonmanifold"], recipe["holes"])
         else:
             fixed, rep = mesh_tools.repair(o.mesh)
         o.mesh = fixed
@@ -3172,14 +3172,15 @@ class MainWindow(QMainWindow):
                 prints = {o.uid: self._repair_fingerprint(o) for o in targets}
             for o in targets:
                 self._repair_offers.pop(o.uid, None)
-                fixed, rep = mesh_tools.repair_advanced(o.mesh, weld.value(), shells.value() / 100.0,
-                                                        nonman.isChecked(), holes.isChecked())
+                fixed, rep = mesh_tools.repair_advanced_closed(o.mesh, weld.value(), shells.value() / 100.0,
+                                                               nonman.isChecked(), holes.isChecked())
                 o.mesh = fixed
                 o.regions = []                    # faces changed: shaded regions no longer apply
                 self._drop_supports(o)
                 lines.append(f"{o.name}: " + tr("repair_result").format(
                     rep["degenerate_removed"], rep["duplicates_removed"], rep["inner_walls_removed"],
                     rep.get("nonmanifold_fixed", 0), rep["shells_removed"], rep["holes_filled"], rep["flipped"])
+                    + ("\n" + tr("repair_closed_further") if rep.get("closed_further") else "")
                     + "\n" + describe(rep["after"]))
         finally:
             QApplication.restoreOverrideCursor()

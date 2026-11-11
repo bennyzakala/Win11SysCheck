@@ -775,6 +775,7 @@ STRINGS = {
                          "✦ Defaults adapted from your previous layouts (the assistant learns from the options you pick and from how you adjust a layout by hand)"),
     "layout_done": ("הסידור הושלם", "Layout done"),
     "layout_done_learned": ("הסידור הושלם לפי ההעדפות שנלמדו", "Layout done with your learned preferences"),
+    "repair_closed_further": ("נשאר פתוח בהגדרות האלה - נסגר במעבר נוסף (ריתוך גס יותר)", "Left open with these options - closed with a further pass (a coarser weld)"),
     "layout_failed": ("{} חלקים לא נכנסו לפלטה והונחו בצד, מחוץ לפלטה", "{} parts did not fit and were set out beside the plate"),
     "fill_done": ("נוספו {} עותקים", "Added {} copies"),
     "learned_layout": ("סידור: {} הרצות, {} סידורים שנלמדו", "Layout: {} runs, {} layouts learned"),

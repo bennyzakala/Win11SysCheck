@@ -6885,3 +6885,30 @@ def test_thickening_thin_parts_never_fills_an_engraved_label():
     out = sla._thicken_chunk([g], r)[0]
     assert out.intersection(grooves).area < 0.02 * grooves.area      # the letters stay open
     assert out.intersection(sbox(39, -1, 41.5, 7)).area > pin.area * 1.5   # the thin wall grew
+
+
+def test_repair_never_turns_a_good_scan_inside_out():
+    """A closed scan with a few non-manifold edges (a lab model: 3 in 150 000 faces) - here a sheet inside a
+    ball, glued to it round a ring of edges. The repair spread the winding across those edges and judged each
+    patch by its own "volume": it turned a good model partly inside out (the lab model: 28 000 faces flipped,
+    2 600 bad edges; the advanced repair after it: 98 000 flipped, 3 400 holes), and the advanced repair kept
+    "the two largest faces" on each such edge - the sheet - and cut the ball's own wall. Nothing may be
+    flipped, the volume stays, and the advanced repair closes it as the ball."""
+    from unislicer import mesh_tools
+    ball = primitives.sphere(10, 32, 64)
+    z = ball.vertices[:, 2]
+    ring = np.flatnonzero(np.abs(z - np.unique(np.round(z, 6))[16]) < 1e-6)
+    ring = ring[np.argsort(np.arctan2(ball.vertices[ring, 1], ball.vertices[ring, 0]))]
+    centre = len(ball.vertices)
+    sheet = [[ring[k], ring[(k + 1) % len(ring)], centre] for k in range(len(ring))]
+    m = Mesh(np.vstack([ball.vertices, ball.vertices[ring].mean(axis=0)]), np.vstack([ball.faces, sheet]), "model")
+    assert mesh_tools.analyze(m)["nonmanifold_edges"] >= len(ring)
+    vol = m.volume()
+    fixed, rep = mesh_tools.repair(m)
+    assert rep["flipped"] == 0 and abs(fixed.volume() - vol) < 1e-6 * vol, (rep, fixed.volume(), vol)
+    inward = Mesh(ball.vertices, ball.faces[:, ::-1], "inside out")      # wound inward: turned back out
+    back, _ = mesh_tools.repair(inward)
+    assert abs(back.volume() - ball.volume()) < 1e-6 * ball.volume()
+    closed, rep3 = mesh_tools.repair_advanced_closed(m)
+    assert rep3["flipped"] == 0 and rep3["after"]["watertight"], rep3["after"]
+    assert abs(closed.volume() - ball.volume()) < 0.001 * ball.volume()

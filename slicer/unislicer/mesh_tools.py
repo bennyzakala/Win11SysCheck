@@ -607,7 +607,12 @@ def repair(mesh: Mesh, fill_holes: bool = True) -> tuple[Mesh, dict]:
             mine = directed(fi)
             a, b, c = f[fi]
             for u, w in ((a, b), (b, c), (c, a)):
-                for nb in edges[(min(u, w), max(u, w))]:
+                around = edges[(min(u, w), max(u, w))]
+                if len(around) != 2:
+                    # a non-manifold edge (3+ faces): "the neighbour" means nothing there - spreading the
+                    # winding across it turned whole good regions of a scan inside out
+                    continue
+                for nb in around:
                     if nb == fi or seen[nb]:
                         continue
                     if mine & directed(nb):      # same direction on the shared edge: flip the neighbour
@@ -615,14 +620,21 @@ def repair(mesh: Mesh, fill_holes: bool = True) -> tuple[Mesh, dict]:
                     seen[nb] = True
                     stack.append(nb)
         components.append(comp)
-    f = np.where(flip[:, None], f[:, ::-1], f)
-    # each closed shell should have positive volume (normals outward)
+    # a patch is consistent in itself; of its two windings keep the one most of its faces already had
     for comp in components:
-        t = v[f[comp]]
-        vol = np.einsum("ij,ij->i", t[:, 0], np.cross(t[:, 1], t[:, 2])).sum()
-        if vol < 0:
-            f[comp] = f[comp][:, ::-1]
+        if 2 * int(flip[comp].sum()) > len(comp):
             flip[comp] = ~flip[comp]
+    f = np.where(flip[:, None], f[:, ::-1], f)
+    # normals outward: judged on each whole shell (connected through its vertices), not on a patch -
+    # an open patch has no inside, its "volume" was noise and flipped good patches
+    lab = _vertex_components(int(max(int(f.max()) + 1, len(v))), f)
+    face_lab = lab[f[:, 0]]
+    t = v[f]
+    vol = np.einsum("ij,ij->i", t[:, 0], np.cross(t[:, 1], t[:, 2]))
+    per = np.bincount(face_lab, weights=vol, minlength=int(lab.max()) + 1)
+    out_flip = per[face_lab] < 0
+    f = np.where(out_flip[:, None], f[:, ::-1], f)
+    flip ^= out_flip
     report["flipped"] = int(flip.sum())
 
     # fill holes: boundary edges (used once) form loops; close each with a fan
@@ -809,12 +821,29 @@ def repair_advanced(mesh: Mesh, weld: float = 1e-4, remove_shells_below: float =
         starts = np.flatnonzero(np.r_[True, ks[1:] != ks[:-1]])
         sizes = np.diff(np.r_[starts, len(ks)])
         t = v[f]
-        farea = 0.5 * np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
+        cr = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+        farea = 0.5 * np.linalg.norm(cr, axis=1)
+        unit = cr / np.maximum(2 * farea, 1e-30)[:, None]
         drop = set()
         for s, n in zip(starts[sizes > 2], sizes[sizes > 2]):
-            faces_on_edge = order[s:s + n] // 3
-            ranked = sorted(set(faces_on_edge.tolist()), key=lambda i: -farea[i])
-            drop.update(ranked[2:])
+            slots = order[s:s + n]
+            faces_on_edge = sorted(set((slots // 3).tolist()))
+            # keep the pair that carries the surface on: crossing the edge in opposite directions (wound
+            # alike) and closest to facing the same way - a sheet inside the model or a fin standing off
+            # it goes. "The two largest" kept the sheet and cut the model's own wall
+            fwd = {}
+            for sl in slots.tolist():
+                fi, k = divmod(sl, 3)
+                a, b = f[fi][k], f[fi][(k + 1) % 3]
+                fwd[fi] = a < b
+            best, best_score = None, None
+            for x in range(len(faces_on_edge)):
+                for y in range(x + 1, len(faces_on_edge)):
+                    i, j = faces_on_edge[x], faces_on_edge[y]
+                    score = (fwd[i] != fwd[j], float(unit[i] @ unit[j]), farea[i] + farea[j])
+                    if best_score is None or score > best_score:
+                        best, best_score = (i, j), score
+            drop.update(fi for fi in faces_on_edge if fi not in best)
             nm += 1
         if drop:
             mask = np.ones(len(f), dtype=bool)
@@ -839,6 +868,25 @@ def repair_advanced(mesh: Mesh, weld: float = 1e-4, remove_shells_below: float =
     report["after"] = analyze(m)
     m.name = mesh.name
     return m, report
+
+
+def repair_advanced_closed(mesh: Mesh, weld: float = 1e-4, remove_shells_below: float = 0.0,
+                           fix_nonmanifold: bool = True, fill_holes: bool = True) -> tuple[Mesh, dict]:
+    """:func:`repair_advanced` with the chosen options; when that leaves the model open, the full closing
+    (:func:`make_watertight`: a second pass with a coarser weld) on the file's mesh - taken only if it
+    closes it. ``report["closed_further"]`` says so."""
+    fixed, rep = repair_advanced(mesh, weld, remove_shells_below, fix_nonmanifold, fill_holes)
+    rep["closed_further"] = False
+    if fill_holes and not rep["after"]["watertight"]:
+        try:
+            closed, _steps, ok = make_watertight(mesh)
+        except Exception:
+            ok = False
+        if ok:
+            fixed = closed
+            rep["after"] = analyze(closed)
+            rep["closed_further"] = True
+    return fixed, rep
 
 
 def _repair_with_triangulated_holes(mesh: Mesh) -> tuple[Mesh, dict]:
