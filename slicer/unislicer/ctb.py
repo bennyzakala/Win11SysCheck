@@ -172,13 +172,16 @@ def render_preview(models, supports, size: tuple[int, int]) -> Image.Image:
     drawn from a lighter copy (the screen is a few hundred pixels wide), so it stays quick."""
     from .thumbnail import render
     meshes, colours = [], []
-    budget = max(15000, 240000 // max(1, len(models)))
+    # triangles in proportion to the picture: a 200 x 125 preview drew the same 240 000 triangles as the
+    # 400 x 300 one (~1.3 s each in every export), many of them smaller than a pixel
+    total = int(min(240000, max(30000, size[0] * size[1])))
+    budget = max(5000, total // max(1, len(models)))
     for m in models:
         if len(m.faces):
             meshes.append(m.decimated(budget))
             colours.append((0.86, 0.88, 0.94))
     if supports is not None and len(supports.faces):
-        meshes.append(supports.decimated(120000))
+        meshes.append(supports.decimated(max(20000, total // 2)))
         colours.append((0.50, 0.56, 0.68))
     if not meshes:
         raise ValueError("nothing to draw")

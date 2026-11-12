@@ -1421,6 +1421,14 @@ def keep_structure(skey, built) -> None:
         _STRUCTURES.pop(next(iter(_STRUCTURES)))
 
 
+def points_job(mesh: Mesh, matrix, lift: float, cfg: Config):
+    """One part's automatic support points (placed, raised by ``lift``), for the worker pool: a plate's parts
+    on every core at once, and the window's thread is not held up meanwhile (in a thread it was, ~0.8 s)."""
+    world = mesh.transform(matrix).translated([0, 0, lift])
+    report = {}
+    return auto_support_points(world, cfg, report), report
+
+
 def build_part(world: Mesh, cfg: Config, points, label: str, label_frame, to_local, texts: dict | None = None):
     """One part's support structure in its own coordinates, with the click owners - for the worker pool, so
     a full plate's supports are built on every core at once (one after another, a support change on 20

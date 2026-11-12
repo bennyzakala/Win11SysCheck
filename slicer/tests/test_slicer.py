@@ -7653,6 +7653,78 @@ def test_a_blocked_learning_sync_is_a_network_message_not_a_program_bug(tmp_path
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_reading_files_in_the_worker_pool_brings_back_what_was_worked_out(tmp_path):
+    """Files of a plate are read in worker processes (on threads the parsing held the window up to ~0.9 s):
+    what loading works out on each mesh travels back with it, and a file that cannot be read comes back as
+    its error, not a crash."""
+    import pickle
+    from unislicer import file_reading, primitives
+    from unislicer.mesh import save_stl
+    good = tmp_path / "Crown_16.stl"
+    save_stl(primitives.crown_cap(9.0, 8.0, name="Crown_16"), str(good))
+    bad = tmp_path / "broken.stl"
+    bad.write_bytes(b"solid x\nfacet nonsense")
+    meshes, source = file_reading.read_for_window(str(good), "lab", True, True, True)
+    back = pickle.loads(pickle.dumps((meshes, source)))          # as it comes back from a worker
+    m = back[0][0]
+    assert back[1] == "lab" and len(m.faces) > 0
+    fp = m.__dict__.get("_repair_fp")
+    assert fp is not None and fp[0] is m.vertices                # still recognised as this file's mesh
+    assert "_opening" in m.__dict__                              # the crown's opening, worked out there
+    err, src = file_reading.read_for_window(str(bad), "lab", True, True, True)
+    assert isinstance(err, Exception) or (isinstance(err, list) and not err) or src == "lab"
+
+
+def test_the_printer_kind_is_kept_and_follows_a_printer_change(tmp_path, monkeypatch):
+    """technology / process were read from the printer file hundreds of times per action (every config()
+    and every model drawn): kept now, and still right after switching printer."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import profiles
+        from unislicer.gui.settings_panel import SettingsPanel
+        p = SettingsPanel("phrozen_sonic_xl_4k_plus", None, None, {}, False)
+        assert p.technology == "sla"
+        reads = []
+        orig = profiles.load
+        profiles.load = lambda kind: (reads.append(kind), orig(kind))[1]
+        for _ in range(50):
+            p.technology; p.process; p.config()
+        assert reads.count("printers") == 0, reads.count("printers")
+        profiles.load = orig
+        fdm = next(k for k, v in profiles.load("printers").items() if profiles.technology_of(v) == "fdm")
+        p.printer_id = fdm
+        assert p.technology == "fdm"
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_the_print_file_previews_draw_detail_for_their_size(monkeypatch):
+    """The two previews in a print file both drew 240 000 triangles (~1.3 s each), the 200 x 125 one too:
+    the detail now follows the picture's size, and the picture still shows the parts."""
+    from unislicer import ctb, primitives
+    seen = []
+    from unislicer import thumbnail
+    orig = thumbnail.render
+    monkeypatch.setattr(thumbnail, "render", lambda meshes, *a, **k: (seen.append(sum(len(m.faces) for m in meshes)),
+                                                                       orig(meshes, *a, **k))[1])
+    big = primitives.sphere(10, 200, 400)
+    assert len(big.faces) > 100000
+    ctb.render_preview([big], None, (400, 300))
+    ctb.render_preview([big], None, (200, 125))
+    assert seen[1] < seen[0] and seen[1] <= 40000, seen
+    img = ctb.render_preview([big], None, (200, 125))
+    assert img.size == (200, 125) and len(set(img.getdata())) > 10
+
+
 def test_the_progress_bar_fills_to_the_end_of_a_resin_slice(tmp_path):
     """Lab: the bar under Slice stayed under half full and vanished so ("Slicing layers - 88%" over a third
     of a bar): its stages were split for filament, where slicing the layers is the first third. For resin

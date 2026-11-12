@@ -524,13 +524,24 @@ class SettingsPanel(QWidget):
         m.addAction(theme.icon("trash"), tr("delete_profile"), self._delete_profile)
         return m
 
+    def _printer_kind(self) -> tuple[str, str]:
+        """(technology, process) of the printer: asked for hundreds of times per action (every config() and
+        every model drawn), each reading and parsing the printer file - kept until the printer or a
+        profile file changes (on Windows each read is also scanned by the antivirus)."""
+        key = (self.printer_id, profiles.files_stamp())
+        hit = getattr(self, "_kind_cache", None)
+        if hit is None or hit[0] != key:
+            p = profiles.load("printers")[self.printer_id]
+            hit = self._kind_cache = (key, (profiles.technology_of(p), profiles.process_of(p)))
+        return hit[1]
+
     @property
     def technology(self) -> str:
-        return profiles.technology_of(profiles.load("printers")[self.printer_id])
+        return self._printer_kind()[0]
 
     @property
     def process(self) -> str:
-        return profiles.process_of(profiles.load("printers")[self.printer_id])
+        return self._printer_kind()[1]
 
     # ---------------------------------------------------------------- favorite printers
     @staticmethod

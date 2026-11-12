@@ -1623,6 +1623,19 @@ class MainWindow(QMainWindow):
         paths = list(paths)
         if len(paths) <= 1:
             return [one(p) for p in paths]
+        from .. import file_reading, parallel
+        if parallel.pool() is not None:
+            # in the worker pool: on threads here the parsing held the window up to ~0.9 s at a time
+            args = [(p, self._file_source(p), crowns_on, tissue_on, learned) for p in paths]
+
+            def in_pool():
+                return parallel.run_chunks(file_reading.read_for_window, args,
+                                           weights=[max(1, os.path.getsize(p) if os.path.exists(p) else 1)
+                                                    for p in paths])
+            try:
+                return self._in_background(in_pool)
+            except Exception:
+                pass                                     # e.g. a result that cannot travel back: read here
         workers = max(1, min(len(paths), (os.cpu_count() or 2), 8))
 
         def all_files():
@@ -1671,10 +1684,18 @@ class MainWindow(QMainWindow):
         if len(todo) < 2:
             return
 
+        from .. import dental_cad
+
+        def one(o):
+            layout.footprint(o)
+            # the automatic model type (a horseshoe arch or not) - asked when the plate's settings are read,
+            # on the window's thread, ~0.4 s an arch (the pre-slice after loading froze it ~1 s); kept on the mesh
+            dental_cad.model_type_of(o.name, o.mesh)
+
         def work():
             from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=min(4, len(todo), os.cpu_count() or 1)) as ex:
-                list(ex.map(lambda o: layout.footprint(o), todo))
+                list(ex.map(one, todo))
         try:
             self._in_background(work)
         except Exception:
@@ -1822,6 +1843,12 @@ class MainWindow(QMainWindow):
             return
         self._push_undo()
         o.mesh = Mesh(v, f, original.name)
+        # what was found about the open file holds for the closed one (closing holes leaves its outline from
+        # above and its type as they were): worked out again it took ~0.4 s an arch, on the window's thread
+        for memo in ("_horseshoe", "_kind"):
+            hit = original.__dict__.get(memo)
+            if hit is not None and hit[0] is original.vertices:
+                o.mesh.__dict__[memo] = (o.mesh.vertices, hit[1])
         o.__dict__.pop("_bounds_cache", None)
         o.regions = []
         o.filament_parts = []
@@ -5069,19 +5096,18 @@ class MainWindow(QMainWindow):
                 o.direct = False             # supports asked for this very part: it leaves the plate
             jobs.append((o, o.mesh, o.world_matrix().copy()))
 
+        # the part's own settings (a crown's or a model's preset) with the density and angle learned from earlier
+        # edits on top: laid under them, the preset replaced what was learned and dental parts never got it
+        ocfgs = [self.assistant.learned_config(o.config(cfg)) for o, _m, _x in jobs]
+
         def work():
-            # each part's settings (its type: the horseshoe test reads its outline) and support points, off
-            # the window's thread (a jaw model takes ~0.5 s); the window waits without input meanwhile
-            out = []
-            for o, mesh, matrix in jobs:
-                # the part's own settings (a crown's or a model's preset) with the density and angle learned
-                # from earlier edits on top: laid under them, the preset replaced what was learned and dental
-                # parts never got it
-                ocfg = self.assistant.learned_config(o.config(cfg))
-                world = mesh.transform(matrix).translated([0, 0, lift])
-                report = {}
-                out.append((sla_supports.auto_support_points(world, ocfg, report), report, ocfg))
-            return out
+            # each part's support points on every core at once (the worker pool), off the window's thread (a jaw
+            # model takes ~0.5 s); the window waits without input meanwhile
+            from .. import parallel
+            got = parallel.run_chunks(sla_supports.points_job,
+                                      [(mesh, matrix, lift, ocfg) for (_o, mesh, matrix), ocfg in zip(jobs, ocfgs)],
+                                      weights=[len(mesh.faces) + 1 for _o, mesh, _x in jobs])
+            return [(pts, report, ocfg) for (pts, report), ocfg in zip(got, ocfgs)]
 
         results = self._in_background(work) if jobs else []
         for (o, _mesh, _matrix), (pts, report, ocfg) in zip(jobs, results):
