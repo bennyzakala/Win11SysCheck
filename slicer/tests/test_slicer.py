@@ -7971,9 +7971,20 @@ def test_support_builds_never_lock_up_and_step_aside_for_a_slice(tmp_path):
                 return orig_built(self, res, shared)
             MW.MainWindow._support_built = built
             import sys as _s
-            _s.excepthook = lambda *a: None                   # the failure reaches Qt's handler, as in the app
-            w.settings.set_value("sla_tip_diameter", 0.45); w._objects_changed(refresh_list=False); settle()
-            assert state["broke"] == 1
+            import traceback as _tb
+            # the failure reaches Qt's handler, as in the app (shown, not fatal)
+            _s.excepthook = lambda t, v, tb: print("handled:", v, file=_s.stderr, flush=True)
+            # every part waits, then they go together - as one batch, whatever the timing on this machine
+            held_task = object.__new__(type("Held", (), {"isRunning": lambda self: True, "wait": lambda self, *a: True,
+                                                         "deleteLater": lambda self: None}))
+            w._sup_task = held_task
+            w.settings.set_value("sla_tip_diameter", 0.45); w._objects_changed(refresh_list=False)
+            for _ in range(20):
+                app.processEvents()
+            assert len(w._sup_pending) >= 3, len(w._sup_pending)
+            w._sup_task = None
+            w._start_support_build(); settle()
+            assert state["broke"] == 1, state
             assert getattr(w, "_sup_task", None) is None, "a support build is marked running for good"
             w.settings.set_value("sla_tip_diameter", 0.5); w._objects_changed(refresh_list=False); settle()
             assert all_built(), "no support build ran after the failure"
