@@ -222,6 +222,11 @@ def run(paths: list[str] | None = None) -> int:
         QTimer.singleShot(0, lambda: _trace("event loop running"))
         QTimer.singleShot(4000, app.quit)  # used by the build pipeline to check the app starts
     code = app.exec()
+    try:                                           # no worker process outlives the program
+        from .. import parallel
+        parallel.terminate()
+    except Exception:
+        pass
     reporter.uninstall()
     _trace(f"exited with {code}")
     if state["retry_gpu"]:

@@ -7734,6 +7734,108 @@ def test_join_all_rafts_makes_the_plate_one_piece_on_screen_and_in_the_print(tmp
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_closing_the_program_ends_its_worker_processes_at_once(tmp_path):
+    """Lab (1.0.258): after closing UniSlicer, 13 UniSlicer processes stayed in Task Manager at ~90% CPU (and
+    an update then found it "still running"): the worker processes went on with every job handed to them, and
+    Python waited for them. Closing ends them at once."""
+    import subprocess, sys, textwrap, time
+    code = textwrap.dedent('''
+        import os, sys, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        os.environ["UNISLICER_WORKERS"] = "3"
+        def main():
+            from PySide6.QtWidgets import QApplication
+            app = QApplication([])
+            import multiprocessing
+            from unislicer import parallel
+            from unislicer.gui.main_window import MainWindow
+            from unislicer.gui.worker import Task
+            w = MainWindow(); w.show(); app.processEvents()
+            busy = Task(lambda progress, cancelled: parallel.run_chunks(time.sleep, [(30,)] * 9, cancelled=cancelled), w)
+            w._sup_task = busy                      # as a support batch running in the pool
+            busy.start()
+            end = time.time() + 20
+            while time.time() < end and not multiprocessing.active_children():
+                app.processEvents(); time.sleep(0.05)
+            time.sleep(1.0)
+            assert len(multiprocessing.active_children()) >= 3, multiprocessing.active_children()
+            t0 = time.time()
+            w.close(); app.processEvents()
+            parallel.terminate()                    # as the program does once its window loop ends
+            left = [p for p in multiprocessing.active_children() if p.is_alive()]
+            assert not left, left
+            assert time.time() - t0 < 12, time.time() - t0
+            print("ok", flush=True)
+        if __name__ == "__main__":
+            main()
+    ''')
+    script = tmp_path / "close_workers.py"
+    script.write_text(code)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1", PYTHONPATH=root)
+    t0 = time.time()
+    r = subprocess.run([sys.executable, str(script)], cwd=root, capture_output=True, text=True, timeout=90, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+    assert time.time() - t0 < 60, "the program did not end until its workers had finished"
+
+
+def test_joined_rafts_of_interlocked_arches_really_make_one_piece():
+    """Lab (1.0.258): four arches nested into each other on the XL - only some rafts got joined. A third raft
+    next to the line between two rafts cut their joint off, yet the pair counted as joined, so no other way
+    was tried for those models. Each joint must really reach both rafts (else narrower, else the next pair),
+    and the plate comes off in as many pieces as said."""
+    import random
+    from shapely.geometry import Point, Polygon, box
+    from shapely.ops import unary_union
+    from shapely import affinity
+    from unislicer import sla_supports
+
+    def arch():
+        ring = Point(0, 0).buffer(30).difference(Point(0, 0).buffer(18))
+        return ring.difference(box(0, -40, 40, 40)).union(box(-0.01, -30, 12, -18)).union(box(-0.01, 18, 12, 30))
+
+    def real_pieces(shapes, mesh):
+        tops = [Polygon(t[:, :2]) for t in mesh.vertices[mesh.faces]
+                if np.ptp(t[:, 2]) < 1e-9 and t[0, 2] > 1e-9] if len(mesh.faces) else []
+        u = unary_union(list(shapes) + [p for p in tops if p.is_valid and p.area > 1e-9]).buffer(0.01)
+        return len(getattr(u, "geoms", [u]))
+
+    # layouts that came off in two pieces while one was promised
+    for lab in ([(275.11450587531994, 98.35658690821543, 51.682007271709004),
+                 (350.3363950874382, 45.56573377388724, 14.367028045161664),
+                 (330.8392859897516, 6.972338713172823, 45.61322285999079),
+                 (170.08789214098107, 70.28669351109704, 3.3997895130658753)],
+                [(220.67215552282812, 29.757297806863853, 9.056576256046183),
+                 (179.45369667170138, 79.45743489466354, 23.756508400963877),
+                 (22.61133133550728, 5.478468100556768, 18.220295345728434),
+                 (214.66992756213025, 106.96339486723464, 61.040352067479034)],
+                [(289.06747890068226, 44.56560570143367, 10.31621107724701),
+                 (215.336077181715, 100.06749112278052, 20.065137468252765),
+                 (317.3892620266829, 22.69554078830782, 58.43575644334304),
+                 (63.58145633770249, 66.07926475030737, 0.6344043625188311)]):
+        shapes = [affinity.translate(affinity.rotate(arch(), a, origin=(0, 0)), x, y) for a, x, y in lab]
+        mesh, pieces = sla_supports.raft_joints(shapes, 0.4, 10.0, 30.0)
+        assert pieces == 1 and real_pieces(shapes, mesh) == 1, (pieces, real_pieces(shapes, mesh))
+    # and many more nested layouts: what is said is what comes off the plate
+    rng = random.Random(7)
+    checked = 0
+    while checked < 60:
+        shapes = []
+        for _ in range(400):
+            g = affinity.translate(affinity.rotate(arch(), rng.uniform(0, 360), origin=(0, 0)),
+                                   rng.uniform(0, 110), rng.uniform(0, 70))
+            if all(g.distance(h) > 2.0 for h in shapes) and (not shapes or min(g.distance(h) for h in shapes) < 9):
+                shapes.append(g)
+            if len(shapes) == 4:
+                break
+        if len(shapes) < 4:
+            continue
+        mesh, pieces = sla_supports.raft_joints(shapes, 0.4, 10.0, 30.0)
+        assert real_pieces(shapes, mesh) == pieces
+        checked += 1
+
+
 def test_a_slice_waiting_for_the_pre_slice_shows_its_progress(tmp_path):
     """Lab: the bar stood at "Slicing layers 0%" for a long time - Slice waited for the background pre-slice
     of the same plate (to take its result) without showing how far it was. It shows it now."""
@@ -7798,7 +7900,7 @@ def test_update_lets_the_installer_go_on_while_the_program_closes(tmp_path):
         from unislicer.gui.main_window import MainWindow
         w = MainWindow(); w.show(); app.processEvents()
         order = []
-        parallel.shutdown = lambda: order.append("workers stopped")
+        parallel.terminate = lambda: order.append("workers stopped")
         appmod.release_app_mutex = lambda: order.append("mutex released")
         subprocess.Popen = lambda args, **k: order.append(("installer", list(args)))
         sys.platform = "win32"

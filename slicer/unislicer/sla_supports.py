@@ -1519,51 +1519,69 @@ def raft_joints(outlines: list, thickness: float, width: float = 10.0, reach: fl
             parent[a] = parent[parent[a]]
             a = parent[a]
         return a
-    gaps = sorted(((shapes[i].distance(shapes[j]), i, j) for i in range(n) for j in range(i + 1, n)),
-                  key=lambda g: g[0])
-    pairs = []
-    for gap, i, j in gaps:
-        if gap > reach:
-            break
-        if find(i) != find(j):
-            parent[find(i)] = find(j)
-            pairs.append((gap, i, j))
-    pieces = len({find(k) for k in range(n)})
-    full, thin = [], []
-    for gap, i, j in pairs:
-        if gap < 0.05:                     # already touching: one piece without a joint
-            continue
+    def joint(gap, i, j, w):
+        """The joint between rafts i and j, ``w`` wide - (solid part, notches) - or None when it would not
+        join them (a third raft in the way cuts it off)."""
         a, b = nearest_points(shapes[i], shapes[j])
         dx, dy = b.x - a.x, b.y - a.y
         ux, uy = dx / gap, dy / gap
         nx, ny = -uy, ux
         mx, my = (a.x + b.x) / 2, (a.y + b.y) / 2
-        # a band exactly ``width`` across, along the line between the two rafts
-        far = gap + width + 20.0
-        slab = ShapelyPolygon([(mx + ux * far + nx * width / 2, my + uy * far + ny * width / 2),
-                               (mx - ux * far + nx * width / 2, my - uy * far + ny * width / 2),
-                               (mx - ux * far - nx * width / 2, my - uy * far - ny * width / 2),
-                               (mx + ux * far - nx * width / 2, my + uy * far - ny * width / 2)])
+        # a band exactly ``w`` across, along the line between the two rafts
+        far = gap + w + 20.0
+        slab = ShapelyPolygon([(mx + ux * far + nx * w / 2, my + uy * far + ny * w / 2),
+                               (mx - ux * far + nx * w / 2, my - uy * far + ny * w / 2),
+                               (mx - ux * far - nx * w / 2, my - uy * far - ny * w / 2),
+                               (mx + ux * far - nx * w / 2, my + uy * far - ny * w / 2)])
         # each raft's part in the band, near the gap (not across a whole arch): the joint spans between them
-        ends = [shapes[i].intersection(slab).intersection(Point(a.x, a.y).buffer(width)),
-                shapes[j].intersection(slab).intersection(Point(b.x, b.y).buffer(width))]
+        ends = [shapes[i].intersection(slab).intersection(Point(a.x, a.y).buffer(w)),
+                shapes[j].intersection(slab).intersection(Point(b.x, b.y).buffer(w))]
         strip = unary_union(ends).convex_hull.intersection(slab)
         # only the gap between them (0.3 mm into each raft, so it is one piece with them)
         strip = strip.difference(unary_union([shapes[i], shapes[j]]).buffer(-0.3))
         others = [shapes[k] for k in range(n) if k not in (i, j)]
         if others:
-            strip = strip.difference(unary_union(others).buffer(1.0))
+            strip = strip.difference(unary_union(others).buffer(0.6))
         if strip.is_empty:
-            continue
+            return None
+        # it must really join the two: one of its pieces touches both rafts (else another pair is tried)
+        pieces_of = list(getattr(strip, "geoms", [strip]))
+        keep = [g for g in pieces_of if g.area > 1e-3 and g.distance(shapes[i]) < 0.05 and g.distance(shapes[j]) < 0.05]
+        if not keep:
+            return None
+        strip = unary_union(keep)
         # the notches: a groove next to each raft (one in the middle when the gap is short)
         if gap >= 2 * notch + 1.6:
             grooves = [r.buffer(0.8 + notch).difference(r.buffer(0.8)) for r in (shapes[i], shapes[j])]
         else:
             grooves = [shapes[i].buffer(gap / 2 + notch / 2).difference(shapes[i].buffer(max(0.0, gap / 2 - notch / 2)))]
         groove = unary_union(grooves).intersection(strip).difference(unary_union([shapes[i], shapes[j]]))
-        full.append(strip.difference(groove))
-        if not groove.is_empty:
-            thin.append(groove)
+        return strip.difference(groove), groove
+
+    gaps = sorted(((shapes[i].distance(shapes[j]), i, j) for i in range(n) for j in range(i + 1, n)),
+                  key=lambda g: g[0])
+    full, thin = [], []
+    for gap, i, j in gaps:
+        if gap > reach:
+            break
+        if find(i) == find(j):
+            continue
+        if gap < 0.05:                     # already touching: one piece without a joint
+            parent[find(i)] = find(j)
+            continue
+        # as wide as asked; where the rafts around leave less room, narrower - else the next nearest pair
+        made = None
+        for w in (width, width / 2, min(width, 3.0)):
+            made = joint(gap, i, j, w)
+            if made is not None:
+                break
+        if made is None:
+            continue
+        parent[find(i)] = find(j)
+        full.append(made[0])
+        if not made[1].is_empty:
+            thin.append(made[1])
+    pieces = len({find(k) for k in range(n)})
     meshes = []
     if full:
         meshes.append(extrude(unary_union(full).buffer(0), 0.0, thickness, "Raft joints"))

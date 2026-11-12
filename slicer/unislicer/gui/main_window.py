@@ -1821,7 +1821,10 @@ class MainWindow(QMainWindow):
                 try:
                     return ex.submit(mesh_tools.watertight_job, mesh.vertices, mesh.faces, mesh.name).result()
                 except Exception:
-                    pass
+                    if cancelled():                  # the program is closing: not again here
+                        raise InterruptedError
+            if cancelled():
+                raise InterruptedError
             return mesh_tools.watertight_job(mesh.vertices, mesh.faces, mesh.name)
 
         task = Task(work, self)
@@ -3596,7 +3599,7 @@ class MainWindow(QMainWindow):
         # running when the installer looks (it stopped with "UniSlicer is currently running")
         try:
             from .. import parallel
-            parallel.shutdown()
+            parallel.terminate()
         except Exception:
             pass
         # Inno Setup: quiet install, closes this program, then opens it again (the installer's [Run] entry);
@@ -7557,8 +7560,24 @@ class MainWindow(QMainWindow):
             self.load_files(paths)
 
     def closeEvent(self, e):
+        # everything running in the background stops now: a cancelled task stops waiting for the worker
+        # processes, and the worker processes are ended (they went on for minutes after the window closed)
+        for t in list(getattr(self, "_export_tasks", []) or []):
+            if t is not None and t.isRunning():      # a print file being written is finished first
+                t.wait(60000)
+        for t in [self.task, getattr(self, "_sup_task", None), getattr(self, "_pre_task", None)] + \
+                list(getattr(self, "_close_tasks", []) or []):
+            if t is not None and t.isRunning():
+                try:
+                    t.cancel()
+                except Exception:
+                    pass
+        try:
+            from .. import parallel
+            parallel.terminate()
+        except Exception:
+            pass
         if self.task is not None and self.task.isRunning():
-            self.task.cancel()
             self.task.wait(3000)
         # background helpers must finish before the window goes away (a running thread would crash)
         self._stop_preslice()

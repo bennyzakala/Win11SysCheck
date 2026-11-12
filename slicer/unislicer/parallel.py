@@ -41,6 +41,33 @@ def shutdown() -> None:
     _discard()
 
 
+def terminate() -> None:
+    """Stop the worker processes now, whatever they are doing: when the program closes (or updates).
+    A plain shutdown let them finish every job already handed to them - a full plate's pre-slice or
+    support builds ran on for minutes at full CPU after the window had closed (the lab saw 13 UniSlicer
+    processes in Task Manager), and Python waits for them before it ends."""
+    global _pool
+    with _lock:
+        old, _pool = _pool, None
+    if old is None:
+        return
+    procs = list((getattr(old, "_processes", None) or {}).values())
+    try:
+        old.shutdown(wait=False, cancel_futures=True)
+    except Exception:
+        pass
+    for p in procs:
+        try:
+            p.terminate()
+        except Exception:
+            pass
+    for p in procs:
+        try:
+            p.join(2.0)
+        except Exception:
+            pass
+
+
 def chunk_ranges(n: int, min_chunk: int, max_chunks: int) -> list[tuple[int, int]]:
     """Split range(n) into contiguous (start, end) pieces of at least ``min_chunk`` items."""
     count = max(1, min(max_chunks, n // max(1, min_chunk)))
