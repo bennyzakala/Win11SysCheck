@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 import re
 
 from .settings import SCHEMA_BY_KEY, Config
@@ -28,6 +29,7 @@ def _save_json(path: str, data) -> None:
     with open(part, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, ensure_ascii=False)
     os.replace(part, path)
+    _STAMP[1] = None                 # a profile changed: the next configuration reads it
 
 
 _extra_cache: dict = {}
@@ -54,8 +56,22 @@ def _builtin_extras(kind: str) -> dict:
     return out
 
 
+_STAMP: list = [0.0, None]       # [when, stamp]: asked hundreds of times per action, each listing both folders
+
+
 def files_stamp() -> tuple:
-    """When each profile file last changed: a configuration built from them stays valid while this is equal."""
+    """When each profile file last changed: a configuration built from them stays valid while this is equal.
+    Kept for half a second (a support build asked ~400 times, ~2 500 file checks); a save from the program
+    itself is seen at once, a file edited by hand within half a second."""
+    now = time.monotonic()
+    if _STAMP[1] is not None and now - _STAMP[0] < 0.5:
+        return _STAMP[1]
+    _STAMP[1] = _files_stamp()
+    _STAMP[0] = now
+    return _STAMP[1]
+
+
+def _files_stamp() -> tuple:
     out = []
     for d in (BUILTIN_DIR, USER_DIR):
         try:
