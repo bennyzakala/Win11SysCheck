@@ -7907,6 +7907,37 @@ def test_closing_the_program_ends_its_worker_processes_at_once(tmp_path):
     assert time.time() - t0 < 60, "the program did not end until its workers had finished"
 
 
+def test_the_fast_layer_encoders_write_the_same_bytes():
+    """Overnight speed work: CTB / GOO layers were run-length encoded one run at a time in Python (~200 ms a
+    layer on a 12K screen - most of an export). All runs are encoded at once now; the bytes must be exactly
+    those of the old way, for any image."""
+    from unislicer import ctb, goo, primitives, profiles, sla
+    from unislicer.mesh import Mesh
+    rng = np.random.default_rng(5)
+    images = []
+    for trial in range(120):
+        h, w = int(rng.integers(1, 50)), int(rng.integers(1, 260))
+        k = trial % 4
+        if k == 0:
+            a = rng.integers(0, 256, (h, w))
+        elif k == 1:
+            a = (rng.random((h, w)) < 0.1) * 255
+        elif k == 2:
+            a = np.zeros((h, w)); a[:, : w // 2] = rng.integers(0, 256)
+        else:
+            a = np.repeat(rng.choice([0, 0, 0, 1, 2, 128, 255, 7], size=(h, max(1, w // 13))), 13, axis=1)[:, :w]
+        images.append(np.asarray(a, dtype=np.uint8))
+    cfg = profiles.build_config("elegoo_mars3", None, None, {"support_enable": True})
+    c = primitives.crown_cap(10.0, 8.0)
+    job = sla.prepare([Mesh(c.vertices + [40, 30, -c.bounds[0][2]], c.faces)], cfg)
+    images += [np.asarray(sla.render_layer(job.layers[i], cfg)) for i in (0, 3, job.layer_count // 2, job.layer_count - 1)]
+    images.append(np.zeros((40, 70), dtype=np.uint8))
+    images.append(np.full((40, 70), 255, dtype=np.uint8))
+    for a in images:
+        assert ctb.encode_layer(a) == ctb.encode_layer_slow(a)
+        assert goo.encode_layer(a) == goo.encode_layer_slow(a)
+
+
 def test_thick_tree_supports_never_reach_below_the_plate():
     """Overnight settings test: with thick pillars a tree branch's round joint near the plate was wider than its
     height above it - the supports reached up to 2.8 mm below the plate (seen on a bridge on the Mini 8K).

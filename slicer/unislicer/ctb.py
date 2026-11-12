@@ -62,8 +62,48 @@ def _add_run(out: bytearray, stride: int, grey7: int) -> None:
         out += bytes(((stride >> 24) | 0xE0, (stride >> 16) & 0xFF, (stride >> 8) & 0xFF, stride & 0xFF))
 
 
+def _runs(flat: np.ndarray):
+    """(lengths, values) of the runs of equal values in a 1-D uint8 array."""
+    change = np.flatnonzero(flat[1:] != flat[:-1]) + 1
+    starts = np.concatenate([[0], change])
+    lengths = np.diff(np.concatenate([starts, [flat.size]]))
+    return lengths.astype(np.int64), flat[starts].astype(np.int64)
+
+
 def encode_layer(pixels: np.ndarray) -> bytes:
-    """7-bit grey run-length encoding of an 8-bit image (row-major)."""
+    """7-bit grey run-length encoding of an 8-bit image (row-major) - all runs at once (one at a time in Python
+    it took ~200 ms a layer on a 12K screen, most of a print file's export); the same bytes as
+    ``encode_layer_slow``."""
+    grey = np.asarray(pixels, dtype=np.uint8).ravel() >> 1
+    if grey.size == 0:
+        return b""
+    n, v = _runs(grey)
+    if n.max() > MAX_RUN:                       # longer than one run can say: the plain way splits it
+        return encode_layer_slow(pixels)
+    k = np.where(n == 1, 0, np.where(n <= 0x7F, 1, np.where(n <= 0x3FFF, 2, np.where(n <= 0x1FFFFF, 3, 4))))
+    size = 1 + k
+    pos = np.concatenate([[0], np.cumsum(size)[:-1]])
+    out = np.zeros(int(size.sum()), dtype=np.uint8)
+    out[pos] = np.where(n == 1, v, v | 0x80)
+    m = k == 1
+    out[pos[m] + 1] = n[m]
+    m = k == 2
+    out[pos[m] + 1] = (n[m] >> 8) | 0x80
+    out[pos[m] + 2] = n[m] & 0xFF
+    m = k == 3
+    out[pos[m] + 1] = (n[m] >> 16) | 0xC0
+    out[pos[m] + 2] = (n[m] >> 8) & 0xFF
+    out[pos[m] + 3] = n[m] & 0xFF
+    m = k == 4
+    out[pos[m] + 1] = (n[m] >> 24) | 0xE0
+    out[pos[m] + 2] = (n[m] >> 16) & 0xFF
+    out[pos[m] + 3] = (n[m] >> 8) & 0xFF
+    out[pos[m] + 4] = n[m] & 0xFF
+    return out.tobytes()
+
+
+def encode_layer_slow(pixels: np.ndarray) -> bytes:
+    """7-bit grey run-length encoding of an 8-bit image (row-major), one run at a time."""
     grey = (np.asarray(pixels, dtype=np.uint8).ravel() >> 1).astype(np.int16)
     if grey.size == 0:
         return b""

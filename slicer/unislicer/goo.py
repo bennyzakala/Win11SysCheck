@@ -56,6 +56,39 @@ def _chunk(out: bytearray, value: int, length: int) -> None:
 
 
 def encode_layer(pixels: np.ndarray) -> bytes:
+    """GOO layer image: 0x55, runs of black / grey / white pixels, then the 8-bit checksum - all runs at once
+    (the same bytes as ``encode_layer_slow``, several times faster on 8K / 12K screens)."""
+    flat = np.asarray(pixels, dtype=np.uint8).ravel()
+    if flat.size == 0 or flat.size > 0xFFFFFFF:
+        return encode_layer_slow(pixels)
+    change = np.flatnonzero(flat[1:] != flat[:-1]) + 1
+    starts = np.concatenate([[0], change])
+    n = np.diff(np.concatenate([starts, [flat.size]])).astype(np.int64)
+    v = flat[starts].astype(np.int64)
+    kind = np.where(v == 0, 0, np.where(v == 255, 3, 1))
+    extra = np.where(n <= 0xF, 0, np.where(n <= 0xFFF, 1, np.where(n <= 0xFFFFF, 2, 3)))
+    grey = kind == 1
+    size = 1 + grey + extra
+    pos = np.concatenate([[0], np.cumsum(size)[:-1]]) + 1
+    out = np.zeros(int(size.sum()) + 2, dtype=np.uint8)
+    out[0] = LAYER_MAGIC
+    out[pos] = (kind << 6) | (extra << 4) | (n & 0xF)
+    out[pos[grey] + 1] = v[grey]
+    after = pos + 1 + grey
+    m = extra == 1
+    out[after[m]] = (n[m] >> 4) & 0xFF
+    m = extra == 2
+    out[after[m]] = (n[m] >> 12) & 0xFF
+    out[after[m] + 1] = (n[m] >> 4) & 0xFF
+    m = extra == 3
+    out[after[m]] = (n[m] >> 20) & 0xFF
+    out[after[m] + 1] = (n[m] >> 12) & 0xFF
+    out[after[m] + 2] = (n[m] >> 4) & 0xFF
+    out[-1] = (~int(out[1:-1].sum(dtype=np.int64))) & 0xFF
+    return out.tobytes()
+
+
+def encode_layer_slow(pixels: np.ndarray) -> bytes:
     """GOO layer image: 0x55, runs of black / grey / white pixels, then the 8-bit checksum."""
     flat = np.asarray(pixels, dtype=np.uint8).ravel()
     out = bytearray([LAYER_MAGIC])
