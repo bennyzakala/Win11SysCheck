@@ -8696,3 +8696,36 @@ def test_nothing_starts_after_the_window_closed():
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120, env=env,
                        encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_creality_cfs_only_where_it_fits():
+    """The CFS filament change drives the head to the SPARKX i7's purge chute (X278, past its bed): picked for
+    another printer (or with the origin at the bed centre) it sent the head into the frame. There the file
+    uses plain T commands; on the SPARKX i7 it keeps its own sequence."""
+    import re
+    from unislicer import fdm, gcode, primitives, profiles
+
+    def moves(text):
+        xs, rel = [], False
+        for line in text.splitlines():
+            c = line.split(";")[0].strip()
+            if c.startswith("G91"):
+                rel = True
+            elif c.startswith("G90"):
+                rel = False
+            elif not rel and re.match(r"G[01] ", c):
+                xs += [float(v) for v in re.findall(r"X([-0-9.]+)", c)]
+        return xs
+
+    for printer, over, cfs in (("creality_sparkx_i7", {}, True),
+                               ("creality_ender3v2", {"toolchange_mode": "creality_cfs"}, False),
+                               ("creality_sparkx_i7", {"origin_center": True}, False)):
+        cfg = profiles.build_config(printer, None, None, dict(over, filament_count=2))
+        parts = [primitives.box(10, 10, 4).translated([cfg["bed_x"] / 2 + dx, cfg["bed_y"] / 2, 0]) for dx in (-15, 15)]
+        text, _ = gcode.generate(fdm.plan(parts, cfg, tools=[0, 1]), cfg, "t")
+        assert ("M8200" in text) == cfs, printer
+        xs = moves(text)
+        lo, hi = (-cfg["bed_x"] / 2, cfg["bed_x"] / 2) if cfg["origin_center"] else (0, cfg["bed_x"])
+        if not cfs:
+            assert min(xs) >= lo - 1 and max(xs) <= hi + 1, (printer, over, min(xs), max(xs))
+            assert re.search(r"^T1", text, re.M), "the filament change is a plain T command"

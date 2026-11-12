@@ -44,6 +44,11 @@ CFS_TOOLCHANGE_RETRACT = 2.0     # retract_length_toolchange
 CFS_CHANGE_TIME = 60.0           # unload + load (machine_unload/load_filament_time 30 s each)
 
 
+def cfs_fits(cfg: Config) -> bool:
+    """Is the Creality CFS change sequence (written for the SPARKX i7's frame) safe on this printer?"""
+    return "sparkx" in str(cfg["printer_model"]).lower().replace(" ", "") and not cfg["origin_center"]
+
+
 def creality_cfs_start(cfg: Config, tool: int, first_temp: int) -> str:
     """SPARKX i7 start sequence (Creality Print 7.3 profile) for the first filament ``tool``."""
     prime_f = max(60, round(MAX_FLOW.get("PLA", 15.0) / 0.3 * 60 * 0.1))
@@ -194,7 +199,10 @@ class GcodeWriter:
         self.stats = GcodeStats()
         d = cfg["filament_diameter"]
         self.filament_area = math.pi * (d / 2) ** 2
-        self.cfs = cfg["toolchange_mode"] == "creality_cfs"
+        # the CFS sequence drives the head to the SPARKX i7's own purge chute (X267 / X278, Y255): on any other
+        # printer (or with the origin at the bed centre) those moves run into the frame - plain T commands there
+        self.cfs_skipped = cfg["toolchange_mode"] == "creality_cfs" and not cfs_fits(cfg)
+        self.cfs = cfg["toolchange_mode"] == "creality_cfs" and not self.cfs_skipped
         self.relative = bool(cfg["relative_e"]) or self.cfs      # the CFS sequence is written for relative E
         self.ox = -cfg["bed_x"] / 2 if cfg["origin_center"] else 0.0
         self.oy = -cfg["bed_y"] / 2 if cfg["origin_center"] else 0.0
@@ -339,6 +347,8 @@ class GcodeWriter:
         if plan.multi_material or first_tool:
             values["first_layer_nozzle_temp"], values["nozzle_temp"] = ff.first_temp, ff.temp
 
+        if self.cfs_skipped:
+            self._emit("; Creality CFS filament changes are written for the SPARKX i7: plain T commands used here")
         self._emit("G90 ; absolute positioning")
         self._emit("M83 ; relative extrusion" if self.relative else "M82 ; absolute extrusion")
         if self.cfs and not cfg["start_gcode"].strip():
