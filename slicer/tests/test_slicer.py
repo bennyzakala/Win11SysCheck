@@ -7907,6 +7907,24 @@ def test_closing_the_program_ends_its_worker_processes_at_once(tmp_path):
     assert time.time() - t0 < 60, "the program did not end until its workers had finished"
 
 
+def test_layers_drawn_straight_into_arrays_are_the_same_pixels():
+    """Overnight speed work: turning each whole 8K / 12K layer picture into an array (and clearing it) took most
+    of an export; the layer is drawn in its parts' box and put into an array. The same pixels, mirrored or
+    blurred alike."""
+    from unislicer import primitives, profiles, sla
+    from unislicer.mesh import Mesh
+    from unislicer.slicing import MultiPolygon
+    c = primitives.crown_cap(10.0, 8.0)
+    for over in ({}, {"mirror_x": True}, {"mirror_y": True}, {"mirror_x": True, "mirror_y": True},
+                 {"image_blur": 2}, {"antialiasing": "8"}, {"antialiasing": "1"}):
+        cfg = profiles.build_config("elegoo_mars3", None, None, {"support_enable": True, **over})
+        job = sla.prepare([Mesh(c.vertices + [30, 25, -c.bounds[0][2]], c.faces)], cfg)
+        for i in (0, 2, job.layer_count // 2, job.layer_count - 1):
+            assert np.array_equal(np.asarray(sla.render_layer(job.layers[i], cfg)), sla.render_layer_array(job.layers[i], cfg)), (over, i)
+        empty = MultiPolygon()
+        assert np.array_equal(np.asarray(sla.render_layer(empty, cfg)), sla.render_layer_array(empty, cfg))
+
+
 def test_the_fast_layer_encoders_write_the_same_bytes():
     """Overnight speed work: CTB / GOO layers were run-length encoded one run at a time in Python (~200 ms a
     layer on a 12K screen - most of an export). All runs are encoded at once now; the bytes must be exactly

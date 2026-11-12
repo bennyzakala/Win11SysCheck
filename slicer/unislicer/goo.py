@@ -58,13 +58,11 @@ def _chunk(out: bytearray, value: int, length: int) -> None:
 def encode_layer(pixels: np.ndarray) -> bytes:
     """GOO layer image: 0x55, runs of black / grey / white pixels, then the 8-bit checksum - all runs at once
     (the same bytes as ``encode_layer_slow``, several times faster on 8K / 12K screens)."""
-    flat = np.asarray(pixels, dtype=np.uint8).ravel()
-    if flat.size == 0 or flat.size > 0xFFFFFFF:
+    size = np.asarray(pixels).size
+    if size == 0 or size > 0xFFFFFFF:
         return encode_layer_slow(pixels)
-    change = np.flatnonzero(flat[1:] != flat[:-1]) + 1
-    starts = np.concatenate([[0], change])
-    n = np.diff(np.concatenate([starts, [flat.size]])).astype(np.int64)
-    v = flat[starts].astype(np.int64)
+    from .ctb import image_runs
+    n, v = image_runs(pixels)
     kind = np.where(v == 0, 0, np.where(v == 255, 3, 1))
     extra = np.where(n <= 0xF, 0, np.where(n <= 0xFFF, 1, np.where(n <= 0xFFFFF, 2, 3)))
     grey = kind == 1

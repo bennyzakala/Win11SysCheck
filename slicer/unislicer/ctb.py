@@ -70,14 +70,41 @@ def _runs(flat: np.ndarray):
     return lengths.astype(np.int64), flat[starts].astype(np.int64)
 
 
+def image_runs(pixels: np.ndarray, shift: int = 0):
+    """(lengths, values) of the runs of ``pixels >> shift`` in row-major order - looking only at the rows with
+    something in them (a layer is mostly black: the rows above and below are one run each)."""
+    a = np.asarray(pixels, dtype=np.uint8)
+    if a.ndim != 2:
+        a = a.reshape(1, -1)
+    if a.size == 0:
+        return np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64)
+    rows = np.flatnonzero(a.max(axis=1) >> shift)
+    if rows.size == 0:
+        return np.array([a.size], dtype=np.int64), np.array([0], dtype=np.int64)
+    r0, r1 = int(rows[0]), int(rows[-1]) + 1
+    seg = a[r0:r1].ravel()
+    n, v = _runs(seg >> shift if shift else seg)
+    lead, tail = r0 * a.shape[1], (a.shape[0] - r1) * a.shape[1]
+    if lead:
+        if v[0] == 0:
+            n[0] += lead
+        else:
+            n, v = np.concatenate([[lead], n]), np.concatenate([[0], v])
+    if tail:
+        if v[-1] == 0:
+            n[-1] += tail
+        else:
+            n, v = np.concatenate([n, [tail]]), np.concatenate([v, [0]])
+    return n, v
+
+
 def encode_layer(pixels: np.ndarray) -> bytes:
     """7-bit grey run-length encoding of an 8-bit image (row-major) - all runs at once (one at a time in Python
     it took ~200 ms a layer on a 12K screen, most of a print file's export); the same bytes as
     ``encode_layer_slow``."""
-    grey = np.asarray(pixels, dtype=np.uint8).ravel() >> 1
-    if grey.size == 0:
+    if np.asarray(pixels).size == 0:
         return b""
-    n, v = _runs(grey)
+    n, v = image_runs(pixels, 1)
     if n.max() > MAX_RUN:                       # longer than one run can say: the plain way splits it
         return encode_layer_slow(pixels)
     k = np.where(n == 1, 0, np.where(n <= 0x7F, 1, np.where(n <= 0x3FFF, 2, np.where(n <= 0x1FFFFF, 3, 4))))

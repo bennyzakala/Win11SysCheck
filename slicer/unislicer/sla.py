@@ -1641,11 +1641,26 @@ def render_layer(geom: MultiPolygon, cfg: Config) -> Image.Image:
     rx, ry = int(cfg["resolution_x"]), int(cfg["resolution_y"])
     aa = int(cfg["antialiasing"])
     image = Image.new("L", (rx, ry), 0)
+    box = _layer_canvas(geom, cfg)
+    if box is not None:
+        canvas, x0, y0 = box
+        image.paste(canvas, (x0, y0))
+    if cfg["mirror_x"]:
+        image = image.transpose(Image.FLIP_LEFT_RIGHT)
+    if cfg["mirror_y"]:
+        image = image.transpose(Image.FLIP_TOP_BOTTOM)
+    return image
+
+
+def _layer_canvas(geom: MultiPolygon, cfg: Config):
+    """The layer drawn in the box round its parts at the printer's resolution: (picture, x0, y0), or None."""
+    rx, ry = int(cfg["resolution_x"]), int(cfg["resolution_y"])
+    aa = int(cfg["antialiasing"])
     # outermost first, by the area its outline encloses (not its own area): a thin ring (a shell's wall)
     # painted after a solid part sitting in its hole cleared that part with its hole
     polys = sorted(polygons_of(geom), key=lambda p: -shapely.Polygon(p.exterior).area)
     if not polys:
-        return image
+        return None
     sx = rx / cfg["bed_x"]
     sy = ry / cfg["bed_y"]
 
@@ -1665,7 +1680,7 @@ def render_layer(geom: MultiPolygon, cfg: Config) -> Image.Image:
     x0, y0 = max(0, int(min(xs)) - pad), max(0, int(min(ys)) - pad)
     x1, y1 = min(rx, int(max(xs)) + pad + 1), min(ry, int(max(ys)) + pad + 1)
     if x1 <= x0 or y1 <= y0:
-        return image
+        return None
     canvas = Image.new("L", ((x1 - x0) * aa, (y1 - y0) * aa), 0)
     draw = ImageDraw.Draw(canvas)
 
@@ -1681,12 +1696,24 @@ def render_layer(geom: MultiPolygon, cfg: Config) -> Image.Image:
         canvas = canvas.resize((x1 - x0, y1 - y0), Image.BOX)
     if blur > 0:
         canvas = canvas.filter(ImageFilter.GaussianBlur(blur))
-    image.paste(canvas, (x0, y0))
+    return canvas, x0, y0
+
+
+def render_layer_array(geom: MultiPolygon, cfg: Config) -> np.ndarray:
+    """``render_layer`` as a numpy array (the same pixels): only the parts' box is drawn and converted - turning
+    the whole 8K / 12K picture into an array and clearing it took most of a print file's export."""
+    rx, ry = int(cfg["resolution_x"]), int(cfg["resolution_y"])
+    out = np.zeros((ry, rx), dtype=np.uint8)
+    box = _layer_canvas(geom, cfg)
+    if box is not None:
+        canvas, x0, y0 = box
+        a = np.asarray(canvas, dtype=np.uint8)
+        out[y0:y0 + a.shape[0], x0:x0 + a.shape[1]] = a
     if cfg["mirror_x"]:
-        image = image.transpose(Image.FLIP_LEFT_RIGHT)
+        out = out[:, ::-1]
     if cfg["mirror_y"]:
-        image = image.transpose(Image.FLIP_TOP_BOTTOM)
-    return image
+        out = out[::-1, :]
+    return np.ascontiguousarray(out)
 
 
 def _png_bytes(img: Image.Image) -> bytes:
@@ -1702,7 +1729,7 @@ def _rle_chunk(layers: list, values: dict, fmt: str) -> list[bytes]:
     else:
         from .ctb import encode_layer
     cfg = Config(dict(values))
-    return [encode_layer(np.asarray(render_layer(g, cfg))) for g in layers]
+    return [encode_layer(render_layer_array(g, cfg)) for g in layers]
 
 
 def _render_chunk(layers: list, values: dict) -> list[bytes]:
