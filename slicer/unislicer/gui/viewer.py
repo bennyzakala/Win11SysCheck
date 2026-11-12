@@ -438,6 +438,9 @@ class Viewer(QOpenGLWidget):
         self.extra: list = []            # [(mesh, color)] e.g. SLA supports
         self.raft_top = 0.0              # height of the raft top (resin); see-through from below
         self._extra_buffers: list = []
+        self.joints = None               # joints between the rafts ("join all rafts"), in bed coordinates
+        self._joints_buffer = None
+        self._joints_dirty = False
         self._extra_dirty = False
         self.paths: np.ndarray | None = None
         self._paths_buffer = None
@@ -678,6 +681,14 @@ class Viewer(QOpenGLWidget):
             self.raft_top = float(z)
             self.update()
 
+    def set_joints(self, mesh):
+        """The joints that make the plate's rafts one piece (None: none)."""
+        if mesh is self.joints:
+            return
+        self.joints = mesh if mesh is not None and len(mesh.faces) else None
+        self._joints_dirty = True
+        self.update()
+
     def set_extra_meshes(self, items):
         self.extra = list(items)
         self._extra_dirty = True
@@ -830,6 +841,11 @@ class Viewer(QOpenGLWidget):
                 obj["label_buffer"] = _Buffer(mesh_vertices(obj["labels"]), [3, 3])
             if obj.get("labels_cut") is not None and obj.get("label_cut_buffer") is None and len(obj["labels_cut"].faces):
                 obj["label_cut_buffer"] = _Buffer(mesh_vertices(obj["labels_cut"]), [3, 3])
+        if self._joints_dirty:
+            if self._joints_buffer is not None:
+                self._joints_buffer.delete()
+            self._joints_buffer = _Buffer(mesh_vertices(self.joints), [3, 3]) if self.joints is not None else None
+            self._joints_dirty = False
         if self._extra_dirty:
             for b, _ in self._extra_buffers:
                 b.delete()
@@ -996,6 +1012,13 @@ class Viewer(QOpenGLWidget):
             GL.glDisable(GL.GL_BLEND)
             GL.glUniform1f(self._u(p, "uAlpha"), 1.0)
         self._set_model(p, np.eye(4))
+        if self._joints_buffer is not None and not preview and self.technology == "sla":
+            GL.glUniform3f(self._u(p, "uColor"), *theme.SUPPORT_COLOR)
+            if see_raft:
+                GL.glUniform1i(self._u(p, "uRaftCut"), 1)
+                rafts.append((np.eye(4), self._joints_buffer))
+            self._joints_buffer.draw(GL.GL_TRIANGLES)
+            GL.glUniform1i(self._u(p, "uRaftCut"), 0)
         if preview or self.technology == "sla":
             for buf, color in self._extra_buffers:
                 GL.glUniform3f(self._u(p, "uColor"), *color)

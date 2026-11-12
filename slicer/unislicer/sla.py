@@ -1321,7 +1321,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
 
     def build_all_supports():
         """Supports for every model (cached)."""
-        parts, pts = [], []
+        parts, pts, own = [], [], []
         for i, m in enumerate(models):
             if cancelled and cancelled():
                 raise InterruptedError
@@ -1333,6 +1333,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             ready = prebuilt_supports[i] if prebuilt_supports and i < len(prebuilt_supports) else None
             if ready is not None and manual is not None:   # what the window shows: no second build
                 parts.append(ready)
+                own.append((i, ready))
                 pts += list(manual)
                 continue
             zones = keepout[i] if keepout and i < len(keepout) else None
@@ -1355,7 +1356,17 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
                 _cache_put(skey, hit)
             sm, sp = hit
             parts.append(sm)
+            own.append((i, sm))
             pts += list(sp)
+        if cfg["sla_raft_join"]:
+            # "join all rafts into one piece": solid joints between neighbouring rafts, printed with the supports
+            from .sla_supports import raft_joints, raft_outline
+            outlines = [raft_outline(sm, cfgs[i]["sla_raft_thickness"]) for i, sm in own
+                        if cfgs[i]["sla_raft_type"] != "none"]
+            joints, _pieces = raft_joints(outlines, cfg["sla_raft_thickness"], cfg["sla_raft_join_width"],
+                                          cfg["sla_raft_join_reach"])
+            if len(joints.faces):
+                parts.append(joints)
         return Mesh.merge(parts, "Supports"), pts
 
     support_job = None

@@ -3690,6 +3690,8 @@ class MainWindow(QMainWindow):
 
     def _objects_changed(self, refresh_list: bool = True):
         cfg = self.settings.config()
+        if hasattr(self, "viewer"):
+            self._schedule_joints()                  # joined rafts follow the parts
         outside = {o.uid: o.name for o in out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg), region=plate_region(cfg))}
         uids = {o.uid for o in self.objects}
         for uid in list(self.viewer.objects):
@@ -5025,6 +5027,7 @@ class MainWindow(QMainWindow):
             if self._support_key(o, cfg) == key:
                 self.viewer.set_object_supports(uid, local)
                 self._update_support_info()
+                self._schedule_joints()
         if not getattr(self, "_sup_batching", False):
             self._support_build_done()
 
@@ -5154,7 +5157,57 @@ class MainWindow(QMainWindow):
         self.status.setText(msg)
 
     RAFT_KEYS = ("sla_raft_type", "sla_raft_thickness", "sla_raft_margin", "sla_raft_area_ratio", "sla_raft_slope",
-                 "sla_raft_bar_spacing", "sla_raft_bar_width", "sla_raft_group_reach", "sla_elevation")
+                 "sla_raft_bar_spacing", "sla_raft_bar_width", "sla_raft_group_reach", "sla_elevation",
+                 "sla_raft_join", "sla_raft_join_width", "sla_raft_join_reach")
+    PLATE_RAFT_KEYS = ("sla_elevation", "sla_raft_join", "sla_raft_join_width", "sla_raft_join_reach")
+
+    def _schedule_joints(self):
+        t = self.__dict__.get("_joints_timer")
+        if t is None:
+            t = self._joints_timer = QTimer(self)
+            t.setSingleShot(True)
+            t.setInterval(120)
+            t.timeout.connect(self._update_joints)
+        t.start()
+
+    def _update_joints(self):
+        """Join all rafts into one piece: the joints between neighbouring rafts, from the rafts as built
+        (the slicer makes the same ones from the same rafts), shown on the plate."""
+        cfg = self.settings.config()
+        if cfg["technology"] != "sla" or not cfg["support_enable"] or not cfg["sla_raft_join"]:
+            self._joints_key = None
+            self.viewer.set_joints(None)
+            return
+        cache = self.__dict__.setdefault("_outline_cache", {})
+        outlines = []
+        for o in self.objects:
+            if o.role == "cutter" or not self._shows_supports(o) or not len(o.support_points):
+                continue
+            ocfg = o.config(cfg)
+            if ocfg["sla_raft_type"] == "none":
+                continue
+            hit = self._support_cache.get(o.uid)
+            if hit is None or hit[1] is None:
+                continue
+            m = self._display_matrix(o)
+            key = (id(hit[1]), m.tobytes(), ocfg["sla_raft_thickness"])
+            got = cache.get(o.uid)
+            if got is None or got[0] != key:
+                got = cache[o.uid] = (key, sla_supports.raft_outline(hit[1].transform(m), ocfg["sla_raft_thickness"]))
+            outlines.append(got[1])
+        live = {o.uid for o in self.objects}
+        for uid in [u for u in cache if u not in live]:
+            cache.pop(uid, None)
+        jkey = (tuple(id(x) for x in outlines), cfg["sla_raft_thickness"], cfg["sla_raft_join_width"],
+                cfg["sla_raft_join_reach"])
+        if jkey == getattr(self, "_joints_key", None):
+            return
+        self._joints_key = jkey
+        joints, pieces = sla_supports.raft_joints(outlines, cfg["sla_raft_thickness"], cfg["sla_raft_join_width"],
+                                                  cfg["sla_raft_join_reach"])
+        self.viewer.set_joints(joints)
+        if pieces > 1 and len(outlines) > 1:
+            self.status.setText(tr("raft_join_pieces").format(pieces, cfg["sla_raft_join_reach"]))
 
     def raft_menu(self):
         """Raft controls in one small window; every change shows on the supports right away."""
@@ -5189,11 +5242,12 @@ class MainWindow(QMainWindow):
             for key, row in rows.items():
                 row.setVisible(not ((key in ("sla_raft_bar_spacing", "sla_raft_bar_width") and kind not in ("grid", "hexagon"))
                                     or (key == "sla_raft_group_reach" and kind != "mini")
+                                    or (key in ("sla_raft_join_width", "sla_raft_join_reach") and not cfg["sla_raft_join"])
                                     or (key not in ("sla_raft_type", "sla_elevation") and kind == "none")))
 
         def changed(key, value):
             self._ensure_supports_enabled()
-            if group and key != "sla_elevation":
+            if group and key not in self.PLATE_RAFT_KEYS:
                 self._push_undo()
                 for o in group:
                     o.settings[key] = value          # the support mesh is rebuilt from the model's own settings
@@ -5206,7 +5260,7 @@ class MainWindow(QMainWindow):
             self._objects_changed(refresh_list=False)
 
         def reset(k):
-            if group and k != "sla_elevation":
+            if group and k not in self.PLATE_RAFT_KEYS:
                 self._push_undo()
                 for o in group:
                     o.settings.pop(k, None)          # back to the plate's raft
@@ -5217,7 +5271,7 @@ class MainWindow(QMainWindow):
             self.raft_menu()
         cfg = view_cfg()
         for key in self.RAFT_KEYS:
-            own = (key in group[0].settings) if group and key != "sla_elevation" else key in self.settings.overrides
+            own = (key in group[0].settings) if group and key not in self.PLATE_RAFT_KEYS else key in self.settings.overrides
             row = SettingRow(SCHEMA_BY_KEY[key], cfg[key], own, cfg, staged=True)
             row.changed.connect(changed)
             if not group:
@@ -5487,6 +5541,7 @@ class MainWindow(QMainWindow):
 
     def _on_settings_changed(self):
         cfg = self.settings.config()
+        self._schedule_joints()
         self._update_raft_view(cfg)
         b = self.viewer.bed
         if ((cfg["bed_x"], cfg["bed_y"], cfg["max_z"]) != b or cfg["technology"] != self.viewer.technology

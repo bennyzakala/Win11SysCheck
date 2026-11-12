@@ -7653,6 +7653,87 @@ def test_a_blocked_learning_sync_is_a_network_message_not_a_program_bug(tmp_path
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_join_all_rafts_makes_the_plate_one_piece_on_screen_and_in_the_print(tmp_path):
+    """Lab: a raft like SOLID LITE with the rafts of all the models joined, so the plate comes off the build
+    plate as one piece. A solid joint (10 mm wide, raft thick) between neighbouring rafts, with a groove next
+    to each raft to free one model; rafts further apart than the reach stay apart. The joints show on the
+    plate and are in the print: its first layer is one piece."""
+    import subprocess, sys, textwrap
+    from unislicer import sla_supports, primitives, profiles
+    from unislicer.mesh import Mesh
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus").update({"sla_raft_type": "solid_lite"})
+    T = cfg["sla_raft_thickness"]
+    sup = []
+    for x in (20.0, 45.0, 150.0):
+        c = primitives.crown_cap(10.0, 8.0)
+        w = Mesh(c.vertices + [x, 30.0, 6.0 - c.bounds[0][2]], c.faces)
+        sup.append(sla_supports.build_supports(w, cfg, sla_supports.auto_support_points(w, cfg))[0])
+    outl = [sla_supports.raft_outline(m, T) for m in sup]
+    joints, pieces = sla_supports.raft_joints(outl, T, 10.0, 30.0)
+    assert pieces == 2 and len(joints.faces) and joints.is_watertight()        # the far one stays apart
+    assert abs(joints.bounds[0][2]) < 1e-9 and abs(joints.bounds[1][2] - T) < 1e-6
+    z = joints.vertices[:, 2]
+    assert np.any(np.abs(z - T / 2) < 1e-6), "no notch (half as thick) next to the rafts"
+    a, b = outl[0], outl[1]
+    from shapely.geometry import Polygon
+    top = [Polygon(t[:, :2]) for t in joints.vertices[joints.faces] if np.all(np.abs(t[:, 2] - T) < 1e-6)]
+    from shapely.ops import unary_union
+    span = unary_union([p for p in top if p.is_valid])
+    bb = span.minimum_rotated_rectangle
+    import math
+    edges = [math.dist(bb.exterior.coords[k], bb.exterior.coords[k + 1]) for k in range(2)]
+    assert 9.0 <= min(edges) <= 11.5 or 9.0 <= max(edges) <= 11.5, edges          # about 10 mm wide
+    assert sla_supports.raft_joints(outl, T, 10.0, 200.0)[1] == 1
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.slicing import polygons_of
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus")
+        end = time.time() + 1.0
+        while time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        w.settings.set_value("sla_raft_type", "solid_lite")
+        a = w.add_mesh(primitives.crown_cap(10.0, 8.0), rearrange=False)
+        b = w.add_mesh(primitives.crown_cap(10.0, 8.0), rearrange=False)
+        a.x, a.y, b.x, b.y = 80.0, 60.0, 100.0, 60.0
+        w._objects_changed(); app.processEvents()
+        w.select_all(); w.generate_supports(); w.wait_supports(); w._select_uid(None)
+        def first_layer_pieces():
+            w.result = None
+            w.slice()
+            end = time.time() + 120
+            while time.time() < end and (w.result is None or w.task.isRunning()):
+                app.processEvents(); time.sleep(0.01)
+            return len(polygons_of(w.result[1].layers[0]))
+        alone = first_layer_pieces()
+        assert alone == 2, alone
+        w.settings.set_value("sla_raft_join", True); app.processEvents()
+        end = time.time() + 5
+        while time.time() < end and w.viewer.joints is None:
+            app.processEvents(); time.sleep(0.02)
+        assert w.viewer.joints is not None and len(w.viewer.joints.faces), "no joints on the plate"
+        joined = first_layer_pieces()
+        assert joined == 1, joined
+        w.settings.set_value("sla_raft_join", False); app.processEvents()
+        end = time.time() + 5
+        while time.time() < end and w.viewer.joints is not None:
+            app.processEvents(); time.sleep(0.02)
+        assert w.viewer.joints is None
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_a_slice_waiting_for_the_pre_slice_shows_its_progress(tmp_path):
     """Lab: the bar stood at "Slicing layers 0%" for a long time - Slice waited for the background pre-slice
     of the same plate (to take its result) without showing how far it was. It shows it now."""

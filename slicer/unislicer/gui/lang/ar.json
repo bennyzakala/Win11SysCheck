@@ -1458,5 +1458,12 @@
 "Support density for the selected models": "كثافة الدعامات للنماذج المحددة",
 "As the plate": "كما في المنصة",
 "Support density set for {} models": "تم ضبط كثافة الدعامات لـ {} نماذج",
-"Supports and raft here apply to the {} selected models only. Click an empty spot on the plate to edit the whole plate.": "الدعامات والقاعدة هنا تُطبَّق فقط على {} من النماذج المحددة. انقر على مكان فارغ في المنصة لتعديل المنصة كلها."
+"Supports and raft here apply to the {} selected models only. Click an empty spot on the plate to edit the whole plate.": "الدعامات والقاعدة هنا تُطبَّق فقط على {} من النماذج المحددة. انقر على مكان فارغ في المنصة لتعديل المنصة كلها.",
+"Join all rafts into one piece": "اربط كل القواعد في قطعة واحدة",
+"Raft joint width": "عرض وصلة القواعد",
+"Raft joint max. distance": "أقصى مسافة للوصلة",
+"A solid joint between each two neighbouring rafts: the whole plate comes off as one piece. A weak notch next to each raft breaks cleanly to free one model": "وصلة صلبة بين كل قاعدتين متجاورتين: تُنزع المنصة كلها كقطعة واحدة. شق ضعيف بجانب كل قاعدة يُكسر بسهولة لتحرير نموذج واحد",
+"How wide the solid joint between two neighbouring rafts is": "عرض الوصلة الصلبة بين قاعدتين متجاورتين",
+"Rafts further apart are not joined (a long joint wastes resin and may warp)": "القواعد الأبعد من ذلك لا تُربط (الوصلة الطويلة تهدر الراتنج وقد تنحني)",
+"Rafts joined: the plate comes off in {} pieces - some parts are more than {:g} mm apart (Raft joint max. distance).": "تم ربط القواعد: ستُنزع المنصة في {} قطع - بعض النماذج تبعد أكثر من {:g} مم (أقصى مسافة للوصلة)."
 }

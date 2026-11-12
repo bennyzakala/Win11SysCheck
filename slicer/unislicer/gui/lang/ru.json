@@ -1458,5 +1458,12 @@
 "Support density for the selected models": "Плотность поддержек для выбранных моделей",
 "As the plate": "Как у платформы",
 "Support density set for {} models": "Плотность поддержек задана для {} моделей",
-"Supports and raft here apply to the {} selected models only. Click an empty spot on the plate to edit the whole plate.": "Поддержки и рафт здесь применяются только к {} выбранным моделям. Щёлкните по пустому месту платформы, чтобы изменить всю платформу."
+"Supports and raft here apply to the {} selected models only. Click an empty spot on the plate to edit the whole plate.": "Поддержки и рафт здесь применяются только к {} выбранным моделям. Щёлкните по пустому месту платформы, чтобы изменить всю платформу.",
+"Join all rafts into one piece": "Соединить все рафты в одно целое",
+"Raft joint width": "Ширина соединения рафтов",
+"Raft joint max. distance": "Макс. расстояние соединения",
+"A solid joint between each two neighbouring rafts: the whole plate comes off as one piece. A weak notch next to each raft breaks cleanly to free one model": "Сплошное соединение между соседними рафтами: вся платформа снимается одним целым. Надрез у каждого рафта позволяет аккуратно отломить одну модель",
+"How wide the solid joint between two neighbouring rafts is": "Ширина сплошного соединения между двумя соседними рафтами",
+"Rafts further apart are not joined (a long joint wastes resin and may warp)": "Рафты дальше этого расстояния не соединяются (длинное соединение тратит смолу и может деформироваться)",
+"Rafts joined: the plate comes off in {} pieces - some parts are more than {:g} mm apart (Raft joint max. distance).": "Рафты соединены: платформа снимется в {} частях - некоторые модели дальше {:g} мм друг от друга (макс. расстояние соединения)."
 }
