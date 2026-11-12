@@ -1437,8 +1437,11 @@ def build_part(world: Mesh, cfg: Config, points, label: str, label_frame, to_loc
         from . import mesh_tools
         mesh_tools._TEXT_CACHE.update(texts)
     owners = {}
-    mesh, _ = build_supports(world, cfg, points, owners=owners, label=label, label_frame=label_frame,
-                             hand_back=True)
+    try:
+        mesh, _ = build_supports(world, cfg, points, owners=owners, label=label, label_frame=label_frame,
+                                 hand_back=True)
+    except Exception as exc:      # this part only: the others of the batch are still shown
+        return None, {"_error": f"{type(exc).__name__}: {exc}"}
     local = mesh.transform(np.linalg.inv(to_local)) if len(mesh.faces) else None
     return local, owners          # owners["_structure"]: the structure, for the window to keep
 

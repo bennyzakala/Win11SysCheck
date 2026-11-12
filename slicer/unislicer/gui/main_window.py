@@ -4967,6 +4967,8 @@ class MainWindow(QMainWindow):
             self._sup_batching = True                # each part as one build; the next starts after all
             try:
                 for (uid, entry), (local, owners) in zip(batch, results):
+                    if "_error" in owners:           # as a failed build of one part: nothing kept for it
+                        continue
                     made = owners.pop("_structure", None)
                     if made is not None:             # a raft change next is finished here, quickly
                         sla_supports.keep_structure(*made)
