@@ -1041,7 +1041,7 @@
  "phrozen_sonic_xl_4k_plus": {
   "name": "Phrozen Sonic XL 4K Plus (dental)",
   "vendor": "Phrozen",
-  "note": "9.3\" mono 4K LCD, 52 µm XY, ParaLED 3.0 405 nm, dual ball-screw Z. Build area 199.68 x 124.8 x 200 mm, 3840 x 2400 px (Phrozen DS Slicer 4.4 factory profile). Phrozen's format chart lists .ctb and .prz for this model.",
+  "note": "9.3\" mono 4K LCD, 52 µm XY, ParaLED 3.0 405 nm, dual ball-screw Z. Build area 199.68 x 124.8 x 200 mm, 3840 x 2400 px (Phrozen DS Slicer 4.4 factory profile). Phrozen's format chart lists .ctb and .prz for this model; .prz is the lab's default for it (as on the LS+ / CS+).",
   "values": {
    "technology": "sla",
    "sla_process": "lcd",
@@ -1050,7 +1050,7 @@
    "max_z": 200.0,
    "resolution_x": 3840,
    "resolution_y": 2400,
-   "sla_format": "ctb",
+   "sla_format": "prz",
    "sla_layer_height": 0.05,
    "bottom_layers": 6,
    "material_name": "Dental resin"

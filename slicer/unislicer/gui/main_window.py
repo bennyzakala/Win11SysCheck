@@ -3592,14 +3592,25 @@ class MainWindow(QMainWindow):
             self._save_state()
         except Exception:
             pass
-        # Inno Setup: quiet install, closes this program, then opens it again (the installer's [Run] entry)
+        # the worker processes are copies of UniSlicer.exe: stopped first, so nothing of the program is left
+        # running when the installer looks (it stopped with "UniSlicer is currently running")
         try:
-            subprocess.Popen([path, "/SILENT", "/SP-", "/NOCANCEL", "/CLOSEAPPLICATIONS", "/NORESTART"],
+            from .. import parallel
+            parallel.shutdown()
+        except Exception:
+            pass
+        # Inno Setup: quiet install, closes this program, then opens it again (the installer's [Run] entry);
+        # /FROMAPP=1: the installer waits for this program to finish closing instead of stopping at once
+        try:
+            subprocess.Popen([path, "/SILENT", "/SP-", "/NOCANCEL", "/CLOSEAPPLICATIONS", "/NORESTART", "/FROMAPP=1"],
                              close_fds=True)
         except OSError as exc:                    # blocked or missing: say so, keep working
             self.status.setText(tr("upd_failed").format(exc))
             return
+        from . import app as _app
+        _app.release_app_mutex()                  # the window is going: the installer may go on
         self.close()
+        QApplication.instance().quit()
 
     def set_mouse_scheme(self, key: str):
         """Mouse controls: CHITUBOX (right drag turns the view, wheel drag pans, wheel zooms at the cursor,
@@ -5641,8 +5652,12 @@ class MainWindow(QMainWindow):
         def work(progress, cancelled):
             if cfg["technology"] == "sla":
                 if pre is not None:          # the background pre-slice of this same plate: let it finish (cached)
-                    progress("slice", 0.0)
-                    pre.wait()
+                    # its progress on the bar meanwhile: it stood at "Slicing layers 0%" all that time
+                    state = pre.__dict__.get("state") or {}
+                    while not pre.wait(100):
+                        if cancelled():
+                            raise InterruptedError
+                        progress(state.get("stage", "slice"), state.get("f", 0.0))
                 job = sla.prepare(meshes, cfg, progress, cancelled, **kw)
                 return ("sla", job, cfg)
             parts = [mt for o in models for mt in o.print_meshes()]
@@ -5775,11 +5790,14 @@ class MainWindow(QMainWindow):
         except Exception:
             return
 
+        state = {"stage": "slice", "f": 0.0}            # how far it is: a Slice that waits for it shows this
+
         def work(progress, cancelled):
-            sla.prepare(meshes, cfg, None, cancelled, **kw)
+            sla.prepare(meshes, cfg, lambda stage, f: state.update(stage=stage, f=float(f)), cancelled, **kw)
             return None
 
         self._pre_task = Task(work, self)
+        self._pre_task.__dict__["state"] = state
         if not getattr(self, "_preslice_atexit", False):
             # the program may end while it runs (a Qt thread still running at exit aborts the process)
             import atexit

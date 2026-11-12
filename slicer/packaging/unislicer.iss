@@ -24,8 +24,9 @@ WizardStyle=modern
 ShowLanguageDialog=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-; a running UniSlicer locks its files: detect it (the app holds this mutex) and offer to close it
-AppMutex=UniSlicerAppMutex
+; a running UniSlicer locks its files: it holds the mutex UniSlicerAppMutex, checked in InitializeSetup below
+; (not with AppMutex=, which checks at once: an update started from the program found it still closing and
+; stopped with "Setup has detected that UniSlicer is currently running")
 CloseApplications=yes
 CloseApplicationsFilter=*.exe,*.dll,*.pyd
 RestartApplications=no
@@ -79,3 +80,30 @@ Name: "{autodesktop}\UniSlicer"; Filename: "{app}\UniSlicer.exe"; Tasks: desktop
 Filename: "{app}\UniSlicer.exe"; Description: "{cm:LaunchProgram,UniSlicer}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 ; an update from inside the program installs silently: open the program again when it is done
 Filename: "{app}\UniSlicer.exe"; Flags: nowait runasoriginaluser skipifnotsilent
+
+[Code]
+function InitializeSetup(): Boolean;
+var
+  Waited: Integer;
+begin
+  Result := True;
+  Waited := 0;
+  { started by the program's own Update (/FROMAPP=1): it is closing - give it up to 30 seconds }
+  if ExpandConstant('{param:FROMAPP|0}') = '1' then
+  begin
+    while CheckForMutexes('UniSlicerAppMutex') and (Waited < 30000) do
+    begin
+      Sleep(500);
+      Waited := Waited + 500;
+    end;
+  end;
+  { still running (or Setup run by hand while it is open): ask to close it, as before }
+  while CheckForMutexes('UniSlicerAppMutex') do
+  begin
+    if MsgBox(FmtMessage(SetupMessage(msgSetupAppRunningError), ['UniSlicer']), mbError, MB_OKCANCEL) = IDCANCEL then
+    begin
+      Result := False;
+      Exit;
+    end;
+  end;
+end;

@@ -60,6 +60,18 @@ def _hold_app_mutex() -> None:
             pass
 
 
+def release_app_mutex() -> None:
+    """Let go of the mutex before the program closes for an update, so the installer goes on at once."""
+    global _MUTEX
+    if sys.platform == "win32" and _MUTEX:
+        try:
+            import ctypes
+            ctypes.windll.kernel32.CloseHandle(_MUTEX)
+        except Exception:
+            pass
+    _MUTEX = None
+
+
 SERVER_NAME = "UniSlicer-open-" + (os.environ.get("USERNAME") or os.environ.get("USER") or "user")
 
 

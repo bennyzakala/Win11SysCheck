@@ -7653,6 +7653,88 @@ def test_a_blocked_learning_sync_is_a_network_message_not_a_program_bug(tmp_path
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_a_slice_waiting_for_the_pre_slice_shows_its_progress(tmp_path):
+    """Lab: the bar stood at "Slicing layers 0%" for a long time - Slice waited for the background pre-slice
+    of the same plate (to take its result) without showing how far it was. It shows it now."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui.worker import Task
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus")
+        end = time.time() + 1.0
+        while time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        o = w.add_mesh(primitives.box(10, 10, 4)); o.direct = True
+        state = {"stage": "slice", "f": 0.0}
+        def pre_work(progress, cancelled):
+            for k in range(1, 11):
+                state.update(stage="slice", f=k / 10.0); time.sleep(0.08)
+        pre = Task(pre_work, w); pre.state = state; w._pre_task = pre; pre.start()
+        seen = []
+        orig = w._on_progress
+        w._on_progress = lambda st, f: (seen.append((st, round(f, 2), pre.isRunning())), orig(st, f))
+        w.slice()
+        w.task.progress.disconnect(); w.task.progress.connect(w._on_progress)
+        end = time.time() + 60
+        while time.time() < end and (w.result is None or w.task.isRunning()):
+            app.processEvents(); time.sleep(0.01)
+        waiting = [f for st, f, running in seen if st == "slice" and running]   # shown while it waited
+        assert any(0.3 <= f <= 0.9 for f in waiting), seen[:15]
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_update_lets_the_installer_go_on_while_the_program_closes(tmp_path):
+    """Lab (1.0.256): Update started the installer, which stopped at once with "Setup has detected that
+    UniSlicer is currently running" - the program was still closing (and its worker processes, copies of
+    UniSlicer.exe, still running). The workers are stopped and the mutex let go first, the installer is
+    told it comes from the program, and it waits for the program to close instead of stopping."""
+    iss = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packaging",
+                            "unislicer.iss"), encoding="utf-8-sig").read()
+    assert "\nAppMutex=" not in iss                               # no check at once
+    assert "CheckForMutexes('UniSlicerAppMutex')" in iss and "{param:FROMAPP|0}" in iss and "Sleep(500)" in iss
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, sys
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        import subprocess
+        from unislicer import parallel
+        from unislicer.gui import app as appmod
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        order = []
+        parallel.shutdown = lambda: order.append("workers stopped")
+        appmod.release_app_mutex = lambda: order.append("mutex released")
+        subprocess.Popen = lambda args, **k: order.append(("installer", list(args)))
+        sys.platform = "win32"
+        w._run_installer("C:/x/UniSlicer-Setup.exe")
+        assert order[0] == "workers stopped", order
+        assert order[1][0] == "installer" and "/FROMAPP=1" in order[1][1] and "/SILENT" in order[1][1], order
+        assert order[2] == "mutex released", order
+        assert not w.isVisible()
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_support_builds_never_lock_up_and_step_aside_for_a_slice(tmp_path):
     """Lab (1.0.255): making the raft for two selected models "got stuck", and slicing got very long. A plate's
     supports are built together in the worker pool: a failure while taking the results in left the build
