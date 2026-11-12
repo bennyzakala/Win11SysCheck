@@ -8665,3 +8665,34 @@ def test_union_many_matches_a_full_union():
     assert got.is_valid
     assert got.symmetric_difference(ref).area < 1e-6
     assert union_many([]).is_empty
+
+
+def test_nothing_starts_after_the_window_closed():
+    """Things asked for a moment before closing (the worker processes' start-up 1.5 s after opening, a
+    re-slice, an update check) do not run after the window closed: the worker processes were started again
+    after closing had ended them, and kept the program (and a Windows test run) alive."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import parallel
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        ran = []
+        w._later(300, lambda: ran.append(1))
+        w.close(); app.processEvents()
+        end = time.time() + 2.5
+        while time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        assert not ran, "a delayed action ran after closing"
+        assert parallel._pool is None, "worker processes started after closing"
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, PYTHONIOENCODING="utf-8", UNISLICER_WORKERS="2")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120, env=env,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
