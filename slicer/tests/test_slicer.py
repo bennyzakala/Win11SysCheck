@@ -7907,6 +7907,22 @@ def test_closing_the_program_ends_its_worker_processes_at_once(tmp_path):
     assert time.time() - t0 < 60, "the program did not end until its workers had finished"
 
 
+def test_thick_tree_supports_never_reach_below_the_plate():
+    """Overnight settings test: with thick pillars a tree branch's round joint near the plate was wider than its
+    height above it - the supports reached up to 2.8 mm below the plate (seen on a bridge on the Mini 8K).
+    Nothing goes below the plate now."""
+    from unislicer import profiles, sla_supports, primitives
+    from unislicer.mesh import Mesh
+    for elev in (3.0, 5.0):
+        cfg = profiles.build_config("phrozen_sonic_mini_8k", None, None, {"support_enable": True, "sla_support_type": "tree",
+                                    "sla_pillar_diameter": 10.0, "sla_pillar_widening": 40.0, "sla_elevation": elev})
+        lift = cfg["sla_elevation"] + cfg["sla_raft_thickness"]
+        m = primitives.crown_cap(20.0, 9.0)
+        w = Mesh(m.vertices + [0, 0, lift - m.bounds[0][2]], m.faces)
+        sm, _ = sla_supports.build_supports(w, cfg, None)
+        assert sm.vertices[:, 2].min() >= -0.051, (elev, sm.vertices[:, 2].min())
+
+
 def test_raft_joints_keep_clear_of_parts_on_the_plate_follow_the_rafts_and_meet_straight_edges_in_the_middle():
     """Review: a joint ran straight under a part standing on the plate between two rafts (fused into its first
     layers); joints took the plate's raft thickness, not their rafts' (a 0.4 mm raft got 2 mm slabs); two

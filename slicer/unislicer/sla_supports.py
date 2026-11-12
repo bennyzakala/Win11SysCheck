@@ -1408,6 +1408,10 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
         parts += _braces(pillars, underside(), cfg, segs)
 
     structure = Mesh.merge(list(parts), "Supports") if parts else None
+    if structure is not None and len(structure.vertices):
+        # nothing below the plate: with thick pillars a branch's round joint near the plate is wider than its
+        # height above it (the overnight test: -0.26 mm on a bridge) - flattened onto the plate, as printed
+        np.maximum(structure.vertices[:, 2], -0.05, out=structure.vertices[:, 2])
     face_owner = np.concatenate([np.full(len(m.faces), o, dtype=np.int64) for m, o in zip(parts, part_owner)]) \
         if parts else np.zeros(0, dtype=np.int64)
     built = (structure, face_owner, tuple(groups), [f.copy() for f in feet], list(foot_radii),
