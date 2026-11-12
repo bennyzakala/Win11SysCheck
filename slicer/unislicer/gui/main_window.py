@@ -4520,13 +4520,15 @@ class MainWindow(QMainWindow):
         self.status.setText(tr("fill_cavity_on" if on else "fill_cavity_off").format(len(group)))
 
     DENTAL = {
-        # indication: (tilt about X in degrees, print straight on the plate)
-        "model": (0.0, True),
+        # indication: (tilt about X in degrees, print straight on the plate). Nothing goes straight on the plate
+        # by itself (the lab: it was on for every model at start; the user turns it on per part, right-click >
+        # Print directly on the plate) - a model or die keeps its flat orientation and gets supports and raft
+        "model": (0.0, False),
         "splint": (45.0, False),
         "crown": (45.0, False),
         "gingiva": (45.0, False),
         "guide": (45.0, False),
-        "die": (0.0, True),
+        "die": (0.0, False),
         "denture": (45.0, False),
     }
 

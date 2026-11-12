@@ -1685,7 +1685,7 @@ def test_dental_cad_link_indications_folder_and_handoff(tmp_path, monkeypatch):
         app.processEvents()
         w.import_from_cad([os.path.join(d, n) for n in ("UpperJaw.stl", "Crown_16.stl", "Splint.stl")])
         by = {o.name: o for o in w.objects}
-        assert by["UpperJaw"].direct and by["UpperJaw"].support_points is None
+        assert not by["UpperJaw"].direct and by["UpperJaw"].support_points is not None   # not on the plate by itself
         assert not by["Crown_16"].direct and by["Crown_16"].support_points is not None
         assert not by["Splint"].direct
         state = {"w": w}
@@ -1703,7 +1703,7 @@ def test_dental_cad_link_indications_folder_and_handoff(tmp_path, monkeypatch):
         while time.time() < end and (second.poll() is None or not any(o.name == "Die_11" for o in w.objects)):
             app.processEvents(); time.sleep(0.05)
         assert second.poll() == 0, second.poll()
-        assert any(o.name == "Die_11" and o.direct for o in w.objects)
+        assert any(o.name == "Die_11" and not o.direct for o in w.objects)
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -5611,7 +5611,7 @@ def test_add_parts_window_sets_type_and_adds_no_supports(tmp_path):
         w.load_parts(dlg.parts()); app.processEvents()
         assert len(w.objects) == 5, [o.name for o in w.objects]
         antag = [o for o in w.objects if "Antag" in o.name][0]
-        assert antag.direct and antag.settings.get("hollow_enable") is True
+        assert not antag.direct and antag.settings.get("hollow_enable") is True   # on the plate only when asked
         crowns = [o for o in w.objects if "R685" in o.name]
         assert len(crowns) == 2 and all(not o.direct for o in crowns)
         for o in w.objects:
