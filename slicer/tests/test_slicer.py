@@ -8649,3 +8649,19 @@ def test_the_selection_frame_takes_every_part_it_touches(tmp_path):
     env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_union_many_matches_a_full_union():
+    """Slicing merges only the sections that overlap (a support layer is hundreds of separate pillars);
+    the result must be the same region as merging everything."""
+    import random
+    import shapely
+    from shapely.geometry import Point
+    from unislicer.slicing import union_many
+    rnd = random.Random(7)
+    polys = [Point(rnd.uniform(0, 60), rnd.uniform(0, 60)).buffer(rnd.uniform(0.3, 3)) for _ in range(300)]
+    polys.append(Point(0, 0).buffer(1).difference(Point(0, 0).buffer(0.4)))   # one with a hole
+    got, ref = union_many(polys), shapely.union_all(polys)
+    assert got.is_valid
+    assert got.symmetric_difference(ref).area < 1e-6
+    assert union_many([]).is_empty

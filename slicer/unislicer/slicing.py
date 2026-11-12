@@ -317,6 +317,40 @@ def _safe_polygon(pts):
         return Polygon()
 
 
+def union_many(polys):
+    """The union of many polygons - only the ones that overlap are merged (with GEOS); the rest are collected
+    as they are. A support layer is hundreds of separate pillar sections: merging them all was most of the
+    supports' slicing time (~3x slower, the same result)."""
+    polys = [p for p in polys if p is not None and not p.is_empty]
+    n = len(polys)
+    if n < 8:
+        return shapely.union_all(polys)
+    arr = np.array(polys, dtype=object)
+    a, b = shapely.STRtree(arr).query(arr, predicate="intersects")
+    keep = a < b
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for i, j in zip(a[keep].tolist(), b[keep].tolist()):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[ri] = rj
+    groups: dict = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    parts = []
+    for g in groups.values():
+        u = arr[g[0]] if len(g) == 1 else shapely.union_all(arr[g])
+        parts += [q for q in getattr(u, "geoms", [u]) if q.geom_type == "Polygon" and not q.is_empty]
+    if not parts:
+        return Polygon()
+    return parts[0] if len(parts) == 1 else MultiPolygon(parts)
+
+
 def loops_to_geometry(loops) -> MultiPolygon:
     """Combine oriented loops (outer = CCW, hole = CW) into polygons, honoring nesting."""
     pts_list, signs, areas = [], [], []
@@ -351,8 +385,8 @@ def loops_to_geometry(loops) -> MultiPolygon:
         while i < len(items) and items[i][1] == sign:
             batch.append(items[i][2])
             i += 1
-        group = shapely.union_all(batch)
-        result = result.union(group) if sign > 0 else result.difference(group)
+        group = union_many(batch)
+        result = (group if result.is_empty else result.union(group)) if sign > 0 else result.difference(group)
     return as_multipolygon(result)
 
 
@@ -447,5 +481,5 @@ def slice_meshes(meshes: list[Mesh], z_planes, resolution: float = 0.01, progres
         per_object.append(slice_mesh(m, z_planes, resolution, sub, cancelled))
     if len(per_object) == 1:
         return per_object[0]
-    return [as_multipolygon(shapely.union_all([layers[k] for layers in per_object]))
+    return [as_multipolygon(union_many([q for layers in per_object for q in polygons_of(layers[k])]))
             for k in range(len(z_planes))]

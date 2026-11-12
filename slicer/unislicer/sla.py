@@ -334,7 +334,9 @@ def _fill_chunk(cavities: list, vented_flags: list, full, vented) -> list:
 
 
 def _union_chunk(pairs: list) -> list:
-    return [as_multipolygon(shapely.union_all([a, b])) if not b.is_empty else a for a, b in pairs]
+    # the model's sections and the supports' meet only at the tips: only the ones that overlap are merged
+    from .slicing import union_many
+    return [as_multipolygon(union_many(polygons_of(a) + polygons_of(b))) if not b.is_empty else a for a, b in pairs]
 
 
 def _minus_chunk(pairs: list) -> list:
