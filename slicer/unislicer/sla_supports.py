@@ -34,6 +34,10 @@ def _ray_hits(tris: np.ndarray, xy: np.ndarray):
     return z, idx
 
 
+import threading
+# the tables below are used from the window's thread, support builds and slicing at once: one lock (the
+# review found "dictionary changed size during iteration" from two builds keeping a structure together)
+_MEMO_LOCK = threading.RLock()
 _CASTERS: dict = {}
 CASTER_FACE_BUDGET = 4_000_000
 # the support structure (heads, pillars, trees, braces) of recent builds: a raft change - its type, margin,
@@ -53,14 +57,16 @@ def caster_for(mesh: Mesh) -> "_Caster":
     placed model (each build takes ~0.5 s on a big scan). Keyed by content, so a moved or turned model
     gets a new one."""
     key = (len(mesh.faces), hash(mesh.vertices.tobytes()), hash(mesh.faces.tobytes()))
-    hit = _CASTERS.pop(key, None)
+    with _MEMO_LOCK:
+        hit = _CASTERS.pop(key, None)
     if hit is None:
         hit = _Caster(mesh)
-    _CASTERS[key] = hit                  # most recently used last
-    # a full plate of parts is kept, within a budget of triangles (~70 bytes each): 48 big jaw scans used
-    # to stay in memory, ~2 GB
-    while len(_CASTERS) > 1 and sum(k[0] for k in _CASTERS) > CASTER_FACE_BUDGET:
-        _CASTERS.pop(next(iter(_CASTERS)))
+    with _MEMO_LOCK:
+        _CASTERS[key] = hit              # most recently used last
+        # a full plate of parts is kept, within a budget of triangles (~70 bytes each): 48 big jaw scans used
+        # to stay in memory, ~2 GB
+        while len(_CASTERS) > 1 and sum(k[0] for k in _CASTERS) > CASTER_FACE_BUDGET:
+            _CASTERS.pop(next(iter(_CASTERS)))
     return hit
 
 
@@ -860,12 +866,14 @@ def tooth_outline(mesh: Mesh, inset: float, levels: int = 16):
     import hashlib
     key = (len(mesh.faces), hashlib.blake2b(mesh.vertices.tobytes(), digest_size=16).digest(),
            hashlib.blake2b(mesh.faces.tobytes(), digest_size=16).digest(), float(inset), levels)
-    hit = _OUTLINES.pop(key, None)
+    with _MEMO_LOCK:
+        hit = _OUTLINES.pop(key, None)
     if hit is None:
         hit = _tooth_outline(mesh, inset, levels)
-    _OUTLINES[key] = hit
-    while len(_OUTLINES) > 256:
-        _OUTLINES.pop(next(iter(_OUTLINES)))
+    with _MEMO_LOCK:
+        _OUTLINES[key] = hit
+        while len(_OUTLINES) > 256:
+            _OUTLINES.pop(next(iter(_OUTLINES)))
     return hit
 
 
@@ -1174,9 +1182,11 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     pillar_r = max(cfg["sla_pillar_diameter"] / 2, tip_r)
     raft = 0.0 if cfg["sla_raft_type"] == "none" else cfg["sla_raft_thickness"]
     skey = structure_key(mesh, cfg, points)
-    hit = _STRUCTURES.pop(skey, None)
+    with _MEMO_LOCK:
+        hit = _STRUCTURES.pop(skey, None)
+        if hit is not None:
+            _STRUCTURES[skey] = hit
     if hit is not None:
-        _STRUCTURES[skey] = hit
         return _finish(mesh, cfg, hit, owners, label, label_frame)
     if "caster" not in cache:
         cache["caster"] = caster_for(mesh)
@@ -1402,7 +1412,8 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
         if parts else np.zeros(0, dtype=np.int64)
     built = (structure, face_owner, tuple(groups), [f.copy() for f in feet], list(foot_radii),
              np.array(used).reshape(-1, 3), pillar_r)
-    keep_structure(skey, built)
+    if not hand_back:                    # a worker hands it back to the window, which keeps it (not each worker)
+        keep_structure(skey, built)
     if owners is not None and hand_back:
         owners["_structure"] = (skey, built)     # for a worker to hand back to the window
     return _finish(mesh, cfg, built, owners, label, label_frame)
@@ -1411,24 +1422,38 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
 def structure_key(mesh: Mesh, cfg: Config, points) -> tuple:
     points = np.asarray(points, dtype=np.float64).reshape(-1, 3)
     raft = 0.0 if cfg["sla_raft_type"] == "none" else cfg["sla_raft_thickness"]
-    # a digest, not hash(): that is salted per process, and structures built in the worker pool are kept here
-    import hashlib
-    return (len(mesh.faces), hashlib.blake2b(mesh.vertices.tobytes(), digest_size=16).digest(),
-            hashlib.blake2b(mesh.faces.tobytes(), digest_size=16).digest(), points.tobytes(), raft,
+    return (*mesh_digest(mesh), points.tobytes(), raft,
             repr(sorted((k, v) for k, v in cfg.values.items() if k.startswith("sla_") and not _raft_only(k))))
+
+
+def mesh_digest(mesh: Mesh) -> tuple:
+    """(faces, digest of the vertices, digest of the faces) - a digest, not hash(): that is salted per process,
+    and structures built in the worker pool are kept in the window. Kept on the mesh (a jaw took ~37 ms, on
+    the window's thread for every part waiting to be built)."""
+    hit = mesh.__dict__.get("_digest")
+    if hit is not None and hit[0] is mesh.vertices and hit[1] is mesh.faces:
+        return hit[2]
+    import hashlib
+    value = (len(mesh.faces), hashlib.blake2b(mesh.vertices.tobytes(), digest_size=16).digest(),
+             hashlib.blake2b(mesh.faces.tobytes(), digest_size=16).digest())
+    mesh.__dict__["_digest"] = (mesh.vertices, mesh.faces, value)
+    return value
 
 
 def has_structure(mesh: Mesh, cfg: Config, points) -> bool:
     """Is this part's support structure already built (only its raft changed)? Then it is quick to finish."""
-    return structure_key(mesh, cfg, points) in _STRUCTURES
+    key = structure_key(mesh, cfg, points)
+    with _MEMO_LOCK:
+        return key in _STRUCTURES
 
 
 def keep_structure(skey, built) -> None:
-    _STRUCTURES.pop(skey, None)
-    _STRUCTURES[skey] = built
-    while len(_STRUCTURES) > 1 and sum(len(v[0].faces) if v[0] is not None else 0
-                                       for v in _STRUCTURES.values()) > STRUCTURE_FACE_BUDGET:
-        _STRUCTURES.pop(next(iter(_STRUCTURES)))
+    with _MEMO_LOCK:
+        _STRUCTURES.pop(skey, None)
+        _STRUCTURES[skey] = built
+        while len(_STRUCTURES) > 1 and sum(len(v[0].faces) if v[0] is not None else 0
+                                           for v in _STRUCTURES.values()) > STRUCTURE_FACE_BUDGET:
+            _STRUCTURES.pop(next(iter(_STRUCTURES)))
 
 
 def points_job(mesh: Mesh, matrix, lift: float, cfg: Config):
@@ -1498,20 +1523,30 @@ def raft_outline(supports: Mesh | None, thickness: float):
     return shape.buffer(0.05).buffer(-0.05)
 
 
-def raft_joints(outlines: list, thickness: float, width: float = 10.0, reach: float = 30.0,
-                notch: float = 1.0):
+def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 30.0,
+                notch: float = 1.0, obstacles=None):
     """Joints that make the rafts of a plate one piece (the lab's "join all rafts"): between each two
     neighbouring rafts - the nearest ones, as a tree, so every raft is reached once - a solid strip ``width``
-    mm wide, raft thick, on the plate. Next to each raft a ``notch`` mm wide groove, half as thick, breaks
-    cleanly to free that model. Rafts further than ``reach`` apart are not joined. Returns (mesh, number of
-    pieces the plate comes off in)."""
+    mm wide on the plate, as thick as the thinner of the two rafts (``thickness``: one value, or one per
+    outline). Next to each raft a ``notch`` mm wide groove, half as thick, breaks cleanly to free that model.
+    Rafts further than ``reach`` apart are not joined; a joint never runs over another raft or over
+    ``obstacles`` (parts standing on the plate, feet of parts with no raft). Each joint must really reach both
+    rafts - else a narrower one, else the next nearest pair. Returns (mesh, number of pieces the plate comes
+    off in)."""
     from shapely.geometry import LineString, Point
     from shapely.ops import nearest_points
+    from shapely.strtree import STRtree
     from .mesh_tools import extrude
-    shapes = [o for o in outlines if o is not None and not o.is_empty]
+    thick = list(thickness) if isinstance(thickness, (list, tuple)) else [thickness] * len(outlines)
+    pairs_in = [(o, float(t)) for o, t in zip(outlines, thick) if o is not None and not o.is_empty and t > 1e-6]
+    shapes = [o for o, _t in pairs_in]
+    tks = [t for _o, t in pairs_in]
     n = len(shapes)
+    empty = Mesh(np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64), "Raft joints")
     if n < 2:
-        return Mesh(np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64), "Raft joints"), n
+        return empty, n
+    block = None if obstacles is None or obstacles.is_empty else obstacles.buffer(0.6)
+    tree = STRtree(shapes)
     parent = list(range(n))
 
     def find(a):
@@ -1519,16 +1554,26 @@ def raft_joints(outlines: list, thickness: float, width: float = 10.0, reach: fl
             parent[a] = parent[parent[a]]
             a = parent[a]
         return a
+
     def joint(gap, i, j, w):
         """The joint between rafts i and j, ``w`` wide - (solid part, notches) - or None when it would not
-        join them (a third raft in the way cuts it off)."""
-        a, b = nearest_points(shapes[i], shapes[j])
+        join them (another raft or a part standing on the plate in the way)."""
+        # where they face each other: the middle of that stretch (two straight edges facing each other gave the
+        # nearest pair of corners, and a joint at the very end, half as wide)
+        facing = shapes[i].boundary.intersection(shapes[j].buffer(gap + 0.5))
+        a0 = facing.centroid if not facing.is_empty else nearest_points(shapes[i], shapes[j])[0]
+        a = nearest_points(shapes[i].boundary, a0)[0]
+        b = nearest_points(shapes[j], a)[0]
+        d = a.distance(b)
+        if d < 1e-6:
+            a, b = nearest_points(shapes[i], shapes[j])
+            d = max(a.distance(b), 1e-6)
         dx, dy = b.x - a.x, b.y - a.y
-        ux, uy = dx / gap, dy / gap
+        ux, uy = dx / d, dy / d
         nx, ny = -uy, ux
         mx, my = (a.x + b.x) / 2, (a.y + b.y) / 2
         # a band exactly ``w`` across, along the line between the two rafts
-        far = gap + w + 20.0
+        far = d + w + 20.0
         slab = ShapelyPolygon([(mx + ux * far + nx * w / 2, my + uy * far + ny * w / 2),
                                (mx - ux * far + nx * w / 2, my - uy * far + ny * w / 2),
                                (mx - ux * far - nx * w / 2, my - uy * far - ny * w / 2),
@@ -1539,14 +1584,16 @@ def raft_joints(outlines: list, thickness: float, width: float = 10.0, reach: fl
         strip = unary_union(ends).convex_hull.intersection(slab)
         # only the gap between them (0.3 mm into each raft, so it is one piece with them)
         strip = strip.difference(unary_union([shapes[i], shapes[j]]).buffer(-0.3))
-        others = [shapes[k] for k in range(n) if k not in (i, j)]
-        if others:
-            strip = strip.difference(unary_union(others).buffer(0.6))
+        near = [k for k in tree.query(strip.buffer(0.6)) if k not in (i, j)]
+        if near:
+            strip = strip.difference(unary_union([shapes[k] for k in near]).buffer(0.6))
+        if block is not None:
+            strip = strip.difference(block)
         if strip.is_empty:
             return None
         # it must really join the two: one of its pieces touches both rafts (else another pair is tried)
-        pieces_of = list(getattr(strip, "geoms", [strip]))
-        keep = [g for g in pieces_of if g.area > 1e-3 and g.distance(shapes[i]) < 0.05 and g.distance(shapes[j]) < 0.05]
+        keep = [g for g in getattr(strip, "geoms", [strip])
+                if g.area > 1e-3 and g.distance(shapes[i]) < 0.05 and g.distance(shapes[j]) < 0.05]
         if not keep:
             return None
         strip = unary_union(keep)
@@ -1558,9 +1605,16 @@ def raft_joints(outlines: list, thickness: float, width: float = 10.0, reach: fl
         groove = unary_union(grooves).intersection(strip).difference(unary_union([shapes[i], shapes[j]]))
         return strip.difference(groove), groove
 
-    gaps = sorted(((shapes[i].distance(shapes[j]), i, j) for i in range(n) for j in range(i + 1, n)),
-                  key=lambda g: g[0])
-    full, thin = [], []
+    # candidate pairs: only rafts within reach of each other (the index), nearest first
+    gaps = []
+    for i in range(n):
+        for j in tree.query(shapes[i].buffer(reach)):
+            j = int(j)
+            if j > i:
+                gaps.append((shapes[i].distance(shapes[j]), i, j))
+    gaps.sort()
+    solid: dict = {}
+    thin: dict = {}
     for gap, i, j in gaps:
         if gap > reach:
             break
@@ -1569,22 +1623,22 @@ def raft_joints(outlines: list, thickness: float, width: float = 10.0, reach: fl
         if gap < 0.05:                     # already touching: one piece without a joint
             parent[find(i)] = find(j)
             continue
-        # as wide as asked; where the rafts around leave less room, narrower - else the next nearest pair
         made = None
-        for w in (width, width / 2, min(width, 3.0)):
+        for w in (width, width / 2, min(width, 3.0)):    # as wide as asked; narrower where there is less room
             made = joint(gap, i, j, w)
             if made is not None:
                 break
         if made is None:
             continue
         parent[find(i)] = find(j)
-        full.append(made[0])
+        t = min(tks[i], tks[j])            # never above the thinner raft
+        solid.setdefault(t, []).append(made[0])
         if not made[1].is_empty:
-            thin.append(made[1])
+            thin.setdefault(t, []).append(made[1])
     pieces = len({find(k) for k in range(n)})
     meshes = []
-    if full:
-        meshes.append(extrude(unary_union(full).buffer(0), 0.0, thickness, "Raft joints"))
-    if thin:
-        meshes.append(extrude(unary_union(thin).buffer(0), 0.0, thickness / 2, "Raft joint notches"))
-    return Mesh.merge(meshes, "Raft joints"), pieces
+    for t, polys in solid.items():
+        meshes.append(extrude(unary_union(polys).buffer(0), 0.0, t, "Raft joints"))
+    for t, polys in thin.items():
+        meshes.append(extrude(unary_union(polys).buffer(0), 0.0, t / 2, "Raft joint notches"))
+    return (Mesh.merge(meshes, "Raft joints") if meshes else empty), pieces

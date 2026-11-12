@@ -3597,11 +3597,7 @@ class MainWindow(QMainWindow):
             pass
         # the worker processes are copies of UniSlicer.exe: stopped first, so nothing of the program is left
         # running when the installer looks (it stopped with "UniSlicer is currently running")
-        try:
-            from .. import parallel
-            parallel.terminate()
-        except Exception:
-            pass
+        self._stop_background()
         # Inno Setup: quiet install, closes this program, then opens it again (the installer's [Run] entry);
         # /FROMAPP=1: the installer waits for this program to finish closing instead of stopping at once
         try:
@@ -4842,7 +4838,8 @@ class MainWindow(QMainWindow):
         return box.get("result")
 
     def _support_key(self, o: SceneObject, cfg):
-        keys = sorted(k for k in cfg.values if k.startswith("sla_") and not k.startswith("sla_layer"))
+        # the joints between rafts are built apart: their settings rebuild no part's supports
+        keys = sorted(k for k in cfg.values if k.startswith("sla_") and not k.startswith(("sla_layer", "sla_raft_join")))
         # the turn about Z is left out: the structure is kept in the part's own coordinates and turns with it
         # (a flat plate makes a turned structure as good as a new one), so turning a part - by hand or by
         # the auto layout - rebuilds nothing
@@ -4892,7 +4889,9 @@ class MainWindow(QMainWindow):
         if (o.uid, key) in running or self._sup_pending.get(o.uid, (None,))[0] == key:
             return                                   # already on its way
         ocfg = o.config(cfg)
-        lift = self._lift(ocfg)
+        # raised as the slicer raises it: by the plate's raft (a part's own raft thickness only changes its raft,
+        # its feet stand on it) - at its own, the tips ended short of the model or inside it, in the print too
+        lift = self._lift(cfg)
         world, geo = self._support_geometry(o, lift)
         label = self._raft_label_text(o, ocfg)
         if label:
@@ -4924,7 +4923,10 @@ class MainWindow(QMainWindow):
         from .. import parallel
         batch = [(uid, entry)]
         quick = lambda e: sla_supports.has_structure(e[1], e[2], e[3])      # only its raft to build
-        if self._sup_pending and parallel.pool() is not None and not parallel.busy() and not quick(entry):
+        slicing = self.task is not None and self.task.isRunning()
+        # not while a slice runs (it would step aside at once, again and again, and load the workers it needs)
+        if self._sup_pending and not slicing and not parallel.busy() and parallel.pool() is not None \
+                and not quick(entry):
             # more parts waiting (a setting changed for the whole plate): build them on every core at once;
             # parts whose structure is built already (a raft change) are finished here, quickly, and copies
             # wait for their original's supports (they take them over, nothing is built twice)
@@ -4967,11 +4969,16 @@ class MainWindow(QMainWindow):
     def _start_support_batch(self, batch):
         """Several parts' supports at once in the worker pool; each part is shown as the batch ends."""
         from .. import parallel
-        from ..mesh_tools import _TEXT_CACHE
+        from ..mesh_tools import text_polygons
         args = []
         for uid, (key, world, ocfg, pts, geo, label, disp, shared, frame) in batch:
             k = (label[:24], 2.0, "")
-            texts = {k: _TEXT_CACHE[k]} if label and k in _TEXT_CACHE else None
+            texts = None
+            if label:                                # made here, now (fonts need the window's thread): a worker
+                try:                                 # without them leaves the code - and its tab - out
+                    texts = {k: text_polygons(label[:24], 2.0)}
+                except Exception:
+                    texts = None
             args.append((world, ocfg, pts, label, frame, disp, texts))
 
         def slicing():
@@ -4985,9 +4992,11 @@ class MainWindow(QMainWindow):
             return parallel.run_chunks(sla_supports.build_part, args, cancelled=lambda: cancelled() or slicing(),
                                        weights=[len(a[0].faces) + 1 for a in args])
 
-        def stepped_aside(_msg):
-            for uid, entry in batch:                 # not built: waiting again (a newer request for it wins)
-                self._sup_pending.setdefault(uid, entry)
+        def stepped_aside(msg):
+            if not msg:                              # stepped aside (a slice): waiting again - a newer request wins
+                for uid, entry in batch:
+                    self._sup_pending.setdefault(uid, entry)
+            # a real failure is not tried again and again (as a single build that fails)
             self._support_build_done()
 
         def done(results):
@@ -5138,8 +5147,10 @@ class MainWindow(QMainWindow):
             if parallel.busy():                      # behind a (pre-)slice it would wait: here, as before
                 return [(*sla_supports.points_job(mesh, matrix, lift, ocfg), ocfg)
                         for (_o, mesh, matrix), ocfg in zip(jobs, ocfgs)]
+            # the geometry only: the mesh carries the view's picking tables (~3x its size) to the workers otherwise
             got = parallel.run_chunks(sla_supports.points_job,
-                                      [(mesh, matrix, lift, ocfg) for (_o, mesh, matrix), ocfg in zip(jobs, ocfgs)],
+                                      [(Mesh(mesh.vertices, mesh.faces, mesh.name), matrix, lift, ocfg)
+                                       for (_o, mesh, matrix), ocfg in zip(jobs, ocfgs)],
                                       weights=[len(mesh.faces) + 1 for _o, mesh, _x in jobs])
             return [(pts, report, ocfg) for (pts, report), ocfg in zip(got, ocfgs)]
 
@@ -5174,44 +5185,80 @@ class MainWindow(QMainWindow):
         t.start()
 
     def _update_joints(self):
-        """Join all rafts into one piece: the joints between neighbouring rafts, from the rafts as built
-        (the slicer makes the same ones from the same rafts), shown on the plate."""
+        """Join all rafts into one piece: the joints between neighbouring rafts, from the rafts as built and
+        the same parts the slicer uses (rafts joined; parts on the plate and feet with no raft kept clear of),
+        worked out in the background (with many parts it froze the window ~1 s after every move)."""
         cfg = self.settings.config()
         if cfg["technology"] != "sla" or not cfg["support_enable"] or not cfg["sla_raft_join"]:
             self._joints_key = None
             self.viewer.set_joints(None)
             return
-        cache = self.__dict__.setdefault("_outline_cache", {})
-        outlines = []
+        items = []                                   # (kind, mesh, matrix, thickness)
         for o in self.objects:
-            if o.role == "cutter" or not self._shows_supports(o) or not len(o.support_points):
+            if o.role == "cutter":
                 continue
-            ocfg = o.config(cfg)
-            if ocfg["sla_raft_type"] == "none":
+            if o.direct:
+                items.append(("block", o.mesh, o.world_matrix(), max(cfg["sla_raft_thickness"], 0.5)))
+                continue
+            if not self._shows_supports(o) or not len(o.support_points):
                 continue
             hit = self._support_cache.get(o.uid)
             if hit is None or hit[1] is None:
                 continue
+            ocfg = o.config(cfg)
             m = self._display_matrix(o)
-            key = (id(hit[1]), m.tobytes(), ocfg["sla_raft_thickness"])
-            got = cache.get(o.uid)
-            if got is None or got[0] != key:
-                got = cache[o.uid] = (key, sla_supports.raft_outline(hit[1].transform(m), ocfg["sla_raft_thickness"]))
-            outlines.append(got[1])
-        live = {o.uid for o in self.objects}
-        for uid in [u for u in cache if u not in live]:
-            cache.pop(uid, None)
-        jkey = (tuple(id(x) for x in outlines), cfg["sla_raft_thickness"], cfg["sla_raft_join_width"],
-                cfg["sla_raft_join_reach"])
-        if jkey == getattr(self, "_joints_key", None):
+            if ocfg["sla_raft_type"] == "none" or ocfg["sla_raft_thickness"] <= 0:
+                items.append(("block", hit[1], m, max(cfg["sla_raft_thickness"], 0.5)))
+            else:
+                items.append(("raft", hit[1], m, ocfg["sla_raft_thickness"]))
+        params = (cfg["sla_raft_join_width"], cfg["sla_raft_join_reach"])
+        key = (tuple((k, id(mesh), mat.tobytes(), t) for k, mesh, mat, t in items), params)
+        if key == getattr(self, "_joints_key", None):
             return
-        self._joints_key = jkey
-        joints, pieces = sla_supports.raft_joints(outlines, cfg["sla_raft_thickness"], cfg["sla_raft_join_width"],
-                                                  cfg["sla_raft_join_reach"])
-        self.viewer.set_joints(joints)
-        if pieces > 1 and len(outlines) > 1:
-            self.status.setText(tr("raft_join_pieces").format(pieces, cfg["sla_raft_join_reach"]))
+        running = getattr(self, "_joints_task", None)
+        if running is not None and running.isRunning():
+            self._schedule_joints()                  # once the one on its way is done
+            return
+        self._joints_key = key
+        cache = self.__dict__.setdefault("_outline_cache", {})
 
+        def outline(kind, mesh, mat, t):
+            ck = (kind, mat.tobytes(), t)
+            got = cache.get(id(mesh))
+            if got is not None and got[0] is mesh and got[1] == ck:    # the mesh itself kept: never a reused id
+                return got[2]
+            shape = sla_supports.raft_outline(mesh.transform(mat), t)
+            cache[id(mesh)] = (mesh, ck, shape)
+            return shape
+
+        def work(progress, cancelled):
+            outs, thick, block = [], [], []
+            for kind, mesh, mat, t in items:
+                shape = outline(kind, mesh, mat, t)
+                if kind == "raft":
+                    outs.append(shape)
+                    thick.append(t)
+                elif not shape.is_empty:
+                    block.append(shape)
+            from shapely.ops import unary_union
+            blocked = unary_union(block) if block else None
+            return sla_supports.raft_joints(outs, thick, params[0], params[1], obstacles=blocked), len(outs)
+
+        def done(res):
+            (joints, pieces), n = res
+            live = {id(mesh) for _k, mesh, _m, _t in items}
+            for k in [k for k in cache if k not in live]:
+                cache.pop(k, None)
+            if getattr(self, "_joints_key", None) != key:
+                return                               # the plate changed meanwhile: the next one is on its way
+            self.viewer.set_joints(joints)
+            if pieces > 1 and n > 1:
+                self.status.setText(tr("raft_join_pieces").format(pieces, cfg["sla_raft_join_reach"]))
+
+        from .worker import Task
+        task = self._joints_task = Task(work, self)
+        task.succeeded.connect(done)
+        task.start()
     def raft_menu(self):
         """Raft controls in one small window; every change shows on the supports right away."""
         from PySide6.QtWidgets import QDialog, QDialogButtonBox
@@ -7559,15 +7606,15 @@ class MainWindow(QMainWindow):
         if paths:
             self.load_files(paths)
 
-    def closeEvent(self, e):
-        # everything running in the background stops now: a cancelled task stops waiting for the worker
-        # processes, and the worker processes are ended (they went on for minutes after the window closed)
+    def _stop_background(self):
+        """Everything running in the background stops now (closing, updating): a print file being written is
+        finished first; the other jobs are cancelled, then the worker processes are ended."""
         for t in list(getattr(self, "_export_tasks", []) or []):
-            if t is not None and t.isRunning():      # a print file being written is finished first
+            if t is not None and t.isRunning():
                 t.wait(60000)
         for t in [self.task, getattr(self, "_sup_task", None), getattr(self, "_pre_task", None)] + \
                 list(getattr(self, "_close_tasks", []) or []):
-            if t is not None and t.isRunning():
+            if t is not None and hasattr(t, "cancel") and t.isRunning():
                 try:
                     t.cancel()
                 except Exception:
@@ -7577,13 +7624,19 @@ class MainWindow(QMainWindow):
             parallel.terminate()
         except Exception:
             pass
+
+    def closeEvent(self, e):
+        # everything running in the background stops now: a cancelled task stops waiting for the worker
+        # processes, and the worker processes are ended (they went on for minutes after the window closed)
+        self._stop_background()
         if self.task is not None and self.task.isRunning():
             self.task.wait(3000)
         # background helpers must finish before the window goes away (a running thread would crash)
         self._stop_preslice()
         self._sup_pending.clear()                    # no new support builds; let a running one finish
         for t in (getattr(self, "_autosave_task", None), getattr(self, "_orient_task", None),
-                  getattr(self, "_sup_task", None), getattr(self, "_colmap_task", None)):
+                  getattr(self, "_sup_task", None), getattr(self, "_colmap_task", None),
+                  getattr(self, "_joints_task", None)):
             if t is not None and t.isRunning():
                 t.wait(5000)
         if getattr(self, "remote", None) is not None:

@@ -96,7 +96,7 @@ def text_mesh(text: str, height: float = 8.0, depth: float = 1.5, font_family: s
     return extrude(polys, 0.0, depth, f"Text: {text}")
 
 
-_TEXT_CACHE: dict = {}
+_LABEL_CACHE: dict = {}         # label meshes (its own: sharing the letters' table cleared them for the raft code)
 
 
 def label_mesh(text: str, point, normal, height: float, depth: float, engrave: bool, width: float = 0.0,
@@ -109,7 +109,7 @@ def label_mesh(text: str, point, normal, height: float, depth: float, engrave: b
     if surface is not None and len(surface):
         return _label_on_surface(text, point, normal, height, depth, engrave, width, angle, mirror, surface, flush)
     key = (text, round(height, 4))
-    flat = _TEXT_CACHE.get(key)
+    flat = _LABEL_CACHE.get(key)
     if flat is None:
         polys = text_polygons(text, height)
         if polys.is_empty:
@@ -118,9 +118,9 @@ def label_mesh(text: str, point, normal, height: float, depth: float, engrave: b
         polys = shapely.affinity.translate(polys, -minx, -miny)
         # short edges, so the letters can bend with a curved surface (a long straight stroke would not)
         flat = extrude(shapely.segmentize(polys, 0.25), 0.0, 1.0, f"Text: {text}")
-        if len(_TEXT_CACHE) > 64:
-            _TEXT_CACHE.clear()
-        _TEXT_CACHE[key] = flat
+        if len(_LABEL_CACHE) > 64:
+            _LABEL_CACHE.clear()
+        _LABEL_CACHE[key] = flat
     v = flat.vertices.astype(np.float64).copy()
     w, h = float(v[:, 0].max()), float(v[:, 1].max())
     k = min(1.0, width / w) if width > 0 and w > 0 else 1.0
@@ -183,16 +183,16 @@ def _label_on_surface(text, point, normal, height, depth, engrave, width, angle,
     """The label fitted to the model: kept to where the surface is (cut at a wall's edge rather than left
     in the air), and every point at its depth from the surface under it."""
     key = ("poly", text, round(height, 4))
-    polys = _TEXT_CACHE.get(key)
+    polys = _LABEL_CACHE.get(key)
     if polys is None:
         polys = text_polygons(text, height)
         if polys.is_empty:
             raise ValueError("No printable characters")
         minx, miny, maxx, maxy = polys.bounds
         polys = shapely.affinity.translate(polys, -(minx + maxx) / 2, -(miny + maxy) / 2)
-        if len(_TEXT_CACHE) > 64:
-            _TEXT_CACHE.clear()
-        _TEXT_CACHE[key] = polys
+        if len(_LABEL_CACHE) > 64:
+            _LABEL_CACHE.clear()
+        _LABEL_CACHE[key] = polys
     minx, _miny, maxx, _maxy = polys.bounds
     w = maxx - minx
     k = min(1.0, width / w) if width > 0 and w > 0 else 1.0

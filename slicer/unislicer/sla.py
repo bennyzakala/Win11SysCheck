@@ -1261,6 +1261,28 @@ def _auto_bottom_compensation(layers: list, models: list, planes: list, cfg: Con
 
 
 # ----------------------------------------------------------------- prepare
+def raft_joints_for(models, on_plate, own, cfgs, cfg):
+    """The joints of "join all rafts" for these parts: ``own`` = [(index, its support structure)]. Rafts are
+    joined; parts on the plate and the feet of parts with no raft are kept clear of."""
+    from shapely.ops import unary_union
+    from .sla_supports import raft_joints, raft_outline
+    outlines, thick, block = [], [], []
+    for i, sm in own:
+        t = cfgs[i]["sla_raft_thickness"]
+        if cfgs[i]["sla_raft_type"] != "none" and t > 0:
+            outlines.append(raft_outline(sm, t))
+            thick.append(t)
+        else:
+            block.append(raft_outline(sm, max(cfg["sla_raft_thickness"], 0.5)))
+    for i, m in enumerate(models):
+        if on_plate[i]:
+            block.append(raft_outline(m, max(cfg["sla_raft_thickness"], 0.5)))
+    blocked = unary_union([b for b in block if not b.is_empty]) if block else None
+    joints, _pieces = raft_joints(outlines, thick, cfg["sla_raft_join_width"], cfg["sla_raft_join_reach"],
+                                  obstacles=blocked)
+    return joints
+
+
 def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
             support_points: list[np.ndarray | None] | None = None, direct: list[bool] | None = None,
@@ -1349,7 +1371,8 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             frame = raft_label_frames[i] if raft_label_frames and i < len(raft_label_frames) else None
             skey = ("supports-build", mesh_key(m), None if manual is None else np.ascontiguousarray(manual).tobytes(),
                     label, None if frame is None else np.round(np.asarray(frame, float), 6).tobytes(),
-                    tuple(sorted((k, v) for k, v in cfgs[i].values.items() if k.startswith(("sla_", "support")))))
+                    tuple(sorted((k, v) for k, v in cfgs[i].values.items() if k.startswith(("sla_", "support"))
+                                 and not k.startswith("sla_raft_join"))))
             hit = _cache_get(skey)
             if hit is None:
                 hit = build_supports(m, cfgs[i], manual, label=label, label_frame=frame)
@@ -1360,12 +1383,8 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             pts += list(sp)
         if cfg["sla_raft_join"]:
             # "join all rafts into one piece": solid joints between neighbouring rafts, printed with the supports
-            from .sla_supports import raft_joints, raft_outline
-            outlines = [raft_outline(sm, cfgs[i]["sla_raft_thickness"]) for i, sm in own
-                        if cfgs[i]["sla_raft_type"] != "none"]
-            joints, _pieces = raft_joints(outlines, cfg["sla_raft_thickness"], cfg["sla_raft_join_width"],
-                                          cfg["sla_raft_join_reach"])
-            if len(joints.faces):
+            joints = raft_joints_for(models, on_plate, own, cfgs, cfg)
+            if joints is not None and len(joints.faces):
                 parts.append(joints)
         return Mesh.merge(parts, "Supports"), pts
 

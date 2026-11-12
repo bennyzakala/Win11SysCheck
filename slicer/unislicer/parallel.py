@@ -46,9 +46,10 @@ def terminate() -> None:
     A plain shutdown let them finish every job already handed to them - a full plate's pre-slice or
     support builds ran on for minutes at full CPU after the window had closed (the lab saw 13 UniSlicer
     processes in Task Manager), and Python waits for them before it ends."""
-    global _pool
+    global _pool, _stops
     with _lock:
         old, _pool = _pool, None
+        _stops += 1                  # jobs started before this do not start new workers: they end, cancelled
     if old is None:
         return
     procs = list((getattr(old, "_processes", None) or {}).values())
@@ -81,10 +82,14 @@ def run_chunks(fn: Callable, args: Sequence[tuple], progress: Callable[[float], 
     A pool that broke (a worker died) or was shut down is replaced once; after that the work runs on one core,
     so a job never fails because of the pool."""
     global _disabled
+    stops = _stops
     for attempt in range(2):
         try:
             return _run(fn, args, progress, cancelled, weights)
         except (BrokenProcessPool, RuntimeError) as exc:
+            if _stops != stops:
+                # the workers were ended on purpose (the program closing or updating): no new ones for this job
+                raise InterruptedError from exc
             # a broken pool also marks itself shut down, so a submit racing it raises
             # RuntimeError("cannot schedule new futures after shutdown")
             if isinstance(exc, RuntimeError) and not isinstance(exc, BrokenProcessPool) and "shutdown" not in str(exc):
@@ -134,6 +139,7 @@ def _run(fn, args, progress, cancelled, weights) -> list:
 
 
 _active = 0          # runs using the pool now
+_stops = 0           # times the workers were ended on purpose (terminate)
 
 
 def busy() -> bool:

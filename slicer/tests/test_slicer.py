@@ -7734,6 +7734,112 @@ def test_join_all_rafts_makes_the_plate_one_piece_on_screen_and_in_the_print(tmp
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_a_part_with_its_own_raft_thickness_gets_supports_that_reach_it(tmp_path):
+    """Review: a part's own raft thickness (one click from the side panel with it selected) raised its supports
+    by that thickness while the model stands at the plate's - the tips ended short of it (or inside it), and
+    the print took those supports. The window builds them at the plate's height, as the slicer does."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        import numpy as np
+        from unislicer import primitives, sla_supports
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus")
+        end = time.time() + 1.0
+        while time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        w.settings.set_value("sla_raft_thickness", 1.0)
+        o = w.add_mesh(primitives.crown_cap(10.0, 8.0))
+        o.settings["sla_raft_thickness"] = 0.4                 # its own, thinner raft
+        w._select_uid(o.uid); w.generate_supports(); w.wait_supports(); app.processEvents(); w.wait_supports()
+        cfg = w.settings.config()
+        ready = w._ready_world_supports(o, cfg)
+        if ready is None:                                      # as shown: the view's structure in bed coordinates
+            e = w._support_cache[o.uid]; ready = e[1].transform(w._display_matrix(o))
+        lift = cfg["sla_elevation"] + cfg["sla_raft_thickness"]   # where the slicer puts the model
+        world = o.world_mesh().translated([0, 0, lift])
+        own = sla_supports.build_supports(world, o.config(cfg), o.world_support_points(lift))[0]
+        assert abs(ready.vertices[:, 2].max() - own.vertices[:, 2].max()) < 0.05, (ready.vertices[:, 2].max(), own.vertices[:, 2].max())
+        assert abs(ready.vertices[:, 2].min() - own.vertices[:, 2].min()) < 0.05
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_text_labels_do_not_wipe_the_raft_codes_letters(tmp_path):
+    """Review: the letters of a raft code (made by the window, handed to the worker pool) and the label meshes
+    shared one table, which a label cleared every 64 entries - a batch built after that got no letters and
+    its rafts went to print without their code. Each has its own table now."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import mesh_tools
+        mesh_tools.text_polygons("46671-044-P", 2.0)
+        for k in range(70):
+            mesh_tools.label_mesh(f"L{k}", (0, 0, 0), (0, 0, 1), 3.0, 0.5, False)
+        assert ("46671-044-P", 2.0, "") in mesh_tools._TEXT_CACHE
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_a_job_running_when_the_workers_are_ended_starts_no_new_ones(tmp_path):
+    """Review: ending the workers (closing, updating) made a job still running start a fresh set of them -
+    UniSlicer processes again, just as the installer started. Such a job now ends, cancelled."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time, threading, multiprocessing
+        os.environ["UNISLICER_WORKERS"] = "2"
+        def main():
+            from unislicer import parallel
+            out = {}
+            def job():
+                try:
+                    out["r"] = parallel.run_chunks(time.sleep, [(20,)] * 4)
+                except BaseException as e:
+                    out["e"] = type(e).__name__
+            th = threading.Thread(target=job); th.start()
+            end = time.time() + 20
+            while time.time() < end and len(multiprocessing.active_children()) < 2:
+                time.sleep(0.05)
+            time.sleep(1.0)
+            parallel.terminate()
+            th.join(15)
+            assert not th.is_alive(), "the job went on"
+            assert out.get("e") == "InterruptedError", out
+            time.sleep(0.5)
+            assert parallel._pool is None and not [p for p in multiprocessing.active_children() if p.is_alive()]
+            r = parallel.run_chunks(abs, [(-1,), (-2,)])     # a new job afterwards works as before
+            assert r == [1, 2], r
+            parallel.terminate()
+            print("ok", flush=True)
+        if __name__ == "__main__":
+            main()
+    ''')
+    script = tmp_path / "no_restart.py"
+    script.write_text(code)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, PYTHONPATH=root)
+    r = subprocess.run([sys.executable, str(script)], cwd=root, capture_output=True, text=True, timeout=120, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_closing_the_program_ends_its_worker_processes_at_once(tmp_path):
     """Lab (1.0.258): after closing UniSlicer, 13 UniSlicer processes stayed in Task Manager at ~90% CPU (and
     an update then found it "still running"): the worker processes went on with every job handed to them, and
@@ -7778,6 +7884,51 @@ def test_closing_the_program_ends_its_worker_processes_at_once(tmp_path):
     r = subprocess.run([sys.executable, str(script)], cwd=root, capture_output=True, text=True, timeout=90, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
     assert time.time() - t0 < 60, "the program did not end until its workers had finished"
+
+
+def test_raft_joints_keep_clear_of_parts_on_the_plate_follow_the_rafts_and_meet_straight_edges_in_the_middle():
+    """Review: a joint ran straight under a part standing on the plate between two rafts (fused into its first
+    layers); joints took the plate's raft thickness, not their rafts' (a 0.4 mm raft got 2 mm slabs); two
+    straight edges facing each other got a joint at a corner, half as wide."""
+    from shapely.geometry import box, Point, Polygon
+    from shapely.ops import unary_union
+    from unislicer import sla_supports
+
+    def footprint(mesh, z):
+        tops = [Polygon(t[:, :2]) for t in mesh.vertices[mesh.faces] if np.ptp(t[:, 2]) < 1e-9 and abs(t[0, 2] - z) < 1e-6]
+        return unary_union([p for p in tops if p.is_valid and p.area > 1e-9])
+    # a part on the plate between two rafts: the joint goes round it or not at all - never under it
+    a, c = Point(0, 0).buffer(6), Point(36, 0).buffer(6)
+    b = Point(18, 0).buffer(5)                                # a crown standing on the plate
+    mesh, pieces = sla_supports.raft_joints([a, c], [0.5, 0.5], 10.0, 30.0, obstacles=b)
+    if len(mesh.faces):
+        assert footprint(mesh, 0.5).intersection(b).area < 1e-6
+    # thickness: the thinner of the two rafts
+    mesh, pieces = sla_supports.raft_joints([box(0, 0, 10, 40), box(20, 0, 30, 40)], [0.5, 2.0], 10.0, 30.0)
+    assert pieces == 1 and abs(mesh.vertices[:, 2].max() - 0.5) < 1e-9
+    # facing straight edges: the joint in the middle, as wide as asked
+    top = footprint(mesh, 0.5)
+    y0, y1 = top.bounds[1], top.bounds[3]
+    assert 14.0 <= y0 <= 16.0 and 24.0 <= y1 <= 26.0, (y0, y1)
+    # a raft with no thickness is not joined (nothing would print)
+    mesh, pieces = sla_supports.raft_joints([a, c], [0.0, 0.5], 10.0, 30.0)
+    assert len(mesh.faces) == 0
+    # through the slicer: the crown standing on the plate stays apart in the first layer
+    from unislicer import primitives, profiles, sla
+    from unislicer.mesh import Mesh
+    from unislicer.slicing import polygons_of
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus").update({"sla_raft_type": "solid_lite",
+                                                                     "sla_raft_join": True, "sla_raft_thickness": 0.5})
+    crowns = []
+    for x in (20.0, 38.0, 56.0):                              # the middle one: a flat part on the plate
+        cc = primitives.crown_cap(10.0, 8.0) if x != 38.0 else primitives.box(8.0, 8.0, 4.0)
+        crowns.append(Mesh(cc.vertices + [x - (cc.bounds[0][0] + cc.bounds[1][0]) / 2 * (x == 38.0),
+                                          40.0 - (cc.bounds[0][1] + cc.bounds[1][1]) / 2 * (x == 38.0),
+                                          -cc.bounds[0][2]], cc.faces))
+    job = sla.prepare(crowns, cfg, direct=[False, True, False])
+    first = polygons_of(job.layers[0])
+    on_plate = [p for p in first if p.contains(Point(38.0, 40.0)) or p.distance(Point(38.0, 40.0)) < 2.0]
+    assert on_plate and all(p.bounds[0] > 30.0 and p.bounds[2] < 46.0 for p in on_plate), [p.bounds for p in on_plate]
 
 
 def test_joined_rafts_of_interlocked_arches_really_make_one_piece():
