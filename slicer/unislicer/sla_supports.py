@@ -586,18 +586,30 @@ def _slab(poly, z0: float, z1: float, slope_deg: float) -> Mesh:
     return Mesh(v, np.vstack([sides, caps]), "Raft")
 
 
+def _letters(text: str):
+    """The outline of a raft code's letters: made by the window (fonts need it) and handed along with a
+    build - a build in the worker pool has no window, and skipped the code and the tab it stands on (the
+    lab: Raft & label chosen for 12 parts, only one got it). None when there are no fonts here."""
+    from .mesh_tools import _TEXT_CACHE, text_polygons
+    hit = _TEXT_CACHE.get((text[:24], 2.0, ""))
+    if hit is not None:
+        return hit
+    from PySide6.QtGui import QGuiApplication
+    if QGuiApplication.instance() is None:         # the command line: no fonts
+        return None
+    return text_polygons(text[:24], 2.0)
+
+
 def _code_on_raft(text: str, room, raft: float, engrave: float, avoid=None):
     """Where the code goes on the part's own raft. Underside (``engrave`` > 0): mirrored, cut into the
     side on the plate - returns ("under", polygons). Top: standing up on the raft, clear of the support
     feet (``avoid``) - returns ("top", polygons). None when it does not fit at a readable size (or there
     are no fonts here)."""
     try:
-        from PySide6.QtGui import QGuiApplication
-        if QGuiApplication.instance() is None:     # fonts need the GUI; the command line skips the label
-            return None
         from shapely import affinity
-        from .mesh_tools import text_polygons
-        base = text_polygons(text[:24], 2.0)
+        base = _letters(text)
+        if base is None:                           # no fonts here (the command line): no label
+            return None
     except Exception:          # pragma: no cover - no Qt fonts here
         return None
     if base.is_empty or room is None or room.is_empty:
@@ -1055,10 +1067,8 @@ def _raft_and_label(feet: list, cfg: Config, pad: float, radii: list | None, out
         moon = label_moon(core, outline_shape, frame)
         if not moon.is_empty:
             try:
-                from PySide6.QtGui import QGuiApplication
-                if QGuiApplication.instance() is not None:   # fonts need the GUI; the command line skips the code
-                    from .mesh_tools import text_polygons
-                    base = text_polygons(label[:24], 2.0)
+                base = _letters(label)
+                if base is not None:       # no fonts here (the command line): no code
                     text = fit_text(base, moon.buffer(-0.5), min_height=1.0) if not base.is_empty else None
             except Exception:              # a label must never cost the part its supports and raft
                 text = None

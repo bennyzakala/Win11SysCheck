@@ -96,6 +96,27 @@ def _run(fn, args, progress, cancelled, weights) -> list:
             if progress:
                 progress(done / total)
         return results
+    global _active
+    with _lock:
+        _active += 1
+    try:
+        return _run_in(ex, fn, args, progress, cancelled, weights, total, results)
+    finally:
+        with _lock:
+            _active -= 1
+
+
+_active = 0          # runs using the pool now
+
+
+def busy() -> bool:
+    """Is the pool working for someone (a slice, a pre-slice, an export)? A quick job asked for meanwhile
+    would wait behind all of that work (seconds to minutes on a full plate): it is better done here."""
+    return _active > 0
+
+
+def _run_in(ex, fn, args, progress, cancelled, weights, total, results) -> list:
+    done = 0.0
     futures: dict[Future, int] = {ex.submit(fn, *a): i for i, a in enumerate(args)}
     pending = set(futures)
     try:

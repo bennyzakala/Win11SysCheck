@@ -1624,7 +1624,7 @@ class MainWindow(QMainWindow):
         if len(paths) <= 1:
             return [one(p) for p in paths]
         from .. import file_reading, parallel
-        if parallel.pool() is not None:
+        if parallel.pool() is not None and not parallel.busy():
             # in the worker pool: on threads here the parsing held the window up to ~0.9 s at a time
             args = [(p, self._file_source(p), crowns_on, tissue_on, learned) for p in paths]
 
@@ -4908,7 +4908,7 @@ class MainWindow(QMainWindow):
         from .. import parallel
         batch = [(uid, entry)]
         quick = lambda e: sla_supports.has_structure(e[1], e[2], e[3])      # only its raft to build
-        if self._sup_pending and parallel.pool() is not None and not quick(entry):
+        if self._sup_pending and parallel.pool() is not None and not parallel.busy() and not quick(entry):
             # more parts waiting (a setting changed for the whole plate): build them on every core at once;
             # parts whose structure is built already (a raft change) are finished here, quickly, and copies
             # wait for their original's supports (they take them over, nothing is built twice)
@@ -4958,10 +4958,21 @@ class MainWindow(QMainWindow):
             texts = {k: _TEXT_CACHE[k]} if label and k in _TEXT_CACHE else None
             args.append((world, ocfg, pts, label, frame, disp, texts))
 
+        def slicing():
+            t = getattr(self, "task", None)
+            return t is not None and t.isRunning()
+
         def work(progress, cancelled):
-            # heavy parts first spread best over the cores: the pool keeps the input order in its results
-            return parallel.run_chunks(sla_supports.build_part, args, cancelled=cancelled,
+            # heavy parts first spread best over the cores: the pool keeps the input order in its results. A
+            # slice started meanwhile goes first: the parts not started yet step out of its way (it waited
+            # behind them - "slicing got very long") and are built again after
+            return parallel.run_chunks(sla_supports.build_part, args, cancelled=lambda: cancelled() or slicing(),
                                        weights=[len(a[0].faces) + 1 for a in args])
+
+        def stepped_aside(_msg):
+            for uid, entry in batch:                 # not built: waiting again (a newer request for it wins)
+                self._sup_pending.setdefault(uid, entry)
+            self._support_build_done()
 
         def done(results):
             self._sup_batching = True                # each part as one build; the next starts after all
@@ -4975,13 +4986,14 @@ class MainWindow(QMainWindow):
                     self._support_built((uid, entry[0], local, owners, {}), entry[7])
             finally:
                 self._sup_batching = False
-            self._support_build_done()
+                # always: left set, no support or raft build would ever start again (the window looked stuck)
+                self._support_build_done()
 
         from .worker import Task
         task = Task(work, self)
         self._sup_task, self._sup_running = task, {(uid, entry[0]) for uid, entry in batch}
         task.succeeded.connect(done)
-        task.failed.connect(lambda _msg: self._support_build_done())
+        task.failed.connect(stepped_aside)
         task.start()
 
     def _support_build_done(self):
@@ -5106,6 +5118,9 @@ class MainWindow(QMainWindow):
             # each part's support points on every core at once (the worker pool), off the window's thread (a jaw
             # model takes ~0.5 s); the window waits without input meanwhile
             from .. import parallel
+            if parallel.busy():                      # behind a (pre-)slice it would wait: here, as before
+                return [(*sla_supports.points_job(mesh, matrix, lift, ocfg), ocfg)
+                        for (_o, mesh, matrix), ocfg in zip(jobs, ocfgs)]
             got = parallel.run_chunks(sla_supports.points_job,
                                       [(mesh, matrix, lift, ocfg) for (_o, mesh, matrix), ocfg in zip(jobs, ocfgs)],
                                       weights=[len(mesh.faces) + 1 for _o, mesh, _x in jobs])

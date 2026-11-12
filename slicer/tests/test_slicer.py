@@ -7653,6 +7653,123 @@ def test_a_blocked_learning_sync_is_a_network_message_not_a_program_bug(tmp_path
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_support_builds_never_lock_up_and_step_aside_for_a_slice(tmp_path):
+    """Lab (1.0.255): making the raft for two selected models "got stuck", and slicing got very long. A plate's
+    supports are built together in the worker pool: a failure while taking the results in left the build
+    marked running for good (no support or raft build started again), and a slice waited behind the batch.
+    Now the batch always ends, and one that steps aside for a slice goes back in line; every part gets its
+    supports in the end."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        os.environ["UNISLICER_WORKERS"] = "2"
+        def main():
+            from PySide6.QtWidgets import QApplication
+            app = QApplication([])
+            from unislicer import parallel, primitives
+            from unislicer.gui.main_window import MainWindow
+            import unislicer.gui.main_window as MW
+            w = MainWindow(); w.show(); app.processEvents()
+            w.store.setValue("preslice", "false")
+            w.settings.select_printer("phrozen_sonic_xl_4k_plus")
+            parts = [w.add_mesh(primitives.crown_cap(11.0 + k, 8.0)) for k in range(4)]
+            app.processEvents()
+            def settle(limit=120):
+                end = time.time() + limit
+                while time.time() < end and (w._sup_pending or getattr(w, "_sup_task", None) is not None):
+                    app.processEvents(); time.sleep(0.01)
+                for _ in range(20):
+                    app.processEvents()
+            def all_built():
+                cfg = w.settings.config()
+                held = [o for o in parts if o.support_points is not None and len(o.support_points)]
+                assert len(held) >= 3, [None if o.support_points is None else len(o.support_points) for o in parts]
+                return all(w._support_cache.get(o.uid, (None,))[0] == w._support_key(o, cfg) for o in held)
+            # 1) the first batch steps aside (as for a slice): its parts are built after all the same
+            orig_run = parallel.run_chunks
+            state = {"stepped": 0, "broke": 0}
+            def run_chunks(fn, args, *a, **k):
+                if fn.__name__ == "build_part" and not state["stepped"]:
+                    state["stepped"] += 1
+                    raise InterruptedError
+                return orig_run(fn, args, *a, **k)
+            parallel.run_chunks = run_chunks
+            w.select_all(); w.generate_supports(); settle()
+            assert state["stepped"] == 1 and all_built(), (state, [w._support_cache.get(o.uid, (None,))[0] is not None for o in parts])
+            # 2) taking a batch's results in fails once: later builds still run
+            orig_built = MW.MainWindow._support_built
+            def built(self, res, shared):
+                if getattr(self, "_sup_batching", False) and not state["broke"]:
+                    state["broke"] += 1
+                    raise RuntimeError("taking the result in failed")
+                return orig_built(self, res, shared)
+            MW.MainWindow._support_built = built
+            import sys as _s
+            _s.excepthook = lambda *a: None                   # the failure reaches Qt's handler, as in the app
+            w.settings.set_value("sla_tip_diameter", 0.45); w._objects_changed(refresh_list=False); settle()
+            assert state["broke"] == 1
+            assert getattr(w, "_sup_task", None) is None, "a support build is marked running for good"
+            w.settings.set_value("sla_tip_diameter", 0.5); w._objects_changed(refresh_list=False); settle()
+            assert all_built(), "no support build ran after the failure"
+            if parallel._pool is not None:
+                parallel._pool.shutdown(wait=True)
+            print("ok", flush=True)
+        if __name__ == "__main__":
+            main()
+    ''')
+    script = tmp_path / "lockup.py"
+    script.write_text(code)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1", PYTHONPATH=root)
+    r = subprocess.run([sys.executable, str(script)], cwd=root, capture_output=True, text=True, timeout=300, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_raft_and_label_built_in_the_worker_pool_is_the_same_as_in_the_window(tmp_path):
+    """Lab (1.0.255): Raft & label chosen for 12 parts - only one got it. The others were built in the worker
+    pool, which has no window: the code was skipped there, and with it the tab it stands on. The letters made
+    by the window travel with the build, so a part built in the pool gets the same raft and code."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        os.environ["UNISLICER_WORKERS"] = "2"
+        import numpy as np
+        def main():
+            from PySide6.QtWidgets import QApplication
+            app = QApplication([])
+            from unislicer import sla_supports, parallel, primitives, profiles
+            from unislicer.mesh_tools import text_polygons, _TEXT_CACHE
+            cfg = profiles.build_config("phrozen_sonic_xl_4k_plus").update({"sla_raft_type": "raft_label"})
+            crown = primitives.crown_cap(10.0, 8.0)
+            world = crown.translated([0, 0, 6.0 - crown.bounds[0][2]])
+            pts = sla_supports.auto_support_points(world, cfg)
+            label = "47092-044-P"
+            text_polygons(label, 2.0)
+            texts = {(label, 2.0, ""): _TEXT_CACHE[(label, 2.0, "")]}
+            here = sla_supports.build_part(world, cfg, pts, label, None, np.eye(4), texts)
+            sla_supports._STRUCTURES.clear()
+            there = parallel.run_chunks(sla_supports.build_part, [(world, cfg, pts, label, None, np.eye(4), texts)] * 2)
+            parallel._pool.shutdown(wait=True)
+            raft = lambda r: int((r[1]["faces"] == -1).sum())
+            assert "_error" not in there[0][1], there[0][1]
+            assert raft(here) > 0 and raft(there[0]) == raft(here), (raft(here), raft(there[0]))
+            assert len(there[0][0].faces) == len(here[0].faces)
+            print("ok", flush=True)
+        if __name__ == "__main__":
+            main()
+    ''')
+    script = tmp_path / "raft_pool.py"
+    script.write_text(code)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1", PYTHONPATH=root)
+    r = subprocess.run([sys.executable, str(script)], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_reading_files_in_the_worker_pool_brings_back_what_was_worked_out(tmp_path):
     """Files of a plate are read in worker processes (on threads the parsing held the window up to ~0.9 s):
     what loading works out on each mesh travels back with it, and a file that cannot be read comes back as
