@@ -100,7 +100,21 @@ begin
   { still running (or Setup run by hand while it is open): ask to close it, as before }
   while CheckForMutexes('UniSlicerAppMutex') do
   begin
-    if MsgBox(FmtMessage(SetupMessage(msgSetupAppRunningError), ['UniSlicer']), mbError, MB_OKCANCEL) = IDCANCEL then
+    if SuppressibleMsgBox(FmtMessage(SetupMessage(msgSetupAppRunningError), ['UniSlicer']), mbError, MB_OKCANCEL, IDCANCEL) = IDCANCEL then
+    begin
+      Result := False;
+      Exit;
+    end;
+  end;
+end;
+
+{ the uninstaller too: not while UniSlicer is open (its files are in use) - AppMutex= did this before }
+function InitializeUninstall(): Boolean;
+begin
+  Result := True;
+  while CheckForMutexes('UniSlicerAppMutex') do
+  begin
+    if MsgBox(FmtMessage(SetupMessage(msgUninstallAppRunningError), ['UniSlicer']), mbError, MB_OKCANCEL) = IDCANCEL then
     begin
       Result := False;
       Exit;

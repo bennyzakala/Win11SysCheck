@@ -173,9 +173,21 @@ def _rule(exc_type: str, msg: str, tb: str, area_key: str):
                  "A profile saved by an older version lacks a setting this version needs."),
                 [("פתח את מנהל הפרופילים ושמור את הפרופיל מחדש, או בחר את פרופיל היצרן.", "Open the profile manager and save the profile again, or pick the vendor profile."),
                  REPORT])
-    if (exc_type in ("RemoteError", "URLError", "SSLError", "SSLCertVerificationError", "TimeoutError", "timeout",
-                     "ConnectionError", "ConnectionResetError", "ConnectionRefusedError", "ConnectionAbortedError",
-                     "gaierror") or "certificate verify failed" in low) and \
+    netty = exc_type in ("URLError", "SSLError", "SSLCertVerificationError", "TimeoutError", "timeout",
+                         "ConnectionError", "ConnectionResetError", "ConnectionRefusedError", "ConnectionAbortedError",
+                         "gaierror") or "certificate verify failed" in low
+    printer_side = "network.py" in tbl or "print_queue.py" in tbl
+    if netty and printer_side and exc_type != "RemoteError":
+        # a printer on the lab's network that does not answer (off, asleep, another address): not Firebase
+        return ("network", ("אין חיבור למדפסת", "No connection to the printer"),
+                ("המדפסת לא ענתה: היא כבויה, במצב שינה, או שהכתובת שלה ברשת השתנתה.",
+                 "The printer did not answer: it is off, asleep, or its address on the network changed."),
+                [("בדוק שהמדפסת דולקת ומחוברת לאותה רשת, ונסה שוב.", "Check the printer is on and on the same network, and try again."),
+                 ("אם הכתובת השתנתה: עדכן אותה ברשימת המדפסות ברשת.", "If its address changed: update it in the network printers list.")])
+    from_sync = exc_type == "RemoteError" or "remote.py" in tbl or "urllib" in tbl or "\\ssl.py" in tbl or "/ssl.py" in tbl
+    if netty and not from_sync:
+        netty = False                                   # an internal timeout or socket error: a program fault
+    if (netty or exc_type == "RemoteError") and \
             (exc_type != "RemoteError" or low.startswith("offline")):
         cert = "certificate" in low
         return ("network", ("אין חיבור לשירות המקוון", "No connection to the online service"),

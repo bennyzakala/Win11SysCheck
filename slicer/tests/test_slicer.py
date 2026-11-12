@@ -7602,6 +7602,27 @@ def test_raft_and_support_density_change_only_the_selected_models(tmp_path):
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_connection_errors_are_named_for_where_they_come_from():
+    """Review: every timeout or refused connection was shown as "no connection to the online service - add
+    firebasedatabase.app to the antivirus": a printer that is off, or an internal timeout, too. The sync's
+    errors name the online service, a printer's name the printer, anything else stays a program fault."""
+    from unislicer import diagnose
+
+    def raised_in(filename, exc):
+        ns = {}
+        exec(compile("def f(e):\n    raise e\n", filename, "exec"), ns)
+        try:
+            ns["f"](exc)
+        except Exception as e:
+            return diagnose.diagnose(e)
+    printer = raised_in("/app/unislicer/network.py", ConnectionRefusedError(111, "refused"))
+    assert printer.kind == "network" and "printer" in printer.title[1].lower(), printer.title
+    sync = raised_in("/app/unislicer/remote.py", TimeoutError("timed out"))
+    assert sync.kind == "network" and "online" in sync.title[1].lower(), sync.title
+    inner = raised_in("/app/unislicer/sla.py", TimeoutError("future"))
+    assert inner.kind == "bug", inner.title
+
+
 def test_a_blocked_learning_sync_is_a_network_message_not_a_program_bug(tmp_path):
     """Lab report (1.0.247): the background learning sync hit an intercepted connection (a certificate for
     another name - an antivirus' HTTPS scanning or an internet filter) and it was logged and shown as "A program
@@ -8039,6 +8060,7 @@ def test_update_lets_the_installer_go_on_while_the_program_closes(tmp_path):
                             "unislicer.iss"), encoding="utf-8-sig").read()
     assert "\nAppMutex=" not in iss                               # no check at once
     assert "CheckForMutexes('UniSlicerAppMutex')" in iss and "{param:FROMAPP|0}" in iss and "Sleep(500)" in iss
+    assert "function InitializeUninstall" in iss and "msgUninstallAppRunningError" in iss   # the uninstaller checks too
     import subprocess, sys, textwrap
     code = textwrap.dedent('''
         import os, sys
@@ -8403,6 +8425,51 @@ def test_a_raft_or_supports_chosen_for_parts_on_the_plate_gives_them_supports_an
         assert w.settings.config()["sla_raft_type"] != "grid"             # the plate kept its raft
         w.undo(); app.processEvents()
         assert c.direct and not c.settings.get("sla_support_preset")
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_undo_keeps_no_selection_and_a_typed_value_survives_another_rows_apply(tmp_path):
+    """Review: Undo with nothing selected selected the first part - the panel's next supports / raft edit then
+    went to that part alone; and with parts selected, applying one row threw away a value typed (not yet
+    applied) in another."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus")
+        end = time.time() + 1.0
+        while time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        w.settings.set_simple(False); w.settings._on_advanced(True); app.processEvents()
+        a = w.add_mesh(primitives.box(10, 10, 6)); b = w.add_mesh(primitives.box(10, 10, 6)); app.processEvents()
+        w._select_uid(None); app.processEvents()
+        w._push_undo(); a.x += 5.0; w._objects_changed(); app.processEvents()
+        w.undo(); app.processEvents()
+        assert w.selected_objects() == [], [o.uid for o in w.selected_objects()]
+        assert w.settings.scope_group() == []
+        w._select_uid(a.uid); app.processEvents()
+        p = w.settings
+        margin = p._rows["sla_raft_margin"]
+        margin.editor.setValue(margin.editor.value() + 1.5); app.processEvents()
+        typed = margin.editor.value()
+        assert margin._has_pending
+        r = p._rows["sla_raft_type"]
+        r.changed.emit("sla_raft_type", "grid"); r.applied.emit("sla_raft_type")
+        for _ in range(30):
+            app.processEvents()
+        assert margin._has_pending and abs(margin.editor.value() - typed) < 1e-9, (margin._has_pending, margin.editor.value())
         print("ok", flush=True)
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

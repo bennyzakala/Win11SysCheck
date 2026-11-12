@@ -3343,7 +3343,9 @@ class MainWindow(QMainWindow):
             o.restore(st)
         uids = {o.uid for o in self.objects}
         keep = [u for u in sel if u in uids]
-        self._refresh_objects(select=keep or (self.objects[0].uid if self.objects else None))
+        # as it was: nothing selected stays so (it selected the first part, and the panel's supports / raft
+        # edits then went to that part alone instead of the plate)
+        self._refresh_objects(select=keep or None)
 
     def undo(self):
         if self._undo:

@@ -1053,7 +1053,8 @@ class SettingsPanel(QWidget):
             return
         row.set_value(self.config()[key])
         if self.scoped_key(key):
-            self.show_scope()                # a selected model's own value stays on show
+            self._scope_memo = None          # the row just showed the plate's value: show the model's again
+            self.show_scope()
 
     def _set_linked(self, key, value):
         """Change a setting that follows another one (no assistant learning, the row is refreshed)."""
@@ -1088,15 +1089,18 @@ class SettingsPanel(QWidget):
         # it would drop a value being typed in a row whenever the plate is refreshed
         memo = (id(rows), tuple(o.uid for o in group), repr(sorted(group[0].settings.items())) if group else "",
                 getattr(self, "_cfg_cache", (None,))[0])
-        if memo == getattr(self, "_scope_memo", None):
+        last = getattr(self, "_scope_memo", None)
+        if memo == last:
             return
+        same_selection = last is not None and last[0] == memo[0] and last[1] == memo[1]
         self._scope_memo = memo
         view = group[0].config(cfg) if group else cfg
         for key, row in rows.items():
             if not self.scoped_key(key):
                 continue
             own = (key in group[0].settings) if group else key in self.overrides
-            row.set_value(view[key])
+            if not (same_selection and getattr(row, "_has_pending", False)):
+                row.set_value(view[key])             # a value typed in another row (not applied yet) stays
             row.reset_btn.setVisible(own)
             row.label.setStyleSheet(f"color: {theme.TEXT}; font-weight: 600;" if own else "")
         b = self._scope_banner
@@ -1214,8 +1218,14 @@ class SettingsPanel(QWidget):
             grid.setVerticalSpacing(8)
             cols = 2 if dlg.width() > 1100 else 1
             per_col = (len(items) + cols - 1) // cols
+            # models selected: their supports / raft values (the edits go to them, as in the side panel)
+            group = self.scope_group()
+            view = group[0].config(cfg) if group else cfg
             for k, setting in enumerate(items):
-                row = SettingRow(setting, cfg[setting.key], setting.key in self.overrides, cfg, staged=True)
+                scoped = bool(group) and self.scoped_key(setting.key)
+                row = SettingRow(setting, (view if scoped else cfg)[setting.key],
+                                 (setting.key in group[0].settings) if scoped else setting.key in self.overrides,
+                                 view if scoped else cfg, staged=True)
                 row.setToolTip(tip(setting))
                 row.changed.connect(changed)
                 row.applied.connect(self.settingApplied.emit)
@@ -1230,8 +1240,11 @@ class SettingsPanel(QWidget):
                 QTimer.singleShot(0, fill)
 
         def reset(key):
-            self.overrides.pop(key, None)
-            self.changed.emit()
+            if self.scoped_key(key) and self.scope_group():
+                self.scopeReset.emit(key)            # the selected models' own value, as in the side panel
+            else:
+                self.overrides.pop(key, None)
+                self.changed.emit()
             fill()
 
         search.textChanged.connect(lambda _t: fill())
