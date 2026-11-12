@@ -7653,6 +7653,93 @@ def test_a_blocked_learning_sync_is_a_network_message_not_a_program_bug(tmp_path
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_the_progress_bar_fills_to_the_end_of_a_resin_slice(tmp_path):
+    """Lab: the bar under Slice stayed under half full and vanished so ("Slicing layers - 88%" over a third
+    of a bar): its stages were split for filament, where slicing the layers is the first third. For resin
+    slicing the layers is nearly the whole bar, the bar never runs back, and it ends full."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus")
+        end = time.time() + 1.0
+        while time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        o = w.add_mesh(primitives.box(10, 10, 4)); o.direct = True
+        seen = []
+        orig = w._on_progress
+        def spy(stage, f):
+            orig(stage, f); seen.append((stage, f, w.progress.value()))
+        w._on_progress = spy
+        w.slice()
+        w.task.progress.disconnect(); w.task.progress.connect(spy)
+        end = time.time() + 120
+        while time.time() < end and (w.result is None or w.task.isRunning()):
+            app.processEvents(); time.sleep(0.01)
+        app.processEvents()
+        values = [v for _s, _f, v in seen]
+        assert values == sorted(values), seen                       # never back
+        late = [v for st, f, v in seen if st == "slice" and f >= 0.85]
+        assert late and min(late) >= 800, seen                       # 88% of the layers: most of the bar
+        assert w.progress.value() == w.progress.maximum(), w.progress.value()
+        assert w.progress.isVisible()                                # the full bar stays a moment
+        end = time.time() + 2.0
+        while time.time() < end:
+            app.processEvents(); time.sleep(0.01)
+        assert not w.progress.isVisible()
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_a_raft_change_keeps_the_support_structure_and_rebuilds_only_the_raft():
+    """Lab: changing the raft (window or panel) took ~5-10 s on a full plate - every tree, pillar and brace was
+    built again though only the raft under them changed. The structure is kept: a raft-only change builds the
+    raft alone, and the result is exactly what a fresh build gives (mesh and click owners), faster."""
+    import time
+    from unislicer import primitives, sla_supports
+    from unislicer.settings import Config
+    from unislicer.mesh import Mesh
+    b = primitives.box(16, 12, 6)
+    m = Mesh(b.vertices + [0, 0, 5.0], b.faces)                # lifted: it stands on its supports
+    base = {"technology": "sla", "sla_support_type": "tree", "sla_raft_type": "solid", "sla_bracing": True}
+    cfg = lambda **kw: Config().update({**base, **kw})
+    pts = sla_supports.auto_support_points(m, cfg())
+    assert len(pts) > 3
+    def build(c):
+        owners = {}
+        mesh, used = sla_supports.build_supports(m, c, pts, owners=owners)
+        return mesh, used, owners
+    sla_supports._STRUCTURES.clear()
+    fresh = {k: build(cfg(sla_raft_type=k, sla_raft_margin=1.5)) for k in ("grid",)}
+    sla_supports._STRUCTURES.clear()
+    t0 = time.perf_counter(); build(cfg(sla_raft_type="solid")); full = time.perf_counter() - t0
+    t0 = time.perf_counter(); got = build(cfg(sla_raft_type="grid", sla_raft_margin=1.5)); quick = time.perf_counter() - t0
+    want = fresh["grid"]
+    assert np.array_equal(got[0].vertices, want[0].vertices) and np.array_equal(got[0].faces, want[0].faces)
+    assert np.array_equal(got[1], want[1])
+    assert np.array_equal(got[2]["faces"], want[2]["faces"]) and got[2]["groups"] == want[2]["groups"]
+    assert quick < full * 0.6, (quick, full)
+    # the structure itself changing (another support type, a thicker raft) is built again
+    n = len(sla_supports._STRUCTURES)
+    build(cfg(sla_raft_type="grid", sla_support_type="pillar"))
+    build(cfg(sla_raft_type="grid", sla_raft_thickness=cfg()["sla_raft_thickness"] + 0.5))
+    assert len(sla_supports._STRUCTURES) == n + 2
+    # no raft: the feet stand on the plate - another structure
+    none = build(cfg(sla_raft_type="none"))
+    assert none[0].vertices[:, 2].min() < want[0].vertices[:, 2].min() + 1e-9 or len(none[0].faces) != len(want[0].faces)
+
+
 def test_a_raft_or_supports_chosen_for_parts_on_the_plate_gives_them_supports_and_raft(tmp_path):
     """Lab: models standing on the plate (no supports) were selected and given Solid lite - nothing appeared on
     them. A raft or supports chosen for selected parts is what is done: they leave the plate and get supports

@@ -4843,8 +4843,8 @@ class MainWindow(QMainWindow):
         return None
 
     def _queue_support_build(self, o: SceneObject, cfg, key):
-        running = getattr(self, "_sup_running", None)
-        if running == (o.uid, key) or self._sup_pending.get(o.uid, (None,))[0] == key:
+        running = getattr(self, "_sup_running", None) or ()
+        if (o.uid, key) in running or self._sup_pending.get(o.uid, (None,))[0] == key:
             return                                   # already on its way
         ocfg = o.config(cfg)
         lift = self._lift(ocfg)
@@ -4876,6 +4876,33 @@ class MainWindow(QMainWindow):
             entry = None
         if entry is None:
             return
+        from .. import parallel
+        batch = [(uid, entry)]
+        quick = lambda e: sla_supports.has_structure(e[1], e[2], e[3])      # only its raft to build
+        if self._sup_pending and parallel.pool() is not None and not quick(entry):
+            # more parts waiting (a setting changed for the whole plate): build them on every core at once;
+            # parts whose structure is built already (a raft change) are finished here, quickly, and copies
+            # wait for their original's supports (they take them over, nothing is built twice)
+            meshes = {x.uid: x.mesh for x in self.objects}
+            shapes = {(entry[0][1:], id(meshes.get(uid)))}
+            for other in list(self._sup_pending):
+                if len(batch) >= 64:
+                    break
+                e2 = self._sup_pending[other]
+                shape = (e2[0][1:], id(meshes.get(other)))
+                if quick(e2) or shape in shapes:
+                    continue
+                o2 = next((x for x in self.objects if x.uid == other), None)
+                del self._sup_pending[other]
+                if o2 is not None and self._twin_supports(o2, e2[0]) is not None:
+                    if self._shows_supports(o2) and len(o2.support_points):
+                        self.viewer.set_object_supports(other, self._support_cache[other][1])
+                    continue
+                shapes.add(shape)
+                batch.append((other, e2))
+        if len(batch) > 1:
+            self._start_support_batch(batch)
+            return
         key, world, ocfg, pts, geo, label, disp, shared, frame = entry
 
         def work(progress, cancelled):
@@ -4887,8 +4914,42 @@ class MainWindow(QMainWindow):
 
         from .worker import Task
         task = Task(work, self)
-        self._sup_task, self._sup_running = task, (uid, key)
+        self._sup_task, self._sup_running = task, {(uid, key)}
         task.succeeded.connect(lambda res, shared=shared: self._support_built(res, shared))
+        task.failed.connect(lambda _msg: self._support_build_done())
+        task.start()
+
+    def _start_support_batch(self, batch):
+        """Several parts' supports at once in the worker pool; each part is shown as the batch ends."""
+        from .. import parallel
+        from ..mesh_tools import _TEXT_CACHE
+        args = []
+        for uid, (key, world, ocfg, pts, geo, label, disp, shared, frame) in batch:
+            k = (label[:24], 2.0, "")
+            texts = {k: _TEXT_CACHE[k]} if label and k in _TEXT_CACHE else None
+            args.append((world, ocfg, pts, label, frame, disp, texts))
+
+        def work(progress, cancelled):
+            # heavy parts first spread best over the cores: the pool keeps the input order in its results
+            return parallel.run_chunks(sla_supports.build_part, args, cancelled=cancelled,
+                                       weights=[len(a[0].faces) + 1 for a in args])
+
+        def done(results):
+            self._sup_batching = True                # each part as one build; the next starts after all
+            try:
+                for (uid, entry), (local, owners) in zip(batch, results):
+                    made = owners.pop("_structure", None)
+                    if made is not None:             # a raft change next is finished here, quickly
+                        sla_supports.keep_structure(*made)
+                    self._support_built((uid, entry[0], local, owners, {}), entry[7])
+            finally:
+                self._sup_batching = False
+            self._support_build_done()
+
+        from .worker import Task
+        task = Task(work, self)
+        self._sup_task, self._sup_running = task, {(uid, entry[0]) for uid, entry in batch}
+        task.succeeded.connect(done)
         task.failed.connect(lambda _msg: self._support_build_done())
         task.start()
 
@@ -4910,7 +4971,8 @@ class MainWindow(QMainWindow):
             if self._support_key(o, cfg) == key:
                 self.viewer.set_object_supports(uid, local)
                 self._update_support_info()
-        self._support_build_done()
+        if not getattr(self, "_sup_batching", False):
+            self._support_build_done()
 
     def _built_supports(self, o: SceneObject, cfg):
         """The model's support structure as far as it is built: the finished one, else - while the
@@ -5749,6 +5811,8 @@ class MainWindow(QMainWindow):
         def done(result):
             # only the current task's result, and only for the plate as it was sliced
             if task is self.task and self.__dict__.get("_plate_gen", 0) == gen:
+                self.progress.setValue(self.progress.maximum())      # done: the bar ends full
+                self.progress_label.setText(self.progress_label.text().rsplit("·", 1)[0].strip() + " · 100%")
                 on_done(result)
         self.task.progress.connect(self._on_progress)
         self.task.succeeded.connect(done)
@@ -5764,20 +5828,39 @@ class MainWindow(QMainWindow):
         self.send_btn.setEnabled(self._exportable() is not None)
         self.task.start()
 
+    # where each stage runs on the bar. Filament: slicing, then toolpaths and G-code. Resin: the supports are
+    # built first, then slicing the layers is nearly all of the work (the filament split left a finished resin
+    # slice at a third of the bar); hollowing reports inside the slicing and does not move it
+    FDM_STAGES = {"slice": (0.0, 0.35), "support": (0.35, 0.45), "hollow": (0.35, 0.45), "paths": (0.45, 0.85),
+                  "gcode": (0.85, 0.95), "preview": (0.95, 1.0), "export": (0.0, 0.5), "upload": (0.5, 1.0)}
+    SLA_STAGES = {"support": (0.0, 0.08), "slice": (0.08, 0.97), "hollow": None, "preview": (0.97, 1.0),
+                  "export": (0.0, 0.5), "upload": (0.5, 1.0)}
+
     def _on_progress(self, stage, fraction):
-        weights = {"slice": (0.0, 0.35), "support": (0.35, 0.45), "hollow": (0.35, 0.45), "paths": (0.45, 0.85), "gcode": (0.85, 0.95),
-                   "preview": (0.95, 1.0), "export": (0.0, 0.5), "upload": (0.5, 1.0)}
-        lo, hi = weights.get(stage, (0.0, 1.0))
-        self.progress.setValue(int((lo + (hi - lo) * fraction) * 1000))
+        table = self.SLA_STAGES if self.settings.technology == "sla" else self.FDM_STAGES
+        span = table.get(stage, (0.0, 1.0))
+        if span is not None:
+            lo, hi = span
+            value = int((lo + (hi - lo) * max(0.0, min(1.0, fraction))) * 1000)
+            self.progress.setValue(max(value, self.progress.value()))     # never back
         self.progress_label.setText(f"{tr('stage_' + stage)} · {int(fraction * 100)}%")
 
     def _on_task_finished(self):
-        self.progress.hide()
-        self.progress_label.hide()
+        if self.progress.value() >= self.progress.maximum():
+            # finished: the full bar stays a moment, then goes (unless a new job started meanwhile)
+            QTimer.singleShot(600, self, self._hide_progress)
+        else:
+            self._hide_progress()
         self.slice_btn.setText(" " + tr("slice"))
         self.slice_btn.setIcon(theme.icon("layers", "#ffffff", 18))
         self.export_btn.setEnabled(self._exportable() is not None)
         self.send_btn.setEnabled(self._exportable() is not None)
+
+    def _hide_progress(self):
+        if self.task is not None and self.task.isRunning():
+            return
+        self.progress.hide()
+        self.progress_label.hide()
 
     def _on_failed(self, message):
         # a slice that failed or was cancelled sends nothing, and leaves no fix waiting for the next one

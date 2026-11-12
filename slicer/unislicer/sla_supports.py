@@ -36,6 +36,16 @@ def _ray_hits(tris: np.ndarray, xy: np.ndarray):
 
 _CASTERS: dict = {}
 CASTER_FACE_BUDGET = 4_000_000
+# the support structure (heads, pillars, trees, braces) of recent builds: a raft change - its type, margin,
+# label - leaves it as it is, so only the raft is built again (a full plate rebuilt every tree and pillar,
+# ~5 s, when only the raft under them changed). Within a budget of triangles, most recent last
+_STRUCTURES: dict = {}
+STRUCTURE_FACE_BUDGET = 3_000_000
+
+
+def _raft_only(key: str) -> bool:
+    """A setting only the raft reads: the structure standing on it stays (its thickness moves the feet)."""
+    return key.startswith("sla_raft_") and key != "sla_raft_thickness"
 
 
 def caster_for(mesh: Mesh) -> "_Caster":
@@ -828,9 +838,26 @@ def _hex_walls(hull, cell: float, width: float) -> list:
     return out
 
 
+_OUTLINES: dict = {}
+
+
 def tooth_outline(mesh: Mesh, inset: float, levels: int = 16):
     """The part's outline seen from above (the union of its cross-sections at several heights), set back by
-    ``inset``: a "mini tiny" raft never reaches past the tooth it carries."""
+    ``inset``: a "mini tiny" raft never reaches past the tooth it carries. Kept per part: it took ~0.15 s
+    a part, again at every raft change (a full plate's SOLID LITE ~3 s)."""
+    import hashlib
+    key = (len(mesh.faces), hashlib.blake2b(mesh.vertices.tobytes(), digest_size=16).digest(),
+           hashlib.blake2b(mesh.faces.tobytes(), digest_size=16).digest(), float(inset), levels)
+    hit = _OUTLINES.pop(key, None)
+    if hit is None:
+        hit = _tooth_outline(mesh, inset, levels)
+    _OUTLINES[key] = hit
+    while len(_OUTLINES) > 256:
+        _OUTLINES.pop(next(iter(_OUTLINES)))
+    return hit
+
+
+def _tooth_outline(mesh: Mesh, inset: float, levels: int):
     from .slicing import slice_mesh
     lo, hi = mesh.bounds
     if hi[2] - lo[2] <= 1e-6:
@@ -1120,7 +1147,7 @@ def _raft_plan(feet: list, cfg: Config, pad: float, radii: list | None = None, o
 
 
 def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, owners: dict | None = None,
-                   cache: dict | None = None, label: str = "", label_frame=None):
+                   cache: dict | None = None, label: str = "", label_frame=None, hand_back: bool = False):
     """Support geometry for a model that already sits at its elevated height.
 
     ``points`` are contact points in the same coordinates (None = generate them automatically).
@@ -1133,12 +1160,17 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     if points is None:
         points = auto_support_points(mesh, cfg)
     points = np.asarray(points, dtype=np.float64).reshape(-1, 3)
-    if "caster" not in cache:
-        cache["caster"] = caster_for(mesh)
-    caster = cache["caster"]
     tip_r = cfg["sla_tip_diameter"] / 2
     pillar_r = max(cfg["sla_pillar_diameter"] / 2, tip_r)
     raft = 0.0 if cfg["sla_raft_type"] == "none" else cfg["sla_raft_thickness"]
+    skey = structure_key(mesh, cfg, points)
+    hit = _STRUCTURES.pop(skey, None)
+    if hit is not None:
+        _STRUCTURES[skey] = hit
+        return _finish(mesh, cfg, hit, owners, label, label_frame)
+    if "caster" not in cache:
+        cache["caster"] = caster_for(mesh)
+    caster = cache["caster"]
     depth = cfg["sla_contact_depth"]
     on_model = cfg["sla_supports_on_model"]
     head_len = cfg["sla_head_length"] or max(1.0, pillar_r * 3)
@@ -1355,17 +1387,69 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     if cfg["sla_bracing"] and len(pillars) > 1:
         parts += _braces(pillars, underside(), cfg, segs)
 
+    structure = Mesh.merge(list(parts), "Supports") if parts else None
+    face_owner = np.concatenate([np.full(len(m.faces), o, dtype=np.int64) for m, o in zip(parts, part_owner)]) \
+        if parts else np.zeros(0, dtype=np.int64)
+    built = (structure, face_owner, tuple(groups), [f.copy() for f in feet], list(foot_radii),
+             np.array(used).reshape(-1, 3), pillar_r)
+    keep_structure(skey, built)
+    if owners is not None and hand_back:
+        owners["_structure"] = (skey, built)     # for a worker to hand back to the window
+    return _finish(mesh, cfg, built, owners, label, label_frame)
+
+
+def structure_key(mesh: Mesh, cfg: Config, points) -> tuple:
+    points = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    raft = 0.0 if cfg["sla_raft_type"] == "none" else cfg["sla_raft_thickness"]
+    # a digest, not hash(): that is salted per process, and structures built in the worker pool are kept here
+    import hashlib
+    return (len(mesh.faces), hashlib.blake2b(mesh.vertices.tobytes(), digest_size=16).digest(),
+            hashlib.blake2b(mesh.faces.tobytes(), digest_size=16).digest(), points.tobytes(), raft,
+            repr(sorted((k, v) for k, v in cfg.values.items() if k.startswith("sla_") and not _raft_only(k))))
+
+
+def has_structure(mesh: Mesh, cfg: Config, points) -> bool:
+    """Is this part's support structure already built (only its raft changed)? Then it is quick to finish."""
+    return structure_key(mesh, cfg, points) in _STRUCTURES
+
+
+def keep_structure(skey, built) -> None:
+    _STRUCTURES.pop(skey, None)
+    _STRUCTURES[skey] = built
+    while len(_STRUCTURES) > 1 and sum(len(v[0].faces) if v[0] is not None else 0
+                                       for v in _STRUCTURES.values()) > STRUCTURE_FACE_BUDGET:
+        _STRUCTURES.pop(next(iter(_STRUCTURES)))
+
+
+def build_part(world: Mesh, cfg: Config, points, label: str, label_frame, to_local, texts: dict | None = None):
+    """One part's support structure in its own coordinates, with the click owners - for the worker pool, so
+    a full plate's supports are built on every core at once (one after another, a support change on 20
+    parts took ~10 s). ``texts``: the label's letters, made on the main thread (fonts need it)."""
+    if texts:
+        from . import mesh_tools
+        mesh_tools._TEXT_CACHE.update(texts)
+    owners = {}
+    mesh, _ = build_supports(world, cfg, points, owners=owners, label=label, label_frame=label_frame,
+                             hand_back=True)
+    local = mesh.transform(np.linalg.inv(to_local)) if len(mesh.faces) else None
+    return local, owners          # owners["_structure"]: the structure, for the window to keep
+
+
+def _finish(mesh: Mesh, cfg: Config, built, owners, label, label_frame):
+    """The raft under a built support structure, and the two merged."""
+    structure, face_owner, groups, feet, foot_radii, used, pillar_r = built
     tiny = None
     if feet and cfg["sla_raft_type"] in ("tiny", "raft_label", "solid_lite"):
         tiny = tooth_outline(mesh, cfg["sla_raft_tiny_inset"] if cfg["sla_raft_type"] == "tiny" else 0.0)
     # the caller chooses the text (the model's name, or a tooth's SOD case code); "" = no label
-    parts += _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny, label, label_frame)
-    merged = Mesh.merge(list(parts), "Supports")
+    rafts = _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny, label, label_frame)
+    pieces = ([structure] if structure is not None else []) + list(rafts)
+    merged = Mesh.merge(pieces, "Supports")
     if owners is not None:
-        owners["faces"] = np.concatenate([np.full(len(m.faces), o, dtype=np.int64) for m, o in zip(parts, part_owner)]) \
-            if parts else np.zeros(0, dtype=np.int64)
-        owners["groups"] = groups
-    return merged, np.array(used).reshape(-1, 3)
+        owners["faces"] = np.concatenate([face_owner] + [np.full(len(m.faces), -1, dtype=np.int64) for m in rafts]) \
+            if pieces else np.zeros(0, dtype=np.int64)
+        owners["groups"] = list(groups)
+    return merged, used.copy()
 
 
 def _signed_area(p: np.ndarray) -> float:
