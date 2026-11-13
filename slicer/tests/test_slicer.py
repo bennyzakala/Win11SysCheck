@@ -9258,6 +9258,8 @@ def test_the_plate_says_front():
     code = textwrap.dedent('''
         import os
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        if os.name == "nt":     # offscreen Qt on Windows finds no fonts (draws a box per letter) unless told where
+            os.environ.setdefault("QT_QPA_FONTDIR", os.path.join(os.environ.get("WINDIR", r"C:\\Windows"), "Fonts"))
         from PySide6.QtWidgets import QApplication
         app = QApplication([])
         from unislicer.gui.viewer import Viewer
