@@ -186,13 +186,16 @@ def _solid_fraction(mesh) -> float:
 
 
 def case_code(name: str) -> str:
-    """The short case code a lab writes on a part, from the SOD order number in the file name: the last five
-    digits of the SOD number and the two groups after it - "SMG-SOD260045198-N183-E-16-16-1-A35_Antag" ->
-    "45198-N183-E", "DSY-SOD260046671-044-P-46-46-1-A35" -> "46671-044-P". "" when there is no SOD number."""
-    m = re.search(r"SOD\d*?(\d{5})-([A-Za-z0-9]+)(?:-([A-Za-z0-9]+))?", os.path.basename(name or ""), re.IGNORECASE)
+    """The short case code a lab writes on a part, from the file name: the last five digits of the SOD order
+    number and the case's letter-and-three-digits code - "DAA-SOD260046614-044-P-25-27-3-00-R003_2" ->
+    "46614-R003", "SMG-SOD260045198-N183-E-16-16-1-A35_Antag" -> "45198-N183"; with no such code, the five
+    digits alone ("DSY-SOD260046671-044-P-46-46-1-A35" -> "46671"). "" when there is no SOD number."""
+    base = os.path.basename(name or "")
+    m = re.search(r"SOD\d*?(\d{5})(?=[^0-9]|$)", base, re.IGNORECASE)
     if not m:
         return ""
-    return "-".join(g for g in (m.group(1), m.group(2), m.group(3)) if g)
+    codes = [t for t in re.split(r"[-_. ]+", base[m.end():]) if re.fullmatch(r"[A-Za-z]\d{3}", t)]
+    return m.group(1) + ("-" + codes[-1].upper() if codes else "")
 
 
 def _memo(mesh, name: str, compute):

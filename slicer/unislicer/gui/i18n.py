@@ -378,7 +378,7 @@ STRINGS = {
     "tool_label_hint": ("לחץ במקום על המודל שבו תופיע התווית \"{}\"", "Click the spot on the model where the label \"{}\" goes"),
     "label_title": ("תוויות", "Labels"),
     "label_text": ("טקסט", "Text"),
-    "label_text_tip": ("{code} = הקוד המקוצר מה-SOD (למשל 45198-N183-E), {name} = שם המודל, {n} = מספר רץ, {date} = תאריך היום", "{code} = the short SOD code (e.g. 45198-N183-E), {name} = model name, {n} = running number, {date} = today's date"),
+    "label_text_tip": ("{code} = הקוד המקוצר מה-SOD (למשל 45198-N183), {name} = שם המודל, {n} = מספר רץ, {date} = תאריך היום", "{code} = the short SOD code (e.g. 45198-N183), {name} = model name, {n} = running number, {date} = today's date"),
     "label_max": ("מקסימום תווים", "Max characters"),
     "label_engrave": ("חריטה (שקוע)", "Engrave (sunk in)"),
     "label_emboss": ("הטבעה (בולט)", "Emboss (raised)"),

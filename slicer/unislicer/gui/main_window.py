@@ -4811,7 +4811,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _raft_label_text(o: SceneObject, cfg) -> str:
         """What goes on a model's raft: on teeth (crowns / bridges) the case code from the SOD number,
-        e.g. 46671-044-P; otherwise the model's name when "Model name on the raft" is on."""
+        e.g. 46614-R003; otherwise the model's name when "Model name on the raft" is on."""
         from .. import dental_cad
         if cfg["sla_raft_type"] == "raft_label":         # this raft is there to carry the code: always one
             return dental_cad.case_code(o.name) or os.path.splitext(o.name or "")[0]

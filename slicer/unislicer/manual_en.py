@@ -143,7 +143,7 @@ outline of a whole tooth get no bulge.</p>
 <h3>Raft &amp; label</h3>
 <p>A narrow raft along the model's outline, 0.8 mm around it, with every support foot on it. At the model's end
 (toward the right of the plate, or the back for a part lying along the plate) there is a crescent tab 5 mm wide
-carrying the case code, embossed 0.4 mm. The code is taken from the SOD number in the file name (46614-044-P from
+carrying the case code, embossed 0.4 mm. The code is taken from the SOD number in the file name (46614-R003 from
 DAA-SOD260046614-044-P-…), and for a file without one, from the file name. If you switch to this raft after the
 parts were arranged close together, click {t:layout_quick} ({k:arrange}) again to make room for the tab.</p>
 {img:raft_label.png|Raft &amp; label: a narrow raft and a crescent tab with the code}
