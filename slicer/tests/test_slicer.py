@@ -9096,6 +9096,8 @@ def test_the_thin_check_is_done_after_the_slice_shows(tmp_path):
         w.store.setValue("preslice", "false")
         w.settings.select_printer("phrozen_sonic_xl_4k_plus")
         w.settings.set_value("support_enable", False)
+        # on Windows the settings are shared by the tests (another one turns thickening on)
+        w.settings.set_value("sla_thicken_thin", False); w.settings.set_value("hollow_enable", False)
         from unislicer.mesh import Mesh
         part = Mesh.merge([primitives.box(10, 10, 3), primitives.box(0.15, 8, 6).translated([6, 0, 3])])
         o = w.add_mesh(part); app.processEvents()
