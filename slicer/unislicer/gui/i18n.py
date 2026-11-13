@@ -538,6 +538,7 @@ STRINGS = {
     "note_cavity_small": ("החלל קטן מדי לחורי הניקוז", "The cavity is too small for the drain holes."),
     "note_no_drain": ("המודל חלול ללא חורי ניקוז: שרף לא מוקשה יילכד בפנים", "Hollowed without drain holes: uncured resin will stay trapped inside."),
     "note_too_thin": ("המודל דק מדי לחלילה בעובי הדופן הזה", "The model is too thin to hollow with this wall thickness."),
+    "note_join_failed": ("לא ניתן היה לחבר את הרפסודות ליחידה אחת; הן יודפסו בנפרד", "The rafts could not be joined into one piece; they print separately."),
     "assistant": ("עוזר", "Assistant"),
     "assistant_tip": ("עוזר חכם שלומד מהשימוש שלך ומציע שיפורים", "Smart assistant that learns from how you work and suggests improvements"),
     "assistant_empty": ("אין הצעות כרגע. העוזר בודק את המודלים ברקע ולומד מהשינויים שלך.", "No suggestions right now. The assistant checks your models in the background and learns from your changes."),

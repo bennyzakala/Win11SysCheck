@@ -1523,8 +1523,17 @@ def raft_outline(supports: Mesh | None, thickness: float):
     tri = tri[area > 1e-6]
     if len(tri) == 0:
         return ShapelyPolygon()
-    shape = union_all(polygons(np.concatenate([tri, tri[:, :1]], axis=1)))
-    return shape.buffer(0.05).buffer(-0.05)
+    polys = polygons(np.concatenate([tri, tri[:, :1]], axis=1))
+    # the support's triangles seen from above meet at near-identical points: GEOS can fail on them ("found two
+    # shells in EdgeRing list", "Ring edge missing") - then on a fine grid (0.1 um), then grown by 1 um
+    for attempt in (lambda: union_all(polys),
+                    lambda: union_all(shapely.set_precision(polys, 1e-4)),
+                    lambda: union_all(shapely.buffer(polys, 1e-3, quad_segs=1))):
+        try:
+            return attempt().buffer(0.05).buffer(-0.05)
+        except shapely.errors.GEOSException:
+            continue
+    return ShapelyPolygon()
 
 
 def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 30.0,

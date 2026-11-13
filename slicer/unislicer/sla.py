@@ -1330,6 +1330,9 @@ def _auto_bottom_compensation(layers: list, models: list, planes: list, cfg: Con
 
 
 # ----------------------------------------------------------------- prepare
+RAFT_JOIN_FAILED_NOTE = "The rafts could not be joined into one piece; they print separately."
+
+
 def raft_joints_for(models, on_plate, own, cfgs, cfg):
     """The joints of "join all rafts" for these parts: ``own`` = [(index, its support structure)]. Rafts are
     joined; parts on the plate and the feet of parts with no raft are kept clear of."""
@@ -1452,7 +1455,12 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             pts += list(sp)
         if cfg["sla_raft_join"]:
             # "join all rafts into one piece": solid joints between neighbouring rafts, printed with the supports
-            joints = raft_joints_for(models, on_plate, own, cfgs, cfg)
+            try:
+                joints = raft_joints_for(models, on_plate, own, cfgs, cfg)
+            except shapely.errors.GEOSException:
+                # the geometry library could not work the joints out: the plate prints, in separate pieces
+                joints = None
+                warnings.append(RAFT_JOIN_FAILED_NOTE)
             if joints is not None and len(joints.faces):
                 parts.append(joints)
         return Mesh.merge(parts, "Supports"), pts

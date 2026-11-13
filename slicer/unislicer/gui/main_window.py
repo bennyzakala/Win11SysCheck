@@ -34,6 +34,7 @@ ENGINE_TEXT = {
     "Hollowed without drain holes: uncured resin will stay trapped inside.": "note_no_drain",
     "The model is too thin to hollow with this wall thickness.": "note_too_thin",
     sla.UNIFORM_FORMAT_NOTE: "note_uniform_format",
+    sla.RAFT_JOIN_FAILED_NOTE: "note_join_failed",
 }
 
 

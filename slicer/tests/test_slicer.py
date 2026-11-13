@@ -8878,3 +8878,33 @@ def test_hollow_roof_and_floor_keep_their_thickness_with_adaptive_layers():
     a = sla._window_intersection(items, int(math.ceil(1.3 / 0.05)))
     b = sla._window_intersection_z(items, zs, 1.3)
     assert all(x.symmetric_difference(y).area < 1e-9 and x.is_empty == y.is_empty for x, y in zip(a, b))
+
+
+def test_raft_outline_and_joints_survive_geometry_errors(monkeypatch):
+    """The triangles of a raft seen from above meet at near-identical points; GEOS can fail on them ("found
+    two shells in EdgeRing list", "Ring edge missing" - seen in a random-actions run). The raft's outline is
+    then worked out on a fine grid; and a slice whose joints still cannot be made prints the rafts
+    separately with a note instead of failing."""
+    import shapely
+    from unislicer import primitives, profiles, sla, sla_supports
+    feet = Mesh.merge([primitives.box(10, 10, 0.8), primitives.cylinder(1.0, 4.0).translated([2, 2, 0])])
+    real = shapely.union_all
+    calls = {"n": 0}
+
+    def flaky(geoms, *a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise shapely.errors.GEOSException("TopologyException: Ring edge missing")
+        return real(geoms, *a, **k)
+    monkeypatch.setattr(shapely, "union_all", flaky)
+    out = sla_supports.raft_outline(feet, 0.8)
+    assert calls["n"] >= 2 and abs(out.area - 100.0) < 1.0, out.area
+    monkeypatch.setattr(shapely, "union_all", real)
+
+    def broken(*a, **k):
+        raise shapely.errors.GEOSException("AssertionFailedException: found two shells in EdgeRing list")
+    monkeypatch.setattr(sla, "raft_joints_for", broken)
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": True, "sla_raft_join": True})
+    parts = [primitives.crown_cap(9.0, 7.0).translated([40 + 15 * k, 60, 0]) for k in range(2)]
+    job = sla.prepare(parts, cfg)
+    assert job.layer_count > 0 and sla.RAFT_JOIN_FAILED_NOTE in job.warnings

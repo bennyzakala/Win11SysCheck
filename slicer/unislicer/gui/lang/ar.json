@@ -1465,5 +1465,6 @@
 "A solid joint between each two neighbouring rafts: the whole plate comes off as one piece. A weak notch next to each raft breaks cleanly to free one model": "وصلة صلبة بين كل قاعدتين متجاورتين: تُنزع المنصة كلها كقطعة واحدة. شق ضعيف بجانب كل قاعدة يُكسر بسهولة لتحرير نموذج واحد",
 "How wide the solid joint between two neighbouring rafts is": "عرض الوصلة الصلبة بين قاعدتين متجاورتين",
 "Rafts further apart are not joined (a long joint wastes resin and may warp)": "القواعد الأبعد من ذلك لا تُربط (الوصلة الطويلة تهدر الراتنج وقد تنحني)",
-"Rafts joined: the plate comes off in {} pieces - some parts are more than {:g} mm apart (Raft joint max. distance).": "تم ربط القواعد: ستُنزع المنصة في {} قطع - بعض النماذج تبعد أكثر من {:g} مم (أقصى مسافة للوصلة)."
+"Rafts joined: the plate comes off in {} pieces - some parts are more than {:g} mm apart (Raft joint max. distance).": "تم ربط القواعد: ستُنزع المنصة في {} قطع - بعض النماذج تبعد أكثر من {:g} مم (أقصى مسافة للوصلة).",
+"The rafts could not be joined into one piece; they print separately.": "تعذّر ربط القواعد في قطعة واحدة؛ ستُطبع منفصلة."
 }

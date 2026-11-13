@@ -1465,5 +1465,6 @@
 "A solid joint between each two neighbouring rafts: the whole plate comes off as one piece. A weak notch next to each raft breaks cleanly to free one model": "Сплошное соединение между соседними рафтами: вся платформа снимается одним целым. Надрез у каждого рафта позволяет аккуратно отломить одну модель",
 "How wide the solid joint between two neighbouring rafts is": "Ширина сплошного соединения между двумя соседними рафтами",
 "Rafts further apart are not joined (a long joint wastes resin and may warp)": "Рафты дальше этого расстояния не соединяются (длинное соединение тратит смолу и может деформироваться)",
-"Rafts joined: the plate comes off in {} pieces - some parts are more than {:g} mm apart (Raft joint max. distance).": "Рафты соединены: платформа снимется в {} частях - некоторые модели дальше {:g} мм друг от друга (макс. расстояние соединения)."
+"Rafts joined: the plate comes off in {} pieces - some parts are more than {:g} mm apart (Raft joint max. distance).": "Рафты соединены: платформа снимется в {} частях - некоторые модели дальше {:g} мм друг от друга (макс. расстояние соединения).",
+"The rafts could not be joined into one piece; they print separately.": "Рафты не удалось соединить в одну деталь; они печатаются отдельно."
 }
