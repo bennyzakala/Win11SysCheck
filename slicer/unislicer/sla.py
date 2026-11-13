@@ -33,6 +33,7 @@ class SlaJob:
     cups: list[tuple[int, float]] = field(default_factory=list)       # (layer index, sealed area mm2)
     cup_vents: list[dict] = field(default_factory=list)              # where a vent breaks each cup
     thin_layers: list[int] = field(default_factory=list)
+    thin_pending: tuple | None = None   # (shell layers, layer height) while the thin check is still to be done
     island_pillars: int = 0
     pillars: Mesh | None = None         # the cavity pillars as a mesh, for the 3D preview
     cups_checked: bool = False          # the suction-cup check ran (only with "Suggest drain / vent holes")
@@ -893,7 +894,7 @@ def _cavity_cells_chunk(pairs: list) -> list:
     return out
 
 
-def _post_chunk(items: list, first: bool, thicken: bool, r_thin: float, min_area: float) -> list:
+def _post_chunk(items: list, first: bool, thicken: bool, r_thin: float, min_area: float, check_thin: bool = True) -> list:
     """Everything done per layer once a group is sliced and hollowed, in one pass per chunk (one trip to the
     worker processes instead of four): thicken thin parts, the shell (no honeycomb infill), its thin part,
     and its enclosed cells for the suction-cup check. ``items`` are (layer, infill) and, unless ``first``,
@@ -910,7 +911,7 @@ def _post_chunk(items: list, first: bool, thicken: bool, r_thin: float, min_area
         if k == 0 and not first:
             prev_shell = shell                   # context only
             continue
-        thin = _thin_chunk([shell], r_thin, min_area)[0]
+        thin = _thin_chunk([shell], r_thin, min_area)[0] if check_thin else EMPTY
         cells = _cavity_cells_chunk([(shell, prev_shell)])[0]
         out.append((g, shell, thin, cells))
         prev_shell = shell
@@ -918,7 +919,7 @@ def _post_chunk(items: list, first: bool, thicken: bool, r_thin: float, min_area
 
 
 def _post_process(layers: list, infill: list | None, thicken: bool, min_width: float = 0.3,
-                  min_area: float = 0.05) -> list:
+                  min_area: float = 0.05, check_thin: bool = True) -> list:
     """``_post_chunk`` over all layers on all cores; returns one (layer, shell, thin, cells) per layer."""
     from . import parallel
     n = len(layers)
@@ -927,9 +928,24 @@ def _post_process(layers: list, infill: list | None, thicken: bool, min_width: f
     fills = infill if infill and len(infill) == n else [None] * n
     items = list(zip(layers, fills))
     ranges = parallel.chunk_ranges(n, 16, parallel.workers() * 2)
-    args = [(items[max(0, a - 1):b], a == 0, thicken, min_width / 2, min_area) for a, b in ranges]
+    args = [(items[max(0, a - 1):b], a == 0, thicken, min_width / 2, min_area, check_thin) for a, b in ranges]
     parts = parallel.run_chunks(_post_chunk, args, weights=[b - a for a, b in ranges])
     return [x for part in parts for x in part]
+
+
+def finish_thin_check(job: "SlaJob", cancelled: Callable[[], bool] | None = None) -> list[int]:
+    """The thin-feature check of a job sliced with ``defer_thin``: the layers whose thin parts last (as a
+    normal slice finds them), put on ``job.thin_layers``."""
+    pending = job.thin_pending
+    if pending is None:
+        return job.thin_layers
+    shell, lh = pending
+    thin = _per_layer(_thin_chunk, shell, 0.15, 0.05)
+    if cancelled and cancelled():
+        raise InterruptedError
+    job.thin_layers = _lasting_thin(thin, layer_height=lh)
+    job.thin_pending = None
+    return job.thin_layers
 
 
 def _post_thicken_incremental(base: list, layers: list, infill: list | None, changed: list, min_width: float = 0.3,
@@ -1363,7 +1379,8 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             holes: list[np.ndarray | None] | None = None, cutters: list[Mesh] | None = None,
             materials: list[str] | None = None, filled: list[bool] | None = None,
             model_settings: list[dict | None] | None = None,
-            prebuilt_supports: list[Mesh | None] | None = None, raft_label_frames: list | None = None) -> SlaJob:
+            prebuilt_supports: list[Mesh | None] | None = None, raft_label_frames: list | None = None,
+            defer_thin: bool = False) -> SlaJob:
     """Slice resin models. ``support_points[i]`` holds manual contact points for ``meshes[i]``
     (same coordinates, before elevation), or None to place supports automatically.
     ``prebuilt_supports[i]``: the support structure the window already built for ``meshes[i]`` (bed
@@ -1588,6 +1605,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
                     tuple(bool(filled and i < len(filled) and filled[i]) for i in range(len(models))),
                     tuple(tuple(c[k] for k in HOLLOW_KEYS) + (c["support_enable"], c["sla_pillar_diameter"]) for c in cfgs),
                     jetting,                                   # PolyJet is never hollowed: not the LCD run's layers
+                    defer_thin and not cfg["sla_thicken_thin"],
                     bool(cfg["sla_thicken_thin"]))
     post = _cache_get(post_key) if post_key else None
     base_key = post_key[:-1] + (False,) if post_key and post_key[-1] else None
@@ -1596,7 +1614,10 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         thicken = bool(cfg["sla_thicken_thin"])
         base = _cache_get(base_key) if base_key else None
         if base is None:
-            base = _post_process(layers, infill if hollowing else None, False)
+            # the thin check only warns (unless thin parts are thickened): the window has it done after the
+            # slice is shown (finish_thin_check) - it was a quarter of a plate's slicing time
+            base = _post_process(layers, infill if hollowing else None, False,
+                                 check_thin=thicken or not defer_thin)
             if base_key or (post_key and not thicken):
                 _cache_put(base_key or post_key, base)
         if thicken:
@@ -1648,6 +1669,8 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
     if (varied or any(r[3] for r in ranges)) and cfg["sla_format"] in ("sl1", "png_zip"):
         job.warnings.append(UNIFORM_FORMAT_NOTE)
     job.thin_layers = thin
+    if defer_thin and not cfg["sla_thicken_thin"]:
+        job.thin_pending = (shell, lh)             # finish_thin_check() works it out
     job.island_pillars = pillars
     if pillar_segments:
         job.pillars = _pillar_mesh(pillar_segments, [z for z, _ in stack], [h for _, h in stack])

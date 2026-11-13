@@ -534,6 +534,7 @@ STRINGS = {
     "check_no_cups": ("אין כוסות יניקה", "No suction cups"),
     "check_cups": ("כוס יניקה בשכבות {}–{} (עד {:.0f} ממ\"ר): הוסף חורי ניקוז או שנה את כיוון המודל", "Suction cup at layers {}–{} (up to {:.0f} mm²): add drain holes or reorient"),
     "check_no_thin": ("אין חלקים דקים מ-0.3 מ\"מ", "No features thinner than 0.3 mm"),
+    "check_thin_running": ("בודק חלקים דקים…", "Checking for thin features…"),
     "check_thin": ("חלקים דקים מ-0.3 מ\"מ ב-{} שכבות (החל משכבה {}). ייתכן שלא יודפסו", "Features thinner than 0.3 mm on {} layers (from layer {}); they may not print"),
     "note_cavity_small": ("החלל קטן מדי לחורי הניקוז", "The cavity is too small for the drain holes."),
     "note_no_drain": ("המודל חלול ללא חורי ניקוז: שרף לא מוקשה יילכד בפנים", "Hollowed without drain holes: uncured resin will stay trapped inside."),

@@ -1470,5 +1470,6 @@
 "Joints": "Соединения",
 "Join every neighbour": "Соединить всех соседей",
 "Minimal joints": "Минимум соединений",
-"Join every neighbour: a joint between every two neighbouring parts (a stiff plate). Minimal joints: each part joined one way only (less resin)": "Соединить всех соседей: соединение между каждыми двумя соседними моделями (жёсткая платформа). Минимум соединений: каждая модель соединена только одним путём (меньше смолы)"
+"Join every neighbour: a joint between every two neighbouring parts (a stiff plate). Minimal joints: each part joined one way only (less resin)": "Соединить всех соседей: соединение между каждыми двумя соседними моделями (жёсткая платформа). Минимум соединений: каждая модель соединена только одним путём (меньше смолы)",
+"Checking for thin features…": "Проверка тонких элементов…"
 }

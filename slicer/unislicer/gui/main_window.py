@@ -5775,7 +5775,7 @@ class MainWindow(QMainWindow):
                         if cancelled():
                             raise InterruptedError
                         progress(state.get("stage", "slice"), state.get("f", 0.0))
-                job = sla.prepare(meshes, cfg, progress, cancelled, **kw)
+                job = sla.prepare(meshes, cfg, progress, cancelled, defer_thin=True, **kw)
                 return ("sla", job, cfg)
             parts = [mt for o in models for mt in o.print_meshes()]
             fdm_meshes, tools = [m for m, _t in parts], [t for _m, t in parts]
@@ -5920,7 +5920,7 @@ class MainWindow(QMainWindow):
         state = {"stage": "slice", "f": 0.0}            # how far it is: a Slice that waits for it shows this
 
         def work(progress, cancelled):
-            sla.prepare(meshes, cfg, lambda stage, f: state.update(stage=stage, f=float(f)), cancelled, **kw)
+            sla.prepare(meshes, cfg, lambda stage, f: state.update(stage=stage, f=float(f)), cancelled, defer_thin=True, **kw)
             return None
 
         self._pre_task = Task(work, self)
@@ -6127,12 +6127,7 @@ class MainWindow(QMainWindow):
                     self.slice_info.setToolTip(split)
             self.stat_weight.set(f"{job.weight_g:.1f} g")
             self.stat_cost.set(f"₪{job.cost:.2f}")
-            warnings = [tr(ENGINE_TEXT[w]) if w in ENGINE_TEXT else self._engine_text(w, cfg) for w in job.warnings]
-            warnings = self._print_checks(job) + warnings
-            if job.saved_ml > 0:
-                warnings.insert(0, tr("saved_resin").format(job.saved_ml))
-            if job.island_pillars:
-                warnings.insert(0, tr("pillars_added").format(job.island_pillars))
+            warnings = self._sla_warnings(job, cfg)
             self._islands = {}
             for i, poly in job.islands:
                 self._islands.setdefault(i, []).append(poly)
@@ -6141,15 +6136,7 @@ class MainWindow(QMainWindow):
         self._keep_checks = False
         self.result_cfg = cfg
         if warnings:
-            import html
-
-            def line(w):
-                color = theme.SUCCESS if w.startswith("✓") else theme.TEXT_DIM if w.startswith("▸") else theme.WARNING
-                text = html.escape(w if w.startswith(("✓", "▸")) else "⚠ " + w)
-                return f'<div style="color:{color}">{text}</div>'
-            self.warn_label.setTextFormat(Qt.RichText)
-            self.warn_label.setText("".join(line(w) for w in warnings))
-            self._show_check_rows(warnings, result)
+            self._show_warnings(warnings, result)
         self.layer_slider.blockSignals(True)
         self.layer_slider.setRange(0, max(0, n - 1))
         self.layer_slider.setValue(n - 1)
@@ -6160,6 +6147,8 @@ class MainWindow(QMainWindow):
         self.set_mode("preview", slice_if_needed=False)
         self._on_layer(n - 1)
         self._schedule_suggestions()
+        if result[0] == "sla":
+            self._finish_thin_check(result)
 
     def set_mode(self, mode: str, slice_if_needed: bool = True):
         self.edit_bar.hide()
@@ -6405,6 +6394,43 @@ class MainWindow(QMainWindow):
         self.select_all()
         self.repair_selected()
 
+    def _sla_warnings(self, job, cfg) -> list[str]:
+        warnings = [tr(ENGINE_TEXT[w]) if w in ENGINE_TEXT else self._engine_text(w, cfg) for w in job.warnings]
+        warnings = self._print_checks(job) + warnings
+        if job.saved_ml > 0:
+            warnings.insert(0, tr("saved_resin").format(job.saved_ml))
+        if job.island_pillars:
+            warnings.insert(0, tr("pillars_added").format(job.island_pillars))
+        return warnings
+
+    def _show_warnings(self, warnings, result):
+        import html
+
+        def line(w):
+            color = theme.SUCCESS if w.startswith("✓") else theme.TEXT_DIM if w.startswith("▸") else theme.WARNING
+            text = html.escape(w if w.startswith(("✓", "▸")) else "⚠ " + w)
+            return f'<div style="color:{color}">{text}</div>'
+        self.warn_label.setTextFormat(Qt.RichText)
+        self.warn_label.setText("".join(line(w) for w in warnings))
+        self._show_check_rows(warnings, result)
+
+    def _finish_thin_check(self, result):
+        """The thin-feature check of a fresh slice, in the background once the slice shows (it was a quarter
+        of the slicing time); its line in the checks is filled in when it is done."""
+        job = result[1]
+        if getattr(job, "thin_pending", None) is None:
+            return
+
+        def work(progress, cancelled):
+            return sla.finish_thin_check(job, cancelled)
+
+        def done(_res):
+            if self.result is result and not self.__dict__.get("_closed"):
+                self._show_warnings(self._sla_warnings(job, result[2]), result)
+        task = self._thin_task = Task(work, self)
+        task.succeeded.connect(done)
+        task.start(QThread.LowPriority)
+
     @staticmethod
     def _print_checks(job) -> list[str]:
         """PreForm-style validation lines; ✓ lines are passes, the others are warnings."""
@@ -6421,7 +6447,9 @@ class MainWindow(QMainWindow):
             out.append(tr("check_cups").format(first + 1, last + 1, max(a for _, a in job.cups)))
         elif getattr(job, "cups_checked", False):
             out.append("✓ " + tr("check_no_cups"))
-        if job.thin_layers:
+        if getattr(job, "thin_pending", None) is not None:
+            out.append("▸ " + tr("check_thin_running"))     # worked out right after the slice shows
+        elif job.thin_layers:
             out.append(tr("check_thin").format(len(job.thin_layers), job.thin_layers[0] + 1))
         else:
             out.append("✓ " + tr("check_no_thin"))
@@ -7667,7 +7695,7 @@ class MainWindow(QMainWindow):
         self._sup_pending.clear()                    # no new support builds; let a running one finish
         for t in (getattr(self, "_autosave_task", None), getattr(self, "_orient_task", None),
                   getattr(self, "_sup_task", None), getattr(self, "_colmap_task", None),
-                  getattr(self, "_joints_task", None)):
+                  getattr(self, "_joints_task", None), getattr(self, "_thin_task", None)):
             if t is not None and t.isRunning():
                 t.wait(5000)
         if getattr(self, "remote", None) is not None:

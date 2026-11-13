@@ -1470,5 +1470,6 @@
 "Joints": "الوصلات",
 "Join every neighbour": "ربط كل الجيران",
 "Minimal joints": "أقل عدد من الوصلات",
-"Join every neighbour: a joint between every two neighbouring parts (a stiff plate). Minimal joints: each part joined one way only (less resin)": "ربط كل الجيران: وصلة بين كل نموذجين متجاورين (منصة صلبة). أقل عدد من الوصلات: كل نموذج مربوط بطريق واحد فقط (راتنج أقل)"
+"Join every neighbour: a joint between every two neighbouring parts (a stiff plate). Minimal joints: each part joined one way only (less resin)": "ربط كل الجيران: وصلة بين كل نموذجين متجاورين (منصة صلبة). أقل عدد من الوصلات: كل نموذج مربوط بطريق واحد فقط (راتنج أقل)",
+"Checking for thin features…": "جارٍ فحص الأجزاء الرقيقة…"
 }

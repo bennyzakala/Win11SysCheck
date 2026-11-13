@@ -4089,6 +4089,11 @@ def test_fix_keeps_the_check_list_and_fix_all_slices_once():
             end = time.time() + 120
             while (w.result is None or (w.task is not None and w.task.isRunning())) and time.time() < end:
                 app.processEvents(); time.sleep(0.01)
+            # the thin check comes a moment after the slice shows
+            while w.result is not None and w.result[1].thin_pending is not None and time.time() < end:
+                app.processEvents(); time.sleep(0.01)
+            for _ in range(10):
+                app.processEvents()
         run_slice()
         n = len(w.check_fix_buttons)
         assert n >= 2, [t for t, _ in w.check_fix_buttons]
@@ -9055,3 +9060,64 @@ def test_worker_processes_end_with_the_program_however_it_ends(tmp_path):
         assert parallel.pool() is None, "no new workers once the program is ending"
     finally:
         parallel._final = old
+
+
+def test_the_thin_check_is_done_after_the_slice_shows(tmp_path):
+    """The thin-feature check was a quarter of slicing a plate, and it only warns (unless thin parts are
+    thickened). The window slices without it and has it done right after the slice shows; its line is filled
+    in then - the same layers as a slice that checks them itself."""
+    from unislicer import primitives, profiles, sla
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": False})
+    thin_crown = primitives.crown_cap(9.0, 8.0, wall=0.2).translated([50, 50, 0])
+    plain = sla.prepare([thin_crown], cfg)
+    assert plain.thin_layers and plain.thin_pending is None
+    sla._cache.clear()
+    later = sla.prepare([thin_crown], cfg, defer_thin=True)
+    assert later.thin_pending is not None and later.thin_layers == []
+    assert sla.finish_thin_check(later) == plain.thin_layers and later.thin_pending is None
+    thick = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": False, "sla_thicken_thin": True})
+    assert sla.prepare([thin_crown], thick, defer_thin=True).thin_pending is None    # thickening needs it now
+
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from PySide6.QtWidgets import QMessageBox
+        for k in ("question", "warning", "information", "critical"):
+            setattr(QMessageBox, k, staticmethod(lambda *a, **kw: QMessageBox.Yes))
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui.i18n import tr
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus")
+        w.settings.set_value("support_enable", False)
+        o = w.add_mesh(primitives.crown_cap(9.0, 8.0, wall=0.2)); app.processEvents()
+        w.arrange_objects()
+        settle = time.time() + 2                       # the setting and plate changes land first
+        while time.time() < settle:
+            app.processEvents(); time.sleep(0.02)
+        w._confirm_supports = lambda *a: True          # (asks whether to slice without supports)
+        w.slice()
+        end = time.time() + 120
+        while time.time() < end and w.result is None:
+            app.processEvents(); time.sleep(0.02)
+        job = w.result[1]
+        while time.time() < end and job.thin_pending is not None:
+            app.processEvents(); time.sleep(0.02)
+        for _ in range(20):
+            app.processEvents()
+        assert job.thin_pending is None and job.thin_layers, job.thin_layers
+        import html
+        shown = html.unescape(w.warn_label.text())
+        assert tr("check_thin").split("{")[0].strip() in shown, shown
+        assert tr("check_thin_running") not in shown, shown
+        w.close()
+        print("OK", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
+                       env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
