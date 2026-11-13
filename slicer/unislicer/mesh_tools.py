@@ -59,12 +59,35 @@ def text_polygons(text: str, height: float, font_family: str = "") -> MultiPolyg
     return out
 
 
+_FALLBACK_FAMILIES = ("Segoe UI", "Arial", "Noto Sans", "DejaVu Sans", "Liberation Sans", "Helvetica")
+
+
+def _text_path(text: str, font_family: str):
+    """Qt's outline of ``text``. Qt's default font can draw nothing (a bare process on Windows without the
+    app's theme): then the first installed family of a few common ones that does draw is used."""
+    from PySide6.QtGui import QFont, QFontDatabase, QPainterPath
+
+    def outline(family):
+        font = QFont(family) if family else QFont()
+        font.setPointSizeF(100.0)
+        path = QPainterPath()
+        path.addText(0, 0, font, text)
+        return path
+    path = outline(font_family)
+    if path.isEmpty() and text.strip():
+        try:
+            installed = set(QFontDatabase.families())
+        except Exception:
+            installed = set()
+        for family in [f for f in _FALLBACK_FAMILIES if f in installed] + sorted(installed)[:20]:
+            alt = outline(family)
+            if not alt.isEmpty():
+                return alt
+    return path
+
+
 def _text_polygons(text: str, height: float, font_family: str = "") -> MultiPolygon:
-    from PySide6.QtGui import QFont, QPainterPath
-    font = QFont(font_family) if font_family else QFont()
-    font.setPointSizeF(100.0)
-    path = QPainterPath()
-    path.addText(0, 0, font, text)
+    path = _text_path(text, font_family)
     rings = []
     for poly in path.toSubpathPolygons():
         pts = [(p.x(), -p.y()) for p in poly]           # Qt's y axis points down

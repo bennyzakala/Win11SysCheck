@@ -5008,6 +5008,44 @@ def test_model_menu_keeps_print_on_plate_raft_and_fill():
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_text_falls_back_to_an_installed_font_when_the_default_draws_nothing(monkeypatch):
+    """Windows CI: in a bare process (no app theme) Qt's default font drew no outline on the offscreen
+    platform, so the plate's FRONT label (and any text) came out empty. An installed family is used then."""
+    pytest.importorskip("PySide6")
+    import PySide6.QtGui as qtgui
+    from PySide6.QtCore import QPointF
+    from unislicer import mesh_tools
+
+    class FakeFont:
+        def __init__(self, family=""):
+            self.family = family
+
+        def setPointSizeF(self, v):
+            pass
+
+    class FakePath:
+        def __init__(self):
+            self.drawn = False
+
+        def addText(self, x, y, font, text):
+            self.drawn = font.family == "DejaVu Sans"          # only a named family draws
+
+        def isEmpty(self):
+            return not self.drawn
+
+        def toSubpathPolygons(self):
+            return [[QPointF(0, 0), QPointF(10, 0), QPointF(10, -10), QPointF(0, -10), QPointF(0, 0)]] \
+                if self.drawn else []
+
+    monkeypatch.setattr(qtgui, "QPainterPath", FakePath)
+    monkeypatch.setattr(qtgui, "QFont", FakeFont)
+    monkeypatch.setattr(qtgui.QFontDatabase, "families", staticmethod(lambda *a: ["Zzz", "DejaVu Sans"]))
+    mesh_tools._TEXT_CACHE.clear()
+    polys = mesh_tools.text_polygons("FRONT", 4.0)
+    mesh_tools._TEXT_CACHE.clear()
+    assert not polys.is_empty and abs(polys.bounds[3] - polys.bounds[1] - 4.0) < 1e-6
+
+
 def test_text_survives_a_two_point_glyph_sliver(monkeypatch):
     """Qt returns every glyph outline closed (last point = first); a sliver of two distinct points became a
     3-point ring and GEOS refused it ('Invalid number of points in LinearRing found 3'), failing the slice."""
@@ -5019,6 +5057,9 @@ def test_text_survives_a_two_point_glyph_sliver(monkeypatch):
     class FakePath:
         def addText(self, *a):
             pass
+
+        def isEmpty(self):
+            return False
 
         def toSubpathPolygons(self):
             square = [QPointF(0, 0), QPointF(10, 0), QPointF(10, -10), QPointF(0, -10), QPointF(0, 0)]
@@ -9222,7 +9263,8 @@ def test_the_plate_says_front():
         from unislicer.gui.viewer import Viewer
         for plate in ((0.0, 0.0, 199.68, 124.8), (10.0, 20.0, 90.0, 70.0)):
             L = Viewer.front_label_lines(plate)
-            assert len(L) > 40 and len(L) % 2 == 0
+            from PySide6.QtGui import QFont, QFontDatabase
+            assert len(L) > 40 and len(L) % 2 == 0, (len(L), QFont().family(), QFontDatabase.families()[:8])
             x0, y0, x1, y1 = plate
             assert L[:, 1].max() < y0 and L[:, 1].min() > y0 - 15          # just in front of the front edge
             assert abs((L[:, 0].min() + L[:, 0].max()) / 2 - (x0 + x1) / 2) < 0.5   # centred
