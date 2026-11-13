@@ -1,59 +1,87 @@
 {
  "111200100ab3/pillar/mini": {
-  "points": 33,
-  "raft_area": 198.7,
+  "points": 40,
+  "raft_area": 205.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 33
+  "used": 40
  },
  "111200100ab3/pillar/none": {
-  "points": 33,
+  "points": 40,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 33
+  "used": 40
  },
- "111200100ab3/tree/solid": {
-  "points": 33,
-  "raft_area": 400.5,
+ "111200100ab3/tree/raft_label": {
+  "points": 40,
+  "raft_area": 422.7,
   "sticking_out": 0,
   "through": 0,
-  "used": 33
+  "used": 40
+ },
+ "111200100ab3/tree/solid": {
+  "points": 40,
+  "raft_area": 403.6,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 40
+ },
+ "111200100ab3/tree/solid_lite": {
+  "points": 40,
+  "raft_area": 333.8,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 40
  },
  "111200100ab3/tree/tiny": {
-  "points": 33,
+  "points": 40,
   "raft_area": 219.8,
   "sticking_out": 0,
   "through": 0,
-  "used": 33
+  "used": 40
  },
  "131b8056df0f/pillar/mini": {
-  "points": 78,
-  "raft_area": 902.7,
+  "points": 35,
+  "raft_area": 512.7,
   "sticking_out": 0,
   "through": 0,
-  "used": 78
+  "used": 35
  },
  "131b8056df0f/pillar/none": {
-  "points": 78,
+  "points": 35,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 78
+  "used": 35
+ },
+ "131b8056df0f/tree/raft_label": {
+  "points": 35,
+  "raft_area": 1277.5,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 35
  },
  "131b8056df0f/tree/solid": {
-  "points": 78,
-  "raft_area": 1827.7,
+  "points": 35,
+  "raft_area": 1747.6,
   "sticking_out": 0,
   "through": 0,
-  "used": 78
+  "used": 35
+ },
+ "131b8056df0f/tree/solid_lite": {
+  "points": 35,
+  "raft_area": 1277.5,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 35
  },
  "131b8056df0f/tree/tiny": {
-  "points": 78,
-  "raft_area": 1013.1,
+  "points": 35,
+  "raft_area": 1013.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 78
+  "used": 35
  },
  "2de91ee79588/pillar/mini": {
   "points": 3,
@@ -69,6 +97,13 @@
   "through": 0,
   "used": 3
  },
+ "2de91ee79588/tree/raft_label": {
+  "points": 3,
+  "raft_area": 78.4,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 3
+ },
  "2de91ee79588/tree/solid": {
   "points": 3,
   "raft_area": 47.1,
@@ -76,16 +111,23 @@
   "through": 0,
   "used": 3
  },
+ "2de91ee79588/tree/solid_lite": {
+  "points": 3,
+  "raft_area": 108.6,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 3
+ },
  "2de91ee79588/tree/tiny": {
   "points": 3,
-  "raft_area": 40.6,
+  "raft_area": 40.4,
   "sticking_out": 0,
   "through": 0,
   "used": 3
  },
  "325dc9aa88a6/pillar/mini": {
   "points": 4,
-  "raft_area": 41.4,
+  "raft_area": 41.3,
   "sticking_out": 0,
   "through": 0,
   "used": 4
@@ -97,16 +139,30 @@
   "through": 0,
   "used": 4
  },
+ "325dc9aa88a6/tree/raft_label": {
+  "points": 4,
+  "raft_area": 46.1,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 4
+ },
  "325dc9aa88a6/tree/solid": {
   "points": 4,
-  "raft_area": 95.6,
+  "raft_area": 95.5,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 4
+ },
+ "325dc9aa88a6/tree/solid_lite": {
+  "points": 4,
+  "raft_area": 73.3,
   "sticking_out": 0,
   "through": 0,
   "used": 4
  },
  "325dc9aa88a6/tree/tiny": {
   "points": 4,
-  "raft_area": 17.7,
+  "raft_area": 17.6,
   "sticking_out": 0,
   "through": 0,
   "used": 4
@@ -125,9 +181,23 @@
   "through": 0,
   "used": 35
  },
+ "50a1606b14eb/tree/raft_label": {
+  "points": 35,
+  "raft_area": 296.3,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 35
+ },
  "50a1606b14eb/tree/solid": {
   "points": 35,
   "raft_area": 377.6,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 35
+ },
+ "50a1606b14eb/tree/solid_lite": {
+  "points": 35,
+  "raft_area": 207.8,
   "sticking_out": 0,
   "through": 0,
   "used": 35
@@ -140,116 +210,172 @@
   "used": 35
  },
  "51dd5f4ed249/pillar/mini": {
-  "points": 45,
-  "raft_area": 440.3,
+  "points": 61,
+  "raft_area": 464.8,
   "sticking_out": 0,
   "through": 0,
-  "used": 45
+  "used": 61
  },
  "51dd5f4ed249/pillar/none": {
-  "points": 45,
+  "points": 61,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 45
+  "used": 61
+ },
+ "51dd5f4ed249/tree/raft_label": {
+  "points": 61,
+  "raft_area": 718.6,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 61
  },
  "51dd5f4ed249/tree/solid": {
-  "points": 45,
-  "raft_area": 1184.0,
+  "points": 61,
+  "raft_area": 1188.8,
   "sticking_out": 0,
   "through": 0,
-  "used": 45
+  "used": 61
+ },
+ "51dd5f4ed249/tree/solid_lite": {
+  "points": 61,
+  "raft_area": 602.9,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 61
  },
  "51dd5f4ed249/tree/tiny": {
-  "points": 45,
-  "raft_area": 405.2,
+  "points": 61,
+  "raft_area": 405.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 45
+  "used": 61
  },
  "5b6144aaddea/pillar/mini": {
-  "points": 6,
-  "raft_area": 59.2,
+  "points": 22,
+  "raft_area": 122.2,
   "sticking_out": 0,
   "through": 0,
-  "used": 6
+  "used": 22
  },
  "5b6144aaddea/pillar/none": {
-  "points": 6,
+  "points": 22,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 6
+  "used": 22
+ },
+ "5b6144aaddea/tree/raft_label": {
+  "points": 22,
+  "raft_area": 320.7,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 22
  },
  "5b6144aaddea/tree/solid": {
-  "points": 6,
-  "raft_area": 179.6,
+  "points": 22,
+  "raft_area": 276.5,
   "sticking_out": 0,
   "through": 0,
-  "used": 6
+  "used": 22
+ },
+ "5b6144aaddea/tree/solid_lite": {
+  "points": 22,
+  "raft_area": 222.4,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 22
  },
  "5b6144aaddea/tree/tiny": {
-  "points": 6,
-  "raft_area": 125.5,
+  "points": 22,
+  "raft_area": 125.6,
   "sticking_out": 0,
   "through": 0,
-  "used": 6
+  "used": 22
  },
  "6b6412d1a9c4/pillar/mini": {
-  "points": 38,
-  "raft_area": 286.3,
+  "points": 53,
+  "raft_area": 302.2,
   "sticking_out": 0,
   "through": 0,
-  "used": 38
+  "used": 53
  },
  "6b6412d1a9c4/pillar/none": {
-  "points": 38,
+  "points": 53,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 38
+  "used": 53
+ },
+ "6b6412d1a9c4/tree/raft_label": {
+  "points": 53,
+  "raft_area": 435.5,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 53
  },
  "6b6412d1a9c4/tree/solid": {
-  "points": 38,
-  "raft_area": 536.5,
+  "points": 53,
+  "raft_area": 542.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 38
+  "used": 53
+ },
+ "6b6412d1a9c4/tree/solid_lite": {
+  "points": 53,
+  "raft_area": 328.0,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 53
  },
  "6b6412d1a9c4/tree/tiny": {
-  "points": 38,
-  "raft_area": 226.4,
+  "points": 53,
+  "raft_area": 226.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 38
+  "used": 53
  },
  "7c2fb346c415/pillar/mini": {
-  "points": 82,
-  "raft_area": 928.0,
+  "points": 27,
+  "raft_area": 429.6,
   "sticking_out": 0,
   "through": 0,
-  "used": 78
+  "used": 27
  },
  "7c2fb346c415/pillar/none": {
-  "points": 82,
+  "points": 27,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 78
+  "used": 27
+ },
+ "7c2fb346c415/tree/raft_label": {
+  "points": 27,
+  "raft_area": 1212.6,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 27
  },
  "7c2fb346c415/tree/solid": {
-  "points": 82,
-  "raft_area": 1893.2,
+  "points": 27,
+  "raft_area": 1504.8,
   "sticking_out": 0,
   "through": 0,
-  "used": 78
+  "used": 27
+ },
+ "7c2fb346c415/tree/solid_lite": {
+  "points": 27,
+  "raft_area": 1212.6,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 27
  },
  "7c2fb346c415/tree/tiny": {
-  "points": 82,
-  "raft_area": 946.1,
+  "points": 27,
+  "raft_area": 946.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 78
+  "used": 27
  },
  "7ed9b6731225/pillar/mini": {
   "points": 9,
@@ -265,214 +391,326 @@
   "through": 0,
   "used": 9
  },
+ "7ed9b6731225/tree/raft_label": {
+  "points": 9,
+  "raft_area": 101.4,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 9
+ },
  "7ed9b6731225/tree/solid": {
   "points": 9,
-  "raft_area": 178.3,
+  "raft_area": 178.2,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 9
+ },
+ "7ed9b6731225/tree/solid_lite": {
+  "points": 9,
+  "raft_area": 101.4,
   "sticking_out": 0,
   "through": 0,
   "used": 9
  },
  "7ed9b6731225/tree/tiny": {
   "points": 9,
-  "raft_area": 54.6,
+  "raft_area": 54.7,
   "sticking_out": 0,
   "through": 0,
   "used": 9
  },
  "8e89ae41cd2d/pillar/mini": {
-  "points": 20,
-  "raft_area": 202.0,
+  "points": 24,
+  "raft_area": 211.2,
   "sticking_out": 0,
   "through": 0,
-  "used": 20
+  "used": 24
  },
  "8e89ae41cd2d/pillar/none": {
-  "points": 20,
+  "points": 24,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 20
+  "used": 24
+ },
+ "8e89ae41cd2d/tree/raft_label": {
+  "points": 24,
+  "raft_area": 432.4,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 24
  },
  "8e89ae41cd2d/tree/solid": {
-  "points": 20,
+  "points": 24,
   "raft_area": 514.6,
   "sticking_out": 0,
   "through": 0,
-  "used": 20
+  "used": 24
+ },
+ "8e89ae41cd2d/tree/solid_lite": {
+  "points": 24,
+  "raft_area": 324.3,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 24
  },
  "8e89ae41cd2d/tree/tiny": {
-  "points": 20,
+  "points": 24,
   "raft_area": 225.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 20
+  "used": 24
  },
  "a159460e4799/pillar/mini": {
-  "points": 20,
-  "raft_area": 227.1,
+  "points": 23,
+  "raft_area": 232.5,
   "sticking_out": 0,
   "through": 0,
-  "used": 20
+  "used": 23
  },
  "a159460e4799/pillar/none": {
-  "points": 20,
+  "points": 23,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 20
+  "used": 23
+ },
+ "a159460e4799/tree/raft_label": {
+  "points": 23,
+  "raft_area": 370.8,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 23
  },
  "a159460e4799/tree/solid": {
-  "points": 20,
-  "raft_area": 524.3,
+  "points": 23,
+  "raft_area": 528.6,
   "sticking_out": 0,
   "through": 0,
-  "used": 20
+  "used": 23
+ },
+ "a159460e4799/tree/solid_lite": {
+  "points": 23,
+  "raft_area": 299.4,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 23
  },
  "a159460e4799/tree/tiny": {
-  "points": 20,
-  "raft_area": 159.1,
+  "points": 23,
+  "raft_area": 159.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 20
+  "used": 23
  },
  "a55ee9ccba0f/pillar/mini": {
-  "points": 38,
-  "raft_area": 206.3,
+  "points": 43,
+  "raft_area": 208.1,
   "sticking_out": 0,
   "through": 0,
-  "used": 38
+  "used": 43
  },
  "a55ee9ccba0f/pillar/none": {
-  "points": 38,
+  "points": 43,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 38
+  "used": 43
  },
- "a55ee9ccba0f/tree/solid": {
-  "points": 38,
-  "raft_area": 336.2,
+ "a55ee9ccba0f/tree/raft_label": {
+  "points": 43,
+  "raft_area": 303.8,
   "sticking_out": 0,
   "through": 0,
-  "used": 38
+  "used": 43
+ },
+ "a55ee9ccba0f/tree/solid": {
+  "points": 43,
+  "raft_area": 335.8,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 43
+ },
+ "a55ee9ccba0f/tree/solid_lite": {
+  "points": 43,
+  "raft_area": 200.9,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 43
  },
  "a55ee9ccba0f/tree/tiny": {
-  "points": 38,
+  "points": 43,
   "raft_area": 134.1,
   "sticking_out": 0,
   "through": 0,
-  "used": 38
+  "used": 43
  },
  "ddf7e456ac16/pillar/mini": {
-  "points": 16,
-  "raft_area": 156.4,
+  "points": 30,
+  "raft_area": 182.7,
   "sticking_out": 0,
   "through": 0,
-  "used": 16
+  "used": 30
  },
  "ddf7e456ac16/pillar/none": {
-  "points": 16,
+  "points": 30,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 16
+  "used": 30
+ },
+ "ddf7e456ac16/tree/raft_label": {
+  "points": 30,
+  "raft_area": 394.1,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 30
  },
  "ddf7e456ac16/tree/solid": {
-  "points": 16,
-  "raft_area": 372.2,
+  "points": 30,
+  "raft_area": 394.6,
   "sticking_out": 0,
   "through": 0,
-  "used": 16
+  "used": 30
+ },
+ "ddf7e456ac16/tree/solid_lite": {
+  "points": 30,
+  "raft_area": 291.0,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 30
  },
  "ddf7e456ac16/tree/tiny": {
-  "points": 16,
-  "raft_area": 181.6,
+  "points": 30,
+  "raft_area": 181.7,
   "sticking_out": 0,
   "through": 0,
-  "used": 16
+  "used": 30
  },
  "e4abc666a58d/pillar/mini": {
-  "points": 14,
-  "raft_area": 107.1,
+  "points": 22,
+  "raft_area": 129.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 14
+  "used": 22
  },
  "e4abc666a58d/pillar/none": {
-  "points": 14,
+  "points": 22,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 14
+  "used": 22
  },
- "e4abc666a58d/tree/solid": {
-  "points": 14,
-  "raft_area": 269.0,
+ "e4abc666a58d/tree/raft_label": {
+  "points": 22,
+  "raft_area": 282.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 14
+  "used": 22
+ },
+ "e4abc666a58d/tree/solid": {
+  "points": 22,
+  "raft_area": 277.3,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 22
+ },
+ "e4abc666a58d/tree/solid_lite": {
+  "points": 22,
+  "raft_area": 180.4,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 22
  },
  "e4abc666a58d/tree/tiny": {
-  "points": 14,
+  "points": 22,
   "raft_area": 121.1,
   "sticking_out": 0,
   "through": 0,
-  "used": 14
+  "used": 22
  },
  "ea9e67ed7b91/pillar/mini": {
-  "points": 29,
-  "raft_area": 204.5,
+  "points": 43,
+  "raft_area": 230.1,
   "sticking_out": 0,
   "through": 0,
-  "used": 29
+  "used": 43
  },
  "ea9e67ed7b91/pillar/none": {
-  "points": 29,
+  "points": 43,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 29
+  "used": 43
+ },
+ "ea9e67ed7b91/tree/raft_label": {
+  "points": 43,
+  "raft_area": 499.8,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 43
  },
  "ea9e67ed7b91/tree/solid": {
-  "points": 29,
-  "raft_area": 452.5,
+  "points": 43,
+  "raft_area": 466.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 29
+  "used": 43
+ },
+ "ea9e67ed7b91/tree/solid_lite": {
+  "points": 43,
+  "raft_area": 392.2,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 43
  },
  "ea9e67ed7b91/tree/tiny": {
-  "points": 29,
-  "raft_area": 274.2,
+  "points": 43,
+  "raft_area": 274.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 29
+  "used": 43
  },
  "f7ed7f27889e/pillar/mini": {
-  "points": 163,
-  "raft_area": 1879.7,
+  "points": 53,
+  "raft_area": 784.9,
   "sticking_out": 0,
   "through": 0,
-  "used": 161
+  "used": 52
  },
  "f7ed7f27889e/pillar/none": {
-  "points": 163,
+  "points": 53,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 161
+  "used": 52
+ },
+ "f7ed7f27889e/tree/raft_label": {
+  "points": 53,
+  "raft_area": 2490.0,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 52
  },
  "f7ed7f27889e/tree/solid": {
-  "points": 163,
-  "raft_area": 3727.2,
+  "points": 53,
+  "raft_area": 3475.1,
   "sticking_out": 0,
   "through": 0,
-  "used": 161
+  "used": 52
+ },
+ "f7ed7f27889e/tree/solid_lite": {
+  "points": 53,
+  "raft_area": 2490.0,
+  "sticking_out": 0,
+  "through": 0,
+  "used": 52
  },
  "f7ed7f27889e/tree/tiny": {
-  "points": 163,
-  "raft_area": 2047.6,
+  "points": 53,
+  "raft_area": 2047.9,
   "sticking_out": 0,
   "through": 0,
-  "used": 161
+  "used": 52
  }
 }

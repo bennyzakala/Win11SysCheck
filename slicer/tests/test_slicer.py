@@ -9194,3 +9194,41 @@ def test_a_single_support_build_is_never_left_marked_running(tmp_path):
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env,
                        encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_models_get_their_supports_5_5_mm_apart():
+    """Lab: support points 5.5 mm apart by default on (jaw) models - the Model and Model U types; crowns,
+    guides and the rest keep their own spacing."""
+    from unislicer import profiles
+    def spacing(t):
+        return profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"sla_model_type": t})["sla_support_spacing"]
+    assert spacing("model") == 5.5 and spacing("model_u") == 5.5
+    assert spacing("cb") == 2.0 and spacing("guide") == 2.5
+    # a die keeps its points closer (5.5 mm apart left a small die on a single support)
+    from unislicer import dental_cad
+    assert dental_cad.model_type_of("EGI-SOD260046764-114-Z-14-14-1-00-V227_Tooth_14.stl", None) == "die"
+    assert spacing("die") == 3.0
+
+
+def test_the_plate_says_front():
+    """Lab: the word FRONT on the plate - drawn in the 3D view just in front of the plate's front edge (its
+    lowest y, where the 'Front' view looks from), centred, flat on the plate."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.viewer import Viewer
+        for plate in ((0.0, 0.0, 199.68, 124.8), (10.0, 20.0, 90.0, 70.0)):
+            L = Viewer.front_label_lines(plate)
+            assert len(L) > 40 and len(L) % 2 == 0
+            x0, y0, x1, y1 = plate
+            assert L[:, 1].max() < y0 and L[:, 1].min() > y0 - 15          # just in front of the front edge
+            assert abs((L[:, 0].min() + L[:, 0].max()) / 2 - (x0 + x1) / 2) < 0.5   # centred
+            assert abs(L[:, 2].max()) < 0.1                                   # flat on the plate
+        print("OK", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

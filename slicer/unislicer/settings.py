@@ -205,7 +205,7 @@ SCHEMA: list[Setting] = [
     S("sla_model_type", "enum", "auto", "support", "sla", "סוג מודל", "Model type",
       options=(("auto", "אוטומטי (לפי שם הקובץ)", "Automatic (by file name)"),
                ("cb", "כתר / גשר (C/B)", "Crown / bridge (C/B)"), ("guide", "מדריך כירורגי", "Surgical guide"),
-               ("model", "מודל", "Model"), ("model_u", "מודל U (פרסה)", "Model U (horseshoe)"),
+               ("model", "מודל", "Model"), ("model_u", "מודל U (פרסה)", "Model U (horseshoe)"), ("die", "דאי", "Die"),
                ("splint_h", "סד (אופקי)", "Splint (horizontal)"), ("splint_v", "סד (אנכי)", "Splint (vertical)"),
                ("denture", "תותבת", "Denture"), ("plate", "לפי הגדרות התמיכות", "As the support settings")),
       tip_he="כל סוג קובע את התמיכות שלו: גודל נקודת המגע, עובי, צפיפות, זווית, ואיפה לא לשים תמיכות. "
@@ -495,10 +495,13 @@ MODEL_TYPE_PRESETS = {
            "sla_contact_depth": 0.15, "sla_avoid_fit": True, "sla_skip_ledges": False},
     "guide": {"sla_tip_diameter": 0.4, "sla_pillar_diameter": 1.0, "sla_support_spacing": 2.5, "support_angle": 45.0,
               "sla_contact_depth": 0.2, "sla_avoid_fit": True, "sla_skip_ledges": False},
-    "model": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 3.0, "support_angle": 50.0,
+    "model": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 5.5, "support_angle": 50.0,
               "sla_contact_depth": 0.2, "sla_avoid_fit": False, "sla_skip_ledges": True},
-    "model_u": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 2.5, "support_angle": 50.0,
+    "model_u": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 5.5, "support_angle": 50.0,
                 "sla_contact_depth": 0.2, "sla_avoid_fit": False, "sla_skip_ledges": True},
+    # a die: supported like a model, but its points closer (5.5 mm apart left a small die on one support)
+    "die": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 3.0, "support_angle": 50.0,
+            "sla_contact_depth": 0.2, "sla_avoid_fit": False, "sla_skip_ledges": True},
     "splint_h": {"sla_tip_diameter": 0.4, "sla_pillar_diameter": 1.0, "sla_support_spacing": 2.5, "support_angle": 40.0,
                  "sla_contact_depth": 0.2, "sla_avoid_fit": True, "sla_skip_ledges": False},
     "splint_v": {"sla_tip_diameter": 0.35, "sla_pillar_diameter": 0.9, "sla_support_spacing": 3.0, "support_angle": 45.0,
@@ -508,7 +511,7 @@ MODEL_TYPE_PRESETS = {
 }
 MODEL_TYPE_KEYS = {k for p in MODEL_TYPE_PRESETS.values() for k in p}
 # the dental indication found from a file's name / shape -> its model type
-KIND_MODEL_TYPE = {"crown": "cb", "gingiva": "cb", "guide": "guide", "model": "model", "die": "model",
+KIND_MODEL_TYPE = {"crown": "cb", "gingiva": "cb", "guide": "guide", "model": "model", "die": "die",
                    "splint": "splint_h", "denture": "denture"}
 
 

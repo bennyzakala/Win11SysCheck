@@ -785,6 +785,7 @@ class Viewer(QOpenGLWidget):
             self._empty_vao = GL.glGenVertexArrays(1)
             self._bed_buf = None
             self._box_buf = None
+            self._front_buf, self._front_key = None, None
             self._trash_list = []
             self._ready = True
             print("OpenGL:", GL.glGetString(GL.GL_VERSION), GL.glGetString(GL.GL_RENDERER), file=sys.stderr, flush=True)
@@ -901,6 +902,11 @@ class Viewer(QOpenGLWidget):
         GL.glUniformMatrix4fv(self._u(self._line_prog, "uMVP"), 1, GL.GL_TRUE, mvp)
         GL.glUniform4f(self._u(self._line_prog, "uColor"), 0.45, 0.55, 0.75, 0.35)
         self._box_buf.draw(GL.GL_LINES)
+        front = self._front_label()
+        if front is not None:                    # "FRONT" in front of the plate's front edge
+            accent = QColor(theme.ACCENT)
+            GL.glUniform4f(self._u(self._line_prog, "uColor"), accent.redF(), accent.greenF(), accent.blueF(), 0.9)
+            front.draw(GL.GL_LINES)
         GL.glDisable(GL.GL_BLEND)
 
         preview = self.mode == self.MODE_PREVIEW
@@ -1196,6 +1202,42 @@ class Viewer(QOpenGLWidget):
         GL.glUniform2f(self._u(prog, "uSector"), float(np.radians(start)),
                        float(np.radians(width)) if shape in ("round", "ring") else 0.0)
         GL.glUniform1f(self._u(prog, "uMaxZ"), bz)
+
+    @staticmethod
+    def front_label_lines(plate) -> np.ndarray:
+        """The outline of "FRONT" (pairs of points) lying on the plate's plane just in front of its front edge
+        (the side the printer's door / the user faces: y = the plate's lowest y), centred, read from above."""
+        from ..mesh_tools import text_polygons
+        from ..slicing import polygons_of
+        x0, y0, x1, y1 = plate
+        height = float(np.clip((x1 - x0) * 0.05, 4.0, 9.0))
+        text = text_polygons("FRONT", height)
+        if text.is_empty:
+            return np.zeros((0, 3), dtype=np.float32)
+        tx0, ty0, tx1, ty1 = text.bounds
+        dx = (x0 + x1) / 2 - (tx0 + tx1) / 2
+        dy = y0 - 2.0 - ty1                     # its top 2 mm in front of the edge
+        segs = []
+        for p in polygons_of(text):
+            for ring in [p.exterior, *p.interiors]:
+                c = np.asarray(ring.coords)[:, :2] + [dx, dy]
+                segs.append(np.repeat(c, 2, axis=0)[1:-1])
+        pts = np.concatenate(segs) if segs else np.zeros((0, 2))
+        return np.column_stack([pts, np.full(len(pts), 0.05)]).astype(np.float32)
+
+    def _front_label(self):
+        plate = tuple(float(v) for v in getattr(self, "plate", (0.0, 0.0, self.bed[0], self.bed[1])))
+        if getattr(self, "_front_key", None) != plate:
+            old = getattr(self, "_front_buf", None)
+            if old is not None:
+                old.delete()
+            try:
+                lines = self.front_label_lines(plate)
+            except Exception:                   # no fonts (a bare test run): no label
+                lines = np.zeros((0, 3), dtype=np.float32)
+            self._front_buf = _Buffer(lines, [3]) if len(lines) else None
+            self._front_key = plate
+        return self._front_buf
 
     def _draw_bed(self, mvp, alpha: float):
         GL.glUseProgram(self._bed_prog)

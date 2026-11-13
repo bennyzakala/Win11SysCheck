@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QGridLayout, QHBoxLayout, QLa
 from . import theme
 from .i18n import tr
 
-TYPE_KEYS = ("cb", "guide", "model", "model_u", "splint_h", "splint_v", "denture")
+TYPE_KEYS = ("cb", "guide", "model", "model_u", "die", "splint_h", "splint_v", "denture")
 
 
 def type_label(key: str) -> str:
