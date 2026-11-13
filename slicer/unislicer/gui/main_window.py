@@ -252,7 +252,10 @@ class MainWindow(QMainWindow):
                 "camera": (cam.target.copy(), cam.distance, cam.yaw, cam.pitch),
                 "selection": [o.uid for o in self.selected_objects()],
                 "mode": "preview" if self.preview_btn.isChecked() else "prepare",
-                "geometry": self.saveGeometry(), "maximized": self.isMaximized()}
+                "geometry": self.saveGeometry(), "maximized": self.isMaximized(),
+                # models whose holes are being closed: this window's closing is dropped with it, the new one
+                # starts it again (they stayed open after a language switch right after loading)
+                "closing": [t._uid for t in getattr(self, "_close_tasks", []) if t.isRunning()]}
 
     def release(self):
         """A window replaced by a language / theme switch drops what it held - the plate, its supports, the
@@ -294,6 +297,10 @@ class MainWindow(QMainWindow):
             self._select_uid(None)
         if carry.get("mode") == "preview" and self.result is not None:
             self._later(0, lambda: self.set_mode("preview", slice_if_needed=False))
+        again = set(carry.get("closing") or [])
+        if again:                                    # once the old window has gone (it ends the worker processes)
+            self._later(0, lambda: [self._start_close(o) for o in self.objects
+                                    if o.uid in again and not o.mesh.is_watertight()])
 
     # ================================================================ layout
     def _fit_to_screen(self):
@@ -1828,6 +1835,7 @@ class MainWindow(QMainWindow):
             return mesh_tools.watertight_job(mesh.vertices, mesh.faces, mesh.name)
 
         task = Task(work, self)
+        task._uid = o.uid
         task.succeeded.connect(lambda res, o=o, mesh=mesh: self._on_closed(o, mesh, res))
         if not hasattr(self, "_close_tasks"):
             self._close_tasks = []

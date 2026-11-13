@@ -8729,3 +8729,39 @@ def test_creality_cfs_only_where_it_fits():
         if not cfs:
             assert min(xs) >= lo - 1 and max(xs) <= hi + 1, (printer, over, min(xs), max(xs))
             assert re.search(r"^T1", text, re.M), "the filament change is a plain T command"
+
+
+def test_holes_still_close_after_a_language_switch_right_after_loading(tmp_path):
+    """An open model is closed in the background after it loads. A language (or theme) switch meanwhile
+    builds a new window and closes the old one, which dropped that work: the model stayed open."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import Qt
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.mesh import Mesh
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        s = primitives.sphere(10.0, rings=60, segments=120)
+        keep = [i for i in range(len(s.faces)) if i % 97 != 0]          # a few holes
+        o = w.add_mesh(Mesh(s.vertices, s.faces[keep], "open.stl"))
+        assert not o.mesh.is_watertight()
+        w._auto_close_holes([o])
+        assert w._closing_holes()
+        carry = w.handover(); carry["direction"] = Qt.LeftToRight
+        w2 = MainWindow(w.objects, carry=carry); w2.show(); w.close(); w.release(); app.processEvents()
+        end = time.time() + 90
+        while time.time() < end and not w2.objects[0].mesh.is_watertight():
+            app.processEvents(); time.sleep(0.02)
+        assert w2.objects[0].mesh.is_watertight(), "the model stayed open"
+        w2.close()
+        print("OK", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
+                       env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
