@@ -4975,6 +4975,7 @@ class MainWindow(QMainWindow):
         self._sup_task, self._sup_running = task, {(uid, key)}
         task.succeeded.connect(lambda res, shared=shared: self._support_built(res, shared))
         task.failed.connect(lambda _msg: self._support_build_done())
+        self._release_when_ended(task)
         task.start()
 
     def _start_support_batch(self, batch):
@@ -5030,7 +5031,17 @@ class MainWindow(QMainWindow):
         self._sup_task, self._sup_running = task, {(uid, entry[0]) for uid, entry in batch}
         task.succeeded.connect(done)
         task.failed.connect(stepped_aside)
+        self._release_when_ended(task)
         task.start()
+
+    def _release_when_ended(self, task):
+        """A support build whose thread has ended is never left marked as running: its result handler always
+        lets go of it, but should that not happen (an error before, a cancelled build that sends no result),
+        nothing would ever build supports or a raft again - the window looked stuck (seen on Windows)."""
+        def check():
+            if getattr(self, "_sup_task", None) is task:
+                self._support_build_done()
+        task.finished.connect(lambda: self._later(0, check))
 
     def _support_build_done(self):
         task, self._sup_task, self._sup_running = getattr(self, "_sup_task", None), None, None
@@ -5040,19 +5051,22 @@ class MainWindow(QMainWindow):
         self._later(0, self._start_support_build)
 
     def _support_built(self, res, shared: dict):
-        uid, key, local, owners, geo = res
-        for k, v in geo.items():                         # keep the indexes it built for the next build
-            shared.setdefault(k, v)
-        self._support_cache[uid] = (key, local, owners)
-        o = next((x for x in self.objects if x.uid == uid), None)
-        if o is not None and self._shows_supports(o) and len(o.support_points):
-            cfg = self.settings.config()
-            if self._support_key(o, cfg) == key:
-                self.viewer.set_object_supports(uid, local)
-                self._update_support_info()
-                self._schedule_joints()
-        if not getattr(self, "_sup_batching", False):
-            self._support_build_done()
+        try:
+            uid, key, local, owners, geo = res
+            for k, v in geo.items():                     # keep the indexes it built for the next build
+                shared.setdefault(k, v)
+            self._support_cache[uid] = (key, local, owners)
+            o = next((x for x in self.objects if x.uid == uid), None)
+            if o is not None and self._shows_supports(o) and len(o.support_points):
+                cfg = self.settings.config()
+                if self._support_key(o, cfg) == key:
+                    self.viewer.set_object_supports(uid, local)
+                    self._update_support_info()
+                    self._schedule_joints()
+        finally:
+            # always (an error above left the build marked running for good: no support build again)
+            if not getattr(self, "_sup_batching", False):
+                self._support_build_done()
 
     def _built_supports(self, o: SceneObject, cfg):
         """The model's support structure as far as it is built: the finished one, else - while the

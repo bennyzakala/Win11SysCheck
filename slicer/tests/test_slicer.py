@@ -9127,3 +9127,70 @@ def test_the_thin_check_is_done_after_the_slice_shows(tmp_path):
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
                        env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_a_single_support_build_is_never_left_marked_running(tmp_path):
+    """Windows test run: a part's support build had ended (its thread was done), yet it stayed marked as
+    running - so no support or raft build ever started again. Taking in a single build's result now always
+    lets go of it (as the batch already did), and a build whose thread ended without a result is let go too."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus")
+        o = w.add_mesh(primitives.crown_cap(11.0, 8.0)); o.direct = False
+        app.processEvents()
+        import sys as _s
+        _s.excepthook = lambda t, v, tb: print("handled:", v, file=_s.stderr, flush=True)
+        def settle(limit=60):
+            end = time.time() + limit
+            while time.time() < end and (w._sup_pending or getattr(w, "_sup_task", None) is not None):
+                app.processEvents(); time.sleep(0.01)
+            for _ in range(20):
+                app.processEvents()
+        w._select_uid(None); w.generate_supports(); settle()
+        # 1) taking the result in fails once
+        import sys as _sys
+        real = w.viewer.set_object_supports
+        state = {"n": 0}
+        def broken(*a, **k):
+            if not state["n"] and _sys._getframe(1).f_code.co_name == "_support_built":
+                state["n"] += 1
+                raise RuntimeError("taking the result in failed")
+            return real(*a, **k)
+        w.viewer.set_object_supports = broken
+        w.settings.set_value("sla_tip_diameter", 0.45); w._objects_changed(refresh_list=False); settle()
+        assert state["n"] == 1 and getattr(w, "_sup_task", None) is None, "left marked running"
+        # 2) a build that ends without a result (cancelled) is let go as well
+        from unislicer.gui import worker
+        orig = worker.Task.run
+        def cancelled_run(self):
+            self._cancel = True
+            orig(self)
+        worker.Task.run = cancelled_run
+        w.settings.set_value("sla_tip_diameter", 0.5); w._objects_changed(refresh_list=False)
+        end = time.time() + 30
+        while time.time() < end and getattr(w, "_sup_task", None) is None:
+            app.processEvents(); time.sleep(0.01)
+        worker.Task.run = orig
+        end = time.time() + 30
+        while time.time() < end and getattr(w, "_sup_task", None) is not None:
+            app.processEvents(); time.sleep(0.01)
+        assert getattr(w, "_sup_task", None) is None, "a build with no result left marked running"
+        # and building goes on
+        w.settings.set_value("sla_tip_diameter", 0.55); w._objects_changed(refresh_list=False); settle()
+        cfg = w.settings.config()
+        assert w._support_cache[o.uid][0] == w._support_key(o, cfg)
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), UNISLICER_WORKERS="1")
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env,
+                       encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
