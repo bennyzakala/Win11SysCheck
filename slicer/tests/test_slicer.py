@@ -8988,3 +8988,70 @@ def test_a_stuck_worker_pool_is_given_up_and_the_work_still_done(tmp_path):
     r = subprocess.run([sys.executable, str(script)], cwd=str(tmp_path), capture_output=True, text=True, timeout=120,
                        env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_worker_processes_end_with_the_program_however_it_ends(tmp_path):
+    """Lab, Task Manager after closing UniSlicer: ~25 UniSlicer processes, a dozen still busy. Each worker
+    process now watches the program that started it and ends as soon as it has gone - closed, updated,
+    crashed or ended from Task Manager - even in the middle of a job. Once the program is ending, no new
+    worker processes are started."""
+    import subprocess, sys, textwrap, time
+    code = textwrap.dedent('''
+        import os, sys, time
+        from unislicer import parallel
+        def busy(i):
+            t = time.time()
+            while time.time() - t < 3600:
+                pass
+        if __name__ == "__main__":
+            ex = parallel.pool()
+            for i in range(4):
+                ex.submit(busy, i)
+            time.sleep(4)                                   # the workers are busy now
+            print(" ".join(str(p.pid) for p in ex._processes.values()), flush=True)
+            os._exit(0)                                     # the program ends abruptly (as a crash would)
+    ''')
+    script = tmp_path / "abrupt.py"
+    script.write_text(code)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, PYTHONPATH=root, UNISLICER_WORKERS="2")
+    r = subprocess.run([sys.executable, str(script)], cwd=str(tmp_path), capture_output=True, text=True, timeout=120,
+                       env=env)
+    pids = [int(p) for p in r.stdout.split()]
+    assert len(pids) == 2, r.stdout + r.stderr[-2000:]
+
+    def alive(pid):
+        if sys.platform == "win32":                         # (os.kill there would end the process itself)
+            import ctypes
+            k = ctypes.windll.kernel32
+            h = k.OpenProcess(0x1000, False, pid)           # PROCESS_QUERY_LIMITED_INFORMATION
+            if not h:
+                return False
+            code = ctypes.c_ulong()
+            k.GetExitCodeProcess(h, ctypes.byref(code))
+            k.CloseHandle(h)
+            return code.value == 259                        # STILL_ACTIVE
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        try:                                                # a finished child not yet reaped is not running
+            with open(f"/proc/{pid}/stat") as fh:
+                return fh.read().split(")")[-1].split()[0] != "Z"
+        except OSError:
+            return True
+    end = time.time() + 20
+    while time.time() < end and any(alive(p) for p in pids):
+        time.sleep(0.2)
+    left = [p for p in pids if alive(p)]
+    for p in left:
+        os.kill(p, 9)
+    assert not left, "worker processes outlived the program"
+    from unislicer import parallel
+    old = parallel._final
+    try:
+        parallel._final = False
+        parallel.terminate(final=True)
+        assert parallel.pool() is None, "no new workers once the program is ending"
+    finally:
+        parallel._final = old

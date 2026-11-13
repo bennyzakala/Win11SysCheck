@@ -224,7 +224,7 @@ def run(paths: list[str] | None = None) -> int:
     code = app.exec()
     try:                                           # no worker process outlives the program
         from .. import parallel
-        parallel.terminate()
+        parallel.terminate(final=True)
     except Exception:
         pass
     reporter.uninstall()

@@ -25,15 +25,36 @@ def workers() -> int:
     return max(1, min(8, (os.cpu_count() or 1)))
 
 
+def _watch_parent() -> None:
+    """In each worker process: end it as soon as the program that started it has ended - however it ended
+    (closed, updated, crashed, ended in Task Manager). Workers left running after the program closed were
+    seen at the lab: ~25 UniSlicer processes in Task Manager, a dozen still busy."""
+    parent = multiprocessing.parent_process()
+    if parent is None:
+        return
+
+    def watch():
+        try:
+            parent.join()                # returns when the program's process has ended
+        except Exception:
+            pass
+        os._exit(0)
+    threading.Thread(target=watch, name="unislicer-parent-watch", daemon=True).start()
+
+
+_final = False       # the program is ending: no worker processes are started any more
+
+
 def pool() -> ProcessPoolExecutor | None:
     """The shared pool, started on first use (None when running single-process)."""
     global _pool
-    if workers() < 2 or _disabled:
+    if workers() < 2 or _disabled or _final:
         return None
     with _lock:
         if _pool is None:
             # "spawn" everywhere: forking a process that runs Qt threads is unsafe
-            _pool = ProcessPoolExecutor(max_workers=workers(), mp_context=multiprocessing.get_context("spawn"))
+            _pool = ProcessPoolExecutor(max_workers=workers(), mp_context=multiprocessing.get_context("spawn"),
+                                        initializer=_watch_parent)
         return _pool
 
 
@@ -41,15 +62,17 @@ def shutdown() -> None:
     _discard()
 
 
-def terminate() -> None:
+def terminate(final: bool = False) -> None:
     """Stop the worker processes now, whatever they are doing: when the program closes (or updates).
     A plain shutdown let them finish every job already handed to them - a full plate's pre-slice or
     support builds ran on for minutes at full CPU after the window had closed (the lab saw 13 UniSlicer
     processes in Task Manager), and Python waits for them before it ends."""
-    global _pool, _stops
+    global _pool, _stops, _final
     with _lock:
         old, _pool = _pool, None
-        _stops += 1                  # jobs started before this do not start new workers: they end, cancelled
+        _stops += 1
+        if final:                    # the program itself is ending (not a window replaced): no new workers
+            _final = True                  # jobs started before this do not start new workers: they end, cancelled
     if old is None:
         return
     procs = list((getattr(old, "_processes", None) or {}).values())
