@@ -9068,7 +9068,9 @@ def test_the_thin_check_is_done_after_the_slice_shows(tmp_path):
     in then - the same layers as a slice that checks them itself."""
     from unislicer import primitives, profiles, sla
     cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": False})
-    thin_crown = primitives.crown_cap(9.0, 8.0, wall=0.2).translated([50, 50, 0])
+    from unislicer.mesh import Mesh
+    # a block with a fin 0.15 mm thin and 6 mm tall: thin through many layers, on any machine
+    thin_crown = Mesh.merge([primitives.box(10, 10, 3), primitives.box(0.15, 8, 6).translated([6, 0, 3])]).translated([50, 50, 0])
     plain = sla.prepare([thin_crown], cfg)
     assert plain.thin_layers and plain.thin_pending is None
     sla._cache.clear()
@@ -9094,7 +9096,9 @@ def test_the_thin_check_is_done_after_the_slice_shows(tmp_path):
         w.store.setValue("preslice", "false")
         w.settings.select_printer("phrozen_sonic_xl_4k_plus")
         w.settings.set_value("support_enable", False)
-        o = w.add_mesh(primitives.crown_cap(9.0, 8.0, wall=0.2)); app.processEvents()
+        from unislicer.mesh import Mesh
+        part = Mesh.merge([primitives.box(10, 10, 3), primitives.box(0.15, 8, 6).translated([6, 0, 3])])
+        o = w.add_mesh(part); app.processEvents()
         w.arrange_objects()
         settle = time.time() + 2                       # the setting and plate changes land first
         while time.time() < settle:
