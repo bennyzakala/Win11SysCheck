@@ -8807,3 +8807,40 @@ def test_a_redirected_upload_is_not_reported_as_sent(tmp_path):
         assert ("GET", "/index.html") not in seen
     finally:
         srv.shutdown()
+
+
+def test_closing_during_a_send_does_not_wait_for_the_upload(tmp_path):
+    """Closing the program while a print is being sent to a printer waited up to a minute for the upload, with
+    no word (the window looked hung). A send is cancelled on closing (its file is a temporary copy); a print
+    file being saved is still finished first."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        log = []
+        def upload(progress, cancelled):              # a slow printer: ~30 s unless cancelled
+            for _ in range(3000):
+                if cancelled():
+                    log.append("cancelled")
+                    raise InterruptedError
+                time.sleep(0.01)
+            log.append("sent")
+        def save(progress, cancelled):                # a print file being written: finished, not cut short
+            time.sleep(1.0)
+            log.append("saved")
+        w._bg_export(upload, lambda r: None, "sending")._cancel_on_close = True
+        w._bg_export(save, lambda r: None, "saving")
+        time.sleep(0.2)
+        t = time.time(); w.close(); took = time.time() - t
+        assert took < 10, took
+        assert "cancelled" in log and "saved" in log and "sent" not in log, log
+        print("OK", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=200,
+                       env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
+    assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

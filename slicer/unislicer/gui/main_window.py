@@ -5829,6 +5829,7 @@ class MainWindow(QMainWindow):
         self.status.setText(busy_text)
         task.start()
         return task
+        return task
 
     def _sla_inputs(self, models):
         """The model meshes and keyword arguments ``sla.prepare`` gets for these models."""
@@ -7607,7 +7608,9 @@ class MainWindow(QMainWindow):
                 self.status.setText(tr("net_send_failed"))
                 QMessageBox.warning(self, tr("net_send_failed"), text)
 
-        self._bg_export(work, done, tr("net_sending").format(target.name))
+        # closing the program cancels a send (its file is a temporary copy): closing waited for the upload
+        # with no word for up to a minute, the window looking hung
+        self._bg_export(work, done, tr("net_sending").format(target.name))._cancel_on_close = True
         res = result
 
     # ================================================================ events
@@ -7628,6 +7631,12 @@ class MainWindow(QMainWindow):
     def _stop_background(self):
         """Everything running in the background stops now (closing, updating): a print file being written is
         finished first; the other jobs are cancelled, then the worker processes are ended."""
+        for t in list(getattr(self, "_export_tasks", []) or []):
+            if t is not None and t.isRunning() and getattr(t, "_cancel_on_close", False):
+                try:
+                    t.cancel()
+                except Exception:
+                    pass
         for t in list(getattr(self, "_export_tasks", []) or []):
             if t is not None and t.isRunning():
                 t.wait(60000)
