@@ -1568,6 +1568,16 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
             a = parent[a]
         return a
 
+    # each raft's own grown / shrunk outlines, worked out once (every pair and width tried did them again:
+    # 7 jaws joined up to 60 mm apart took ~8 s)
+    memo: dict = {}
+
+    def grown(k, d):
+        key = (k, d)
+        if key not in memo:
+            memo[key] = shapes[k].buffer(d)
+        return memo[key]
+
     def joint(gap, i, j, w):
         """The joint between rafts i and j, ``w`` wide - (solid part, notches) - or None when it would not
         join them (another raft or a part standing on the plate in the way)."""
@@ -1596,10 +1606,10 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
                 shapes[j].intersection(slab).intersection(Point(b.x, b.y).buffer(w))]
         strip = unary_union(ends).convex_hull.intersection(slab)
         # only the gap between them (0.3 mm into each raft, so it is one piece with them)
-        strip = strip.difference(unary_union([shapes[i], shapes[j]]).buffer(-0.3))
-        near = [k for k in tree.query(strip.buffer(0.6)) if k not in (i, j)]
+        strip = strip.difference(unary_union([grown(i, -0.3), grown(j, -0.3)]))
+        near = [int(k) for k in tree.query(strip, predicate="dwithin", distance=0.6) if k not in (i, j)]
         if near:
-            strip = strip.difference(unary_union([shapes[k] for k in near]).buffer(0.6))
+            strip = strip.difference(unary_union([grown(k, 0.6) for k in near]))
         if block is not None:
             strip = strip.difference(block)
         if strip.is_empty:
@@ -1612,7 +1622,7 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
         strip = unary_union(keep)
         # the notches: a groove next to each raft (one in the middle when the gap is short)
         if gap >= 2 * notch + 1.6:
-            grooves = [r.buffer(0.8 + notch).difference(r.buffer(0.8)) for r in (shapes[i], shapes[j])]
+            grooves = [grown(k, 0.8 + notch).difference(grown(k, 0.8)) for k in (i, j)]
         else:
             grooves = [shapes[i].buffer(gap / 2 + notch / 2).difference(shapes[i].buffer(max(0.0, gap / 2 - notch / 2)))]
         groove = unary_union(grooves).intersection(strip).difference(unary_union([shapes[i], shapes[j]]))
@@ -1621,7 +1631,7 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
     # candidate pairs: only rafts within reach of each other (the index), nearest first
     gaps = []
     for i in range(n):
-        for j in tree.query(shapes[i].buffer(reach)):
+        for j in tree.query(shapes[i], predicate="dwithin", distance=reach):
             j = int(j)
             if j > i:
                 gaps.append((shapes[i].distance(shapes[j]), i, j))
@@ -1653,7 +1663,7 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
     if every_neighbour:
         # also every other pair of neighbouring rafts that a joint can reach straight across (another raft or a
         # part on the plate in between stops it), unless it would mostly lie on a joint already made
-        made_all = [g for polys in solid.values() for g in polys]
+        made_all = unary_union([g for polys in solid.values() for g in polys])
         for gap, i, j in gaps:
             if gap > reach:
                 break
@@ -1666,10 +1676,10 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
                     break
             if made is None:
                 continue
-            if made_all and made[0].intersection(unary_union(made_all)).area > 0.3 * made[0].area:
+            if not made_all.is_empty and made[0].intersection(made_all).area > 0.3 * made[0].area:
                 continue
             done_pairs.add((i, j))
-            made_all.append(made[0])
+            made_all = made_all.union(made[0])
             t = min(tks[i], tks[j])
             solid.setdefault(t, []).append(made[0])
             if not made[1].is_empty:
