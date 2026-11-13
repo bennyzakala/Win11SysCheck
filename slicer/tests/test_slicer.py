@@ -8844,3 +8844,30 @@ def test_closing_during_a_send_does_not_wait_for_the_upload(tmp_path):
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=200,
                        env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_hollow_roof_and_floor_keep_their_thickness_with_adaptive_layers():
+    """Hollowing counted the roof and the floor in layers of the nominal height; adaptive slicing prints a
+    curved roof in thinner layers, so a 2 mm wall gave a 1.2 mm roof (a dome's top could break or leak).
+    They are measured in mm when the layer heights vary; equal layers keep the same window as before."""
+    import math
+    from shapely.geometry import Point
+    from unislicer import primitives, profiles, sla
+    cfg = profiles.build_config("phrozen_sonic_cs_plus", None, None, {
+        "support_enable": False, "hollow_enable": True, "hollow_wall": 2.0, "sla_adaptive": True,
+        "drain_holes": 0, "hollow_infill": "none", "sla_raft_type": "none"})
+    job = sla.prepare([primitives.sphere(8.0, rings=40, segments=80).translated([60, 60, 8])], cfg)
+    assert len(set(round(t, 4) for t in job.layer_thickness)) > 1, "adaptive layers"
+    z, t = job.layer_z, job.layer_thickness
+    solid = [i for i, g in enumerate(job.layers) if not g.is_empty]
+    hollow = [i for i in solid if any(len(p.interiors) for p in getattr(job.layers[i], "geoms", [job.layers[i]]))]
+    assert hollow, "the ball is hollow"
+    floor = z[hollow[0]] - t[hollow[0]] - (z[solid[0]] - t[solid[0]])
+    roof = z[solid[-1]] - z[hollow[-1]]
+    assert floor >= 2.0 - 1e-6 and roof >= 2.0 - 1e-6, (floor, roof)
+    # equal layers: the window in mm is the one in layers
+    items = [sla.as_multipolygon(Point(0, 0).buffer(5 - (i % 7) * 0.3)) for i in range(60)]
+    zs = [(i + 0.5) * 0.05 for i in range(60)]
+    a = sla._window_intersection(items, int(math.ceil(1.3 / 0.05)))
+    b = sla._window_intersection_z(items, zs, 1.3)
+    assert all(x.symmetric_difference(y).area < 1e-9 and x.is_empty == y.is_empty for x, y in zip(a, b))

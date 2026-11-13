@@ -191,6 +191,58 @@ def _window_intersection(items: list, k: int) -> list:
     return out
 
 
+def _window_intersection_z(items: list, zs: list, reach: float) -> list:
+    """``_window_intersection`` for layers of varying height: for each layer, the intersection of the layers
+    from the first at least ``reach`` mm below it to the first at least ``reach`` mm above it (empty where
+    the stack ends sooner) - with equal layers the same window as k = ceil(reach / height). The window only
+    moves up, so it is kept as a two-stack queue: about three intersections a layer."""
+    n = len(items)
+    out = [EMPTY] * n
+    eps = 1e-6
+    lo, hi = [None] * n, [None] * n
+    j = 0
+    for i in range(n):                       # the last layer at least ``reach`` below i
+        while j + 1 <= i and zs[i] - zs[j + 1] >= reach - eps:
+            j += 1
+        lo[i] = j if zs[i] - zs[j] >= reach - eps else None
+    j = n - 1
+    for i in range(n - 1, -1, -1):           # the first layer at least ``reach`` above i
+        while j - 1 >= i and zs[j - 1] - zs[i] >= reach - eps:
+            j -= 1
+        hi[i] = j if zs[j] - zs[i] >= reach - eps else None
+    front: list = []                         # running intersections, oldest last
+    back: list = []
+    back_and = None
+    a, b = 0, -1                             # the queue holds items[a..b]
+    for i in range(n):
+        if lo[i] is None or hi[i] is None:
+            continue
+        while b < hi[i]:
+            b += 1
+            back.append(items[b])
+            back_and = items[b] if back_and is None else _and(back_and, items[b])
+        while a < lo[i]:
+            if not front:
+                acc = None
+                for x in reversed(back):
+                    acc = x if acc is None else _and(x, acc)
+                    front.append(acc)
+                back, back_and = [], None
+            front.pop()
+            a += 1
+        if a > b:
+            continue
+        if not front:
+            acc = None
+            for x in reversed(back):
+                acc = x if acc is None else _and(x, acc)
+                front.append(acc)
+            back, back_and = [], None
+        got = front[-1] if back_and is None else _and(front[-1], back_and)
+        out[i] = got
+    return out
+
+
 def _prefix_suffix_chunk(blocks: list) -> list:
     out = []
     for block in blocks:
@@ -440,17 +492,26 @@ def under_model(layers: list[MultiPolygon], min_area: float = 0.5) -> list[Multi
     return out
 
 
-def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list | None = None
-           ) -> tuple[list[MultiPolygon], float, list[str]]:
+def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list | None = None,
+           stack: list | None = None) -> tuple[list[MultiPolygon], float, list[str]]:
     """Hollow solid layers to ``hollow_wall`` thickness and cut drain holes. Returns (layers, saved ml, notes).
     With ``infill_out`` (a list), the internal infill of each layer is also put there (for checks that
-    should look at the shell only)."""
+    should look at the shell only). ``stack``: each layer's (top z, height) when the heights vary (adaptive
+    layers / height ranges) - the roof, the floor, a solid base and the infill bands are then measured in mm,
+    not in layers of the nominal height (a curved roof printed in thin layers came out up to 4x thinner)."""
     wall = cfg["hollow_wall"]
     k = max(1, int(math.ceil(wall / lh)))
+    varied = stack is not None and len(stack) == len(layers) and \
+        max(h for _, h in stack) - min(h for _, h in stack) > 1e-9
+    hs = [h for _, h in stack] if varied else [lh] * len(layers)
+    bottoms = [z - h for z, h in stack] if varied else None
     eroded = _per_layer(_erode_chunk, layers, wall)
-    cavity = _window_intersection(eroded, k)
+    if varied:
+        cavity = _window_intersection_z(eroded, [z - h / 2 for z, h in stack], wall)
+    else:
+        cavity = _window_intersection(eroded, k)
     cavity = _per_layer(_clean_chunk, cavity)
-    saved = sum(c.area for c in cavity) * lh / 1000.0
+    saved = sum(c.area * h for c, h in zip(cavity, hs)) / 1000.0
     # a model that is already hollow (e.g. a dental model exported as a shell): its own cavity takes the infill
     existing = covered_voids(layers) if cfg["hollow_infill"] != "none" else [EMPTY] * len(layers)
     if saved <= 0 and not any(not v.is_empty for v in existing):
@@ -459,10 +520,13 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list 
     if cfg["hollow_mode"] == "solid_base":
         # keep the bottom solid up to the base height, hollow above it
         first = next((i for i, g in enumerate(layers) if not g.is_empty), 0)
-        solid = first + int(math.ceil(cfg["hollow_base_height"] / lh))
+        if varied:
+            solid = first + sum(1 for b in bottoms[first:] if b - bottoms[first] < cfg["hollow_base_height"] - 1e-9)
+        else:
+            solid = first + int(math.ceil(cfg["hollow_base_height"] / lh))
         for i in range(min(solid, len(cavity))):
             cavity[i] = EMPTY
-        saved = sum(c.area for c in cavity) * lh / 1000.0
+        saved = sum(c.area * h for c, h in zip(cavity, hs)) / 1000.0
     if cfg["hollow_mode"] == "bottom":
         # open base: the cavity continues down through the floor (walls stay)
         first = next((i for i, c in enumerate(cavity) if not c.is_empty), 0)
@@ -479,7 +543,10 @@ def hollow(layers: list[MultiPolygon], lh: float, cfg: Config, infill_out: list 
         band = max(cfg["hollow_infill_thickness"] * 1.5, 1.2)
         period = max(3.0 * cfg["hollow_infill_spacing"], 8.0)
         first = next((i for i, c in enumerate(infill_space) if not c.is_empty), 0)
-        flags = [((i - first) * lh) % period < band for i in range(len(infill_space))]
+        if varied:
+            flags = [((bottoms[i] - bottoms[first]) % period) < band for i in range(len(infill_space))]
+        else:
+            flags = [((i - first) * lh) % period < band for i in range(len(infill_space))]
         from . import parallel
         n = len(infill_space)
         ranges = parallel.chunk_ranges(n, 16, parallel.workers() * 2)
@@ -1446,7 +1513,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             hit = _cache_get(hkey)
             if hit is None:
                 g_infill: list = []
-                out_layers, g_saved, notes = hollow(g_layers, lh, gcfg, g_infill)
+                out_layers, g_saved, notes = hollow(g_layers, lh, gcfg, g_infill, stack=stack)
                 hit = (out_layers, g_saved, notes, g_infill)
                 _cache_put(hkey, hit)
             g_layers, g_saved, notes, g_infill = list(hit[0]), hit[1], list(hit[2]), list(hit[3])
