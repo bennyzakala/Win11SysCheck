@@ -1675,9 +1675,18 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
             if not made[1].is_empty:
                 thin.setdefault(t, []).append(made[1])
     pieces = len({find(k) for k in range(n)})
+    # stacked in bands of height, each band one shape: thick and thin joints and their notches used to be
+    # separate solids sharing edges, and slicing them together joined loops of different solids - a raft
+    # ringed by joints came out covered by a notch-thin layer of joint
+    solid_u = {t: unary_union(polys).buffer(0) for t, polys in solid.items()}
+    notch_u = {t / 2: unary_union(polys).buffer(0) for t, polys in thin.items()}
+    levels = sorted(set(solid_u) | set(notch_u))
     meshes = []
-    for t, polys in solid.items():
-        meshes.append(extrude(unary_union(polys).buffer(0), 0.0, t, "Raft joints"))
-    for t, polys in thin.items():
-        meshes.append(extrude(unary_union(polys).buffer(0), 0.0, t / 2, "Raft joint notches"))
+    z0 = 0.0
+    for z1 in levels:
+        band = unary_union([g for t, g in solid_u.items() if t >= z1 - 1e-9]
+                           + [g for h, g in notch_u.items() if h >= z1 - 1e-9])
+        if not band.is_empty:
+            meshes.append(extrude(band.buffer(0), z0, z1, "Raft joints"))
+        z0 = z1
     return (Mesh.merge(meshes, "Raft joints") if meshes else empty), pieces

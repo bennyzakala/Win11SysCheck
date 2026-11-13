@@ -8931,3 +8931,21 @@ def test_join_every_neighbour_or_minimal_joints():
     between = box(41, 0, 51, 30)                     # straight between the two jaws, away from the die
     assert joints(False).intersection(between).area < 1.0
     assert joints(True).intersection(between).area > 50.0
+
+
+def test_a_raft_ringed_by_joints_is_not_covered_by_them():
+    """Joints of different thickness and their notches were separate solids sharing edges; slicing them
+    together joined loops of different solids, and a small raft ringed by joints (between two others, a wide
+    joint) printed covered by a notch-thin layer of joint - ~95 mm2 here. Every raft type and both joint modes
+    were tried on random plates of lab parts: no joint over a raft, no loose piece, the fewest pieces."""
+    from shapely.geometry import Point, box
+    from unislicer import sla_supports
+    from unislicer.slicing import slice_mesh
+    rafts = [box(0, 0, 40, 40), box(60, 0, 100, 40), Point(50, 20).buffer(6)]
+    for every in (False, True):
+        mesh, pieces = sla_supports.raft_joints(rafts, [1.0, 0.5, 1.0], 25.0, 30.0, every_neighbour=every)
+        assert pieces == 1 and len(mesh.faces)
+        for z in (0.1, 0.4, 0.8):
+            layer = slice_mesh(mesh, [z])[0]
+            for r in rafts:
+                assert layer.intersection(r.buffer(-0.5)).area < 0.5, (every, z)
