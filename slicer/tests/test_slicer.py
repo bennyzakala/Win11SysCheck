@@ -9245,10 +9245,10 @@ def test_models_get_their_supports_5_5_mm_apart():
         return profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"sla_model_type": t})["sla_support_spacing"]
     assert spacing("model") == 5.5 and spacing("model_u") == 5.5
     assert spacing("cb") == 2.0 and spacing("guide") == 2.5
-    # a die keeps its points closer (5.5 mm apart left a small die on a single support)
+    # a die is its own type (the lab asked for 5.5 mm on dies too)
     from unislicer import dental_cad
     assert dental_cad.model_type_of("EGI-SOD260046764-114-Z-14-14-1-00-V227_Tooth_14.stl", None) == "die"
-    assert spacing("die") == 3.0
+    assert spacing("die") == 5.5
 
 
 def test_the_plate_says_front():
