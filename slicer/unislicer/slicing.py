@@ -137,7 +137,8 @@ def _chain(segments: np.ndarray, report: dict | None = None, raw: list | None = 
     fast = _chain_fast(keys, segments)
     if fast is not None:
         if raw is not None:
-            raw.extend((np.vstack([p, p[:1]]), True) for p, _ in fast)
+            # closed again only if the fallback below needs them (a copy of every loop of every layer)
+            raw.extend((p, "ring") for p, _ in fast)
         return fast
     kp = list(zip(keys[:, 0, 0].tolist(), keys[:, 0, 1].tolist()))
     kq = list(zip(keys[:, 1, 0].tolist(), keys[:, 1, 1].tolist()))
@@ -196,6 +197,8 @@ def _oriented_segments(raw) -> np.ndarray:
     """Segments of the linked chains, each chain in its majority direction (closed ones closed again)."""
     parts = []
     for pts, closed in raw:
+        if closed == "ring":
+            pts = np.vstack([pts, pts[:1]])
         if len(pts) < 2:
             continue
         a, b = pts[:-1], pts[1:]
@@ -352,8 +355,62 @@ def union_many(polys):
     return parts[0] if len(parts) == 1 else MultiPolygon(parts)
 
 
+def _loop_polygons(loops):
+    """Every loop of a layer cleaned (repeated points out, the closing one too), its signed area and polygon,
+    all at once - one loop at a time took most of slicing a plate's supports (~100,000 small pillar sections).
+    Returns (areas, signs, polygons) of the loops that make a ring, or None to do it loop by loop."""
+    lens = np.fromiter((len(p) for p, _ in loops), dtype=np.int64, count=len(loops))
+    sel = np.flatnonzero(lens >= 3)
+    if not len(sel):
+        return np.zeros(0), np.zeros(0), np.zeros(0, dtype=object)
+    pts = np.concatenate([np.asarray(loops[i][0], dtype=np.float64)[:, :2] for i in sel])
+    votes = np.array([loops[i][1] for i in sel], dtype=np.float64)
+    lid = np.repeat(np.arange(len(sel)), lens[sel])
+    keep = np.ones(len(pts), dtype=bool)
+    keep[1:] = np.any(pts[1:] != pts[:-1], axis=1) | (lid[1:] != lid[:-1])
+    pts, lid = pts[keep], lid[keep]
+    first = np.flatnonzero(np.r_[True, lid[1:] != lid[:-1]])
+    last = np.r_[first[1:] - 1, len(lid) - 1]
+    closing = np.all(pts[last] == pts[first], axis=1) & (last > first)
+    if closing.any():                       # the loop's last point repeating its first
+        drop = np.zeros(len(pts), dtype=bool)
+        drop[last[closing]] = True
+        pts, lid = pts[~drop], lid[~drop]
+        first = np.flatnonzero(np.r_[True, lid[1:] != lid[:-1]])
+        last = np.r_[first[1:] - 1, len(lid) - 1]
+    counts = last - first + 1
+    ring_ok = counts >= 3
+    nxt = np.arange(1, len(pts) + 1)
+    nxt[last] = first
+    x, y = pts[:, 0], pts[:, 1]
+    area = 0.5 * np.add.reduceat(x * y[nxt] - y * x[nxt], first)
+    ok = ring_ok & (np.abs(area) >= 1e-6)
+    if not ok.any():
+        return np.zeros(0), np.zeros(0), np.zeros(0, dtype=object)
+    loop_of = lid[first]                    # the loop (in sel) each ring is
+    good = np.zeros(len(sel), dtype=bool)
+    good[loop_of[ok]] = True
+    m = good[lid]
+    _, ring_index = np.unique(lid[m], return_inverse=True)
+    try:
+        polys = shapely.polygons(shapely.linearrings(pts[m], indices=ring_index))
+    except Exception:
+        return None
+    a = area[ok]
+    signs = np.sign(a) * np.where(votes[loop_of[ok]] >= 0, 1, -1)
+    return np.abs(a), signs, polys
+
+
 def loops_to_geometry(loops) -> MultiPolygon:
     """Combine oriented loops (outer = CCW, hole = CW) into polygons, honoring nesting."""
+    if not loops:
+        return EMPTY
+    fast = _loop_polygons(loops)
+    if fast is not None:
+        areas, signs, polys = fast
+        if not len(polys):
+            return EMPTY
+        return _nest(list(areas), list(signs), np.asarray(polys, dtype=object))
     pts_list, signs, areas = [], [], []
     for pts, vote in loops:
         pts = _clean_ring(pts)
@@ -368,7 +425,10 @@ def loops_to_geometry(loops) -> MultiPolygon:
     if not pts_list:
         return EMPTY
     # build every loop's polygon in one go; only the invalid ones (self-touching) need repair
-    polys = np.array([_safe_polygon(p) for p in pts_list], dtype=object)
+    return _nest(areas, signs, np.array([_safe_polygon(p) for p in pts_list], dtype=object))
+
+
+def _nest(areas, signs, polys) -> MultiPolygon:
     bad = ~shapely.is_valid(polys)
     if bad.any():
         polys[bad] = [shapely.union_all(polygons_of(shapely.make_valid(p))) for p in polys[bad]]
