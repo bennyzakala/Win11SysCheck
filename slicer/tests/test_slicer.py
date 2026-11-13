@@ -8242,7 +8242,9 @@ def test_support_builds_never_lock_up_and_step_aside_for_a_slice(tmp_path):
     script.write_text(code)
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     _home = str(tmp_path / "home")
-    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1", PYTHONPATH=root)
+    # a pool that gets stuck (Windows, now and then) is given up after this long, well within the wait above
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1", PYTHONPATH=root,
+               UNISLICER_HANG_LIMIT="20")
     r = subprocess.run([sys.executable, str(script)], cwd=root, capture_output=True, text=True, timeout=300, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-14000:]
 
