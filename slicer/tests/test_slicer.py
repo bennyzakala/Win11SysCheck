@@ -8949,3 +8949,33 @@ def test_a_raft_ringed_by_joints_is_not_covered_by_them():
             layer = slice_mesh(mesh, [z])[0]
             for r in rafts:
                 assert layer.intersection(r.buffer(-0.5)).area < 0.5, (every, z)
+
+
+def test_a_stuck_worker_pool_is_given_up_and_the_work_still_done(tmp_path):
+    """Windows, now and then: support jobs sat in the pipe to the worker processes and nothing came back - the
+    build stayed "running" for good (the lab's stuck raft). With no result for a while the pool is given up,
+    its workers are ended, and the work is done again (on a fresh pool, else here)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time, multiprocessing
+        from unislicer import parallel
+        def job(i):
+            if multiprocessing.parent_process() is not None:   # in a worker: stuck for good
+                time.sleep(3600)
+            return i * 2
+        if __name__ == "__main__":
+            t = time.time()
+            got = parallel.run_chunks(job, [(i,) for i in range(4)])
+            assert got == [0, 2, 4, 6], got
+            assert time.time() - t < 60, time.time() - t
+            kids = multiprocessing.active_children()
+            assert not [p for p in kids if p.is_alive()], kids
+            print("ok", flush=True)
+    ''')
+    script = tmp_path / "stuck.py"
+    script.write_text(code)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, PYTHONPATH=root, UNISLICER_WORKERS="2", UNISLICER_HANG_LIMIT="3")
+    r = subprocess.run([sys.executable, str(script)], cwd=str(tmp_path), capture_output=True, text=True, timeout=120,
+                       env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

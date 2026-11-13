@@ -102,15 +102,35 @@ def run_chunks(fn: Callable, args: Sequence[tuple], progress: Callable[[float], 
 
 
 def _discard() -> None:
-    """Drop the current pool (the next use starts a fresh one)."""
+    """Drop the current pool (the next use starts a fresh one); its worker processes are ended (a pool given
+    up as stuck has workers that would never end by themselves)."""
     global _pool
     with _lock:
         old, _pool = _pool, None
     if old is not None:
+        procs = list((getattr(old, "_processes", None) or {}).values())
         try:
             old.shutdown(wait=False, cancel_futures=True)
         except Exception:
             pass
+        for p in procs:
+            try:
+                p.terminate()
+            except Exception:
+                pass
+        for p in procs:
+            try:
+                p.join(2.0)
+            except Exception:
+                pass
+
+
+def hang_limit() -> float:
+    """Seconds without a single result from the worker processes before the pool is given up as stuck."""
+    try:
+        return max(1.0, float(os.environ.get("UNISLICER_HANG_LIMIT", "180")))
+    except ValueError:
+        return 180.0
 
 
 def _run(fn, args, progress, cancelled, weights) -> list:
@@ -149,15 +169,24 @@ def busy() -> bool:
 
 
 def _run_in(ex, fn, args, progress, cancelled, weights, total, results) -> list:
+    import time
     done = 0.0
     futures: dict[Future, int] = {ex.submit(fn, *a): i for i, a in enumerate(args)}
     pending = set(futures)
+    last = time.monotonic()
+    limit = hang_limit()
     try:
         from concurrent.futures import FIRST_COMPLETED, wait
         while pending:
             finished, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
             if cancelled and cancelled():
                 raise InterruptedError
+            if finished:
+                last = time.monotonic()
+            elif time.monotonic() - last > limit:
+                # Windows, now and then: the jobs sit in the pipe to the workers and nothing comes back - a
+                # support build "stuck" for good. The pool is given up (its workers ended) and the work redone
+                raise BrokenProcessPool(f"no result from the worker processes for {limit:g} s")
             for f in finished:
                 i = futures[f]
                 results[i] = f.result()
