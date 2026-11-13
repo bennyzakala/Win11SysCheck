@@ -8223,6 +8223,10 @@ def test_support_builds_never_lock_up_and_step_aside_for_a_slice(tmp_path):
             w._sup_task = None
             w._start_support_build(); settle()
             assert state["broke"] == 1, state
+            if getattr(w, "_sup_task", None) is not None:      # where it is: every thread's stack
+                import traceback as _tb2
+                for tid, fr in _s._current_frames().items():
+                    print("THREAD", tid, "".join(_tb2.format_stack(fr)[-12:]), file=_s.stderr, flush=True)
             assert getattr(w, "_sup_task", None) is None, ("a support build is marked running for good",
                 type(w._sup_task).__name__, w._sup_task.isRunning(), sorted(map(str, w._sup_running or [])),
                 len(w._sup_pending), parallel.busy(), parallel._stops)
@@ -8240,7 +8244,7 @@ def test_support_builds_never_lock_up_and_step_aside_for_a_slice(tmp_path):
     _home = str(tmp_path / "home")
     env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_NO_SEED="1", PYTHONPATH=root)
     r = subprocess.run([sys.executable, str(script)], cwd=root, capture_output=True, text=True, timeout=300, env=env)
-    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-14000:]
 
 
 def test_raft_and_label_built_in_the_worker_pool_is_the_same_as_in_the_window(tmp_path):
