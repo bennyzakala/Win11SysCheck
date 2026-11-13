@@ -57,16 +57,7 @@ def terminate() -> None:
         old.shutdown(wait=False, cancel_futures=True)
     except Exception:
         pass
-    for p in procs:
-        try:
-            p.terminate()
-        except Exception:
-            pass
-    for p in procs:
-        try:
-            p.join(2.0)
-        except Exception:
-            pass
+    _end(procs)
 
 
 def chunk_ranges(n: int, min_chunk: int, max_chunks: int) -> list[tuple[int, int]]:
@@ -113,16 +104,24 @@ def _discard() -> None:
             old.shutdown(wait=False, cancel_futures=True)
         except Exception:
             pass
-        for p in procs:
-            try:
-                p.terminate()
-            except Exception:
-                pass
-        for p in procs:
-            try:
+        _end(procs)
+
+
+def _end(procs) -> None:
+    """End worker processes and wait for them; one that does not end within 2 s is killed."""
+    for p in procs:
+        try:
+            p.terminate()
+        except Exception:
+            pass
+    for p in procs:
+        try:
+            p.join(2.0)
+            if p.is_alive():
+                p.kill()
                 p.join(2.0)
-            except Exception:
-                pass
+        except Exception:
+            pass
 
 
 def hang_limit() -> float:

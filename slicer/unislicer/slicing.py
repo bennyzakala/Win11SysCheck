@@ -292,8 +292,9 @@ def _join_open_chains(chains):
 
 
 def _signed_area(p: np.ndarray) -> float:
+    # the shoelace sum without np.roll (which copied both columns of every loop of every layer: ~10% of slicing)
     x, y = p[:, 0], p[:, 1]
-    return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
+    return 0.5 * float(np.dot(x[:-1], y[1:]) - np.dot(y[:-1], x[1:]) + x[-1] * y[0] - y[-1] * x[0])
 
 
 def _clean_ring(pts) -> np.ndarray | None:

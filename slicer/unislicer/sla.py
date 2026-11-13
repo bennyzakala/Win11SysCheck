@@ -1771,7 +1771,9 @@ def _layer_canvas(geom: MultiPolygon, cfg: Config):
         for hole in p.interiors:
             draw.polygon(ring(hole.coords), fill=0)
     if aa > 1:
-        canvas = canvas.resize((x1 - x0, y1 - y0), Image.BOX)
+        # the box average of each aa x aa block: Pillow's reduce() is ~2.4x faster than resize(BOX) and differs
+        # from it by at most one grey level (of 255) on some edge pixels - the most of a print file's export
+        canvas = canvas.reduce(aa)
     if blur > 0:
         canvas = canvas.filter(ImageFilter.GaussianBlur(blur))
     return canvas, x0, y0
