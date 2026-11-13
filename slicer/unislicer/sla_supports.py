@@ -164,12 +164,30 @@ def effective_spacing(cfg: Config) -> float:
     return cfg["sla_support_spacing"] / math.sqrt(max(cfg["sla_density"], 1.0) / 100.0)
 
 
+MIN_PART_POINTS = 3      # a small part (a die) never stands on fewer supports than this
+MIN_GRID_SPACING = 1.5   # mm: how far the grid is tightened to get them
+
+
 def auto_support_points(mesh: Mesh, cfg: Config, report: dict | None = None) -> np.ndarray:
-    """Contact points (N, 3) on the underside of ``mesh`` that need support."""
+    """Contact points (N, 3) on the underside of ``mesh`` that need support. A part that gets fewer than
+    MIN_PART_POINTS at the set spacing (a small die at 5.5 mm stood on one) gets its grid tightened, step
+    by step, until it has them (or the grid reaches MIN_GRID_SPACING)."""
+    spacing = effective_spacing(cfg)
+    pts = _support_points_at(mesh, cfg, spacing, report)
+    while 0 < len(pts) < MIN_PART_POINTS and spacing > MIN_GRID_SPACING:
+        spacing = max(MIN_GRID_SPACING, spacing * 0.7)
+        denser = _support_points_at(mesh, cfg, spacing, report)
+        if len(denser) > len(pts):
+            pts = denser
+    if report is not None:
+        report["spacing_used"] = spacing
+    return pts
+
+
+def _support_points_at(mesh: Mesh, cfg: Config, spacing: float, report: dict | None) -> np.ndarray:
     caster = caster_for(mesh)
     threshold = -math.sin(math.radians(cfg["support_angle"]))
     overhang = caster.normals[:, 2] < threshold
-    spacing = effective_spacing(cfg)
     lo, hi = mesh.bounds
     xs = np.arange(lo[0] + spacing / 2, hi[0], spacing)
     ys = np.arange(lo[1] + spacing / 2, hi[1], spacing)

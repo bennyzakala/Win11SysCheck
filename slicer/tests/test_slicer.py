@@ -9276,3 +9276,19 @@ def test_the_plate_says_front():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
     assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_a_small_part_stands_on_at_least_three_supports():
+    """Lab: with 5.5 mm between support points a small die got a single support. A part that gets fewer
+    than three at the set spacing has its grid tightened until it has three; a bigger part keeps the set
+    spacing."""
+    from unislicer import sla_supports
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None,
+                                {"support_enable": True, "sla_model_type": "die", "sla_support_spacing": 5.5})
+    die = placed(primitives.box(5, 5, 8), 60, 40).world_mesh().translated([0, 0, 3])
+    report = {}
+    pts = sla_supports.auto_support_points(die, cfg, report)
+    assert len(pts) >= 3 and report["spacing_used"] < 5.5
+    big = placed(primitives.box(20, 20, 8), 60, 40).world_mesh().translated([0, 0, 3])
+    report = {}
+    assert len(sla_supports.auto_support_points(big, cfg, report)) >= 3 and report["spacing_used"] == 5.5

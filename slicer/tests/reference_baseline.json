@@ -126,46 +126,46 @@
   "used": 3
  },
  "325dc9aa88a6/pillar/mini": {
-  "points": 1,
-  "raft_area": 14.8,
+  "points": 3,
+  "raft_area": 42.7,
   "sticking_out": 0,
   "through": 0,
-  "used": 1
+  "used": 3
  },
  "325dc9aa88a6/pillar/none": {
-  "points": 1,
+  "points": 3,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 1
+  "used": 3
  },
  "325dc9aa88a6/tree/raft_label": {
-  "points": 1,
-  "raft_area": 44.1,
+  "points": 3,
+  "raft_area": 46.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 1
+  "used": 3
  },
  "325dc9aa88a6/tree/solid": {
-  "points": 1,
-  "raft_area": 47.1,
+  "points": 3,
+  "raft_area": 98.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 1
+  "used": 3
  },
  "325dc9aa88a6/tree/solid_lite": {
-  "points": 1,
-  "raft_area": 72.1,
+  "points": 3,
+  "raft_area": 72.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 1
+  "used": 3
  },
  "325dc9aa88a6/tree/tiny": {
-  "points": 1,
-  "raft_area": 17.7,
+  "points": 3,
+  "raft_area": 17.6,
   "sticking_out": 0,
   "through": 0,
-  "used": 1
+  "used": 3
  },
  "50a1606b14eb/pillar/mini": {
   "points": 35,
