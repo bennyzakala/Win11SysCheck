@@ -8223,7 +8223,9 @@ def test_support_builds_never_lock_up_and_step_aside_for_a_slice(tmp_path):
             w._sup_task = None
             w._start_support_build(); settle()
             assert state["broke"] == 1, state
-            assert getattr(w, "_sup_task", None) is None, "a support build is marked running for good"
+            assert getattr(w, "_sup_task", None) is None, ("a support build is marked running for good",
+                type(w._sup_task).__name__, w._sup_task.isRunning(), sorted(map(str, w._sup_running or [])),
+                len(w._sup_pending), parallel.busy(), parallel._stops)
             w.settings.set_value("sla_tip_diameter", 0.5); w._objects_changed(refresh_list=False); settle()
             assert all_built(), "no support build ran after the failure"
             if parallel._pool is not None:
@@ -8746,6 +8748,7 @@ def test_holes_still_close_after_a_language_switch_right_after_loading(tmp_path)
         from unislicer.gui.main_window import MainWindow
         w = MainWindow(); w.show(); app.processEvents()
         w.store.setValue("preslice", "false")
+        w.store.setValue("auto_close_holes", "true")     # on Windows the settings are shared by the tests
         s = primitives.sphere(10.0, rings=60, segments=120)
         keep = [i for i in range(len(s.faces)) if i % 97 != 0]          # a few holes
         o = w.add_mesh(Mesh(s.vertices, s.faces[keep], "open.stl"))
