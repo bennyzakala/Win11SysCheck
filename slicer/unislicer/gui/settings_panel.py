@@ -329,7 +329,7 @@ class SettingsPanel(QWidget):
 
     # with models selected these go to those models (their own settings), not to the plate; the elevation and
     # the on / off switches stay the plate's (the models stand on one floor)
-    PLATE_ONLY = frozenset({"sla_elevation", "support_enable", "sla_raft_join", "sla_raft_join_width", "sla_raft_join_reach", "sla_internal_supports", "sla_internal_spacing",
+    PLATE_ONLY = frozenset({"sla_elevation", "support_enable", "sla_raft_join", "sla_raft_join_mode", "sla_raft_join_width", "sla_raft_join_reach", "sla_internal_supports", "sla_internal_spacing",
                             "sla_cavity_pillars", "sla_cavity_outside", "sla_cavity_spacing", "sla_cavity_diameter"})
 
     def __init__(self, printer: str, material: str | None, quality: str | None, overrides: dict, show_advanced: bool):

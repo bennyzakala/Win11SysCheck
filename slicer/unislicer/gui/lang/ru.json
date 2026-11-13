@@ -1466,5 +1466,9 @@
 "How wide the solid joint between two neighbouring rafts is": "Ширина сплошного соединения между двумя соседними рафтами",
 "Rafts further apart are not joined (a long joint wastes resin and may warp)": "Рафты дальше этого расстояния не соединяются (длинное соединение тратит смолу и может деформироваться)",
 "Rafts joined: the plate comes off in {} pieces - some parts are more than {:g} mm apart (Raft joint max. distance).": "Рафты соединены: платформа снимется в {} частях - некоторые модели дальше {:g} мм друг от друга (макс. расстояние соединения).",
-"The rafts could not be joined into one piece; they print separately.": "Рафты не удалось соединить в одну деталь; они печатаются отдельно."
+"The rafts could not be joined into one piece; they print separately.": "Рафты не удалось соединить в одну деталь; они печатаются отдельно.",
+"Joints": "Соединения",
+"Join every neighbour": "Соединить всех соседей",
+"Minimal joints": "Минимум соединений",
+"Join every neighbour: a joint between every two neighbouring parts (a stiff plate). Minimal joints: each part joined one way only (less resin)": "Соединить всех соседей: соединение между каждыми двумя соседними моделями (жёсткая платформа). Минимум соединений: каждая модель соединена только одним путём (меньше смолы)"
 }

@@ -1466,5 +1466,9 @@
 "How wide the solid joint between two neighbouring rafts is": "عرض الوصلة الصلبة بين قاعدتين متجاورتين",
 "Rafts further apart are not joined (a long joint wastes resin and may warp)": "القواعد الأبعد من ذلك لا تُربط (الوصلة الطويلة تهدر الراتنج وقد تنحني)",
 "Rafts joined: the plate comes off in {} pieces - some parts are more than {:g} mm apart (Raft joint max. distance).": "تم ربط القواعد: ستُنزع المنصة في {} قطع - بعض النماذج تبعد أكثر من {:g} مم (أقصى مسافة للوصلة).",
-"The rafts could not be joined into one piece; they print separately.": "تعذّر ربط القواعد في قطعة واحدة؛ ستُطبع منفصلة."
+"The rafts could not be joined into one piece; they print separately.": "تعذّر ربط القواعد في قطعة واحدة؛ ستُطبع منفصلة.",
+"Joints": "الوصلات",
+"Join every neighbour": "ربط كل الجيران",
+"Minimal joints": "أقل عدد من الوصلات",
+"Join every neighbour: a joint between every two neighbouring parts (a stiff plate). Minimal joints: each part joined one way only (less resin)": "ربط كل الجيران: وصلة بين كل نموذجين متجاورين (منصة صلبة). أقل عدد من الوصلات: كل نموذج مربوط بطريق واحد فقط (راتنج أقل)"
 }

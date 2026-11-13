@@ -1537,7 +1537,7 @@ def raft_outline(supports: Mesh | None, thickness: float):
 
 
 def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 30.0,
-                notch: float = 1.0, obstacles=None):
+                notch: float = 1.0, obstacles=None, every_neighbour: bool = False):
     """Joints that make the rafts of a plate one piece (the lab's "join all rafts"): between each two
     neighbouring rafts - the nearest ones, as a tree, so every raft is reached once - a solid strip ``width``
     mm wide on the plate, as thick as the thinner of the two rafts (``thickness``: one value, or one per
@@ -1626,6 +1626,7 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
             if j > i:
                 gaps.append((shapes[i].distance(shapes[j]), i, j))
     gaps.sort()
+    done_pairs: set = set()
     solid: dict = {}
     thin: dict = {}
     for gap, i, j in gaps:
@@ -1648,6 +1649,31 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
         solid.setdefault(t, []).append(made[0])
         if not made[1].is_empty:
             thin.setdefault(t, []).append(made[1])
+        done_pairs.add((i, j))
+    if every_neighbour:
+        # also every other pair of neighbouring rafts that a joint can reach straight across (another raft or a
+        # part on the plate in between stops it), unless it would mostly lie on a joint already made
+        made_all = [g for polys in solid.values() for g in polys]
+        for gap, i, j in gaps:
+            if gap > reach:
+                break
+            if (i, j) in done_pairs or gap < 0.05:
+                continue
+            made = None
+            for w in (width, width / 2, min(width, 3.0)):
+                made = joint(gap, i, j, w)
+                if made is not None:
+                    break
+            if made is None:
+                continue
+            if made_all and made[0].intersection(unary_union(made_all)).area > 0.3 * made[0].area:
+                continue
+            done_pairs.add((i, j))
+            made_all.append(made[0])
+            t = min(tks[i], tks[j])
+            solid.setdefault(t, []).append(made[0])
+            if not made[1].is_empty:
+                thin.setdefault(t, []).append(made[1])
     pieces = len({find(k) for k in range(n)})
     meshes = []
     for t, polys in solid.items():

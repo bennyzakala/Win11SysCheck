@@ -5183,8 +5183,8 @@ class MainWindow(QMainWindow):
 
     RAFT_KEYS = ("sla_raft_type", "sla_raft_thickness", "sla_raft_margin", "sla_raft_area_ratio", "sla_raft_slope",
                  "sla_raft_bar_spacing", "sla_raft_bar_width", "sla_raft_group_reach", "sla_elevation",
-                 "sla_raft_join", "sla_raft_join_width", "sla_raft_join_reach")
-    PLATE_RAFT_KEYS = ("sla_elevation", "sla_raft_join", "sla_raft_join_width", "sla_raft_join_reach")
+                 "sla_raft_join", "sla_raft_join_mode", "sla_raft_join_width", "sla_raft_join_reach")
+    PLATE_RAFT_KEYS = ("sla_elevation", "sla_raft_join", "sla_raft_join_mode", "sla_raft_join_width", "sla_raft_join_reach")
 
     def _schedule_joints(self):
         t = self.__dict__.get("_joints_timer")
@@ -5222,7 +5222,7 @@ class MainWindow(QMainWindow):
                 items.append(("block", hit[1], m, max(cfg["sla_raft_thickness"], 0.5)))
             else:
                 items.append(("raft", hit[1], m, ocfg["sla_raft_thickness"]))
-        params = (cfg["sla_raft_join_width"], cfg["sla_raft_join_reach"])
+        params = (cfg["sla_raft_join_width"], cfg["sla_raft_join_reach"], cfg["sla_raft_join_mode"] == "all")
         key = (tuple((k, id(mesh), mat.tobytes(), t) for k, mesh, mat, t in items), params)
         if key == getattr(self, "_joints_key", None):
             return
@@ -5253,7 +5253,8 @@ class MainWindow(QMainWindow):
                     block.append(shape)
             from shapely.ops import unary_union
             blocked = unary_union(block) if block else None
-            return sla_supports.raft_joints(outs, thick, params[0], params[1], obstacles=blocked), len(outs)
+            return sla_supports.raft_joints(outs, thick, params[0], params[1], obstacles=blocked,
+                                            every_neighbour=params[2]), len(outs)
 
         def done(res):
             (joints, pieces), n = res
@@ -5303,7 +5304,7 @@ class MainWindow(QMainWindow):
             for key, row in rows.items():
                 row.setVisible(not ((key in ("sla_raft_bar_spacing", "sla_raft_bar_width") and kind not in ("grid", "hexagon"))
                                     or (key == "sla_raft_group_reach" and kind != "mini")
-                                    or (key in ("sla_raft_join_width", "sla_raft_join_reach") and not cfg["sla_raft_join"])
+                                    or (key in ("sla_raft_join_mode", "sla_raft_join_width", "sla_raft_join_reach") and not cfg["sla_raft_join"])
                                     or (key not in ("sla_raft_type", "sla_elevation") and kind == "none")))
 
         def changed(key, value):

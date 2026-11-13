@@ -8908,3 +8908,26 @@ def test_raft_outline_and_joints_survive_geometry_errors(monkeypatch):
     parts = [primitives.crown_cap(9.0, 7.0).translated([40 + 15 * k, 60, 0]) for k in range(2)]
     job = sla.prepare(parts, cfg)
     assert job.layer_count > 0 and sla.RAFT_JOIN_FAILED_NOTE in job.warnings
+
+
+def test_join_every_neighbour_or_minimal_joints():
+    """Lab: two jaws on the plate were joined only through a die between them ("it has to join all the
+    models"). Joining as a tree reached every raft once; "Join every neighbour" (the default) also joins each
+    other pair of neighbouring rafts a joint can reach straight across. "Minimal joints" keeps the tree."""
+    from shapely.geometry import box
+    from unislicer import profiles, settings, sla_supports
+    from unislicer.slicing import slice_mesh
+    # two jaws 12 mm apart, a die nearer to each of them than they are to each other, off to the side
+    jaw_a, jaw_b, die = box(0, 0, 40, 40), box(52, 0, 92, 40), box(41, 44, 51, 52)
+    assert settings.SCHEMA_BY_KEY["sla_raft_join_mode"].default == "all"
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {})
+    assert cfg["sla_raft_join_mode"] == "all"
+
+    def joints(every):
+        mesh, pieces = sla_supports.raft_joints([jaw_a, jaw_b, die], 1.0, 10.0, 30.0, every_neighbour=every)
+        assert pieces == 1
+        return slice_mesh(mesh, [0.25])[0]           # the joints with their notches, seen from above
+
+    between = box(41, 0, 51, 30)                     # straight between the two jaws, away from the die
+    assert joints(False).intersection(between).area < 1.0
+    assert joints(True).intersection(between).area > 50.0
