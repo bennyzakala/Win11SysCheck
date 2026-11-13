@@ -5245,9 +5245,11 @@ def test_teeth_rafts_carry_the_sod_case_code():
     from unislicer import dental_cad
     from unislicer.gui.main_window import MainWindow
     from unislicer.scene import SceneObject
-    assert dental_cad.case_code("DSY-SOD260046671-044-P-46-46-1-A35-.stl") == "46671-044-P"
-    assert dental_cad.case_code("SMG-SOD260045198-N183-E-16-16-1-A35_Antag.stl") == "45198-N183-E"
-    assert dental_cad.case_code("C:/cases/WMJ-SOD260043945-044-P-43-46-4-A3-.stl") == "43945-044-P"
+    assert dental_cad.case_code("DSY-SOD260046671-044-P-46-46-1-A35-.stl") == "46671"
+    assert dental_cad.case_code("DAA-SOD260046614-044-P-25-27-3-00-R003_2.stl") == "46614-R003"
+    assert dental_cad.case_code("EGI-SOD260046764-114-Z-14-14-1-00-V227_Antag.stl") == "46764-V227"
+    assert dental_cad.case_code("SMG-SOD260045198-N183-E-16-16-1-A35_Antag.stl") == "45198-N183"
+    assert dental_cad.case_code("C:/cases/WMJ-SOD260043945-044-P-43-46-4-A3-.stl") == "43945"
     assert dental_cad.case_code("upper.stl") == ""
     cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True})
     assert cfg["sla_raft_label_teeth"] is False                 # off unless the user turns it on
@@ -5259,7 +5261,7 @@ def test_teeth_rafts_carry_the_sod_case_code():
     jaw = SceneObject.from_mesh(primitives.box(60, 45, 15), "EGI-SOD260046764-114-Z-14-14-1-00-V227_UnsectionedModel_UpperJaw")
     die = SceneObject.from_mesh(primitives.cylinder(4, 15), "EGI-SOD260046764-114-Z-14-14-1-00-V227_Tooth_14")
     label = MainWindow._raft_label_text
-    assert label(crown, cfg) == "46671-044-P"
+    assert label(crown, cfg) == "46671"
     assert label(jaw, cfg) == "" and label(die, cfg) == ""
     cfg.update({"sla_raft_label_teeth": False})
     assert label(crown, cfg) == ""
@@ -5395,7 +5397,7 @@ def test_supports_keep_away_from_labels():
 
 def test_model_labels_use_the_short_sod_code(tmp_path):
     """The label text defaults to the short SOD code ({code}): 'SMG-SOD260045198-N183-E-16-16-1-A35_Antag'
-    is labelled '45198-N183-E'; a file without an SOD number keeps its name."""
+    is labelled '45198-N183'; a file without an SOD number keeps its name."""
     import subprocess, sys, textwrap
     code = textwrap.dedent('''
         import os
@@ -5410,7 +5412,7 @@ def test_model_labels_use_the_short_sod_code(tmp_path):
         w.store.remove("label_template_v2")
         a = w.add_mesh(primitives.box(40, 30, 15)); a.name = "SMG-SOD260045198-N183-E-16-16-1-A35_Antag"
         b = w.add_mesh(primitives.box(40, 30, 15)); b.name = "upper_jaw_7"
-        assert w._label_text(a) == "45198-N183-E", w._label_text(a)
+        assert w._label_text(a) == "45198-N183", w._label_text(a)
         assert w._label_text(b) == "upper_jaw_7"
         w.store.setValue("label_template", "{name}")       # a user's own choice afterwards stays
         assert w._label_text(a) == "SMG-SOD260045198-N183-E-16-16-1-A35_Antag"[:14]
@@ -8915,24 +8917,29 @@ def test_raft_outline_and_joints_survive_geometry_errors(monkeypatch):
 def test_join_every_neighbour_or_minimal_joints():
     """Lab: two jaws on the plate were joined only through a die between them ("it has to join all the
     models"). Joining as a tree reached every raft once; "Join every neighbour" (the default) also joins each
-    other pair of neighbouring rafts a joint can reach straight across. "Minimal joints" keeps the tree."""
+    other pair of rafts that nearly meet (within 5 mm) - short joints where they come close, never wide
+    plates across a gap (the lab marked those in red). "Minimal joints" keeps the tree."""
     from shapely.geometry import box
     from unislicer import profiles, settings, sla_supports
     from unislicer.slicing import slice_mesh
-    # two jaws 12 mm apart, a die nearer to each of them than they are to each other, off to the side
-    jaw_a, jaw_b, die = box(0, 0, 40, 40), box(52, 0, 92, 40), box(41, 44, 51, 52)
     assert settings.SCHEMA_BY_KEY["sla_raft_join_mode"].default == "all"
-    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {})
-    assert cfg["sla_raft_join_mode"] == "all"
+    assert profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {})["sla_raft_join_mode"] == "all"
 
-    def joints(every):
-        mesh, pieces = sla_supports.raft_joints([jaw_a, jaw_b, die], 1.0, 10.0, 30.0, every_neighbour=every)
+    def joints(rafts, every):
+        mesh, pieces = sla_supports.raft_joints(rafts, 1.0, 10.0, 30.0, every_neighbour=every)
         assert pieces == 1
         return slice_mesh(mesh, [0.25])[0]           # the joints with their notches, seen from above
 
-    between = box(41, 0, 51, 30)                     # straight between the two jaws, away from the die
-    assert joints(False).intersection(between).area < 1.0
-    assert joints(True).intersection(between).area > 50.0
+    # two jaws 4 mm apart, a die between them nearer to each (the tree goes through the die)
+    near = [box(0, 0, 40, 40), box(44, 0, 84, 40), box(40.5, 41, 43.5, 48)]
+    between = box(40.5, 0, 43.5, 30)                 # straight between the two jaws, away from the die
+    assert joints(near, False).intersection(between).area < 1.0
+    assert joints(near, True).intersection(between).area > 25.0      # 10 mm wide across the 4 mm gap
+    # 12 mm apart: no joint straight across, in either mode (the die joins them)
+    far = [box(0, 0, 40, 40), box(52, 0, 92, 40), box(41, 44, 51, 52)]
+    across = box(41, 0, 51, 30)
+    assert joints(far, False).intersection(across).area < 1.0
+    assert joints(far, True).intersection(across).area < 1.0
 
 
 def test_a_raft_ringed_by_joints_is_not_covered_by_them():

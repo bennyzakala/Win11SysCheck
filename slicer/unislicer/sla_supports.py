@@ -1536,6 +1536,9 @@ def raft_outline(supports: Mesh | None, thickness: float):
     return ShapelyPolygon()
 
 
+NEIGHBOUR_GAP = 5.0      # "join every neighbour": the joints beyond the tree only where two rafts come this close
+
+
 def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 30.0,
                 notch: float = 1.0, obstacles=None, every_neighbour: bool = False):
     """Joints that make the rafts of a plate one piece (the lab's "join all rafts"): between each two
@@ -1665,7 +1668,8 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
         # part on the plate in between stops it), unless it would mostly lie on a joint already made
         made_all = unary_union([g for polys in solid.values() for g in polys])
         for gap, i, j in gaps:
-            if gap > reach:
+            # only short joints where two rafts nearly meet (the lab: no wide plates across a gap)
+            if gap > min(reach, NEIGHBOUR_GAP):
                 break
             if (i, j) in done_pairs or gap < 0.05:
                 continue
