@@ -8765,3 +8765,45 @@ def test_holes_still_close_after_a_language_switch_right_after_loading(tmp_path)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300,
                        env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path)), encoding="utf-8", errors="replace")
     assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_a_redirected_upload_is_not_reported_as_sent(tmp_path):
+    """A printer address that answers an upload with a redirect (e.g. to its web page): urllib sent the
+    request on as a GET without the file, the page answered 200, and the print counted as sent. Uploads and
+    commands are not sent on; the redirect is an error that says where it pointed."""
+    import http.server, threading
+    from unislicer import network
+    seen = []
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            seen.append(("POST", self.path))
+            n = int(self.headers.get("Content-Length") or 0)
+            self.rfile.read(n)
+            self.send_response(302)
+            self.send_header("Location", "/index.html")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def do_GET(self):
+            seen.append(("GET", self.path))
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        f = tmp_path / "plate.gcode"
+        f.write_text("G28\n" * 100)
+        p = network.NetPrinter("k1", "moonraker", "127.0.0.1", srv.server_address[1], "")
+        with pytest.raises(network.NetworkError) as err:
+            network.client(p).upload(str(f), "plate.gcode")
+        assert "302" in str(err.value) and "/index.html" in str(err.value)
+        assert ("GET", "/index.html") not in seen
+    finally:
+        srv.shutdown()

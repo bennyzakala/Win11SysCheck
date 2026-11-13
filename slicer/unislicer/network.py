@@ -167,6 +167,13 @@ def _multipart(fields: dict, file_field: str, filename: str, file_part, progress
     return body, f"multipart/form-data; boundary={boundary}"
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """An upload or a command is not sent on to another address: urllib turns a redirected POST into a GET
+    without the file, and the page it lands on answers 200 - the print was reported sent but never arrived."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def _open(p: NetPrinter, method: str, path: str, body=None, headers=None, timeout: float = 15.0):
     url = p.base_url() + path
     h = dict(headers or {})
@@ -180,6 +187,8 @@ def _open(p: NetPrinter, method: str, path: str, body=None, headers=None, timeou
         mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
         mgr.add_password(None, p.base_url(), p.user, p.password)
         handlers += [urllib.request.HTTPDigestAuthHandler(mgr), urllib.request.HTTPBasicAuthHandler(mgr)]
+    if method not in ("GET", "HEAD"):
+        handlers.append(_NoRedirect())
     opener = urllib.request.build_opener(*handlers)
     try:
         with opener.open(req, timeout=timeout) as r:
@@ -191,6 +200,10 @@ def _open(p: NetPrinter, method: str, path: str, body=None, headers=None, timeou
         raw = e.read() if hasattr(e, "read") else b""
         if e.code in (401, 403):
             raise NetworkError("auth") from e
+        if 300 <= e.code < 400:
+            where = (e.headers or {}).get("Location", "") if hasattr(e, "headers") else ""
+            raise NetworkError(f"HTTP {e.code}: the printer sent the request on to {where or 'another address'}"
+                               " - check the printer's address and port") from e
         raise NetworkError(f"HTTP {e.code}: {raw[:200].decode('utf-8', 'replace')}") from e
     except (urllib.error.URLError, socket.timeout, ConnectionError, OSError) as e:
         if isinstance(getattr(e, "reason", None), InterruptedError):
