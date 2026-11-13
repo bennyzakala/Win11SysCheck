@@ -9195,6 +9195,9 @@ def test_a_single_support_build_is_never_left_marked_running(tmp_path):
                 app.processEvents(); time.sleep(0.01)
             for _ in range(20):
                 app.processEvents()
+        # its own starting value: Windows keeps settings in the registry, shared by every test - one that left
+        # the tip at 0.45 made the change below no change, so nothing was built
+        w.settings.set_value("sla_tip_diameter", 0.4)
         w._select_uid(None); w.generate_supports(); settle()
         # 1) taking the result in fails once
         import sys as _sys
@@ -9207,7 +9210,8 @@ def test_a_single_support_build_is_never_left_marked_running(tmp_path):
             return real(*a, **k)
         w.viewer.set_object_supports = broken
         w.settings.set_value("sla_tip_diameter", 0.45); w._objects_changed(refresh_list=False); settle()
-        assert state["n"] == 1 and getattr(w, "_sup_task", None) is None, "left marked running"
+        assert state["n"] == 1 and getattr(w, "_sup_task", None) is None, \
+            ("left marked running", state, getattr(w, "_sup_task", None), w.settings.config()["sla_tip_diameter"])
         # 2) a build that ends without a result (cancelled) is let go as well
         from unislicer.gui import worker
         orig = worker.Task.run
