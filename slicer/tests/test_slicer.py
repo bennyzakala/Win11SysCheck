@@ -9296,3 +9296,113 @@ def test_a_small_part_stands_on_at_least_three_supports():
     big = placed(primitives.box(20, 20, 8), 60, 40).world_mesh().translated([0, 0, 3])
     report = {}
     assert len(sla_supports.auto_support_points(big, cfg, report)) >= 3 and report["spacing_used"] == 5.5
+
+
+def test_switching_support_shape_keeps_the_points_and_rafts_reuse_what_was_worked_out(tmp_path):
+    """Lab: switching between support types and raft types was slow - tree <-> pillar worked every part's
+    support points out again (~4 s with the window held for 17 parts) and dropped points added by hand. A
+    setting the points do not come from now only rebuilds the structure; the spacing still makes new
+    points. The first tiny raft works the parts' outlines out on every core at once."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        import numpy as np
+        from unislicer import primitives, sla_supports
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus")
+        for k, v in (("sla_support_type", "tree"), ("sla_raft_type", "solid"), ("sla_support_spacing", 2.0),
+                     ("sla_model_type", "cb")):
+            w.settings.set_value(k, v)
+        parts = []
+        for i in range(3):
+            o = w.add_mesh(primitives.crown_cap(9.0 + i, 7.0)); o.direct = False; parts.append(o)
+        app.processEvents()
+        def settle(limit=90):
+            end = time.time() + limit
+            while time.time() < end and (w._sup_pending or getattr(w, "_sup_task", None) is not None):
+                app.processEvents(); time.sleep(0.01)
+            for _ in range(10):
+                app.processEvents()
+        w._select_uid(None); w.generate_supports(); settle()
+        o = parts[0]
+        extra = o.support_points[:1] + np.array([0.3, 0.0, 0.0])        # a point added by hand
+        o.support_points = np.vstack([o.support_points, extra])
+        before = [p.support_points.copy() for p in parts]
+        calls = {"n": 0}
+        real = w._generate_supports
+        def counted():
+            calls["n"] += 1
+            return real()
+        w._generate_supports = counted
+        w.settings.set_value("sla_support_type", "pillar"); w.apply_setting("sla_support_type"); settle()
+        assert calls["n"] == 0, "support points worked out again for a shape change"
+        assert all(np.array_equal(p.support_points, b) for p, b in zip(parts, before))
+        cfg = w.settings.config()
+        assert all(w._support_cache[p.uid][0] == w._support_key(p, cfg) for p in parts)   # built as pillars
+        # the first tiny raft: every part's outline worked out (at once), then the rafts
+        assert all(sla_supports.needs_outline(*w._support_geometry(p, w._lift(cfg))[:1],
+                                              cfg.copy().update({"sla_raft_type": "tiny"})) for p in parts)
+        w.settings.set_value("sla_raft_type", "tiny"); w.apply_setting("sla_raft_type"); settle()
+        cfg = w.settings.config()
+        assert all(w._support_cache[p.uid][0] == w._support_key(p, cfg) for p in parts)
+        assert not any(sla_supports.needs_outline(w._support_geometry(p, w._lift(cfg))[0], cfg) for p in parts)
+        # a setting the points come from still makes new points
+        w.settings.set_value("sla_support_spacing", 1.2); w.apply_setting("sla_support_spacing"); settle()
+        assert calls["n"] == 1
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_raft_outline_and_code_placement_are_worked_out_once():
+    """A raft change worked the part's outline out again for every raft type (the inset differs) and placed
+    the case code on the raft again for the very same raft: both are kept now, with the same result."""
+    from shapely.geometry import Polygon
+    from unislicer import sla_supports
+    tooth = placed(primitives.crown_cap(10.0, 8.0), 60, 40).world_mesh().translated([0, 0, 3])
+    calls = {"n": 0}
+    real = sla_supports._tooth_sections
+
+    def counted(*a):
+        calls["n"] += 1
+        return real(*a)
+    sla_supports._tooth_sections = counted
+    try:
+        sla_supports._OUTLINES.clear()
+        a = sla_supports.tooth_outline(tooth, 0.5)
+        b = sla_supports.tooth_outline(tooth, 0.0)
+        c = sla_supports.tooth_outline(tooth, 0.5)
+    finally:
+        sla_supports._tooth_sections = real
+    assert calls["n"] == 1 and c is a and b.area > a.area > 0
+    sla_supports._OUTLINES.clear()
+    assert sla_supports.tooth_outline(tooth, 0.5).equals(a)                 # the same as worked out afresh
+    from unislicer.mesh_tools import text_polygons  # noqa: F401
+    text = Polygon([(0, 0), (6, 0), (6, 2), (0, 2)])
+    room = Polygon([(0, 0), (20, 0), (20, 6), (0, 6)])
+    sla_supports._FITS.clear()
+    first = sla_supports.fit_text(text, room)
+    assert sla_supports.fit_text(text, room) is first
+    assert first.equals(sla_supports._fit_text(text, room, 0.7, 3.0))
+
+
+def test_extruded_prism_is_closed_with_its_volume():
+    """extrude works on whole arrays now: still a closed prism, holes kept, volume = area x height."""
+    from shapely.geometry import Point, Polygon
+    from unislicer.mesh_tools import extrude
+    for shape in (Polygon([(0, 0), (10, 0), (10, 5), (0, 5)], [[(2, 2), (3, 2), (3, 3), (2, 3)]]),
+                  Point(0, 0).buffer(3).union(Point(4, 0).buffer(2)), Point(20, 0).buffer(1).difference(Point(20, 0).buffer(0.4))):
+        m = extrude(shape, 0.5, 2.0)
+        t = m.triangles
+        vol = float(np.einsum("ij,ij->i", t[:, 0], np.cross(t[:, 1], t[:, 2])).sum() / 6.0)
+        assert abs(vol - shape.area * 1.5) < 1e-6 * max(1.0, shape.area)
+        edges = np.sort(np.concatenate([m.faces[:, [0, 1]], m.faces[:, [1, 2]], m.faces[:, [2, 0]]]), axis=1)
+        _, counts = np.unique(edges, axis=0, return_counts=True)
+        assert np.all(counts == 2)                                          # watertight

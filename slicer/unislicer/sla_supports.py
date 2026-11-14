@@ -651,12 +651,34 @@ def _code_on_raft(text: str, room, raft: float, engrave: float, avoid=None):
     return ("top", placed) if placed is not None else None
 
 
+_FITS: dict = {}
+
+
 def fit_text(text, room, min_height: float = 0.7, max_height: float = 3.0):
     """``text`` (polygons, 2 mm tall, horizontal) placed wholly inside ``room`` as big as fits (up to
     ``max_height``), or None: straight along the room's long axis, or - on an arch-shaped or otherwise
-    bent room (a bridge's raft) - bent along the room's centre line when that lets it be bigger."""
+    bent room (a bridge's raft) - bent along the room's centre line when that lets it be bigger. Kept per
+    text and room: the search (a bent room's centre line above all) was half of a raft change's time, again
+    for the same raft at every change back to its type."""
     if text.is_empty or room.is_empty:
         return None
+    import hashlib
+    key = (hashlib.blake2b(shapely.to_wkb(text), digest_size=16).digest(),
+           hashlib.blake2b(shapely.to_wkb(room), digest_size=16).digest(), float(min_height), float(max_height))
+    with _MEMO_LOCK:
+        if key in _FITS:
+            hit = _FITS.pop(key)
+            _FITS[key] = hit
+            return hit
+    hit = _fit_text(text, room, min_height, max_height)
+    with _MEMO_LOCK:
+        _FITS[key] = hit
+        while len(_FITS) > 512:
+            _FITS.pop(next(iter(_FITS)))
+    return hit
+
+
+def _fit_text(text, room, min_height: float, max_height: float):
     room = room.buffer(0)
     shapely.prepare(room)
     straight = _fit_straight(text, room, min_height, max_height)
@@ -879,23 +901,56 @@ _OUTLINES: dict = {}
 
 def tooth_outline(mesh: Mesh, inset: float, levels: int = 16):
     """The part's outline seen from above (the union of its cross-sections at several heights), set back by
-    ``inset``: a "mini tiny" raft never reaches past the tooth it carries. Kept per part: it took ~0.15 s
-    a part, again at every raft change (a full plate's SOLID LITE ~3 s)."""
-    import hashlib
-    key = (len(mesh.faces), hashlib.blake2b(mesh.vertices.tobytes(), digest_size=16).digest(),
-           hashlib.blake2b(mesh.faces.tobytes(), digest_size=16).digest(), float(inset), levels)
+    ``inset``: a "mini tiny" raft never reaches past the tooth it carries. The sections are kept per part
+    (they took ~0.1 s a part, again at every raft change - and again for each raft type, whose inset
+    differs: tiny after solid lite sliced every part once more); the inset is applied to the kept shape."""
+    key = (*mesh_digest(mesh), levels)
     with _MEMO_LOCK:
         hit = _OUTLINES.pop(key, None)
     if hit is None:
-        hit = _tooth_outline(mesh, inset, levels)
+        hit = {"shape": _tooth_sections(mesh, levels)}
     with _MEMO_LOCK:
         _OUTLINES[key] = hit
         while len(_OUTLINES) > 256:
             _OUTLINES.pop(next(iter(_OUTLINES)))
-    return hit
+    shape = hit["shape"]
+    if shape.is_empty:
+        return shape
+    inset = float(inset)
+    done = hit.get(inset)
+    if done is None:
+        done = shape.buffer(-inset) if inset > 0 else shape
+        done = done.simplify(0.02) if not done.is_empty else done
+        hit[inset] = done
+    return done
 
 
-def _tooth_outline(mesh: Mesh, inset: float, levels: int):
+OUTLINE_RAFTS = ("tiny", "raft_label", "solid_lite")      # the raft types made from the part's outline
+
+
+def needs_outline(mesh: Mesh, cfg: Config, levels: int = 16) -> bool:
+    """Would this part's raft work out its outline (not kept yet)?"""
+    if cfg["sla_raft_type"] not in OUTLINE_RAFTS:
+        return False
+    with _MEMO_LOCK:
+        return (*mesh_digest(mesh), levels) not in _OUTLINES
+
+
+def outline_job(mesh: Mesh, levels: int = 16):
+    """A part's outline sections, for the worker pool (a plate's parts at once at the first tiny / solid
+    lite raft: one by one in the window's build thread it took ~2.4 s for 17 parts)."""
+    return (*mesh_digest(mesh), levels), _tooth_sections(mesh, levels)
+
+
+def keep_outline(key, shape) -> None:
+    with _MEMO_LOCK:
+        if key not in _OUTLINES:
+            _OUTLINES[key] = {"shape": shape}
+            while len(_OUTLINES) > 256:
+                _OUTLINES.pop(next(iter(_OUTLINES)))
+
+
+def _tooth_sections(mesh: Mesh, levels: int):
     from .slicing import slice_mesh
     lo, hi = mesh.bounds
     if hi[2] - lo[2] <= 1e-6:
@@ -904,9 +959,7 @@ def _tooth_outline(mesh: Mesh, inset: float, levels: int):
     shape = unary_union([g for g in slice_mesh(mesh, planes, 0.05) if not g.is_empty])
     if shape.is_empty:
         return ShapelyPolygon()
-    shape = shape.buffer(0.2).buffer(-0.2)          # close slivers between neighbouring sections
-    shape = shape.buffer(-inset) if inset > 0 else shape
-    return shape.simplify(0.02) if not shape.is_empty else shape
+    return shape.buffer(0.2).buffer(-0.2)           # close slivers between neighbouring sections
 
 
 def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None, outline_shape=None,
@@ -1507,7 +1560,7 @@ def _finish(mesh: Mesh, cfg: Config, built, owners, label, label_frame):
     """The raft under a built support structure, and the two merged."""
     structure, face_owner, groups, feet, foot_radii, used, pillar_r = built
     tiny = None
-    if feet and cfg["sla_raft_type"] in ("tiny", "raft_label", "solid_lite"):
+    if feet and cfg["sla_raft_type"] in OUTLINE_RAFTS:
         tiny = tooth_outline(mesh, cfg["sla_raft_tiny_inset"] if cfg["sla_raft_type"] == "tiny" else 0.0)
     # the caller chooses the text (the model's name, or a tooth's SOD case code); "" = no label
     rafts = _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny, label, label_frame)

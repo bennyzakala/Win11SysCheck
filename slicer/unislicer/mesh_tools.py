@@ -12,33 +12,44 @@ from .slicing import _chain, _segments_at, as_multipolygon, loops_to_geometry, p
 # ------------------------------------------------------------- extrusion
 def _cap_triangles(poly: Polygon) -> np.ndarray:
     """Triangles (K, 3, 2) filling a polygon with holes, using only its own vertices."""
-    tris = shapely.constrained_delaunay_triangles(poly)
-    out = []
-    for t in getattr(tris, "geoms", []):
-        c = np.asarray(t.exterior.coords)[:3, :2]
-        out.append(c)
-    return np.array(out).reshape(-1, 3, 2)
+    tris = shapely.get_parts(shapely.constrained_delaunay_triangles(poly))
+    if len(tris) == 0:
+        return np.zeros((0, 3, 2))
+    return shapely.get_coordinates(shapely.get_exterior_ring(tris)).reshape(-1, 4, 2)[:, :3]
 
 
 def extrude(polygons, z0: float, z1: float, name: str = "Extrusion") -> Mesh:
-    """Closed prism(s) from 2D polygons (holes allowed) between heights z0 < z1."""
-    tris = []
+    """Closed prism(s) from 2D polygons (holes allowed) between heights z0 < z1. Whole arrays at a time (a
+    triangle at a time it was most of a raft change's time once the rest was kept)."""
+    parts = []
     for poly in polygons_of(as_multipolygon(polygons)):
         poly = shapely.geometry.polygon.orient(poly, 1.0)          # exterior CCW, holes CW
         cap = _cap_triangles(poly)
-        for t in cap:
-            a, b, c = t
-            if (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) < 0:
-                b, c = c, b
-            tris.append([[*a, z1], [*b, z1], [*c, z1]])             # top faces up
-            tris.append([[*a, z0], [*c, z0], [*b, z0]])             # bottom faces down
+        if len(cap):
+            a, b, c = cap[:, 0], cap[:, 1], cap[:, 2]
+            flip = ((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])) < 0
+            b, c = np.where(flip[:, None], c, b), np.where(flip[:, None], b, c)
+            k = len(cap)
+            top = np.stack([a, b, c], axis=1)                          # top faces up
+            bottom = np.stack([a, c, b], axis=1)                       # bottom faces down
+            pair = np.empty((k, 2, 3, 3))
+            pair[:, 0, :, :2], pair[:, 0, :, 2] = top, z1
+            pair[:, 1, :, :2], pair[:, 1, :, 2] = bottom, z0
+            parts.append(pair.reshape(-1, 3, 3))
         for ring in [poly.exterior, *poly.interiors]:
-            pts = np.asarray(ring.coords)[:-1, :2]
-            for k in range(len(pts)):
-                p, q = pts[k], pts[(k + 1) % len(pts)]
-                tris.append([[*p, z0], [*q, z0], [*q, z1]])
-                tris.append([[*p, z0], [*q, z1], [*p, z1]])
-    return Mesh.from_triangles(np.array(tris, dtype=float).reshape(-1, 3, 3), name)
+            p = np.asarray(ring.coords)[:-1, :2]
+            if len(p) == 0:
+                continue
+            q = np.roll(p, -1, axis=0)
+            n = len(p)
+            wall = np.empty((n, 2, 3, 3))
+            wall[:, 0, 0, :2], wall[:, 0, 1, :2], wall[:, 0, 2, :2] = p, q, q
+            wall[:, 0, :, 2] = (z0, z0, z1)
+            wall[:, 1, 0, :2], wall[:, 1, 1, :2], wall[:, 1, 2, :2] = p, q, p
+            wall[:, 1, :, 2] = (z0, z1, z1)
+            parts.append(wall.reshape(-1, 3, 3))
+    tris = np.concatenate(parts) if parts else np.zeros((0, 3, 3))
+    return Mesh.from_triangles(tris, name)
 
 
 _TEXT_CACHE: dict = {}

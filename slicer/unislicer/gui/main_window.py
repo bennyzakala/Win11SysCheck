@@ -4458,6 +4458,21 @@ class MainWindow(QMainWindow):
             o.settings.pop(key, None)
         self._refresh_objects(select=[o.uid for o in self.selected_objects()])
 
+    # what the automatic support points are worked out from (sla_supports.auto_support_points, the presets
+    # and the learned density / angle): any other support setting only changes the structure on them
+    POINT_KEYS = frozenset(("support_angle", "sla_support_spacing", "sla_density", "sla_support_overhangs",
+                            "sla_support_minima", "sla_skip_ledges", "sla_avoid_fit", "sla_model_type",
+                            "sla_support_preset", "support_enable"))
+
+    def _keeps_points(self, key: str, group=None) -> bool:
+        """A change of ``key`` leaves the support points as they are: not a setting the points come from, and
+        every part that takes supports has its points already (one without gets them the usual way)."""
+        if key in self.POINT_KEYS:
+            return False
+        parts = [o for o in (group if group is not None else self._support_targets())
+                 if o.role != "cutter" and not o.direct]
+        return bool(parts) and all(o.support_points is not None and len(o.support_points) for o in parts)
+
     def _needs_supports(self, group, cfg=None):
         """The parts of ``group`` a raft choice has nothing to show on yet: standing on the plate or with no
         supports, and a raft chosen for them. A raft stands under supports, so these get supports."""
@@ -4520,9 +4535,13 @@ class MainWindow(QMainWindow):
         for o in group:
             changed_support = any(o.settings.get(k) != values.get(k) for k in support_keys | {k for k in o.settings
                                                                                               if not k.startswith(("hollow", "drain"))})
+            keys = {k for k in support_keys | {k for k in o.settings if not k.startswith(("hollow", "drain"))}
+                    if o.settings.get(k) != values.get(k)}
             o.settings = dict(values)
-            if changed_support and o.support_points is not None:
-                self._drop_supports(o)            # supports follow the model's new support settings
+            # supports follow the model's new support settings; a change that leaves its points (the support
+            # shape, tip, pillar) rebuilds the structure on them and keeps the points (and hand edits)
+            if changed_support and o.support_points is not None and keys & self.POINT_KEYS:
+                self._drop_supports(o)
         self._invalidate()
         self._refresh_objects(select=[o.uid for o in group])
         self.status.setText(tr("model_settings_done").format(len(group), len(values)) if values else
@@ -4936,6 +4955,9 @@ class MainWindow(QMainWindow):
         quick = lambda e: sla_supports.has_structure(e[1], e[2], e[3])      # only its raft to build
         slicing = self.task is not None and self.task.isRunning()
         # not while a slice runs (it would step aside at once, again and again, and load the workers it needs)
+        if self._sup_pending and quick(entry) and not slicing and not parallel.busy() \
+                and self._prefetch_outlines(uid, entry):
+            return                                   # the parts' outlines first, on every core; then the rafts
         if self._sup_pending and not slicing and not parallel.busy() and parallel.pool() is not None \
                 and not quick(entry):
             # more parts waiting (a setting changed for the whole plate): build them on every core at once;
@@ -4977,6 +4999,45 @@ class MainWindow(QMainWindow):
         task.failed.connect(lambda _msg: self._support_build_done())
         self._release_when_ended(task)
         task.start()
+
+    def _prefetch_outlines(self, uid, entry) -> bool:
+        """A raft change to a type made from the parts' outlines (tiny, solid lite, code raft): the parts
+        whose outline is not worked out yet get it on every core at once, then their rafts are finished one
+        by one from what is kept (each part's outline in turn held up the first such change ~2.4 s)."""
+        from .. import parallel
+        waiting = [(uid, entry)] + list(self._sup_pending.items())
+        todo, seen = [], set()
+        for _uid, e in waiting:
+            world, ocfg = e[1], e[2]
+            if id(world) not in seen and id(world) not in self.__dict__.get("_outline_failed", ()) \
+                    and sla_supports.needs_outline(world, ocfg):
+                seen.add(id(world))
+                todo.append(world)
+        if len(todo) < 2 or parallel.pool() is None:
+            return False
+        self._sup_pending = {uid: entry, **self._sup_pending}     # this one is built after, as the others
+
+        def work(progress, cancelled):
+            return parallel.run_chunks(sla_supports.outline_job, [(Mesh(m.vertices, m.faces, m.name),) for m in todo],
+                                       cancelled=cancelled, weights=[len(m.faces) + 1 for m in todo])
+
+        def done(results):
+            for key, shape in results:
+                sla_supports.keep_outline(key, shape)
+            self._support_build_done()
+
+        from .worker import Task
+        task = Task(work, self)
+        self._sup_task, self._sup_running = task, set()
+        def failed(_msg):                            # not tried again for these parts: built one by one
+            self.__dict__.setdefault("_outline_failed", set()).update(id(m) for m in todo)
+            self._support_build_done()
+
+        task.succeeded.connect(done)
+        task.failed.connect(failed)
+        self._release_when_ended(task)
+        task.start()
+        return True
 
     def _start_support_batch(self, batch):
         """Several parts' supports at once in the worker pool; each part is shown as the batch ends."""
@@ -5679,7 +5740,14 @@ class MainWindow(QMainWindow):
             self.status.setText(tr("applied_no_models").format(name))
             return
         if action == "supports":
-            self.generate_supports()
+            if self._keeps_points(key):
+                # the support shape, tip or pillar size...: the parts' points stay (and any made by hand),
+                # only their structures are built again - every part's points were worked out again first
+                # (~4 s with the window held for 17 parts, to switch tree / pillar)
+                self._ensure_supports_enabled()
+                self._objects_changed(refresh_list=False)
+            else:
+                self.generate_supports()
             self.status.setText(tr("applied_supports").format(name))
         elif action == "raft" and self._scope_group() and key == "sla_raft_type" \
                 and self._needs_supports(self._scope_group()):
