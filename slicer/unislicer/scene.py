@@ -325,10 +325,13 @@ class SceneObject:
         self.rotation = euler_angles(total)
         self.base_rotation = np.eye(3)
 
-    def auto_orient(self, technology: str, support_angle: float = 45.0, weights=None) -> None:
-        from .orient import best_rotation
-        current = self.mesh.transform(self.matrix())
-        self.apply_world_rotation(best_rotation(current, technology, support_angle, weights=weights))
+    def auto_orient(self, technology: str, support_angle: float = 45.0, weights=None, rotation=None) -> None:
+        """Turn the part to its best orientation (``rotation``: worked out already, e.g. in the worker pool)."""
+        if rotation is None:
+            from .orient import best_rotation
+            current = self.mesh.transform(self.matrix())
+            rotation = best_rotation(current, technology, support_angle, weights=weights)
+        self.apply_world_rotation(rotation)
 
     def duplicate(self) -> "SceneObject":
         sp = None if self.support_points is None else self.support_points.copy()

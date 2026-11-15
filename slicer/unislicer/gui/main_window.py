@@ -1765,7 +1765,7 @@ class MainWindow(QMainWindow):
         ext = os.path.splitext(path)[1].lower() or "?"
         try:
             with open(path, "rb") as fh:
-                data = fh.read(4 << 20)
+                data = fh.read(4096)         # the header says it (4 MB a file was read on the window's thread)
             prog = model_rescue.exporter_of(data) or "-"
         except Exception:
             prog = "-"
@@ -2563,8 +2563,25 @@ class MainWindow(QMainWindow):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             tech = cfg["technology"]
-            for o in targets:
-                o.auto_orient(tech, cfg["support_angle"], self.assistant.orient_weights(tech))
+            weights = self.assistant.orient_weights(tech)
+            jobs = [(Mesh(o.mesh.vertices, o.mesh.faces, o.mesh.name), o.matrix().copy(), tech, cfg["support_angle"],
+                     weights) for o in targets]
+
+            def work():
+                # off the window's thread (there it held the window, not even repainted, ~4 s for 10 parts);
+                # the window waits without input meanwhile, as for supports. Not in the worker pool: numpy
+                # already spreads each part over the cores, the pool was slower (6.3 s against 5.0 s)
+                return [orient.rotation_job(*j) for j in jobs]
+
+            # a long job: the checks on a timer (suggestions, collisions, outlines) wait for it - started
+            # meanwhile they took the cores from it (Auto prepare 9 s -> 16 s)
+            self._long(True)
+            try:
+                turns = self._in_background(work)
+            finally:
+                self._long(False)
+            for o, turn in zip(targets, turns):
+                o.auto_orient(tech, cfg["support_angle"], weights, rotation=turn)
                 self._drop_supports(o)
                 # remember the choice; if the user turns the model afterwards, that is a lesson
                 mesh = o.mesh.transform(o.matrix())
@@ -2580,12 +2597,16 @@ class MainWindow(QMainWindow):
             self.status.setText(tr("no_models"))
             return
         self._select_uid(None)
-        self.auto_orient_selected()
-        cfg = self.settings.config()
-        if not self._arrange(cfg):
-            self.status.setText(tr("arrange_full"))
-        if cfg["technology"] == "sla":
-            self.generate_supports()
+        self._long(True)                             # one long job: the checks on a timer wait for its end
+        try:
+            self.auto_orient_selected()
+            cfg = self.settings.config()
+            if not self._arrange(cfg):
+                self.status.setText(tr("arrange_full"))
+            if cfg["technology"] == "sla":
+                self.generate_supports()
+        finally:
+            self._long(False)
         self._objects_changed()
         self.viewer.fit_objects()
         self.status.setText(tr("auto_prepare_done"))
@@ -6796,15 +6817,15 @@ class MainWindow(QMainWindow):
         if getattr(self, "_colmap_task", None) is not None:
             return                                         # one at a time; the next check picks up the rest
         from .. import collision
-        jobs = [(o.uid, self._column_map_key(o), o.mesh.transform(self._display_matrix(o)),
-                 self._display_matrix(o)[:3, 3].copy()) for o in objs]
+        # the parts are placed in the background too (a jaw's copy took a moment on the window's thread)
+        jobs = [(o.uid, self._column_map_key(o), o.mesh, self._display_matrix(o)) for o in objs]
 
         def work(progress, cancelled):
             from .worker import yield_to_view
             out = []
-            for uid, key, mesh, at in jobs:
+            for uid, key, mesh, disp in jobs:
                 yield_to_view()                          # not while the view is being turned
-                out.append((uid, key, collision.ColumnMap(mesh), at))
+                out.append((uid, key, collision.ColumnMap(mesh.transform(disp)), disp[:3, 3].copy()))
             return out
 
         def done(res):
@@ -6880,11 +6901,17 @@ class MainWindow(QMainWindow):
             self.collision_wrap.hide()
 
     def _overlapping_count(self) -> int:
-        """Parts whose footprints overlap another part (they would print fused)."""
-        from ..layout import footprint
+        """Parts whose footprints overlap another part (they would print fused). Outlines not worked out yet
+        are made in the worker pool (on the window's thread they held it ~1 s after opening or turning
+        models); meanwhile the last count stands, and the suggestions are looked at again once they are in."""
+        from ..layout import footprint, footprint_ready
         parts = [o for o in self.objects if o.role != "cutter"]
         if len(parts) < 2 or len(parts) > 60:
             return 0
+        missing = [o for o in parts if not footprint_ready(o)]
+        if missing and self.async_supports:
+            self._make_footprints(missing)
+            return self.__dict__.get("_overlap_last", 0)
         cache = self.__dict__.setdefault("_footprints", {})
         prints = []
         from shapely import affinity
@@ -6901,7 +6928,41 @@ class MainWindow(QMainWindow):
             for j in range(i + 1, len(prints)):
                 if prints[i].intersection(prints[j]).area > 1.0:
                     bad |= {i, j}
+        self._overlap_last = len(bad)
         return len(bad)
+
+    def _make_footprints(self, parts):
+        """The outlines of ``parts`` (as they are turned now) in the worker pool, one batch at a time."""
+        if getattr(self, "_fp_task", None) is not None:
+            return                                   # the next look at the suggestions picks up the rest
+        from .. import layout
+        jobs = [(o, Mesh(o.mesh.vertices, o.mesh.faces), o.world_matrix().copy()) for o in parts]
+
+        def work(progress, cancelled):
+            from .. import parallel
+            args = [(m, mat) for _o, m, mat in jobs]
+            if parallel.busy() or parallel.pool() is None:
+                return [layout.footprint_job(*a) for a in args]
+            return parallel.run_chunks(layout.footprint_job, args, cancelled=cancelled,
+                                       weights=[len(m.faces) + 1 for _o, m, _x in jobs])
+
+        def finish():
+            t, self._fp_task = self._fp_task, None
+            if t is not None:
+                t.wait()
+                t.deleteLater()
+
+        def done(results):
+            for (o, _m, _x), (key, shape) in zip(jobs, results):
+                layout.keep_footprint(o, key, shape)
+            finish()
+            self._schedule_suggestions()
+
+        from .worker import Task
+        task = self._fp_task = Task(work, self)
+        task.succeeded.connect(done)
+        task.failed.connect(lambda _m: finish())
+        task.start()
 
     def _refresh_suggestions(self):
         if not self.assistant.enabled:

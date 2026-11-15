@@ -79,6 +79,44 @@ def _raster_outline(m) -> Polygon:
     return out.intersection(shapely.box(*t.reshape(-1, 2).min(axis=0), *hi))
 
 
+def _footprint_store(o: SceneObject) -> dict:
+    store = o.mesh.__dict__.setdefault("_footprints", {})
+    if store.get("_v") is not o.mesh.vertices:
+        store.clear()
+        store["_v"] = o.mesh.vertices
+    return store
+
+
+def _footprint_key(mat) -> tuple:
+    return tuple(np.round(mat[:3, :3], 6).ravel())
+
+
+def footprint_ready(o: SceneObject) -> bool:
+    """Is the part's outline for its present turn worked out already (footprint is then quick)?"""
+    return _footprint_key(o.world_matrix()) in _footprint_store(o)
+
+
+def footprint_job(mesh, mat) -> tuple:
+    """A part's outline for the worker pool (made on the window's thread it held the window ~1 s after
+    opening models or turning them): (key, outline at the origin) for keep_footprint."""
+    m = mesh.transform(mat)
+    try:
+        shape = _raster_outline(m) if len(m.faces) > 12 else MultiPoint(m.vertices[:, :2]).convex_hull
+    except Exception:
+        shape = MultiPoint(m.vertices[:, :2]).convex_hull
+    if shape.is_empty:
+        shape = MultiPoint(m.vertices[:, :2]).convex_hull
+    return _footprint_key(mat), affinity.translate(shape, -mat[0, 3], -mat[1, 3])
+
+
+def keep_footprint(o: SceneObject, key, shape) -> None:
+    store = _footprint_store(o)
+    if key not in store:
+        if len(store) > 9:
+            store.pop(next(k for k in store if k != "_v"))
+        store[key] = (shape,)
+
+
 def footprint(o: SceneObject) -> Polygon:
     """The part as seen from above, in plate coordinates: its real outline (cached; recomputed only when the
     part is turned, tilted or scaled), so concave parts such as dental arches can nest."""

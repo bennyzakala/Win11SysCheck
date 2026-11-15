@@ -9518,3 +9518,78 @@ def test_opened_models_are_prepared_off_the_window_thread():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=180)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_plate_work_stays_off_the_window_thread(tmp_path):
+    """Lab: working on the plate (opening models, Auto prepare, rafts) lagged and stuck. The best turn of
+    every part is worked out off the window's thread (the same turn), the timed checks wait for Auto
+    prepare to end, the overlap check's outlines are made in the background, and opening a model reads
+    only its header to tell the program that wrote it (4 MB a file was read on the window's thread)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent(f'''
+        import os, time, builtins
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        import numpy as np
+        from unislicer import primitives, orient, layout
+        from unislicer.mesh import save_stl
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        # the program that wrote a file, from its header only
+        path = os.path.join({str(tmp_path)!r}, "part.stl")
+        save_stl(primitives.box(20, 10, 8), path)
+        data = bytearray(open(path, "rb").read()); data[:80] = b"exocad export".ljust(80, b" ")
+        data += bytes(50 * 20000)                      # a big file
+        open(path, "wb").write(bytes(data))
+        sizes = []
+        real_open = builtins.open
+        class Spy:
+            def __init__(self, fh): self.fh = fh
+            def __enter__(self): return self
+            def __exit__(self, *a): return self.fh.__exit__(*a)
+            def read(self, n=-1): sizes.append(n); return self.fh.read(n)
+        builtins.open = lambda p, *a, **k: Spy(real_open(p, *a, **k)) if p == path else real_open(p, *a, **k)
+        try:
+            src = w._file_source(path)
+        finally:
+            builtins.open = real_open
+        assert src == ".stl|exocad" and sizes and all(0 < n <= 4096 for n in sizes), (src, sizes)
+        # the best turn, worked out off the window's thread, with the timed checks held back meanwhile
+        parts = [w.add_mesh(primitives.crown_cap(9.0, 7.0)), w.add_mesh(primitives.box(20, 6, 4))]
+        parts[1].rotation[:] = [30.0, 10.0, 0.0]
+        app.processEvents()
+        twins = [o.duplicate() for o in parts]           # turned here, the old way, to compare
+        for t in twins:
+            t.auto_orient("sla", w.settings.config()["support_angle"], w.assistant.orient_weights("sla"))
+        seen = []
+        real_job = orient.rotation_job
+        import threading
+        def job(*a, **k):
+            seen.append((threading.current_thread() is threading.main_thread(), w._long_job))
+            return real_job(*a, **k)
+        orient.rotation_job = job
+        w._select_uid(None); w.auto_orient_selected()
+        orient.rotation_job = real_job
+        assert seen and all(not on_main and held > 0 for on_main, held in seen), seen
+        for o, t in zip(parts, twins):                   # the same turn
+            assert np.allclose(o.matrix()[:3, :3], t.matrix()[:3, :3], atol=1e-9)
+        # the overlap check: outlines in the background, the right count once they are in
+        a, b = parts
+        b.x, b.y = a.x, a.y                              # on top of each other
+        w.objects[:] = [a, b]
+        for o in (a, b):
+            o.mesh.__dict__.pop("_footprints", None)
+        assert not layout.footprint_ready(a)
+        first = w._overlapping_count()                   # not worked out yet: the last count
+        end = time.time() + 30
+        while time.time() < end and (getattr(w, "_fp_task", None) is not None or not layout.footprint_ready(a)):
+            app.processEvents(); time.sleep(0.01)
+        assert layout.footprint_ready(a) and layout.footprint_ready(b)
+        assert w._overlapping_count() == 2
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

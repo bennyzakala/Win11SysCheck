@@ -113,6 +113,13 @@ def candidate_directions(mesh: Mesh, technology: str, samples: int = 240) -> np.
 DOWN = np.array([0.0, 0.0, -1.0])
 
 
+def rotation_job(mesh: Mesh, matrix, technology: str, support_angle: float, weights=None) -> np.ndarray:
+    """A placed part's best turn (best_rotation of the part where it stands), for the worker pool: a plate's
+    parts on every core at once, off the window's thread (one by one there it held the window ~4 s for
+    10 parts at Auto prepare)."""
+    return best_rotation(mesh.transform(matrix), technology, support_angle, weights=weights)
+
+
 def best_rotation(mesh: Mesh, technology: str, support_angle: float = 45.0, elevation: float = 5.0,
                   samples: int = 240, weights: np.ndarray | None = None) -> np.ndarray:
     """3x3 rotation that puts the mesh in its best orientation (``weights``: learned scoring weights)."""
