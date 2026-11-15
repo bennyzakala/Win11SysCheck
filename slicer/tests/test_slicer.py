@@ -9593,3 +9593,55 @@ def test_plate_work_stays_off_the_window_thread(tmp_path):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_performance_log_records_stalls_without_names(tmp_path):
+    """Lab: lags were chased one guess at a time. The window now logs its own stalls (over 0.2 s): when,
+    how long, the program's functions it was in, the button pressed just before, the plate's size and the
+    memory held - never a model's or a patient's name. Info > Performance log opens its folder."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent(f'''
+        import os, time, json
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        os.environ["UNISLICER_PERFLOG"] = "1"
+        from unislicer import profiles
+        profiles.USER_DIR = {str(tmp_path)!r}
+        from PySide6.QtWidgets import QApplication, QPushButton
+        from PySide6.QtCore import QEvent, QPointF, Qt
+        from PySide6.QtGui import QMouseEvent
+        app = QApplication([])
+        from unislicer import primitives, mesh_tools
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui import perflog
+        w = MainWindow(); w.show(); app.processEvents()
+        assert w._stall_log is not None
+        o = w.add_mesh(primitives.box(10, 10, 10)); o.name = "NLM-SOD260048108-R067-P-21_Antag"
+        b = QPushButton("Auto prepare NLM-SOD260048108", w); b.show()
+        ev = QMouseEvent(QEvent.MouseButtonRelease, QPointF(2, 2), QPointF(2, 2), Qt.LeftButton, Qt.NoButton, Qt.NoModifier)
+        app.sendEvent(b, ev)
+        for _ in range(10):
+            app.processEvents(); time.sleep(0.06)
+        def busy_on_the_window():                     # a stall: the window's thread held 0.6 s
+            end = time.monotonic() + 0.6
+            while time.monotonic() < end:
+                sum(range(1000))
+        busy_on_the_window()
+        for _ in range(10):
+            app.processEvents(); time.sleep(0.06)
+        path = os.path.join({str(tmp_path)!r}, perflog.LOG_NAME)
+        lines = [json.loads(l) for l in open(path, encoding="utf-8")]
+        stall = max(lines, key=lambda l: l["ms"])
+        assert 500 <= stall["ms"] < 3000, stall
+        assert stall["models"] == 1 and stall["faces"] == len(o.mesh.faces)
+        assert stall["mem_mb"] and stall["mem_mb"] > 10
+        assert stall["last_click"].startswith("Auto prepare") and "SOD" not in stall["last_click"] and "48108" not in stall["last_click"]
+        text = open(path, encoding="utf-8").read()
+        assert "NLM" not in text and "Antag" not in text and "48108" not in text   # no names
+        assert stall["doing"], stall                     # where the window was held
+        w.open_perf_log()
+        w.close()
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

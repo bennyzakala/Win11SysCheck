@@ -1471,5 +1471,8 @@
 "Join every neighbour": "Соединить всех соседей",
 "Minimal joints": "Минимум соединений",
 "Join every neighbour: a joint between every two neighbouring parts (a stiff plate). Minimal joints: each part joined one way only (less resin)": "Соединить всех соседей: соединение между каждыми двумя соседними моделями (жёсткая платформа). Минимум соединений: каждая модель соединена только одним путём (меньше смолы)",
-"Checking for thin features…": "Проверка тонких элементов…"
+"Checking for thin features…": "Проверка тонких элементов…",
+"Performance log (to send to support)…": "Журнал производительности (для поддержки)…",
+"The folder with {0} is open. Send it - it holds only times and action names, no models or patient details.": "Открыта папка с {0}. Отправьте его - в нём только время и названия действий, без моделей и данных пациентов.",
+"No stalls recorded yet - the log is made the first time the window stalls.": "Зависаний пока не записано - журнал создаётся при первом зависании окна."
 }

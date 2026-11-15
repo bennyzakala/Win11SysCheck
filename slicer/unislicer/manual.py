@@ -63,8 +63,11 @@ CHAPTERS = (
 <li>{t:menu_edit}: {t:undo}, {t:redo}, {t:select_all}, {t:duplicate}, {t:multiply}, {t:delete}, הסידור והיישור,
 {t:center}, {t:move_to}, {t:scale_to}, {t:rename}, {t:model_settings}, {t:merge_models}, {t:hide_models} ו{t:show_all_models}.</li>
 <li>{t:menu_info}: {t:assistant}, {t:estimate_title}, {t:manual_menu} ({k:manual}), {t:menu_shortcuts},
-{t:menu_updates} ו{t:menu_about}.</li>
+{t:menu_updates}, {t:menu_perf_log} ו{t:menu_about}.</li>
 </ul>
+<p>{t:menu_perf_log}: כל פעם שהחלון לא מגיב יותר מ-0.2 שנייה, התוכנה רושמת שורה ביומן - מתי, כמה זמן, באיזה חלק של התוכנה
+היא הייתה ומה נלחץ לפני כן, עם מספר המודלים והזיכרון. אין ביומן שמות קבצים, מודלים או פרטי מטופלים. הפקודה פותחת את התיקייה
+שלו - שלחו את הקובץ performance.jsonl לתמיכה כשהעבודה נתקעת.</p>
 <h3>לוח המודלים (מימין)</h3>
 <p>רשימת {t:objects} (אפשר לבחור כמה עם Ctrl או Shift), ומתחתיה {t:transform}: מיקום, סיבוב, קנה מידה וגודל
 במ״מ, כפתורי {t:rotate_90}, {t:auto_orient}, {t:lay_flat}, {t:center} ו{t:reset_transform}. בשרף מופיע

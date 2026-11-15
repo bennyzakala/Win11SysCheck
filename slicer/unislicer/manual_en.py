@@ -46,8 +46,12 @@ to the program gets a new number.</p>
 aligning, {t:center}, {t:move_to}, {t:scale_to}, {t:rename}, {t:model_settings}, {t:merge_models}, {t:hide_models}
 and {t:show_all_models}.</li>
 <li>{t:menu_info}: {t:assistant}, {t:estimate_title}, {t:manual_menu} ({k:manual}), {t:menu_shortcuts},
-{t:menu_updates} and {t:menu_about}.</li>
+{t:menu_updates}, {t:menu_perf_log} and {t:menu_about}.</li>
 </ul>
+<p>{t:menu_perf_log}: every time the window does not answer for more than 0.2 s, the program writes a line - when, how
+long, which part of the program it was in and what was pressed before, with the number of models and the memory. The
+log holds no file, model or patient names. The command opens its folder: send performance.jsonl to support when work
+gets stuck.</p>
 <h3>The left panel</h3>
 <p>The {t:objects} list (pick several with Ctrl or Shift) and below it {t:transform}: position, rotation, scale
 and size in mm, the {t:rotate_90} buttons, {t:auto_orient}, {t:lay_flat}, {t:center} and {t:reset_transform}.

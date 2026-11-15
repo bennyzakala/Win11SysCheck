@@ -237,6 +237,7 @@ class MainWindow(QMainWindow):
                 and not os.environ.get("UNISLICER_SMOKE_TEST")):
             self._later(5000, lambda: self.check_updates(manual=False))
         self.settings.simpleChanged.connect(lambda on: self.store.setValue("settings_simple", "true" if on else "false"))
+        self._start_perf_log()
         if carry:
             self._take_over(carry)
 
@@ -415,6 +416,7 @@ class MainWindow(QMainWindow):
         add(i, tr("menu_shortcuts"), self.shortcuts_dialog, "", "code")
         i.addSeparator()
         add(i, tr("menu_updates"), self.open_updates_page, "", "download")
+        add(i, tr("menu_perf_log"), self.open_perf_log, "", "clock")
         add(i, tr("menu_about") + "…", self.about_dialog, "", "info")
         self.main_menu = bar
 
@@ -1319,6 +1321,38 @@ class MainWindow(QMainWindow):
                 act.setShortcutContext(Qt.WindowShortcut)
                 act.triggered.connect(actions[name])
                 self.addAction(act)
+
+    def _start_perf_log(self):
+        """The performance log (perflog): stalls of the window, with what it was doing, for support."""
+        if os.environ.get("PYTEST_CURRENT_TEST") and not os.environ.get("UNISLICER_PERFLOG"):
+            return
+        from .perflog import StallLog
+        self._stall_log = StallLog(profiles.USER_DIR, self._perf_state)
+        self._stall_log.start(self)
+
+    def _perf_state(self) -> dict:
+        """Plate numbers for the performance log (no names): read every 50 ms, so only cheap things."""
+        objs = self.objects
+        t = getattr(self, "task", None)
+        return {"models": len(objs), "faces": int(sum(len(o.mesh.faces) for o in objs)),
+                "with_supports": sum(1 for o in objs if o.support_points is not None and len(o.support_points)),
+                "view_moving": bool(getattr(self.viewer, "interacting", False)),
+                "long_job": bool(getattr(self, "_long_job", 0)),
+                "support_build": getattr(self, "_sup_task", None) is not None,
+                "slicing": bool(t is not None and t.isRunning()),
+                "mode": getattr(self.viewer, "mode", "")}
+
+    def open_perf_log(self):
+        """Info > Performance log: open the folder that holds it, to send it."""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from .perflog import LOG_NAME
+        path = os.path.join(profiles.USER_DIR, LOG_NAME)
+        if not os.path.exists(path):
+            self.status.setText(tr("perf_log_empty"))
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(profiles.USER_DIR))
+        self.status.setText(tr("perf_log_hint").format(LOG_NAME))
 
     def open_manual(self, page: str = ""):
         """Build the user guide from the program as it is now (shortcuts, settings, printers) and open it."""
@@ -2583,10 +2617,17 @@ class MainWindow(QMainWindow):
             for o, turn in zip(targets, turns):
                 o.auto_orient(tech, cfg["support_angle"], weights, rotation=turn)
                 self._drop_supports(o)
-                # remember the choice; if the user turns the model afterwards, that is a lesson
-                mesh = o.mesh.transform(o.matrix())
-                o.__dict__["_auto_orient_choice"] = (tech, o.matrix().tobytes(),
-                                             orient.current_features(mesh, tech, cfg["support_angle"]))
+            # remember the choice; if the user turns the model afterwards, that is a lesson. Its features
+            # off the window's thread as well (the performance log found them holding it ~0.75 s)
+            placed = [(o.mesh, o.matrix().copy()) for o in targets]
+            self._long(True)
+            try:
+                feats = self._in_background(lambda: [orient.current_features(m.transform(x), tech, cfg["support_angle"])
+                                                     for m, x in placed])
+            finally:
+                self._long(False)
+            for o, (_m, x), f in zip(targets, placed, feats):
+                o.__dict__["_auto_orient_choice"] = (tech, x.tobytes(), f)
         finally:
             QApplication.restoreOverrideCursor()
         self._objects_changed()
@@ -7839,6 +7880,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, e):
         self._closed = True                          # nothing asked for with _later runs from now on
+        if getattr(self, "_stall_log", None) is not None:
+            self._stall_log.stop()
         # everything running in the background stops now: a cancelled task stops waiting for the worker
         # processes, and the worker processes are ended (they went on for minutes after the window closed)
         self._stop_background()
