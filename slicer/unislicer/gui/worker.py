@@ -9,6 +9,22 @@ from PySide6.QtCore import QThread, Signal
 
 _RUNNING: set = set()
 
+# set while the user turns, pans or zooms the 3D view: background analyses (picking tables, collision maps,
+# the assistant's orientation check) wait between their steps, so the view keeps its frames - right after
+# models were opened they made turning the plate stutter
+import threading as _threading  # noqa: E402
+VIEW_BUSY = _threading.Event()
+
+
+def yield_to_view(limit: float = 10.0) -> None:
+    """Wait (up to ``limit`` s) while the view is being moved. Called from background threads only."""
+    if not VIEW_BUSY.is_set() or _threading.current_thread() is _threading.main_thread():
+        return
+    import time
+    end = time.monotonic() + limit
+    while VIEW_BUSY.is_set() and time.monotonic() < end:
+        time.sleep(0.02)
+
 
 def _wait_all_at_exit():
     """A thread still running when the program ends makes Qt abort ("QThread: Destroyed while thread is still

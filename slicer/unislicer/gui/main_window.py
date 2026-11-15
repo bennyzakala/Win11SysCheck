@@ -3652,7 +3652,9 @@ class MainWindow(QMainWindow):
     def _after_job(self, timer, fn):
         """A delayed check that fires while a long job is still running waits for the job to end (its result
         would be stale at once and it only slows the job down)."""
-        if getattr(self, "_long_job", 0):
+        # ... and while the view is being turned or moved (the check runs on the window's thread: the plate
+        # stuttered while it was turned right after opening models), it runs once the view is let go
+        if getattr(self, "_long_job", 0) or getattr(getattr(self, "viewer", None), "interacting", False):
             if timer is not None:
                 timer.start()
             return
@@ -6798,7 +6800,12 @@ class MainWindow(QMainWindow):
                  self._display_matrix(o)[:3, 3].copy()) for o in objs]
 
         def work(progress, cancelled):
-            return [(uid, key, collision.ColumnMap(mesh), at) for uid, key, mesh, at in jobs]
+            from .worker import yield_to_view
+            out = []
+            for uid, key, mesh, at in jobs:
+                yield_to_view()                          # not while the view is being turned
+                out.append((uid, key, collision.ColumnMap(mesh), at))
+            return out
 
         def done(res):
             cache = self.__dict__.setdefault("_column_maps", {})
@@ -6931,8 +6938,12 @@ class MainWindow(QMainWindow):
         uid = o.uid
 
         def work(progress, cancelled):
+            from .worker import yield_to_view
+            yield_to_view()                              # not while the view is being turned
             now = float(orient.current_features(mesh, tech, angle) @ weights)
+            yield_to_view()
             dirs = orient.candidate_directions(mesh, tech, 160)
+            yield_to_view()
             best = float((orient.features(mesh, tech, angle, dirs) @ weights).min())
             return 0.0 if now <= 1e-9 else max(0.0, 1.0 - best / now)
 

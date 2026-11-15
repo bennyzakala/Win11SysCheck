@@ -9406,3 +9406,48 @@ def test_extruded_prism_is_closed_with_its_volume():
         edges = np.sort(np.concatenate([m.faces[:, [0, 1]], m.faces[:, [1, 2]], m.faces[:, [2, 0]]]), axis=1)
         _, counts = np.unique(edges, axis=0, return_counts=True)
         assert np.all(counts == 2)                                          # watertight
+
+
+def test_background_analyses_wait_while_the_view_is_turned():
+    """Lab: turning the plate stuttered for a while after opening models - the picking tables, collision
+    maps and the assistant's checks ran meanwhile, some on the window's thread. While the view is being
+    turned they wait (and the checks on the window's thread run once it is let go)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time, threading
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui import worker
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        # a background step waits while the view moves, and goes on once it stops
+        w.viewer.begin_interaction()
+        assert worker.VIEW_BUSY.is_set()
+        done = []
+        t = threading.Thread(target=lambda: (worker.yield_to_view(), done.append(time.monotonic())))
+        t0 = time.monotonic(); t.start(); time.sleep(0.15)
+        assert not done, "ran while the view was being turned"
+        end = time.monotonic() + 3
+        while time.monotonic() < end and w.viewer.interacting:
+            app.processEvents(); time.sleep(0.01)
+        t.join(3)
+        assert done and not worker.VIEW_BUSY.is_set()
+        # the window's own checks are put off while the view moves
+        ran = []
+        from PySide6.QtCore import QTimer
+        timer = QTimer(); timer.setSingleShot(True); timer.setInterval(50)
+        w.viewer.begin_interaction()
+        w._after_job(timer, lambda: ran.append(1))
+        assert not ran and timer.isActive()
+        w.viewer._end_interaction()
+        w._after_job(timer, lambda: ran.append(1))
+        assert ran == [1]
+        # the main thread never waits on it
+        worker.VIEW_BUSY.set(); t0 = time.monotonic(); worker.yield_to_view(); assert time.monotonic() - t0 < 0.05
+        worker.VIEW_BUSY.clear()
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

@@ -235,8 +235,11 @@ def _prepare_picking(mesh: Mesh):
     import threading
 
     def work():
+        from .worker import yield_to_view
         try:
+            yield_to_view()
             _pick_data(mesh)
+            yield_to_view()
             mesh.decimated(Viewer.LOD_FACES // 2)        # the light copy drawn while the view moves
         except Exception:
             pass
@@ -649,11 +652,15 @@ class Viewer(QOpenGLWidget):
     LOD_FACES = 120000
 
     def begin_interaction(self):
+        from .worker import VIEW_BUSY
         self.interacting = True
+        VIEW_BUSY.set()                           # background analyses wait meanwhile
         self._settle.start()
 
     def _end_interaction(self):
+        from .worker import VIEW_BUSY
         self.interacting = False
+        VIEW_BUSY.clear()
         self.update()
 
     def _buffer_for(self, obj, key: str, mesh_key: str):
