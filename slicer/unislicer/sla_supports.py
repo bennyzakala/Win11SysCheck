@@ -47,6 +47,16 @@ _STRUCTURES: dict = {}
 STRUCTURE_FACE_BUDGET = 3_000_000
 
 
+def use_worker_budgets() -> None:
+    """In a worker process: keep little. The window keeps the ray casters and structures that are used
+    again (it builds the same part over and over); a worker gets whichever part comes next, so its copies
+    were seldom used again - yet each of up to 8 workers held up to ~280 MB of casters (the lab saw ~5 GB
+    for 8 models in Task Manager)."""
+    global CASTER_FACE_BUDGET, STRUCTURE_FACE_BUDGET
+    CASTER_FACE_BUDGET = 600_000
+    STRUCTURE_FACE_BUDGET = 300_000
+
+
 def _raft_only(key: str) -> bool:
     """A setting only the raft reads: the structure standing on it stays (its thickness moves the feet)."""
     return key.startswith("sla_raft_") and key != "sla_raft_thickness"

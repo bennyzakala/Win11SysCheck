@@ -14,8 +14,16 @@ _disabled = False   # set when the pool cannot start (then everything runs in-pr
 _lock = threading.Lock()
 
 
+_in_worker = False   # set in the worker processes: they never start worker processes of their own
+
+
 def workers() -> int:
-    """Worker count; UNISLICER_WORKERS overrides it (1 disables multiprocessing)."""
+    """Worker count; UNISLICER_WORKERS overrides it (1 disables multiprocessing). Inside a worker always 1: a
+    worker that sliced (the support points' island check) started a pool of its own - up to 8 processes in
+    each of 8 workers, all at full CPU, and they went on after the program was closed (the lab saw 26
+    UniSlicer processes and the computer at 100% CPU)."""
+    if _in_worker:
+        return 1
     env = os.environ.get("UNISLICER_WORKERS")
     if env:
         try:
@@ -29,6 +37,8 @@ def _watch_parent() -> None:
     """In each worker process: end it as soon as the program that started it has ended - however it ended
     (closed, updated, crashed, ended in Task Manager). Workers left running after the program closed were
     seen at the lab: ~25 UniSlicer processes in Task Manager, a dozen still busy."""
+    global _in_worker
+    _in_worker = True                    # this is a worker: no pool of its own
     parent = multiprocessing.parent_process()
     if parent is None:
         return
@@ -40,6 +50,11 @@ def _watch_parent() -> None:
             pass
         os._exit(0)
     threading.Thread(target=watch, name="unislicer-parent-watch", daemon=True).start()
+    try:                                 # a worker keeps little in memory (the window keeps what is reused)
+        from . import sla_supports
+        sla_supports.use_worker_budgets()
+    except Exception:
+        pass
 
 
 _final = False       # the program is ending: no worker processes are started any more

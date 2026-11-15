@@ -9645,3 +9645,26 @@ def test_performance_log_records_stalls_without_names(tmp_path):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def _worker_view():
+    """(in a worker process) whether it would start a pool of its own, and how much it keeps."""
+    from unislicer import parallel, sla_supports
+    return parallel.pool() is not None, parallel.workers(), sla_supports.CASTER_FACE_BUDGET, \
+        sla_supports.STRUCTURE_FACE_BUDGET
+
+
+def test_worker_processes_start_no_pool_and_keep_little():
+    """Lab (Task Manager video): 26 UniSlicer processes at 100% CPU, also after the window was closed, and
+    ~5 GB for 8 models. A worker that sliced (the support points' island check) started a pool of its own -
+    up to 8 more processes in each worker; and each worker kept ray casters for up to 4 million triangles,
+    a new one each time a part moved (720 MB a worker after a session). Workers now run single and keep
+    little; the window keeps what is used again."""
+    from unislicer import parallel, sla_supports
+    if parallel.workers() < 2:
+        pytest.skip("one core")
+    seen = parallel.run_chunks(_worker_view, [()] * 4)
+    for own_pool, n, casters, structures in seen:
+        assert not own_pool and n == 1
+        assert casters <= 600_000 and structures <= 300_000
+    assert parallel.workers() >= 2 and sla_supports.CASTER_FACE_BUDGET >= 4_000_000   # the window keeps its own
