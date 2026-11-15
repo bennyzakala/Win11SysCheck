@@ -227,23 +227,79 @@ def _pick_data(mesh: Mesh):
 _PICK_CLUSTER = 128
 
 
+def _mesh_defects(mesh: Mesh):
+    """The open / non-manifold edges of a mesh, kept on it (meshes are not edited in place)."""
+    hit = mesh.__dict__.get("_defects")
+    if hit is not None and hit[0] is mesh.vertices and hit[1] is mesh.faces:
+        return hit[2]
+    from ..mesh_tools import defect_edges
+    value = defect_edges(mesh)
+    mesh.__dict__["_defects"] = (mesh.vertices, mesh.faces, value)
+    return value
+
+
+def _defects_ready(mesh: Mesh) -> bool:
+    hit = mesh.__dict__.get("_defects")
+    return hit is not None and hit[0] is mesh.vertices and hit[1] is mesh.faces
+
+
+_PREP_QUEUE = None
+_PREP_SEQ = [0]
+
+
+def _in_prep_thread(fn, later: bool = False) -> None:
+    """Run ``fn`` in the one background thread that prepares opened models (one model at a time: nine at
+    once, as a plate was opened, fought the window for the interpreter right when the view was turned).
+    What drawing needs comes first; ``later`` jobs (the picking tables) when nothing else waits."""
+    global _PREP_QUEUE
+    import queue
+    import threading
+    if _PREP_QUEUE is None:
+        _PREP_QUEUE = queue.PriorityQueue()
+
+        def run():
+            while True:
+                _prio, _seq, job = _PREP_QUEUE.get()
+                try:
+                    job()
+                except Exception:
+                    pass
+        threading.Thread(target=run, name="model-prep", daemon=True).start()
+    _PREP_SEQ[0] += 1
+    _PREP_QUEUE.put((1 if later else 0, _PREP_SEQ[0], fn))
+
+
+def _prepare_lod(mesh: Mesh):
+    """Make the light copy of a mesh (a support structure, a model opened before) in the background, once."""
+    if mesh.__dict__.get("_lod_pending") or mesh.has_decimated(Viewer.LOD_FACES // 2):
+        return
+    mesh.__dict__["_lod_pending"] = True
+    import threading
+
+    def work():
+        mesh.decimated(Viewer.LOD_FACES // 2)
+    _in_prep_thread(work)
+
+
 def _prepare_picking(mesh: Mesh):
     """Build a new model's picking data in the background (a big scan takes ~0.3 s), so the first time the
     cursor passes over it the view does not stutter. Numpy does the work, mostly outside the GIL."""
     if getattr(mesh, "_pick_cache", None) is not None or len(mesh.faces) < 20000:
         return
-    import threading
 
-    def work():
+    def view_needs():
+        # first what the view itself needs as soon as it moves (made on the window's thread at the first drag
+        # otherwise: the first turn of the plate after opening models stalled ~0.8 s): the light copy drawn
+        # while the view moves and the broken-surface lines - not held back while the view moves
+        mesh.decimated(Viewer.LOD_FACES // 2)
+        _mesh_defects(mesh)
+
+    def picking():
         from .worker import yield_to_view
-        try:
-            yield_to_view()
-            _pick_data(mesh)
-            yield_to_view()
-            mesh.decimated(Viewer.LOD_FACES // 2)        # the light copy drawn while the view moves
-        except Exception:
-            pass
-    threading.Thread(target=work, daemon=True).start()
+        yield_to_view()                                  # the picking tables can wait for the view
+        _pick_data(mesh)
+    _in_prep_thread(view_needs)
+    _in_prep_thread(picking, later=True)
 
 
 def _ray_near(origin, d, centre, radius2):
@@ -669,6 +725,11 @@ class Viewer(QOpenGLWidget):
         if self.interacting and mesh is not None and len(mesh.faces) > self.LOD_FACES:
             lod = obj.get(key + "_lod")
             if lod is None:
+                if not mesh.has_decimated(self.LOD_FACES // 2):
+                    # still being made in the background: the full model meanwhile (made here, on the window's
+                    # thread, the first turn of the plate after opening models stalled)
+                    _prepare_lod(mesh)
+                    return obj.get(key)
                 lod = _Buffer(mesh_vertices(mesh.decimated(self.LOD_FACES // 2)), [3, 3])
                 obj[key + "_lod"] = lod
             return lod
@@ -836,9 +897,17 @@ class Viewer(QOpenGLWidget):
                 edges = [(0, 1), (2, 3), (4, 5), (6, 7), (1, 3), (3, 7), (7, 5), (5, 1)]
                 self._box_buf = _Buffer(np.array([c[i] for e in edges for i in e]), [3])
             self._bed_dirty = False
+        # newly opened models go to the graphics card a few at a time (all of a plate in one frame held the
+        # window ~0.5 s right after opening): the rest in the next frames, a moment later
+        budget = self.UPLOAD_FACES
+        self._more_uploads = False
         for obj in self.objects.values():
             if obj["buffer"] is None:
+                if budget <= 0:
+                    self._more_uploads = True
+                    continue
                 obj["buffer"] = _Buffer(mesh_vertices(obj["mesh"]), [3, 3])
+                budget -= len(obj["mesh"].faces)
             if obj.get("supports") is not None and obj.get("sup_buffer") is None and len(obj["supports"].faces):
                 obj["sup_buffer"] = _Buffer(mesh_vertices(obj["supports"]), [3, 3])
             if obj.get("holes") is not None and obj.get("hole_buffer") is None and len(obj["holes"].faces):
@@ -876,8 +945,13 @@ class Viewer(QOpenGLWidget):
             print("OpenGL rendering failed:", exc, file=sys.stderr, flush=True)
             self.glFailed.emit(str(exc))
 
+    UPLOAD_FACES = 400_000          # model triangles sent to the graphics card per frame
+
     def _paint(self):
         self._upload_dirty()
+        if getattr(self, "_more_uploads", False):
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self.update)
         w, h = max(1, self.width()), max(1, self.height())
         GL.glViewport(0, 0, int(w * self.devicePixelRatioF()), int(h * self.devicePixelRatioF()))
         GL.glClearColor(0, 0, 0, 1)
@@ -937,7 +1011,7 @@ class Viewer(QOpenGLWidget):
         if show_models:
             GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
             for uid, obj in self.objects.items():
-                if obj.get("hidden"):
+                if obj.get("hidden") or obj.get("buffer") is None:     # not on the graphics card yet
                     continue
                 if preview and self.technology == "sla":
                     continue  # the SLA preview shows the elevated copies passed as extras
@@ -1017,6 +1091,8 @@ class Viewer(QOpenGLWidget):
             GL.glDepthMask(GL.GL_FALSE)
             GL.glUniform1f(self._u(p, "uAlpha"), 0.45)
             for uid, obj in cutters:
+                if obj.get("buffer") is None:
+                    continue
                 color = (1.0, 0.55, 0.30) if uid in self.selection else (1.0, 0.36, 0.42)
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 self._set_model(p, obj["matrix"])
@@ -1305,13 +1381,18 @@ class Viewer(QOpenGLWidget):
         return obj["_defect_n"]
 
     @staticmethod
-    def _defect_data(obj):
+    def _defect_data(obj, wait: bool = True) -> bool:
+        """The model's broken-surface lines. ``wait=False`` (drawing): a big model's lines are worked out in
+        the background after it is opened - until they are, it is drawn without them (False)."""
         if obj.get("_defect_key") != id(obj["mesh"]):
-            from ..mesh_tools import defect_edges
-            op, bad = defect_edges(obj["mesh"])
+            mesh = obj["mesh"]
+            if not wait and len(mesh.faces) >= 20000 and not _defects_ready(mesh):
+                return False
+            op, bad = _mesh_defects(mesh)
             obj["_defect_key"], obj["_defect_n"] = id(obj["mesh"]), (len(op), len(bad))
             obj["_defect_lines"] = (op.reshape(-1, 3), bad.reshape(-1, 3))
             obj["_defect_new"] = True
+        return True
 
     def _draw_defects(self, mvp):
         """Open edges (holes) in red and non-manifold edges in orange, drawn on top of the model so a broken
@@ -1325,7 +1406,10 @@ class Viewer(QOpenGLWidget):
         for obj in self.objects.values():
             if obj.get("hidden"):
                 continue
-            self._defect_data(obj)
+            if not self._defect_data(obj, wait=False):
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(250, self.update)       # shown once worked out in the background
+                continue
             if obj["_defect_n"] == (0, 0):
                 continue
             if obj.pop("_defect_new", False):

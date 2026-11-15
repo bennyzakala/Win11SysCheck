@@ -136,6 +136,13 @@ class Mesh:
             self._areas = cached
         return cached
 
+    def has_decimated(self, target_faces: int = 60000) -> bool:
+        """Is the light copy for ``target_faces`` made already (or not needed)?"""
+        if len(self.faces) <= target_faces:
+            return True
+        hit = self.__dict__.get("_decimated", {}).get(target_faces)
+        return hit is not None and hit[0] is self.vertices and hit[1] is self.faces
+
     def decimated(self, target_faces: int = 60000) -> "Mesh":
         """A light look-alike for drawing while the view moves: vertices merged on a grid sized so that
         about ``target_faces`` triangles remain (vertex clustering). Returns self if already small.

@@ -9451,3 +9451,70 @@ def test_background_analyses_wait_while_the_view_is_turned():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_opened_models_are_prepared_off_the_window_thread():
+    """Lab: the first turn of the plate after opening models stalled. The light copy drawn while the view
+    moves and the broken-surface lines were made on the window's thread at that first drag, and the whole
+    plate went to the graphics card in one frame. Now the copy and the lines are made in one background
+    thread (the copy is never made on the window's thread: the full model is drawn until it is ready), and
+    the models go to the graphics card a few at a time."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        import numpy as np
+        from unislicer import primitives
+        from unislicer.mesh import Mesh
+        from unislicer.gui import viewer as V
+        if True:
+            # a fine grid of triangles (~180 000), more than the view draws while it moves
+            n = 300
+            x, y = np.meshgrid(np.linspace(0, 50, n), np.linspace(0, 50, n))
+            v = np.column_stack([x.ravel(), y.ravel(), np.sin(x.ravel()) * 0.2])
+            i = np.arange(n - 1)[:, None] * n + np.arange(n - 1)[None, :]
+            i = i.ravel()
+            f = np.vstack([np.column_stack([i, i + 1, i + n]), np.column_stack([i + 1, i + n + 1, i + n])])
+            big = Mesh(v, f)
+        target = V.Viewer.LOD_FACES // 2
+        assert len(big.faces) > V.Viewer.LOD_FACES and not big.has_decimated(target)
+        # drawing never makes the light copy on the window's thread: the full model until it is ready
+        w = V.Viewer.__new__(V.Viewer)
+        w.interacting = True
+        obj = {"mesh": big, "buffer": "FULL"}
+        assert w._buffer_for(obj, "buffer", "mesh") == "FULL"
+        end = time.time() + 30
+        while time.time() < end and not big.has_decimated(target):
+            time.sleep(0.02)
+        assert big.has_decimated(target), "the light copy was not made in the background"
+        # an opened model: its copy and its broken-surface lines in the background, before any drag
+        m2 = Mesh(big.vertices + 1.0, big.faces)
+        o2 = {"mesh": m2}
+        assert V.Viewer._defect_data(o2, wait=False) is False         # not ready: drawn without them
+        V._prepare_picking(m2)
+        end = time.time() + 30
+        while time.time() < end and not (m2.has_decimated(target) and V._defects_ready(m2)):
+            time.sleep(0.02)
+        assert m2.has_decimated(target) and V._defects_ready(m2)
+        assert V.Viewer._defect_data(o2, wait=False) is True
+        small = primitives.box(5, 5, 5)
+        assert V.Viewer._defect_data({"mesh": small}, wait=False) is True  # a small model at once
+        # a plate goes to the graphics card a few models at a time
+        made = []
+        V._Buffer = lambda data, layout: made.append(len(data)) or "BUF"
+        w = V.Viewer()
+        w._trash_list, w._bed_dirty = [], False
+        w.objects = {k: {"mesh": big, "buffer": None} for k in range(8)}
+        frames = 0
+        while any(o["buffer"] is None for o in w.objects.values()):
+            w._upload_dirty(); frames += 1
+            assert frames < 20
+        per_frame = max(1, V.Viewer.UPLOAD_FACES // len(big.faces))
+        assert frames > 1 and len(made) == 8 and frames <= 8 // per_frame + 2
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=180)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
