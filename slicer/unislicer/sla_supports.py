@@ -1629,9 +1629,9 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
     Rafts further than ``reach`` apart are not joined; a joint never runs over another raft or over
     ``obstacles`` (parts standing on the plate, feet of parts with no raft). Each joint must really reach both
     rafts - else a narrower one, else the next nearest pair. ``nearest`` (the lab's "join at the nearest
-    point"): every raft is also joined to the raft nearest to it, and each joint sits where the two rafts come
-    closest (not in the middle of where they face each other). Returns (mesh, number of pieces the plate
-    comes off in)."""
+    point", used with ``every_neighbour``): every raft is also joined to the raft nearest to it, and each
+    joint sits where the two rafts come closest (not in the middle of where they face each other). Returns
+    (mesh, number of pieces the plate comes off in)."""
     from shapely.geometry import LineString, Point
     from shapely.ops import nearest_points
     from shapely.strtree import STRtree
@@ -1667,16 +1667,13 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
     def joint(gap, i, j, w):
         """The joint between rafts i and j, ``w`` wide - (solid part, notches) - or None when it would not
         join them (another raft or a part standing on the plate in the way)."""
-        if nearest:
-            # where the two rafts come closest
-            a, b = nearest_points(shapes[i], shapes[j])
-        else:
-            # where they face each other: the middle of that stretch (two straight edges facing each other gave
-            # the nearest pair of corners, and a joint at the very end, half as wide)
-            facing = shapes[i].boundary.intersection(shapes[j].buffer(gap + 0.5))
-            a0 = facing.centroid if not facing.is_empty else nearest_points(shapes[i], shapes[j])[0]
-            a = nearest_points(shapes[i].boundary, a0)[0]
-            b = nearest_points(shapes[j], a)[0]
+        # where they face each other: the middle of that stretch (two straight edges facing each other gave the
+        # nearest pair of corners, and a joint at the very end, half as wide). At the nearest point: only the
+        # stretch where they come closest - the middle of it on parallel edges, the near end on tilted ones
+        facing = shapes[i].boundary.intersection(shapes[j].buffer(gap + (0.05 if nearest else 0.5)))
+        a0 = facing.centroid if not facing.is_empty else nearest_points(shapes[i], shapes[j])[0]
+        a = nearest_points(shapes[i].boundary, a0)[0]
+        b = nearest_points(shapes[j], a)[0]
         d = a.distance(b)
         if d < 1e-6:
             a, b = nearest_points(shapes[i], shapes[j])

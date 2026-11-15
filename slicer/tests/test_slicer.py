@@ -8968,8 +8968,9 @@ def test_join_every_neighbour_or_minimal_joints():
     from shapely.geometry import box
     from unislicer import profiles, settings, sla_supports
     from unislicer.slicing import slice_mesh
-    assert settings.SCHEMA_BY_KEY["sla_raft_join_mode"].default == "all"
-    assert profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {})["sla_raft_join_mode"] == "all"
+    # the default is "Join at the nearest point": every neighbour joined, each joint where they come closest
+    assert settings.SCHEMA_BY_KEY["sla_raft_join_mode"].default == "nearest"
+    assert profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {})["sla_raft_join_mode"] == "nearest"
 
     def joints(rafts, every):
         mesh, pieces = sla_supports.raft_joints(rafts, 1.0, 10.0, 30.0, every_neighbour=every)
@@ -9682,7 +9683,7 @@ def test_join_at_the_nearest_point():
     t = [1.0, 1.0, 1.0]
 
     def joint_x(mode):
-        mesh, pieces = sla_supports.raft_joints([a, b, c], t, 6.0, 30.0, every_neighbour=mode == "all",
+        mesh, pieces = sla_supports.raft_joints([a, b, c], t, 6.0, 30.0, every_neighbour=True,
                                                 nearest=mode == "nearest")
         tri = mesh.triangles
         between = tri[(tri[:, :, 1].mean(axis=1) > 10.0) & (tri[:, :, 1].mean(axis=1) < 12.0)]
@@ -9691,3 +9692,11 @@ def test_join_at_the_nearest_point():
     x_all, _ = joint_x("all")
     assert p_near == 1
     assert x_near < 3.5 < x_all, (x_near, x_all)                # at the closest corner, not the middle
+    # it still joins every neighbour: two jaws with a die between them are joined straight across (each
+    # jaw's nearest raft is the die - joined only through it was the lab's complaint), in the middle of their
+    # parallel edges
+    from unislicer.slicing import slice_mesh
+    near = [box(0, 0, 40, 40), box(44, 0, 84, 40), box(40.5, 41, 43.5, 48)]
+    mesh, pieces = sla_supports.raft_joints(near, 1.0, 10.0, 30.0, every_neighbour=True, nearest=True)
+    top = slice_mesh(mesh, [0.25])[0]
+    assert pieces == 1 and top.intersection(box(40.5, 0, 43.5, 30)).area > 25.0

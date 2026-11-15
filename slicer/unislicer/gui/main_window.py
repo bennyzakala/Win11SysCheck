@@ -5361,7 +5361,7 @@ class MainWindow(QMainWindow):
                 items.append(("block", hit[1], m, max(cfg["sla_raft_thickness"], 0.5)))
             else:
                 items.append(("raft", hit[1], m, ocfg["sla_raft_thickness"]))
-        params = (cfg["sla_raft_join_width"], cfg["sla_raft_join_reach"], cfg["sla_raft_join_mode"] == "all",
+        params = (cfg["sla_raft_join_width"], cfg["sla_raft_join_reach"], cfg["sla_raft_join_mode"] in ("all", "nearest"),
                   cfg["sla_raft_join_mode"] == "nearest")
         key = (tuple((k, id(mesh), mat.tobytes(), t) for k, mesh, mat, t in items), params)
         if key == getattr(self, "_joints_key", None):
