@@ -66,8 +66,16 @@ def memory_mb() -> int | None:
                             ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
             c = Counters()
             c.cb = ctypes.sizeof(c)
-            proc = ctypes.windll.kernel32.GetCurrentProcess()
-            if ctypes.windll.psapi.GetProcessMemoryInfo(proc, ctypes.byref(c), c.cb):
+            # the handle's type declared: left to ctypes, the 64-bit pseudo handle was cut to 32 bits and the
+            # call failed (no memory in the log on Windows)
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.GetCurrentProcess.restype = wintypes.HANDLE
+            get = getattr(k32, "K32GetProcessMemoryInfo", None)
+            if get is None:
+                get = ctypes.WinDLL("psapi").GetProcessMemoryInfo
+            get.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
+            get.restype = wintypes.BOOL
+            if get(k32.GetCurrentProcess(), ctypes.byref(c), c.cb):
                 return int(c.WorkingSetSize >> 20)
             return None
         with open("/proc/self/status", encoding="ascii") as fh:

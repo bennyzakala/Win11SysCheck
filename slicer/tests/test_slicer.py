@@ -9633,7 +9633,7 @@ def test_performance_log_records_stalls_without_names(tmp_path):
         stall = max(lines, key=lambda l: l["ms"])
         assert 500 <= stall["ms"] < 3000, stall
         assert stall["models"] == 1 and stall["faces"] == len(o.mesh.faces)
-        assert stall["mem_mb"] and stall["mem_mb"] > 10
+        assert stall["mem_mb"] and stall["mem_mb"] > 10, stall          # Windows too (its system call)
         assert stall["last_click"].startswith("Auto prepare") and "SOD" not in stall["last_click"] and "48108" not in stall["last_click"]
         text = open(path, encoding="utf-8").read()
         assert "NLM" not in text and "Antag" not in text and "48108" not in text   # no names
