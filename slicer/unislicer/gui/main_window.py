@@ -5361,7 +5361,8 @@ class MainWindow(QMainWindow):
                 items.append(("block", hit[1], m, max(cfg["sla_raft_thickness"], 0.5)))
             else:
                 items.append(("raft", hit[1], m, ocfg["sla_raft_thickness"]))
-        params = (cfg["sla_raft_join_width"], cfg["sla_raft_join_reach"], cfg["sla_raft_join_mode"] == "all")
+        params = (cfg["sla_raft_join_width"], cfg["sla_raft_join_reach"], cfg["sla_raft_join_mode"] == "all",
+                  cfg["sla_raft_join_mode"] == "nearest")
         key = (tuple((k, id(mesh), mat.tobytes(), t) for k, mesh, mat, t in items), params)
         if key == getattr(self, "_joints_key", None):
             return
@@ -5393,7 +5394,7 @@ class MainWindow(QMainWindow):
             from shapely.ops import unary_union
             blocked = unary_union(block) if block else None
             return sla_supports.raft_joints(outs, thick, params[0], params[1], obstacles=blocked,
-                                            every_neighbour=params[2]), len(outs)
+                                            every_neighbour=params[2], nearest=params[3]), len(outs)
 
         def done(res):
             (joints, pieces), n = res

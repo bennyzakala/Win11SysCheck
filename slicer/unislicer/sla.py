@@ -1368,6 +1368,7 @@ def raft_joints_for(models, on_plate, own, cfgs, cfg):
     blocked = unary_union([b for b in block if not b.is_empty]) if block else None
     joints, _pieces = raft_joints(outlines, thick, cfg["sla_raft_join_width"], cfg["sla_raft_join_reach"],
                                   every_neighbour=cfg["sla_raft_join_mode"] == "all",
+                                  nearest=cfg["sla_raft_join_mode"] == "nearest",
                                   obstacles=blocked)
     return joints
 

@@ -1470,9 +1470,10 @@
 "Joints": "الوصلات",
 "Join every neighbour": "ربط كل الجيران",
 "Minimal joints": "أقل عدد من الوصلات",
-"Join every neighbour: a joint between every two neighbouring parts (a stiff plate). Minimal joints: each part joined one way only (less resin)": "ربط كل الجيران: وصلة بين كل نموذجين متجاورين (منصة صلبة). أقل عدد من الوصلات: كل نموذج مربوط بطريق واحد فقط (راتنج أقل)",
 "Checking for thin features…": "جارٍ فحص الأجزاء الرقيقة…",
 "Performance log (to send to support)…": "سجل الأداء (لإرساله إلى الدعم)…",
 "The folder with {0} is open. Send it - it holds only times and action names, no models or patient details.": "فُتح المجلد الذي يحوي {0}. أرسله - فيه الأوقات وأسماء الإجراءات فقط، بلا نماذج أو بيانات مرضى.",
-"No stalls recorded yet - the log is made the first time the window stalls.": "لم تُسجَّل أي توقفات بعد - يُنشأ السجل عند أول توقف للنافذة."
+"No stalls recorded yet - the log is made the first time the window stalls.": "لم تُسجَّل أي توقفات بعد - يُنشأ السجل عند أول توقف للنافذة.",
+"Join at the nearest point": "الربط عند أقرب نقطة",
+"Join every neighbour: a joint between every two neighbouring parts (a stiff plate). Join at the nearest point: each part joined to the part nearest to it, where the two come closest. Minimal joints: each part joined one way only (less resin)": "ربط كل الجيران: وصلة بين كل نموذجين متجاورين (منصة صلبة). الربط عند أقرب نقطة: كل نموذج مربوط بأقرب نموذج إليه، حيث يكونان أقرب ما يكون. أقل عدد من الوصلات: كل نموذج مربوط بطريق واحد فقط (راتنج أقل)"
 }

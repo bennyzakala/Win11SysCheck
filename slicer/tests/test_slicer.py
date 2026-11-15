@@ -9668,3 +9668,26 @@ def test_worker_processes_start_no_pool_and_keep_little():
         assert not own_pool and n == 1
         assert casters <= 600_000 and structures <= 300_000
     assert parallel.workers() >= 2 and sla_supports.CASTER_FACE_BUDGET >= 4_000_000   # the window keeps its own
+
+
+def test_join_at_the_nearest_point():
+    """Lab: 'join every part to the part nearest to it, at the point where they are closest'. Two rafts whose
+    facing edges are tilted: the joint sits at their closest corner (Join every neighbour puts it in the middle
+    of where they face each other); each raft is joined to its nearest one and the plate is one piece."""
+    from shapely.geometry import Polygon, box
+    from unislicer import sla_supports
+    a = box(0, 0, 20, 10)
+    b = Polygon([(0, 12), (20, 12.8), (20, 22), (0, 22)])      # 2 mm from A at x=0, 2.8 mm at x=20
+    c = box(24, 15, 34, 25)                                     # nearest to B
+    t = [1.0, 1.0, 1.0]
+
+    def joint_x(mode):
+        mesh, pieces = sla_supports.raft_joints([a, b, c], t, 6.0, 30.0, every_neighbour=mode == "all",
+                                                nearest=mode == "nearest")
+        tri = mesh.triangles
+        between = tri[(tri[:, :, 1].mean(axis=1) > 10.0) & (tri[:, :, 1].mean(axis=1) < 12.0)]
+        return float(between[:, :, 0].mean()), pieces
+    x_near, p_near = joint_x("nearest")
+    x_all, _ = joint_x("all")
+    assert p_near == 1
+    assert x_near < 3.5 < x_all, (x_near, x_all)                # at the closest corner, not the middle

@@ -1621,15 +1621,17 @@ NEIGHBOUR_GAP = 5.0      # "join every neighbour": the joints beyond the tree on
 
 
 def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 30.0,
-                notch: float = 1.0, obstacles=None, every_neighbour: bool = False):
+                notch: float = 1.0, obstacles=None, every_neighbour: bool = False, nearest: bool = False):
     """Joints that make the rafts of a plate one piece (the lab's "join all rafts"): between each two
     neighbouring rafts - the nearest ones, as a tree, so every raft is reached once - a solid strip ``width``
     mm wide on the plate, as thick as the thinner of the two rafts (``thickness``: one value, or one per
     outline). Next to each raft a ``notch`` mm wide groove, half as thick, breaks cleanly to free that model.
     Rafts further than ``reach`` apart are not joined; a joint never runs over another raft or over
     ``obstacles`` (parts standing on the plate, feet of parts with no raft). Each joint must really reach both
-    rafts - else a narrower one, else the next nearest pair. Returns (mesh, number of pieces the plate comes
-    off in)."""
+    rafts - else a narrower one, else the next nearest pair. ``nearest`` (the lab's "join at the nearest
+    point"): every raft is also joined to the raft nearest to it, and each joint sits where the two rafts come
+    closest (not in the middle of where they face each other). Returns (mesh, number of pieces the plate
+    comes off in)."""
     from shapely.geometry import LineString, Point
     from shapely.ops import nearest_points
     from shapely.strtree import STRtree
@@ -1665,12 +1667,16 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
     def joint(gap, i, j, w):
         """The joint between rafts i and j, ``w`` wide - (solid part, notches) - or None when it would not
         join them (another raft or a part standing on the plate in the way)."""
-        # where they face each other: the middle of that stretch (two straight edges facing each other gave the
-        # nearest pair of corners, and a joint at the very end, half as wide)
-        facing = shapes[i].boundary.intersection(shapes[j].buffer(gap + 0.5))
-        a0 = facing.centroid if not facing.is_empty else nearest_points(shapes[i], shapes[j])[0]
-        a = nearest_points(shapes[i].boundary, a0)[0]
-        b = nearest_points(shapes[j], a)[0]
+        if nearest:
+            # where the two rafts come closest
+            a, b = nearest_points(shapes[i], shapes[j])
+        else:
+            # where they face each other: the middle of that stretch (two straight edges facing each other gave
+            # the nearest pair of corners, and a joint at the very end, half as wide)
+            facing = shapes[i].boundary.intersection(shapes[j].buffer(gap + 0.5))
+            a0 = facing.centroid if not facing.is_empty else nearest_points(shapes[i], shapes[j])[0]
+            a = nearest_points(shapes[i].boundary, a0)[0]
+            b = nearest_points(shapes[j], a)[0]
         d = a.distance(b)
         if d < 1e-6:
             a, b = nearest_points(shapes[i], shapes[j])
@@ -1764,6 +1770,33 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
             if not made_all.is_empty and made[0].intersection(made_all).area > 0.3 * made[0].area:
                 continue
             done_pairs.add((i, j))
+            made_all = made_all.union(made[0])
+            t = min(tks[i], tks[j])
+            solid.setdefault(t, []).append(made[0])
+            if not made[1].is_empty:
+                thin.setdefault(t, []).append(made[1])
+    if nearest:
+        # every raft to the raft nearest to it as well (the tree above may have reached it another way)
+        made_all = unary_union([g for polys in solid.values() for g in polys])
+        best: dict = {}
+        for gap, i, j in gaps:
+            for k in (i, j):
+                if k not in best:
+                    best[k] = (gap, i, j)
+        for gap, i, j in sorted(set(best.values())):
+            if (i, j) in done_pairs or gap < 0.05 or gap > reach:
+                continue
+            made = None
+            for w in (width, width / 2, min(width, 3.0)):
+                made = joint(gap, i, j, w)
+                if made is not None:
+                    break
+            if made is None:
+                continue
+            if not made_all.is_empty and made[0].intersection(made_all).area > 0.3 * made[0].area:
+                continue                   # mostly on a joint already made
+            done_pairs.add((i, j))
+            parent[find(i)] = find(j)
             made_all = made_all.union(made[0])
             t = min(tks[i], tks[j])
             solid.setdefault(t, []).append(made[0])
