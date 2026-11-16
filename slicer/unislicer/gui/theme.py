@@ -264,8 +264,8 @@ QToolButton#SectionHeader {{ border: none; border-radius: 10px; padding: 10px 12
 QToolButton#SectionHeader:hover {{ background: {SURFACE_2}; }}
 QToolButton#SectionHeader:checked {{ background: transparent; border: none; }}
 
-QFrame#Segmented {{ background: {SURFACE_2}; border: 1px solid {BORDER}; border-radius: 10px; }}
-QFrame#Segmented QPushButton {{ background: transparent; border: none; border-radius: 8px; padding: 7px 18px; color: {TEXT_DIM}; font-weight: 600; }}
+QFrame#Segmented {{ background: {SURFACE_2}; border: 1px solid {BORDER}; border-radius: 11px; }}
+QFrame#Segmented QPushButton {{ background: transparent; border: none; border-radius: 7px; padding: 6px 18px; margin: 1px; color: {TEXT_DIM}; font-weight: 600; }}
 QFrame#Segmented QPushButton:checked {{ background: {ACCENT}; color: {ON_ACCENT}; }}
 QFrame#Segmented QPushButton:hover:!checked {{ color: {TEXT}; }}
 

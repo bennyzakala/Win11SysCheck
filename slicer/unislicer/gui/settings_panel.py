@@ -717,9 +717,15 @@ class SettingsPanel(QWidget):
             by_vendor.setdefault(vendor, []).append(i)
         menu = QMenu(self.printer_button)
         cur = combo.currentIndex()
+        starred = lambda i: combo.itemText(i).lstrip().startswith("★")
         for vendor, idxs in by_vendor.items():
+            # the favourites (★) float to the top of the maker's submenu, a thin line under them; the rest keep order
+            idxs = sorted(idxs, key=lambda i: 0 if starred(i) else 1)
+            favs = sum(1 for i in idxs if starred(i))
             sub = menu.addMenu(f"  {vendor}    ({len(idxs)})")
-            for i in idxs:
+            for n, i in enumerate(idxs):
+                if n == favs and 0 < favs < len(idxs):
+                    sub.addSeparator()
                 act = sub.addAction(combo.itemText(i))
                 note = combo.itemData(i, Qt.ToolTipRole)
                 if note:

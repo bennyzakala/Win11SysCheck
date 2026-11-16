@@ -2384,6 +2384,16 @@ def test_the_printer_is_chosen_from_a_menu_grouped_by_maker():
         phrozen = [m for m, t in subs.items() if t.strip().startswith("Phrozen")][0]
         checked = [a for a in phrozen.actions() if a.isCheckable() and a.isChecked()]
         assert len(checked) == 1 and "Sonic LS+" in checked[0].text()
+        # favourites (marked with a star) float to the top of the maker's submenu, a separator under them
+        p._set_favorites(["phrozen_sonic_cs_plus", "phrozen_sonic_xl_4k_plus"])
+        p._fill_printers()
+        phrozen = [a.menu() for a in p.printer_button.menu().actions()
+                   if a.menu() and a.text().strip().startswith("Phrozen")][0]
+        rows = [a for a in phrozen.actions()]
+        names = [a.text() for a in rows if a.text()]
+        assert names[0].lstrip().startswith("★") and names[1].lstrip().startswith("★")
+        assert not names[2].lstrip().startswith("★")       # the rest follow, unstarred
+        assert any(a.isSeparator() for a in rows)               # a thin line splits the two groups
         # choosing another printer from the menu switches to it and renames the button
         xl = [a for a in phrozen.actions() if "XL 4K Plus" in a.text()][0]
         xl.trigger()
