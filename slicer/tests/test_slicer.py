@@ -8230,6 +8230,9 @@ def test_support_builds_never_lock_up_and_step_aside_for_a_slice(tmp_path):
             w = MainWindow(); w.show(); app.processEvents()
             w.store.setValue("preslice", "false")
             w.settings.select_printer("phrozen_sonic_xl_4k_plus")
+            # its own spacing (Phrozen printers default to 7 mm: a crown cap got a point or two, and on Windows
+            # the batch it checks did not happen)
+            w.settings.set_value("sla_support_spacing", 3.0)
             parts = [w.add_mesh(primitives.crown_cap(11.0 + k, 8.0)) for k in range(4)]
             app.processEvents()
             def settle(limit=120):
@@ -9796,3 +9799,28 @@ def test_stalls_from_the_lab_performance_log(tmp_path):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=180)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_gingiva_models_and_dies_get_a_solid_lite_raft():
+    """Lab: Solid lite is the raft of gingiva, models and dies by default - crowns and the rest keep the
+    plate's raft; a raft type chosen for the plate (or for a part) goes for every part as before. Gingiva has
+    its own type now (supported as a crown, as it was)."""
+    from unislicer import dental_cad, profiles
+    from unislicer.settings import MODEL_TYPE_PRESETS
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": True})
+    assert cfg["sla_raft_type"] == "solid"
+
+    def raft(t, base=cfg, own=None):
+        return base.copy().update(dict({"sla_model_type": t}, **(own or {})))["sla_raft_type"]
+    for t in ("model", "model_u", "die", "gingiva"):
+        assert raft(t) == "solid_lite", t
+    for t in ("cb", "guide", "denture"):
+        assert raft(t) == "solid", t
+    assert dental_cad.model_type_of("BAH-SOD260046430-034-X-35-36-2-C2-B592_Tissue_17.stl", None) == "gingiva"
+    assert {k: v for k, v in MODEL_TYPE_PRESETS["gingiva"].items()} == MODEL_TYPE_PRESETS["cb"]
+    # chosen for the plate: every part
+    chosen = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": True, "sla_raft_type": "mini"})
+    for t in ("model", "die", "gingiva", "cb"):
+        assert raft(t, chosen) == "mini", t
+    # chosen for the part itself
+    assert raft("model", cfg, {"sla_raft_type": "tiny"}) == "tiny"

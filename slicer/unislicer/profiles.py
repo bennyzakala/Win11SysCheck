@@ -273,4 +273,5 @@ def build_config(printer: str | None = None, material: str | None = None, qualit
         cfg.update(profiles[pid].get("values", {}))
     if overrides:
         cfg.update(overrides)
+    cfg.values["_raft_chosen"] = bool(overrides and "sla_raft_type" in overrides)   # see settings.TYPE_RAFT
     return apply_layer_table(cfg, printer, material, overrides)

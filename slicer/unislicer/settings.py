@@ -206,6 +206,7 @@ SCHEMA: list[Setting] = [
       options=(("auto", "אוטומטי (לפי שם הקובץ)", "Automatic (by file name)"),
                ("cb", "כתר / גשר (C/B)", "Crown / bridge (C/B)"), ("guide", "מדריך כירורגי", "Surgical guide"),
                ("model", "מודל", "Model"), ("model_u", "מודל U (פרסה)", "Model U (horseshoe)"), ("die", "דאי", "Die"),
+               ("gingiva", "חניכיים", "Gingiva"),
                ("splint_h", "סד (אופקי)", "Splint (horizontal)"), ("splint_v", "סד (אנכי)", "Splint (vertical)"),
                ("denture", "תותבת", "Denture"), ("plate", "לפי הגדרות התמיכות", "As the support settings")),
       tip_he="כל סוג קובע את התמיכות שלו: גודל נקודת המגע, עובי, צפיפות, זווית, ואיפה לא לשים תמיכות. "
@@ -507,6 +508,9 @@ MODEL_TYPE_PRESETS = {
     # a die: supported like a model, but its points closer (5.5 mm apart left a small die on one support)
     "die": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 5.5, "support_angle": 50.0,
             "sla_contact_depth": 0.2, "sla_avoid_fit": False, "sla_skip_ledges": True},
+    # gingiva: supported as a crown (it was the crown type before it got its own raft)
+    "gingiva": {"sla_tip_diameter": 0.35, "sla_pillar_diameter": 0.9, "sla_support_spacing": 2.0, "support_angle": 45.0,
+                "sla_contact_depth": 0.15, "sla_avoid_fit": True, "sla_skip_ledges": False},
     "splint_h": {"sla_tip_diameter": 0.4, "sla_pillar_diameter": 1.0, "sla_support_spacing": 2.5, "support_angle": 40.0,
                  "sla_contact_depth": 0.2, "sla_avoid_fit": True, "sla_skip_ledges": False},
     "splint_v": {"sla_tip_diameter": 0.35, "sla_pillar_diameter": 0.9, "sla_support_spacing": 3.0, "support_angle": 45.0,
@@ -516,8 +520,11 @@ MODEL_TYPE_PRESETS = {
 }
 MODEL_TYPE_KEYS = {k for p in MODEL_TYPE_PRESETS.values() for k in p}
 MODEL_SPACING_TYPES = ("model", "model_u")          # the types sla_model_spacing applies to (dies keep 5.5 mm)
+# the raft a type gets while the plate's raft type is not chosen (the lab: Solid lite for gingiva, models and
+# dies); kept apart from the presets: a raft change on the plate is not a change of the type's supports
+TYPE_RAFT = {"model": "solid_lite", "model_u": "solid_lite", "die": "solid_lite", "gingiva": "solid_lite"}
 # the dental indication found from a file's name / shape -> its model type
-KIND_MODEL_TYPE = {"crown": "cb", "gingiva": "cb", "guide": "guide", "model": "model", "die": "die",
+KIND_MODEL_TYPE = {"crown": "cb", "gingiva": "gingiva", "guide": "guide", "model": "model", "die": "die",
                    "splint": "splint_h", "denture": "denture"}
 
 
@@ -617,6 +624,9 @@ class Config:
                 if k not in overrides:
                     self.values[k] = v
             # models and dies: the printer's own spacing when it has one (the lab: 7 mm on Phrozen printers)
+            raft = TYPE_RAFT.get(self.values.get("sla_model_type"))
+            if raft and "sla_raft_type" not in overrides and not self.values.get("_raft_chosen"):
+                self.values["sla_raft_type"] = raft
             own = float(self.values.get("sla_model_spacing") or 0.0)
             if own > 0 and self.values.get("sla_model_type") in MODEL_SPACING_TYPES \
                     and "sla_support_spacing" not in overrides:

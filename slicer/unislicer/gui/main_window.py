@@ -1763,8 +1763,8 @@ class MainWindow(QMainWindow):
             kind = (kinds or {}).get(o.uid)
             if kind is None:
                 own = o.settings.get("sla_model_type")
-                kind = "crown" if own == "cb" else (None if own not in (None, "auto") else
-                                                    dental_cad.kind_of(o.name, o.mesh))
+                kind = "crown" if own == "cb" else "gingiva" if own == "gingiva" else (
+                    None if own not in (None, "auto") else dental_cad.kind_of(o.name, o.mesh))
             if kind == "crown" and crowns_on:
                 crowns.append(o)
             elif kind == "gingiva" and tissue_on:

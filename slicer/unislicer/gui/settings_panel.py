@@ -1032,6 +1032,9 @@ class SettingsPanel(QWidget):
         hit = getattr(self, "_cfg_cache", None)
         if hit is None or hit[0] != key:
             cfg = self.base_config().update(self.overrides)
+            # a raft type chosen for the plate goes for every part; else the dental types get their own
+            # (settings.TYPE_RAFT: Solid lite for gingiva, models and dies)
+            cfg.values["_raft_chosen"] = "sla_raft_type" in self.overrides
             if self.technology == "sla":
                 profiles.apply_layer_table(cfg, self.printer_id, self.material_id, self.overrides)
             hit = self._cfg_cache = (key, cfg)
