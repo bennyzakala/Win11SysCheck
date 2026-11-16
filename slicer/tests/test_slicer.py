@@ -9986,3 +9986,24 @@ def test_merge_with_too_few_selected_tells_the_user(tmp_path):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_merge_flashes_the_combined_model():
+    """Lab: 'I want to see them become one combined model'. After a merge the new part pulses a vivid
+    colour a few times, so the union is visible even on a light dental shade."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from unislicer.gui.viewer import Viewer
+    import time
+    v = Viewer.__new__(Viewer)
+    assert getattr(v, "_flash", None) is None
+    tan = (0.9, 0.85, 0.75)
+    assert v._flash_lit(5, tan) == tan                         # nothing flashing: unchanged
+    v._flash = (5, time.monotonic(), 1.0)                      # 5 is flashing now
+    start = v._flash_lit(5, tan)
+    assert start == pytest.approx(v.FLASH_COLOR, abs=0.02)     # at the start it is the flash colour
+    assert v._flash_lit(9, tan) == tan                         # a different model is untouched
+    v._flash = (5, time.monotonic() - 2.0, 1.0)               # past its end
+    assert v._flash_lit(5, tan) == tan                         # back to its own colour

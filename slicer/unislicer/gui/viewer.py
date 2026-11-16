@@ -1038,15 +1038,15 @@ class Viewer(QOpenGLWidget):
                     color = tuple(0.75 * a + 0.25 * b for a, b in zip(own, theme.MODEL_SELECTED)) \
                         if uid in self.selection else own
                 lit = uid if state not in ("collision", "outside") and not preview else None
-                color = self._hover_lit(lit, color)
+                color = self._flash_lit(uid, self._hover_lit(lit, color))
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 self._set_model(p, obj["matrix"])
                 regions = self._region_buffers(obj) if state not in ("collision", "outside") else None
                 if regions and not (self.interacting and len(obj["mesh"].faces) > self.LOD_FACES):
                     sel = uid in self.selection
                     for buf, rgb in regions:          # e.g. a denture: gingiva and every tooth in its shade
-                        c = color if rgb is None else self._hover_lit(lit, (
-                            tuple(0.75 * a + 0.25 * b for a, b in zip(rgb, theme.MODEL_SELECTED)) if sel else rgb))
+                        c = color if rgb is None else self._flash_lit(uid, self._hover_lit(lit, (
+                            tuple(0.75 * a + 0.25 * b for a, b in zip(rgb, theme.MODEL_SELECTED)) if sel else rgb)))
                         GL.glUniform3f(self._u(p, "uColor"), *c)
                         buf.draw(GL.GL_TRIANGLES)
                 else:
@@ -1866,6 +1866,45 @@ class Viewer(QOpenGLWidget):
             return color
         k = self.HOVER_LIGHT
         return tuple(c + (1.0 - c) * k for c in color)
+
+    def flash_object(self, uid, seconds: float = 1.0):
+        """Briefly pulse a model so a change is seen - after a merge, the new combined model blinks a few
+        times, so it is clear the parts became one."""
+        import time
+        from PySide6.QtCore import QTimer
+        self._flash = (uid, time.monotonic(), float(seconds))
+        t = self.__dict__.get("_flash_timer")
+        if t is None:
+            t = self._flash_timer = QTimer(self)
+            t.setInterval(33)
+            t.timeout.connect(self._flash_tick)
+        t.start()
+        self.update()
+
+    def _flash_tick(self):
+        import time
+        fl = getattr(self, "_flash", None)
+        if fl is None or time.monotonic() - fl[1] > fl[2]:
+            self._flash = None
+            if self.__dict__.get("_flash_timer") is not None:
+                self._flash_timer.stop()
+        self.update()
+
+    FLASH_COLOR = (0.31, 0.55, 1.0)                 # a vivid blue - visible on any model / dental shade
+
+    def _flash_lit(self, uid, color):
+        """``color`` pulsed toward a vivid colour while ``uid`` is flashing (a few fading blinks), so a merge
+        is seen even on a light dental shade (blending toward white was too subtle there)."""
+        import math
+        import time
+        fl = getattr(self, "_flash", None)
+        if fl is None or uid != fl[0]:
+            return color
+        e = (time.monotonic() - fl[1]) / fl[2]
+        if e >= 1.0:
+            return color
+        amt = (1.0 - e) * (0.5 + 0.5 * math.cos(e * math.pi * 6.0))      # 3 fading blinks
+        return tuple(c + (f - c) * amt for c, f in zip(color, self.FLASH_COLOR))
 
     def mouseMoveEvent(self, e):
         pos = e.position()

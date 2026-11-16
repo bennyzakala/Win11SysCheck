@@ -4370,6 +4370,7 @@ class MainWindow(QMainWindow):
             self.viewer.remove_object(o.uid)
         self.objects.insert(idx, new)
         self._refresh_objects(select=new.uid)
+        self.viewer.flash_object(new.uid)             # the combined model blinks, so the merge is seen
         self.status.setText(tr("merged_done").format(len(group)))
 
     # ------------------------------------------------------------ 3D surface texture (GrabCAD Print Pro)
