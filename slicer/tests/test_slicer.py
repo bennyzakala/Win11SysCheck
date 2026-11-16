@@ -9927,3 +9927,23 @@ def test_merging_models_keeps_each_part_colour_a_monoblock(tmp_path):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_j5_dentajet_printable_area_matches_the_spec():
+    """Lab: the J5 tray. Its usable area must match Stratasys's published printing area (1,174 cm2) - the
+    old 100 deg no-print wedge made it 899 cm2 (24% too small), so valid plates were rejected. A ring tray
+    with a central hub and a small back wedge, max part 140 x 200 x 190 mm fits."""
+    from unislicer import profiles
+    from unislicer.scene import plate_region
+    cfg = profiles.build_config("stratasys_j5_dentajet", None, None, {})
+    assert cfg["bed_shape"] == "ring" and cfg["bed_inner_diameter"] > 0 and cfg["sla_process"] == "polyjet"
+    region = plate_region(cfg)
+    assert region is not None and not region.is_empty
+    area_cm2 = region.area / 100.0
+    assert abs(area_cm2 - 1174) < 60, area_cm2                       # within ~5% of the official 1,174 cm2
+    assert cfg["bed_dead_sector"] < 45                              # a small wedge, not a quarter of the tray
+    # a hole in the middle (the raised hub) - the centre is not printable
+    from shapely.geometry import Point
+    cx, cy = cfg["bed_x"] / 2, cfg["bed_y"] / 2
+    assert not region.contains(Point(cx, cy))
+    assert cfg["max_z"] >= 190 and cfg["bed_x"] >= 200              # max part height / footprint
