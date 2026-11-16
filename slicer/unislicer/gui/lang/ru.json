@@ -1482,5 +1482,6 @@
 "Select two or more models (e.g. base and teeth), then merge into one monoblock": "Выберите две или более модели (например, базис и зубы), затем объедините в один моноблок",
 "Assemble to original position (Assembly)": "Собрать в исходное положение (сборка)",
 "Assembled {} parts to their original position - each stays separate": "{} частей собраны в исходное положение - каждая остаётся отдельной",
-"To assemble, re-open the files (the original position is not kept for parts opened earlier)": "Чтобы собрать, откройте файлы заново (исходное положение не сохраняется для ранее открытых частей)"
+"To assemble, re-open the files (the original position is not kept for parts opened earlier)": "Чтобы собрать, откройте файлы заново (исходное положение не сохраняется для ранее открытых частей)",
+"Other maker": "Другой производитель"
 }

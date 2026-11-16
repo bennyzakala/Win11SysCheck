@@ -2355,6 +2355,49 @@ def test_cfs_slots_mapping_and_reading_from_the_printer(monkeypatch):
         network.creality_cfs_slots("10.0.0.7")
 
 
+def test_the_printer_is_chosen_from_a_menu_grouped_by_maker():
+    """The printer picker is a button that opens a menu grouped by maker (Phrozen, Elegoo, ...); the button names the
+    current printer, the maker submenu holds that maker's printers, and choosing one from the menu switches to it -
+    exactly what the hidden combo did."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import profiles
+        from unislicer.gui.settings_panel import SettingsPanel
+        printers = profiles.load("printers")
+        p = SettingsPanel("phrozen_sonic_ls_plus", None, None, {}, False)
+        # the combo is the hidden state store, the button is what the user sees
+        assert not p.printer_combo.isVisibleTo(p)
+        assert "Phrozen Sonic LS+" in p.printer_button.text()
+        menu = p.printer_button.menu()
+        subs = {a.menu(): a.text() for a in menu.actions() if a.menu()}
+        # every maker of a listed resin printer has its own submenu
+        makers = {(printers[p.printer_combo.itemData(i)].get("vendor") or "").strip()
+                  for i in range(p.printer_combo.count()) if p.printer_combo.itemData(i)}
+        makers.discard("")
+        seen = {t.strip().rsplit("(", 1)[0].strip() for t in subs.values()}
+        assert makers <= seen, (makers, seen)
+        # the current printer is checked in its maker's submenu
+        phrozen = [m for m, t in subs.items() if t.strip().startswith("Phrozen")][0]
+        checked = [a for a in phrozen.actions() if a.isCheckable() and a.isChecked()]
+        assert len(checked) == 1 and "Sonic LS+" in checked[0].text()
+        # choosing another printer from the menu switches to it and renames the button
+        xl = [a for a in phrozen.actions() if "XL 4K Plus" in a.text()][0]
+        xl.trigger()
+        assert p.printer_id == "phrozen_sonic_xl_4k_plus"
+        assert "XL 4K Plus" in p.printer_button.text()
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_printer_families_resin_and_uv():
     """The printer list is split into RESIN / UV (PolyJet) - filament printers are not offered (UniSlicer is for
     resin printers only); switching family goes back to the last printer used in it."""

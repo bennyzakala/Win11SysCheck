@@ -189,6 +189,7 @@ STRINGS = {
     "menu_exit": ("יציאה", "Exit"),
     "menu_shortcuts": ("קיצורי מקלדת", "Keyboard shortcuts"),
     "menu_updates": ("הורד את הגרסה האחרונה", "Download the latest version"),
+    "vendor_other": ("יצרן אחר", "Other maker"),
     "menu_perf_log": ("יומן ביצועים (לשליחה לתמיכה)…", "Performance log (to send to support)…"),
     "perf_log_hint": ("נפתחה התיקייה עם הקובץ {0}. שלח אותו - הוא כולל רק זמנים ושמות פעולות, בלי מודלים או פרטי מטופלים.",
                       "The folder with {0} is open. Send it - it holds only times and action names, no models or patient details."),

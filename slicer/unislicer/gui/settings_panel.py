@@ -434,6 +434,18 @@ class SettingsPanel(QWidget):
                 row.addWidget(self.profile_menu_btn)
             cl.addLayout(row)
             cl.addWidget(combo)
+            if key == "printer":
+                # the printers grouped under their maker: the combo stays as the hidden state store, and this
+                # button opens a menu of vendors, each with its own printers (the flat list was long)
+                combo.hide()
+                self.printer_button = QToolButton()
+                self.printer_button.setObjectName("PrinterPick")
+                self.printer_button.setPopupMode(QToolButton.InstantPopup)
+                self.printer_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
+                self.printer_button.setCursor(Qt.PointingHandCursor)
+                self.printer_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+                cl.addWidget(self.printer_button)
+                combo.currentIndexChanged.connect(self._sync_printer_button)
             if key == "quality":
                 # resin mode (Stable / Fast) right under the quality: picks the maker's exposure and motion row
                 self.mode_combo = self._profile_combo()
@@ -679,6 +691,44 @@ class SettingsPanel(QWidget):
         self._refresh_filament_panel()
         self.changed.emit()
 
+    def _sync_printer_button(self, *_):
+        """Show the chosen printer on the button, and rebuild the vendor menu from the combo's items."""
+        btn = getattr(self, "printer_button", None)
+        if btn is None:
+            return
+        combo = self.printer_combo
+        i = combo.currentIndex()
+        name = combo.itemText(i) if i >= 0 else tr("printer")
+        btn.setText("  " + name + "    ▾  ")
+        btn.setMenu(self._build_printer_menu())
+
+    def _build_printer_menu(self) -> QMenu:
+        """A menu of the printers now in the combo, grouped under each maker; picking one selects it (which
+        goes through the combo, so every bit of printer-change logic runs as before)."""
+        import collections
+        combo = self.printer_combo
+        printers = profiles.load("printers")
+        by_vendor: dict = collections.OrderedDict()
+        for i in range(combo.count()):
+            pid = combo.itemData(i)
+            if not pid:                                  # a separator between vendor groups in the combo
+                continue
+            vendor = printers.get(pid, {}).get("vendor") or tr("vendor_other")
+            by_vendor.setdefault(vendor, []).append(i)
+        menu = QMenu(self.printer_button)
+        cur = combo.currentIndex()
+        for vendor, idxs in by_vendor.items():
+            sub = menu.addMenu(f"  {vendor}    ({len(idxs)})")
+            for i in idxs:
+                act = sub.addAction(combo.itemText(i))
+                note = combo.itemData(i, Qt.ToolTipRole)
+                if note:
+                    act.setToolTip(str(note))
+                act.setCheckable(True)
+                act.setChecked(i == cur)
+                act.triggered.connect(lambda _=False, i=i: self.printer_combo.setCurrentIndex(i))
+        return menu
+
     def _fill_printers(self):
         self._building = True
         self.printer_combo.clear()
@@ -710,6 +760,7 @@ class SettingsPanel(QWidget):
                 self.printer_combo.setItemData(self.printer_combo.count() - 1, p["note"], Qt.ToolTipRole)
         self.printer_combo.setCurrentIndex(max(0, self.printer_combo.findData(self.printer_id)))
         self._building = False
+        self._sync_printer_button()                      # the vendor menu follows the printers now listed
         self._update_fav_buttons()
 
     def _default_plate(self):

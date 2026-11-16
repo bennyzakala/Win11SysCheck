@@ -281,6 +281,10 @@ QComboBox::drop-down {{ border: none; width: 22px; }}
 QComboBox::down-arrow {{ image: url(@ASSETS@/chevron.svg); width: 12px; height: 12px; }}
 QComboBox QAbstractItemView {{ background: {SURFACE_2}; border: 1px solid {BORDER}; selection-background-color: {ACCENT}; padding: 4px; }}
 QComboBox#ProfileCombo {{ padding: 8px 10px; font-weight: 600; }}
+QToolButton#PrinterPick {{ background: {SURFACE_2}; border: 1px solid {BORDER}; border-radius: 7px;
+    padding: 8px 10px; font-weight: 600; color: {TEXT}; text-align: left; }}
+QToolButton#PrinterPick:hover {{ border-color: {ACCENT}; }}
+QToolButton#PrinterPick::menu-indicator {{ image: none; }}
 QToolButton#KindTab {{ background: {SURFACE_2}; border: 1px solid {BORDER}; border-radius: 7px; padding: 5px 6px;
                       font-weight: 700; font-size: 11px; color: {TEXT_DIM}; }}
 QToolButton#KindTab:hover {{ border-color: {BORDER_HOVER}; color: {TEXT}; }}
