@@ -45,6 +45,15 @@ from . import i18n
 from .i18n import category_label, label, option_label, tip, tr
 
 PLATE_KEYS = ("plate_width", "plate_depth", "plate_offset_x", "plate_offset_y")
+# the machine's own values: changed on one printer, they are its own (and its resin's) - the lab changed the
+# exposure on the LS+ and every other printer took it. Kept per printer + material, the rest stays shared
+MACHINE_KEYS = ("resolution_x", "resolution_y", "mirror_x", "mirror_y", "max_z", "bed_x", "bed_y", "sla_format")
+
+
+def per_printer_key(key: str) -> bool:
+    """Is ``key`` kept for each printer (+ material) on its own (exposure and motion, the machine's values)?"""
+    s = SCHEMA_BY_KEY.get(key)
+    return s is not None and (s.category == "exposure" or key in MACHINE_KEYS)
 EXPANDED_BY_DEFAULT = {"quality", "walls", "infill", "support", "adhesion", "material", "exposure", "hollow"}
 
 
@@ -841,6 +850,46 @@ class SettingsPanel(QWidget):
             combo.setCurrentIndex(max(0, combo.findData(current)))
         self._building = False
 
+    # ---- values kept per printer + material (exposure and motion, the machine's own)
+    def _machine_store(self) -> dict:
+        store = getattr(self, "_machine_values", None)
+        if store is None:
+            import json as _json
+            try:
+                store = _json.loads(str(self._prefs().value("overrides_per_printer", "{}") or "{}"))
+            except (TypeError, ValueError):
+                store = {}
+            self._machine_values = store if isinstance(store, dict) else {}
+        return self._machine_values
+
+    def _stash_machine(self):
+        """Put the present printer + material's own changes aside (they are not the next printer's)."""
+        if not self.printer_id:
+            return
+        own = {k: v for k, v in self.overrides.items() if per_printer_key(k)}
+        store = self._machine_store()
+        key = f"{self.printer_id}|{self.material_id or ''}"
+        if own:
+            store[key] = own
+        else:
+            store.pop(key, None)
+        for k in own:
+            self.overrides.pop(k, None)
+        self._save_machine_store()
+
+    def _unstash_machine(self):
+        """Bring back the changes made before on this printer + material."""
+        for k in [k for k in self.overrides if per_printer_key(k)]:
+            self.overrides.pop(k, None)
+        self.overrides.update(self._machine_store().get(f"{self.printer_id}|{self.material_id or ''}", {}))
+
+    def _save_machine_store(self):
+        import json as _json
+        try:
+            self._prefs().setValue("overrides_per_printer", _json.dumps(self._machine_store()))
+        except Exception:
+            pass
+
     def _drop_overrides_for(self, kind: str, pid: str | None):
         if not pid:
             return
@@ -855,6 +904,7 @@ class SettingsPanel(QWidget):
         if not pid:
             return
         old_tech = self.technology
+        self._stash_machine()                   # the old printer's own exposure / machine values stay its own
         self.printer_id = pid
         printer_now = profiles.load("printers").get(pid, {})
         self._prefs().setValue(f"last_printer_{printer_kind(printer_now)}", pid)
@@ -876,7 +926,8 @@ class SettingsPanel(QWidget):
         linked = [m for m, prof in mats.items() if pid in prof.get("printers", [])]
         if linked and self.material_id not in linked:
             self.material_id = linked[0]
-        self._fill_dependent()
+        self._fill_dependent()                  # (may change the material to one the printer takes)
+        self._unstash_machine()                 # what was changed on this printer before comes back
         self.rebuild()
         if self.technology != old_tech:
             self.technologyChanged.emit(self.technology)
@@ -885,8 +936,10 @@ class SettingsPanel(QWidget):
     def _on_material(self, index):
         if self._building or index < 0:
             return
+        self._stash_machine()                   # the exposure set for the old resin stays with it
         self.material_id = self.material_combo.itemData(index)
         self._drop_overrides_for("materials", self.material_id)
+        self._unstash_machine()
         self.rebuild()
         self.changed.emit()
 

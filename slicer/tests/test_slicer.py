@@ -9824,3 +9824,46 @@ def test_gingiva_models_and_dies_get_a_solid_lite_raft():
         assert raft(t, chosen) == "mini", t
     # chosen for the part itself
     assert raft("model", cfg, {"sla_raft_type": "tiny"}) == "tiny"
+
+
+def test_exposure_changed_on_one_printer_stays_its_own(tmp_path):
+    """Lab: the exposure changed on the Phrozen LS+ changed it on every printer. Exposure and motion (and the
+    machine's own values) are kept for each printer + material: another printer keeps its own, and going back
+    brings the change back. Other settings (supports, rafts) stay shared."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        sp = w.settings
+        sp.select_printer("phrozen_sonic_xl_4k_plus"); app.processEvents()
+        xl_default = sp.config()["exposure_time"]
+        sp.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        ls_default = sp.config()["exposure_time"]
+        sp.set_value("exposure_time", 9.25)
+        sp.set_value("sla_raft_type", "mini")                     # shared by every printer
+        assert sp.config()["exposure_time"] == 9.25
+        sp.select_printer("phrozen_sonic_xl_4k_plus"); app.processEvents()
+        assert sp.config()["exposure_time"] == xl_default, (sp.config()["exposure_time"], xl_default)
+        assert sp.config()["sla_raft_type"] == "mini"
+        sp.set_value("exposure_time", 3.5)
+        sp.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        assert sp.config()["exposure_time"] == 9.25                # its own change came back
+        sp.select_printer("phrozen_sonic_xl_4k_plus"); app.processEvents()
+        assert sp.config()["exposure_time"] == 3.5
+        # kept after a restart too (the window saves its settings as they change and when it closes)
+        w._save_state()
+        w2 = MainWindow(); app.processEvents()
+        assert w2.settings.printer_id == "phrozen_sonic_xl_4k_plus" and w2.settings.config()["exposure_time"] == 3.5
+        w2.settings.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
+        assert w2.settings.config()["exposure_time"] == 9.25
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    home = str(tmp_path)
+    env = dict(os.environ, HOME=home, USERPROFILE=home, XDG_CONFIG_HOME=os.path.join(home, ".config"))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=180, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
