@@ -9962,3 +9962,27 @@ def test_project_saves_a_model_with_regions_even_without_a_name(tmp_path):
     back, _ = project.load(str(path))
     shades = [r["shade"] for r in back[0].regions]
     assert shades == ["Gingiva", "A2"] and len(back[0].regions[0]["faces"]) == 3
+
+
+def test_merge_with_too_few_selected_tells_the_user(tmp_path):
+    """Lab: merge seemed to do nothing. With fewer than two models selected it now says what is needed,
+    instead of silently returning."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui.i18n import tr
+        w = MainWindow(); w.show(); app.processEvents()
+        w.add_mesh(primitives.box(10, 10, 10)); app.processEvents()
+        w.object_list.selectAll(); app.processEvents()          # only one model
+        w.merge_selected(); app.processEvents()
+        assert len(w.objects) == 1 and w.status.text() == tr("merge_need_two"), (len(w.objects), w.status.text())
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

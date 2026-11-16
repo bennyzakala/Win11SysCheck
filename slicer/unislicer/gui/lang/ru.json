@@ -473,8 +473,6 @@
 "Measure": "Измерение",
 "Measure: click the first point, then the second": "Измерение: кликните первую точку, затем вторую",
 "Medium": "Средние",
-"Merge into one model": "Объединить в одну модель",
-"Merged {} models into one": "Объединено моделей: {}",
 "Mesh is not watertight — may have holes": "Сетка не замкнута — возможны дыры",
 "Method": "Метод",
 "Mini raft joining distance": "Расстояние объединения мини-рафтов",
@@ -1478,5 +1476,8 @@
 "Join every neighbour: a joint between every two neighbouring parts (a stiff plate). Join at the nearest point: as Join every neighbour, each joint where the two parts come closest. Minimal joints: each part joined one way only (less resin)": "Соединить всех соседей: соединение между каждыми двумя соседними моделями (жёсткая платформа). Соединение в ближайшей точке: как «Соединить всех соседей», каждое соединение там, где модели ближе всего. Минимум соединений: каждая модель соединена только одним путём (меньше смолы)",
 "Model support spacing (0 = by type)": "Шаг поддержек модели (0 = по типу)",
 "Support point spacing for models and U models when the model type comes from the file name (dies keep 5.5 mm). 0 = by type (5.5 mm). Phrozen printers: 7.0": "Шаг точек поддержки для моделей и U-моделей, когда тип модели берётся из имени файла (культи остаются 5,5 мм). 0 = по типу (5,5 мм). Принтеры Phrozen: 7,0",
-"An empty plate for new work (Ctrl+N)": "Пустая платформа для новой работы (Ctrl+N)"
+"An empty plate for new work (Ctrl+N)": "Пустая платформа для новой работы (Ctrl+N)",
+"Merge into one (monoblock)": "Объединить в один (моноблок)",
+"Merged {} models into one - each part in its colour": "{} моделей объединены в одну - каждая часть в своём цвете",
+"Select two or more models (e.g. base and teeth), then merge into one monoblock": "Выберите две или более модели (например, базис и зубы), затем объедините в один моноблок"
 }

@@ -4338,6 +4338,8 @@ class MainWindow(QMainWindow):
         is laid out as one. They slice as one part."""
         group = [o for o in self.selected_objects() if o.role != "cutter"]
         if len(group) < 2:
+            # nothing happened silently before - the lab thought merge was broken; say what is needed
+            self.status.setText(tr("merge_need_two"))
             return
         self._push_undo()
         world = [o.world_mesh() for o in group]
