@@ -311,6 +311,10 @@ def diagnose_hard_crash(text: str) -> Diagnosis | None:
 
 
 # ------------------------------------------------------------------ log
+_ENTRIES: dict = {}            # path -> ((path, mtime, size, limit), entries)
+_TAIL_BYTES = 2 << 20         # the newest entries are at the end: no more than this is read
+
+
 class CrashLog:
     def __init__(self, folder: str | None = None):
         self.folder = folder or profiles.USER_DIR
@@ -319,9 +323,23 @@ class CrashLog:
         self._fault_file = None
 
     def entries(self, limit: int = 200) -> list[dict]:
+        """The newest ``limit`` entries. Kept until the file changes, and only its end is read: the whole log
+        was read and parsed on the window's thread at every look at the assistant's suggestions (the lab's
+        performance log: 11 stalls, 19 s)."""
         try:
-            with open(self.path, "r", encoding="utf-8") as fh:
-                lines = fh.readlines()[-limit:]
+            st = os.stat(self.path)
+        except OSError:
+            return []
+        key = (self.path, st.st_mtime_ns, st.st_size, limit)
+        hit = _ENTRIES.get(self.path)
+        if hit is not None and hit[0] == key:
+            return list(hit[1])
+        try:
+            with open(self.path, "rb") as fh:
+                if st.st_size > _TAIL_BYTES:
+                    fh.seek(st.st_size - _TAIL_BYTES)
+                    fh.readline()                       # a line cut in the middle
+                lines = fh.read().decode("utf-8", errors="replace").splitlines()[-limit:]
         except OSError:
             return []
         out = []
@@ -330,7 +348,8 @@ class CrashLog:
                 out.append(json.loads(line))
             except ValueError:
                 pass
-        return out
+        _ENTRIES[self.path] = (key, out)
+        return list(out)
 
     def count(self, sig: str) -> int:
         return sum(1 for e in self.entries() if e.get("signature") == sig)

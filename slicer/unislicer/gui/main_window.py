@@ -7037,12 +7037,15 @@ class MainWindow(QMainWindow):
         o = todo[0]
         key = self._orient_key(o)
         weights = self.assistant.orient_weights(tech)
-        mesh = orient.sampled(o.mesh, 12000).transform(o.matrix())    # a light copy keeps the UI responsive
+        source, placed_at = o.mesh, o.matrix().copy()
         uid = o.uid
 
         def work(progress, cancelled):
             from .worker import yield_to_view
             yield_to_view()                              # not while the view is being turned
+            # a light copy keeps it quick - made here, not on the window's thread (up to 3.3 s there: the
+            # lab's performance log)
+            mesh = orient.sampled(source, 12000).transform(placed_at)
             now = float(orient.current_features(mesh, tech, angle) @ weights)
             yield_to_view()
             dirs = orient.candidate_directions(mesh, tech, 160)

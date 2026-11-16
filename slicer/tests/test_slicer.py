@@ -9639,6 +9639,7 @@ def test_performance_log_records_stalls_without_names(tmp_path):
         text = open(path, encoding="utf-8").read()
         assert "NLM" not in text and "Antag" not in text and "48108" not in text   # no names
         assert stall["doing"], stall                     # where the window was held
+        assert "meanwhile" in stall and (stall["cpu_pct"] is None or 0 <= stall["cpu_pct"] <= 100), stall
         w.open_perf_log()
         w.close()
         print("ok", flush=True)
@@ -9700,3 +9701,81 @@ def test_join_at_the_nearest_point():
     mesh, pieces = sla_supports.raft_joints(near, 1.0, 10.0, 30.0, every_neighbour=True, nearest=True)
     top = slice_mesh(mesh, [0.25])[0]
     assert pieces == 1 and top.intersection(box(40.5, 0, 43.5, 30)).area > 25.0
+
+
+def test_stalls_from_the_lab_performance_log(tmp_path):
+    """The lab's first performance log: the crash log read and parsed in full at every look at the
+    assistant (19 s of stalls), the assistant's rows rebuilt though nothing changed (13.6 s), and a hover
+    over a big model making its picking tables on the window's thread (up to 4.9 s). Now the crash log is
+    kept until it changes and only its end is read, unchanged suggestions are not rebuilt, and a hover
+    never waits for picking tables."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent(f'''
+        import os, json, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import QPointF
+        app = QApplication([])
+        import numpy as np
+        from unislicer import diagnose
+        from unislicer.mesh import Mesh
+        # the crash log: read once, its end only
+        log = diagnose.CrashLog({str(tmp_path)!r})
+        with open(log.path, "w", encoding="utf-8") as fh:
+            for k in range(30000):
+                fh.write(json.dumps({{"signature": f"s{{k}}", "time": k, "pad": "x" * 100}}) + "\\n")
+        reads = []
+        real_open = open
+        import builtins
+        builtins.open = lambda p, *a, **k: (reads.append(p) if p == log.path else None) or real_open(p, *a, **k)
+        try:
+            first = log.entries()
+            again = log.entries()
+        finally:
+            builtins.open = real_open
+        assert len(reads) == 1 and first == again and first[-1]["signature"] == "s29999" and len(first) == 200
+        with open(log.path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({{"signature": "new", "time": 1}}) + "\\n")
+        assert log.entries()[-1]["signature"] == "new"                   # a new entry is seen
+        # unchanged suggestions: the rows are not built again
+        from unislicer.assistant import Suggestion
+        from unislicer.gui.assistant_panel import AssistantPanel
+        from unislicer.gui import assistant_panel as AP
+        try:
+            panel = AssistantPanel()
+        except TypeError:
+            panel = None
+        if panel is not None:
+            built = []
+            real_row = panel._row
+            panel._row = lambda s: built.append(s.id) or real_row(s)
+            items = [Suggestion("a", "tip", "orient_better", (1,))]
+            panel.set_suggestions(items); panel.set_suggestions(list(items))
+            assert built == ["a"], built
+            panel.set_suggestions([Suggestion("b", "tip", "orient_better", (2,))])
+            assert built == ["a", "b"]
+        # a hover never waits for picking tables still being made
+        from unislicer.gui import viewer as V
+        n = 300
+        x, y = np.meshgrid(np.linspace(0, 50, n), np.linspace(0, 50, n))
+        v = np.column_stack([x.ravel(), y.ravel(), np.zeros(n * n)])
+        i = (np.arange(n - 1)[:, None] * n + np.arange(n - 1)[None, :]).ravel()
+        f = np.vstack([np.column_stack([i, i + 1, i + n]), np.column_stack([i + 1, i + n + 1, i + n])])
+        big = Mesh(v, f)
+        w = V.Viewer(); w.resize(400, 400)
+        w.objects = {{1: {{"mesh": big, "matrix": np.eye(4), "hidden": False}}}}
+        made_here = []
+        real_pd = V._pick_data
+        import threading
+        V._pick_data = lambda m: made_here.append(threading.current_thread() is threading.main_thread()) or real_pd(m)
+        w.pick_hit(QPointF(200, 200), wait=False)
+        assert not any(made_here), "a hover made picking tables on the window's thread"
+        end = time.time() + 30
+        while time.time() < end and not V._pick_ready(big):
+            time.sleep(0.02)
+        assert V._pick_ready(big)                                          # made in the background
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=180)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

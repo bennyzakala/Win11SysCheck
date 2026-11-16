@@ -185,6 +185,14 @@ def _compile(vs: str, fs: str, gs: str | None = None) -> int:
 
 
 
+def _pick_ready(mesh: Mesh) -> bool:
+    """Are the picking tables of ``mesh`` made (or is it small enough to make them at once)?"""
+    if len(mesh.faces) < 20000:
+        return True
+    cached = getattr(mesh, "_pick_cache", None)
+    return cached is not None and cached[0] == (id(mesh.vertices), id(mesh.faces), len(mesh.faces))
+
+
 def _pick_data(mesh: Mesh):
     """Per-mesh arrays for fast ray picking, cached on the mesh (meshes are replaced, not edited in place).
     Triangles are sorted along a Morton curve and grouped in small clusters with a bounding sphere each:
@@ -284,8 +292,9 @@ def _prepare_lod(mesh: Mesh):
 def _prepare_picking(mesh: Mesh):
     """Build a new model's picking data in the background (a big scan takes ~0.3 s), so the first time the
     cursor passes over it the view does not stutter. Numpy does the work, mostly outside the GIL."""
-    if getattr(mesh, "_pick_cache", None) is not None or len(mesh.faces) < 20000:
+    if getattr(mesh, "_pick_cache", None) is not None or len(mesh.faces) < 20000 or mesh.__dict__.get("_pick_queued"):
         return
+    mesh.__dict__["_pick_queued"] = True
 
     def view_needs():
         # first what the view itself needs as soon as it moves (made on the window's thread at the first drag
@@ -1497,19 +1506,20 @@ class Viewer(QOpenGLWidget):
     PICK_NEAR_PX = (3.0, 6.0, 10.0)      # a miss by this much still takes the part (thin parts, edges)
     PICK_BOX_MAX_PX = 24.0               # parts this small on the screen can also be taken by their box
 
-    def pick(self, pos: QPointF, supports: bool = True, near=None):
+    def pick(self, pos: QPointF, supports: bool = True, near=None, wait: bool = True):
         """The object under the cursor: its surface or its supports; else the surface nearest the cursor
         within a few pixels (thin parts and edges stay easy to grab); else, for a part tiny on the screen,
         its box. The box of any part caught every click inside it - on a full plate of dental arches the
         boxes overlap, and a click between an arch's arms or on a crown inside another arch's box took the
         wrong part."""
-        uid, _ = self.pick_hit(pos, supports=supports)
+        uid, _ = self.pick_hit(pos, supports=supports, wait=wait)
         if uid is not None:
             return uid
         for r in (self.PICK_NEAR_PX if near is None else near):
             for k in range(8):
                 a = k * math.pi / 4
-                uid, _ = self.pick_hit(QPointF(pos.x() + r * math.cos(a), pos.y() + r * math.sin(a)), supports=supports)
+                uid, _ = self.pick_hit(QPointF(pos.x() + r * math.cos(a), pos.y() + r * math.sin(a)),
+                                       supports=supports, wait=wait)
                 if uid is not None:
                     return uid
         origin, direction = self._ray(pos)
@@ -1532,22 +1542,27 @@ class Viewer(QOpenGLWidget):
                 best, best_t = k, tmin
         return best
 
-    def pick_hit(self, pos: QPointF, supports: bool = False):
+    def pick_hit(self, pos: QPointF, supports: bool = False, wait: bool = True):
         """(uid, world hit point) of the object under the cursor, or (None, None).
-        With ``supports`` its supports count as part of it."""
+        With ``supports`` its supports count as part of it. ``wait=False`` (hover): a big mesh whose picking
+        tables are not made yet is left out, and they are made in the background."""
         origin, direction = self._ray(pos)
         best, best_d = None, np.inf
         for uid, obj in self.objects.items():
             if obj.get("hidden"):
                 continue
             # intersect in the object's own coordinates; the ray parameter stays comparable
+            if not wait and not _pick_ready(obj["mesh"]):
+                _prepare_picking(obj["mesh"])
+                continue
             inv = np.linalg.inv(obj["matrix"])
             o_local = inv[:3, :3] @ origin + inv[:3, 3]
             d_local = inv[:3, :3] @ direction
             r = self._ray_mesh(o_local, d_local, obj["mesh"])
             if r is not None and r[0] < best_d:
                 best, best_d, self._last_face = uid, r[0], r[1]
-            if supports and obj.get("supports") is not None and self.technology == "sla":
+            if supports and obj.get("supports") is not None and self.technology == "sla" \
+                    and (wait or _pick_ready(obj["supports"])):
                 r = self._ray_mesh(o_local, d_local, obj["supports"])
                 if r is not None and r[0] < best_d:
                     best, best_d = uid, r[0]
@@ -1830,7 +1845,9 @@ class Viewer(QOpenGLWidget):
             try:
                 # the model itself only: a support mesh is rebuilt whenever its model moves, and preparing a new
                 # one for picking cost ~150 ms on the next hover (clicks still find supports)
-                uid = self.pick(self._hover_pos, supports=False, near=self.PICK_NEAR_PX[:1])
+                # never waits for picking tables still being made (the window made them itself, up to 4.9 s
+                # - the lab's performance log): a model whose tables are not ready lights up a moment later
+                uid = self.pick(self._hover_pos, supports=False, near=self.PICK_NEAR_PX[:1], wait=False)
             except Exception:
                 uid = None
         self._set_hover_uid(uid)

@@ -196,6 +196,13 @@ class AssistantPanel(QFrame):
         self.learned.setText("\n".join(lines))
 
     def set_suggestions(self, items: list[Suggestion]):
+        # the same suggestions as shown: nothing to build (rebuilding the rows, each with its style, held the
+        # window up to 4.5 s - the lab's performance log - and it was asked for after every change)
+        key = [(s.id, s.kind, s.text, repr(s.args), s.action, repr(sorted(s.action_args.items(), key=str)))
+               for s in items]
+        if key == getattr(self, "_shown_key", None):
+            return
+        self._shown_key = key
         box = QWidget()
         v = QVBoxLayout(box)
         v.setContentsMargins(0, 0, 4, 0)

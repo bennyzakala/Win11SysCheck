@@ -39,7 +39,9 @@ def _frames(frame, n: int = 4) -> str | None:
         name = f"{os.path.basename(path)}:{code.co_name}"
         if inner is None:
             inner = name
-        if "/unislicer/" in path and len(out) < n:
+        # "/unislicer/" running from the sources; "unislicer/..." with no folder before it in the installed
+        # program (its paths are relative: the first log from the lab had no chains at all)
+        if ("/unislicer/" in path or path.startswith("unislicer/")) and len(out) < n:
             out.append(name)
         frame = frame.f_back
         depth += 1
@@ -92,6 +94,24 @@ def memory_mb() -> int | None:
         return None
 
 
+def _cpu_times():
+    """(idle, total) CPU time of the whole computer so far, or None."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+            idle, kernel, user = wintypes.FILETIME(), wintypes.FILETIME(), wintypes.FILETIME()
+            if not ctypes.windll.kernel32.GetSystemTimes(ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)):
+                return None
+            f = lambda t: (t.dwHighDateTime << 32) | t.dwLowDateTime
+            return f(idle), f(kernel) + f(user)              # kernel time includes the idle time
+        with open("/proc/stat", encoding="ascii") as fh:
+            v = [int(x) for x in fh.readline().split()[1:]]
+        return v[3] + (v[4] if len(v) > 4 else 0), sum(v)
+    except Exception:
+        return None
+
+
 class StallLog:
     """Watches the window's thread from a thread of its own (a heartbeat on a short timer); a stall is
     written when the window answers again."""
@@ -139,36 +159,65 @@ class StallLog:
                 pass
 
     # -------------------------------------------------------------- watching thread
+    def _cpu_busy(self) -> int | None:
+        """The whole computer's CPU use over the last second or so, in percent (other programs too: a
+        computer at 100% - left-over processes, a scan - stalls the window whatever it does)."""
+        now = _cpu_times()
+        prev, self._cpu_prev = getattr(self, "_cpu_prev", None), now
+        if now is None or prev is None or now[1] <= prev[1]:
+            return getattr(self, "_cpu_last", None)
+        self._cpu_last = int(round(100.0 * (1.0 - (now[0] - prev[0]) / (now[1] - prev[1]))))
+        return self._cpu_last
+
     def _watch(self) -> None:
         stalled_since = None
+        next_cpu = 0.0
         where: collections.Counter = collections.Counter()
+        others: collections.Counter = collections.Counter()
         while not self._stop.wait(_SAMPLE):
             now = time.monotonic()
+            if now >= next_cpu:                     # the computer's load, every second
+                self._cpu = self._cpu_busy()
+                next_cpu = now + 1.0
             gap = now - self._beat
             if gap > self.threshold:
                 if stalled_since is None:
                     stalled_since = self._beat
                     where = collections.Counter()
-                frame = sys._current_frames().get(self._main)
+                    others = collections.Counter()
+                frames = sys._current_frames()
+                frame = frames.get(self._main)
                 k = _frames(frame) if frame is not None else None
                 if k:
                     where[k] += 1
+                # what the other threads run meanwhile: one of them holding the interpreter stalls the window
+                # while its own thread is in Qt (the first log: 43 s of stalls "in app.run")
+                names = {t.ident: t.name for t in threading.enumerate()}
+                for tid, fr in frames.items():
+                    if tid in (self._main, threading.get_ident()):
+                        continue
+                    o = _frames(fr, 3)
+                    if o and not o.startswith("[threading.py:wait]") and "queue.py:get" not in o:
+                        others[f"{names.get(tid, '?')}: {o}"] += 1
             elif stalled_since is not None:
                 length = self._beat - stalled_since
                 if length < 120:                    # not a computer that slept
-                    self._write(stalled_since, length, where)
+                    self._write(stalled_since, length, where, others)
                 stalled_since = None
 
-    def _write(self, since: float, length: float, where: collections.Counter) -> None:
+    def _write(self, since: float, length: float, where: collections.Counter,
+               others: collections.Counter | None = None) -> None:
         click, at = self._click
         total = sum(where.values()) or 1
         line = {
             "time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - (time.monotonic() - since))),
             "ms": int(length * 1000),
             "doing": [{"share": round(n / total, 2), "where": k} for k, n in where.most_common(3)],
+            "meanwhile": [{"share": round(n / total, 2), "where": k} for k, n in (others if others is not None else collections.Counter()).most_common(3)],
             "last_click": click if click and since - at < 30 else "",
             "click_age_s": round(since - at, 1) if click and since - at < 30 else None,
             "mem_mb": memory_mb(),
+            "cpu_pct": getattr(self, "_cpu", None),
             **self._snapshot,
         }
         try:

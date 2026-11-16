@@ -61,10 +61,11 @@ _STAMP: list = [0.0, None]       # [when, stamp]: asked hundreds of times per ac
 
 def files_stamp() -> tuple:
     """When each profile file last changed: a configuration built from them stays valid while this is equal.
-    Kept for half a second (a support build asked ~400 times, ~2 500 file checks); a save from the program
-    itself is seen at once, a file edited by hand within half a second."""
+    Kept for 5 s (a support build asked ~400 times, ~2 500 file checks; on the lab's Windows computers one
+    look at the files took up to 1.8 s on the window's thread); a save from the program itself is seen at
+    once, a file edited by hand within 5 s."""
     now = time.monotonic()
-    if _STAMP[1] is not None and now - _STAMP[0] < 0.5:
+    if _STAMP[1] is not None and now - _STAMP[0] < 5.0:
         return _STAMP[1]
     _STAMP[1] = _files_stamp()
     _STAMP[0] = now
