@@ -10007,3 +10007,49 @@ def test_merge_flashes_the_combined_model():
     assert v._flash_lit(9, tan) == tan                         # a different model is untouched
     v._flash = (5, time.monotonic() - 2.0, 1.0)               # past its end
     assert v._flash_lit(5, tan) == tan                         # back to its own colour
+
+
+def test_assemble_fits_parts_to_their_designed_positions(tmp_path):
+    """Lab (J5 dentures): two files that interlock (teeth in the gingiva) are re-centred and arranged apart
+    on load. Assemble puts them back at their designed relative positions - still separate bodies, each with
+    its own material - so the teeth sit in the base as the CAD built them."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        import numpy as np
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui.i18n import tr
+        w = MainWindow(); w.show(); app.processEvents()
+        w.settings.select_printer("stratasys_j5_dentajet"); app.processEvents()
+        # two parts designed to interlock: a base, and a smaller part sitting 8 mm back and 3 mm up inside it
+        base = primitives.box(40, 30, 10).translated([100.0, 100.0, 0.0])
+        teeth = primitives.box(34, 12, 14).translated([100.0, 108.0, 3.0])   # same frame, offset by (0, 8, 3)
+        ob = w.add_mesh(base); ob.material = "Gingiva"
+        ot = w.add_mesh(teeth); ot.material = "A2"
+        app.processEvents()
+        # the designed relative offset of the two parts (from their own files)
+        dbo = [o.__dict__["_design_box"] for o in w.objects]
+        want_xy = ((dbo[0][0] + dbo[0][1]) / 2 - (dbo[1][0] + dbo[1][1]) / 2)[:2]
+        w.object_list.selectAll(); app.processEvents()
+        # before assemble they were arranged apart
+        cb0 = (w.objects[0].world_bounds()[0] + w.objects[0].world_bounds()[1]) / 2
+        ct0 = (w.objects[1].world_bounds()[0] + w.objects[1].world_bounds()[1]) / 2
+        assert not np.allclose((cb0 - ct0)[:2], want_xy, atol=0.1)
+        w.assemble_selected(); app.processEvents()
+        assert len(w.objects) == 2 and w.status.text() == tr("assembled_done").format(2)
+        cb = (w.objects[0].world_bounds()[0] + w.objects[0].world_bounds()[1]) / 2
+        ct = (w.objects[1].world_bounds()[0] + w.objects[1].world_bounds()[1]) / 2
+        assert np.allclose((cb - ct)[:2], want_xy, atol=0.05), (cb - ct, want_xy)   # back to the designed offset
+        lows = sorted(float(o.world_bounds()[0, 2]) for o in w.objects)
+        assert abs(lows[0]) < 0.05                                       # the lowest part sits on the plate
+        # each stays its own body with its own material
+        assert {o.material for o in w.objects} == {"Gingiva", "A2"} and all(not o.regions for o in w.objects)
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=180)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

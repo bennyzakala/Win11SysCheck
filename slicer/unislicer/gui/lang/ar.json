@@ -1479,5 +1479,8 @@
 "An empty plate for new work (Ctrl+N)": "منصة فارغة لعمل جديد (Ctrl+N)",
 "Merge into one (monoblock)": "دمج في واحد (مونوبلوك)",
 "Merged {} models into one - each part in its colour": "تم دمج {} نماذج في واحد - كل جزء بلونه",
-"Select two or more models (e.g. base and teeth), then merge into one monoblock": "اختر نموذجين أو أكثر (مثل القاعدة والأسنان)، ثم ادمجها في مونوبلوك واحد"
+"Select two or more models (e.g. base and teeth), then merge into one monoblock": "اختر نموذجين أو أكثر (مثل القاعدة والأسنان)، ثم ادمجها في مونوبلوك واحد",
+"Assemble to original position (Assembly)": "تجميع إلى الموضع الأصلي (تجميعة)",
+"Assembled {} parts to their original position - each stays separate": "تم تجميع {} أجزاء إلى موضعها الأصلي - يبقى كل جزء منفصلاً",
+"To assemble, re-open the files (the original position is not kept for parts opened earlier)": "للتجميع، أعد فتح الملفات (الموضع الأصلي لا يُحفظ للأجزاء المفتوحة سابقاً)"
 }

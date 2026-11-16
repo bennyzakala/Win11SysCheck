@@ -52,6 +52,7 @@ class SceneObject:
         b = mesh.bounds
         centred = mesh.translated(-(b[0] + b[1]) / 2)
         obj = cls(centred, name or mesh.name)
+        obj.__dict__["_design_box"] = (b[0].copy(), b[1].copy())   # the file's own box, for Assemble
         from .dental_shades import find
         mat = getattr(mesh, "material", "") or ""                # e.g. a shade read from a 3MF
         obj.material = find(mat).code if find(mat) else mat

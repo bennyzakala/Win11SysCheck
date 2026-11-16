@@ -403,6 +403,7 @@ class MainWindow(QMainWindow):
         add(e, tr("void_title") + "…", self.void_body_dialog, "", "drop")
         add(e, tr("cut_height"), self.cut_selected, "", "square")
         add(e, tr("split_parts"), self.split_selected, "", "grid")
+        add(e, tr("assemble_models"), self.assemble_selected, "", "align")
         add(e, tr("merge_models"), self.merge_selected, "", "copy")
         add(e, tr("repair_mesh"), self.repair_selected, "", "settings")
         e.addSeparator()
@@ -4186,6 +4187,7 @@ class MainWindow(QMainWindow):
             menu.addAction(theme.icon("code"), tr("rename"), self.rename_selected)
             menu.addAction(theme.icon("x"), tr("hide_models"), self.hide_selected)
             if len(group) > 1:
+                menu.addAction(theme.icon("align"), tr("assemble_models"), self.assemble_selected)
                 menu.addAction(theme.icon("copy"), tr("merge_models"), self.merge_selected)
                 self._fill_align_menu(menu.addMenu(theme.icon("align"), tr("align_menu")))
             menu.addAction(theme.icon("settings"), tr("model_settings") + "…", self.model_settings_dialog)
@@ -4330,6 +4332,39 @@ class MainWindow(QMainWindow):
     def show_all_models(self):
         for o in self.objects:
             self.viewer.set_object_hidden(o.uid, False)
+
+    def assemble_selected(self):
+        """Fit the selected models back to their designed positions, so parts made to interlock (a denture's
+        teeth sitting in the gingiva, a crown on its die) sit together as the CAD built them. They stay
+        separate bodies - each keeps its own material and can still be printed on its own - but they move
+        and lay out together (GrabCAD Print's 'Assembly as one'). Uses each file's original box."""
+        group = [o for o in self.selected_objects() if o.role != "cutter"]
+        if len(group) < 2:
+            self.status.setText(tr("merge_need_two"))
+            return
+        boxes = [o.__dict__.get("_design_box") for o in group]
+        if any(b is None for b in boxes):
+            # a part opened in an earlier session / from a project has no stored box
+            self.status.setText(tr("assemble_no_box"))
+            return
+        self._push_undo()
+        import numpy as _np
+        lo = _np.min([b[0] for b in boxes], axis=0)                  # the whole assembly's box (design coords)
+        hi = _np.max([b[1] for b in boxes], axis=0)
+        gc = (lo + hi) / 2
+        cfg = self.settings.config()
+        px, py = self._plate_center(cfg)
+        for o, (blo, bhi) in zip(group, boxes):
+            c = (blo + bhi) / 2
+            o.x, o.y = px + (c[0] - gc[0]), py + (c[1] - gc[1])      # keep the parts' relative XY
+            o.z = float(blo[2] - lo[2])                              # and their relative height (lowest on the plate)
+            o.rotation[:] = 0.0                                      # the file's own orientation
+            o.base_rotation = _np.eye(3)
+            o.direct = True                                         # an assembly stands as designed, no re-elevation
+        self._refresh_objects(select=[o.uid for o in group])
+        for o in group:
+            self.viewer.flash_object(o.uid)
+        self.status.setText(tr("assembled_done").format(len(group)))
 
     def merge_selected(self):
         """Join the selected models into one (a dental monoblock: a denture's base and its teeth as one

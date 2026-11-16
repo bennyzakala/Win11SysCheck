@@ -61,7 +61,7 @@ CHAPTERS = (
 <li>{t:menu_file}: {t:new_project} ({k:new_project}), {t:open}, {t:open_project}, {t:recent_files}, {t:save_project}, {t:slice}, {t:export_print},
 {t:export_as}, {t:export_stl}, {t:report_save}, ספריית ההדפסות, {t:net_title}, {t:queue_title} ו{t:menu_exit}.</li>
 <li>{t:menu_edit}: {t:undo}, {t:redo}, {t:select_all}, {t:duplicate}, {t:multiply}, {t:delete}, הסידור והיישור,
-{t:center}, {t:move_to}, {t:scale_to}, {t:rename}, {t:model_settings}, {t:merge_models}, {t:hide_models} ו{t:show_all_models}.</li>
+{t:center}, {t:move_to}, {t:scale_to}, {t:rename}, {t:model_settings}, {t:assemble_models}, {t:merge_models}, {t:hide_models} ו{t:show_all_models}.</li>
 <li>{t:menu_info}: {t:assistant}, {t:estimate_title}, {t:manual_menu} ({k:manual}), {t:menu_shortcuts},
 {t:menu_updates}, {t:menu_perf_log} ו{t:menu_about}.</li>
 </ul>
@@ -252,7 +252,7 @@ MENU_KEYS = ("open", "shapes", "add_text", "void_title", "ocp_button", "auto_pre
              "remote_title", "cad_title", "multiply", "cut_height", "split_parts", "repair_mesh",
              "repair_advanced", "texture_title", "pixel_edit", "prepare", "preview", "assistant", "theme",
              "manual_menu", "menu_file", "menu_edit", "menu_info", "menu_exit", "select_all", "center", "move_to",
-             "scale_to", "rename", "model_settings", "merge_models", "hide_models", "show_all_models",
+             "scale_to", "rename", "model_settings", "assemble_models", "merge_models", "hide_models", "show_all_models",
              "menu_shortcuts", "menu_updates", "menu_about")
 
 CSS = """

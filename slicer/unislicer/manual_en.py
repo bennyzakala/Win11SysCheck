@@ -43,7 +43,7 @@ to the program gets a new number.</p>
 <li>{t:menu_file}: {t:new_project} ({k:new_project}), {t:open}, {t:open_project}, {t:recent_files}, {t:save_project}, {t:slice}, {t:export_print},
 {t:export_as}, {t:export_stl}, {t:report_save}, the print library, {t:net_title}, {t:queue_title} and {t:menu_exit}.</li>
 <li>{t:menu_edit}: {t:undo}, {t:redo}, {t:select_all}, {t:duplicate}, {t:multiply}, {t:delete}, arranging and
-aligning, {t:center}, {t:move_to}, {t:scale_to}, {t:rename}, {t:model_settings}, {t:merge_models}, {t:hide_models}
+aligning, {t:center}, {t:move_to}, {t:scale_to}, {t:rename}, {t:model_settings}, {t:assemble_models}, {t:merge_models}, {t:hide_models}
 and {t:show_all_models}.</li>
 <li>{t:menu_info}: {t:assistant}, {t:estimate_title}, {t:manual_menu} ({k:manual}), {t:menu_shortcuts},
 {t:menu_updates}, {t:menu_perf_log} and {t:menu_about}.</li>
