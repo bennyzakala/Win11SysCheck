@@ -4352,9 +4352,9 @@ class MainWindow(QMainWindow):
                 for shade in dict.fromkeys(face_mat):
                     faces = [off + i for i, s in enumerate(face_mat) if s == shade]
                     if faces and shade:
-                        regions.append({"faces": faces, "shade": shade})
+                        regions.append({"name": f"{o.name} {shade}"[:40], "faces": faces, "shade": shade})
             elif o.material:
-                regions.append({"faces": list(range(off, off + n)), "shade": o.material})
+                regions.append({"name": o.name[:40], "faces": list(range(off, off + n)), "shade": o.material})
             off += n
         b = merged.bounds
         new = SceneObject.from_mesh(merged)

@@ -9947,3 +9947,18 @@ def test_j5_dentajet_printable_area_matches_the_spec():
     cx, cy = cfg["bed_x"] / 2, cfg["bed_y"] / 2
     assert not region.contains(Point(cx, cy))
     assert cfg["max_z"] >= 190 and cfg["bed_x"] >= 200              # max part height / footprint
+
+
+def test_project_saves_a_model_with_regions_even_without_a_name(tmp_path):
+    """Crash from the lab (1.0.310): saving a project after merging a monoblock raised KeyError 'name' -
+    the merged part's regions had no 'name'. Saving a region without a name no longer crashes, and the
+    regions (shades) survive a round trip."""
+    from unislicer import project
+    o = placed(primitives.box(20, 20, 10))
+    o.regions = [{"faces": [0, 1, 2], "shade": "Gingiva"},            # the old merge shape: no 'name'
+                 {"name": "teeth", "faces": [3, 4, 5], "shade": "A2"}]
+    path = tmp_path / "mono.unislicer"
+    project.save(str(path), [o], {"printer": "stratasys_j5_dentajet"})
+    back, _ = project.load(str(path))
+    shades = [r["shade"] for r in back[0].regions]
+    assert shades == ["Gingiva", "A2"] and len(back[0].regions[0]["faces"]) == 3

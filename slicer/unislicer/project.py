@@ -51,8 +51,8 @@ def _save(path: str, objects: list[SceneObject], settings_state: dict) -> None:
                 "support_points": None if o.support_points is None else o.support_points.tolist(),
                 "drain_holes": o.drain_holes.tolist(), "role": o.role, "z": o.z,
                 "direct": o.direct, "material": o.material,
-                "regions": [{"name": r["name"], "shade": r["shade"], "faces": np.asarray(r["faces"]).tolist()}
-                            for r in o.regions],
+                "regions": [{"name": r.get("name", ""), "shade": r.get("shade", ""),
+                             "faces": np.asarray(r["faces"]).tolist()} for r in o.regions],
                 "filament": int(o.filament),
                 "filament_parts": [{"name": p.get("name", ""), "filament": int(p["filament"]),
                                     "faces": np.asarray(p["faces"]).tolist()} for p in o.filament_parts],
