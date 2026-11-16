@@ -4332,15 +4332,36 @@ class MainWindow(QMainWindow):
             self.viewer.set_object_hidden(o.uid, False)
 
     def merge_selected(self):
-        """Join the selected models into one (as CHITUBOX's Boolean join; they slice as one part)."""
+        """Join the selected models into one (a dental monoblock: a denture's base and its teeth as one
+        part). Each source keeps its own material / shade as a region of the merged part, so it prints and
+        exports multi-colour (the base in its gingiva shade, the teeth in theirs); the whole moves, turns and
+        is laid out as one. They slice as one part."""
         group = [o for o in self.selected_objects() if o.role != "cutter"]
         if len(group) < 2:
             return
         self._push_undo()
-        merged = Mesh.merge([o.world_mesh() for o in group], " + ".join(o.name for o in group)[:60])
+        world = [o.world_mesh() for o in group]
+        merged = Mesh.merge(world, " + ".join(o.name for o in group)[:60])
+        # each source's faces keep its material: a region per source (and the source's own regions carried
+        # over, offset), so the monoblock prints each part in its colour
+        regions, off = [], 0
+        for o, m in zip(group, world):
+            n = len(m.faces)
+            if o.regions:
+                face_mat = dental_shades.face_shades(n, o.material, o.regions)
+                for shade in dict.fromkeys(face_mat):
+                    faces = [off + i for i, s in enumerate(face_mat) if s == shade]
+                    if faces and shade:
+                        regions.append({"faces": faces, "shade": shade})
+            elif o.material:
+                regions.append({"faces": list(range(off, off + n)), "shade": o.material})
+            off += n
         b = merged.bounds
         new = SceneObject.from_mesh(merged)
         new.x, new.y, new.z = (b[0, 0] + b[1, 0]) / 2, (b[0, 1] + b[1, 1]) / 2, max(0.0, b[0, 2])
+        new.material = group[0].material
+        if len({r["shade"] for r in regions}) > 1:        # more than one colour: keep them as regions
+            new.regions = regions
         idx = min(self.objects.index(o) for o in group)
         for o in group:
             self.objects.remove(o)

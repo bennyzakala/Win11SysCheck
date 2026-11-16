@@ -5,6 +5,7 @@ import datetime as _dt
 import io
 import json
 import math
+import os
 import zipfile
 from dataclasses import dataclass, field
 from typing import Callable
@@ -1875,7 +1876,7 @@ def _export_file(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
     from . import parallel
 
     if fmt in ("slc", "cli", "3mf"):
-        return _export_vector(job, cfg, path, fmt, progress)
+        return _export_vector(job, cfg, path, fmt, progress, job_name)
     ranges = parallel.chunk_ranges(n, 8, parallel.workers() * 4)
     values = dict(cfg.values)
     if fmt in PRINT_FLIPPED:
@@ -1947,7 +1948,7 @@ def _export_file(job: SlaJob, cfg: Config, path: str, job_name: str = "print",
     return path
 
 
-def _export_vector(job: SlaJob, cfg: Config, path: str, fmt: str, progress) -> str:
+def _export_vector(job: SlaJob, cfg: Config, path: str, fmt: str, progress, job_name: str = "print") -> str:
     from . import vector_formats as vf
     meshes = list(job.models) + ([job.supports] if job.supports is not None and len(job.supports.faces) else [])
     lo = np.min([m.bounds[0] for m in meshes], axis=0)
@@ -1970,6 +1971,7 @@ def _export_vector(job: SlaJob, cfg: Config, path: str, fmt: str, progress) -> s
     names = {x for _, _, mat in parts for x in (mat if isinstance(mat, list) else [mat])}
     colors = {mat: dental_shades.hex_color(mat) for mat in names if dental_shades.find(mat)}
     meta = {"DentalIncisalTranslucency": cfg["pj_incisal"]} if cfg["sla_process"] == "polyjet" and colors else {}
+    meta["Title"] = job_name or os.path.splitext(os.path.basename(path))[0]   # GrabCAD Print shows it as the job name
     return vf.write_3mf(path, parts, colors, meta)
 
 

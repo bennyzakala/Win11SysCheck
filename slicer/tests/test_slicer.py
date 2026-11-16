@@ -9867,3 +9867,63 @@ def test_exposure_changed_on_one_printer_stays_its_own(tmp_path):
     env = dict(os.environ, HOME=home, USERPROFILE=home, XDG_CONFIG_HOME=os.path.join(home, ".config"))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=180, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_denture_and_monoblock_file_names_are_recognised():
+    """Lab (3Shape dentures): file names like ..._FLD_0_Print, ..._FLD_1_Print and ..._Monoblock_Print are
+    recognised as dentures, and open. Crowns and models still detect as before."""
+    from unislicer import dental_cad
+    for name in ("SOD260043242-W237-FLD_0_Print.stl", "SOD260043242-W237-FLD_1_Print.stl",
+                 "SOD260043242-W237-FLD_1_Monoblock_Print.stl", "case_upper_FUD.stl", "lower_monoblock.stl"):
+        assert dental_cad.detect_indication(name) == "denture", name
+        assert dental_cad.model_type_of(name, None) == "denture", name
+    assert dental_cad.model_type_of("MyBridge_crown_14.stl", None) == "cb"       # crowns unchanged
+    assert dental_cad.model_type_of("EGI_..._Tooth_14.stl", None) == "die"
+
+
+def test_merging_models_keeps_each_part_colour_a_monoblock(tmp_path):
+    """Lab: join a denture's base and its teeth into one monoblock. The merged part keeps each source's
+    material as its own region, so it prints and exports multi-colour (base in its gingiva shade, teeth in
+    theirs), and exports as one 3MF object with the materials tagged per triangle."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent(f'''
+        import os, zipfile, re
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        import numpy as np
+        from unislicer import primitives, sla, dental_shades
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.select_printer("stratasys_j5_dentajet"); app.processEvents()
+        base = w.add_mesh(primitives.box(30, 20, 6)); base.name = "FLD_0_base"; base.material = "Gingiva"
+        teeth = w.add_mesh(primitives.box(28, 8, 10)); teeth.name = "FLD_1_teeth"; teeth.material = "A2"
+        app.processEvents()
+        w.object_list.selectAll(); app.processEvents()
+        w.merge_selected(); app.processEvents()
+        assert len(w.objects) == 1, len(w.objects)
+        m = w.objects[0]
+        shades = {{r["shade"]: len(r["faces"]) for r in m.regions}}
+        assert shades == {{"Gingiva": 12, "A2": 12}}, shades          # a box has 12 faces
+        assert len(m.mesh.faces) == 24                               # both parts in one mesh
+        # export: one object, materials tagged per triangle
+        meshes, kw = w._sla_inputs(w.objects)
+        cfg = w.settings.config()
+        job = sla.prepare(meshes, cfg, materials=kw["materials"])
+        path = os.path.join({str(tmp_path)!r}, "mono.3mf")
+        sla._export_file(job, cfg, path, "case_mono")
+        xml = zipfile.ZipFile(path).read("3D/3dmodel.model").decode()
+        assert xml.count("<object ") == 1                           # one part
+        assert set(re.findall(r'<base name="([^"]+)"', xml)) == {{"Gingiva", "A2"}}
+        assert xml.count(' p1="') == 12                             # the 2nd material's faces tagged
+        assert '<metadata name="Title">case_mono</metadata>' in xml
+        # undo brings the two parts back
+        w.undo() if hasattr(w, "undo") else w._undo()
+        app.processEvents()
+        assert len(w.objects) == 2
+        print("ok", flush=True)
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

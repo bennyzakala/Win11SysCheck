@@ -23,8 +23,11 @@ INDICATIONS = (
     # gingiva mask (3Shape: "..._Tissue_17"), before denture: "gingiva mask" must not read as a denture's gingiva
     ("gingiva", ("tissue", "soft tissue", "gingiva mask", "gingivamask", "gingival mask", "gum mask", "gummask",
                  "gingiva shell", "modelgingiva", "model gingiva")),   # exocad's model builder: "...-modelgingiva"
+    # denture, incl. 3Shape's names: a monoblock (base + teeth as one), FLD/FUD (full lower / upper denture),
+    # PLD/PUD (partial), the base and the teeth of a split design
     ("denture", ("denture", "full denture", "partial denture", "gingiva", "denturebase", "denture base",
-                 "dentureteeth", "monolithic")),
+                 "dentureteeth", "monolithic", "monoblock", "fld", "fud", "pld", "pud", "fcd",
+                 "full lower denture", "full upper denture")),
     ("guide", ("surgical guide", "surgicalguide", "implant guide", "drill guide", "guide")),
     ("splint", ("splint", "nightguard", "night guard", "occlusal", "bite", "bitesplint", "mouthguard",
                 "retainer", "tray", "custom tray", "aligner")),
