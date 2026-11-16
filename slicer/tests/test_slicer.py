@@ -2824,7 +2824,8 @@ def test_choosing_infill_hollows_the_model_and_apply_reslices():
         assert all(o.support_points is None or not len(o.support_points) for o in w.objects)
         sp = w.settings._rows["sla_support_spacing"]
         sp.editor.setValue(3.0); sp.apply_btn.click(); app.processEvents()
-        assert w.settings.config()["sla_support_spacing"] == 3.0 and w.settings.config()["support_enable"]
+        # the value the part is built with (the plate's, or the part's own when it is the one selected)
+        assert w.objects[0].config(w.settings.config())["sla_support_spacing"] == 3.0 and w.settings.config()["support_enable"]
         assert any(o.support_points is not None and len(o.support_points) for o in w.objects)
         assert len(called) == n                                        # supports made, no slice needed
         ex = w.settings._rows["exposure_time"]
@@ -5862,7 +5863,8 @@ def test_raft_code_goes_on_the_parts_own_raft():
     for kind in ("solid", "grid", "hexagon", "mini"):
         for side in ("bottom", "top"):
             cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {
-                "support_enable": True, "sla_raft_type": kind, "sla_raft_label_side": side})
+                "support_enable": True, "sla_raft_type": kind, "sla_raft_label_side": side,
+                "sla_support_spacing": 3.0})     # the placement is checked, not the spacing (7 mm on Phrozen)
             plain, _ = sla_supports.build_supports(part, cfg)
             coded, _ = sla_supports.build_supports(part, cfg, label="45198-N183-E")
             raft = slice_mesh(plain, [0.25], 0.05)[0]
@@ -5980,9 +5982,13 @@ def test_model_type_brings_its_supports():
     from unislicer.settings import MODEL_TYPE_PRESETS
     cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True})
     assert cfg["sla_model_type"] == "auto"
+    from unislicer.settings import MODEL_SPACING_TYPES
     for t, preset in MODEL_TYPE_PRESETS.items():
         c = cfg.copy().update({"sla_model_type": t})
-        assert all(c[k] == v for k, v in preset.items()), t
+        # models and dies take the printer's own spacing when it has one (7 mm on Phrozen printers)
+        want = dict(preset, **({"sla_support_spacing": cfg["sla_model_spacing"]}
+                               if t in MODEL_SPACING_TYPES and cfg["sla_model_spacing"] > 0 else {}))
+        assert all(c[k] == v for k, v in want.items()), t
     assert cfg.copy().update({"sla_model_type": "denture"})["sla_tip_diameter"] > \
         cfg.copy().update({"sla_model_type": "cb"})["sla_tip_diameter"]            # dentures: stronger contacts
     assert dental_cad.model_type_of("FYQ-SOD260046892-044-P-16-16-1-00-R685_2", None) == "cb"
@@ -9243,17 +9249,27 @@ def test_a_single_support_build_is_never_left_marked_running(tmp_path):
 
 
 def test_models_get_their_supports_5_5_mm_apart():
-    """Lab: support points 5.5 mm apart by default on (jaw) models - the Model and Model U types; crowns,
-    guides and the rest keep their own spacing."""
+    """Lab: support points 5.5 mm apart by default on (jaw) models - the Model and Model U types, and dies;
+    crowns, guides and the rest keep their own spacing. On every Phrozen printer the lab then chose 7 mm:
+    the support point spacing, the internal support spacing and models / dies (crowns and guides as before)."""
     from unislicer import profiles
-    def spacing(t):
-        return profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"sla_model_type": t})["sla_support_spacing"]
-    assert spacing("model") == 5.5 and spacing("model_u") == 5.5
+
+    def spacing(t, printer="elegoo_mars3"):
+        return profiles.build_config(printer, None, None, {"sla_model_type": t})["sla_support_spacing"]
+    assert spacing("model") == 5.5 and spacing("model_u") == 5.5 and spacing("die") == 5.5
     assert spacing("cb") == 2.0 and spacing("guide") == 2.5
-    # a die is its own type (the lab asked for 5.5 mm on dies too)
     from unislicer import dental_cad
     assert dental_cad.model_type_of("EGI-SOD260046764-114-Z-14-14-1-00-V227_Tooth_14.stl", None) == "die"
-    assert spacing("die") == 5.5
+    phrozen = [k for k, v in profiles.load("printers").items() if v.get("vendor") == "Phrozen"]
+    assert len(phrozen) >= 12
+    for pr in phrozen:
+        plate = profiles.build_config(pr, None, None, {})
+        assert plate["sla_support_spacing"] == 7.0 and plate["sla_internal_spacing"] == 7.0, pr
+        assert spacing("model", pr) == 7.0 and spacing("model_u", pr) == 7.0 and spacing("die", pr) == 7.0, pr
+        assert spacing("cb", pr) == 2.0 and spacing("guide", pr) == 2.5, pr
+        # a spacing the user sets wins
+        assert profiles.build_config(pr, None, None, {"sla_model_type": "model", "sla_support_spacing": 4.0})[
+            "sla_support_spacing"] == 4.0
 
 
 def test_the_plate_says_front():

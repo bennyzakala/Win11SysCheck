@@ -320,6 +320,10 @@ SCHEMA: list[Setting] = [
       tip_he="תמיכות שקרובות יותר מזה חולקות מיני-רפסודה אחת", tip_en="Supports closer than this share one mini raft"),
     S("sla_internal_supports", "bool", True, "support", "sla", "תמיכות פנימיות בחלל", "Internal supports in cavities",
       tip_he="עמודים בתוך מודל חלול שתומכים בתקרת החלל", tip_en="Pillars inside a hollowed model that hold up the cavity ceiling"),
+    S("sla_model_spacing", "float", 0.0, "support", "sla", "מרווח תמיכות למודל / דאי (0 = לפי הסוג)",
+      "Model / die support spacing (0 = by type)", "mm", 0.0, 20, 0.5, advanced=True,
+      tip_he="מרווח נקודות התמיכה למודלים, מודלי U ודאים כשסוג המודל נקבע לפי שם הקובץ. 0 = לפי הסוג (5.5 מ\"מ). במדפסות Phrozen: 7.0",
+      tip_en="Support point spacing for models, U models and dies when the model type comes from the file name. 0 = by type (5.5 mm). Phrozen printers: 7.0"),
     S("sla_internal_spacing", "float", 6.0, "support", "sla", "מרווח תמיכות פנימיות", "Internal support spacing", "mm", 2, 30, 0.5, advanced=True),
     S("sla_cavity_pillars", "bool", False, "support", "sla", "עמודים בחלל הפנימי (מודל על הפלטה)",
       "Pillars inside the cavity (model on the plate)",
@@ -511,6 +515,7 @@ MODEL_TYPE_PRESETS = {
                 "sla_contact_depth": 0.25, "sla_avoid_fit": True, "sla_skip_ledges": False},
 }
 MODEL_TYPE_KEYS = {k for p in MODEL_TYPE_PRESETS.values() for k in p}
+MODEL_SPACING_TYPES = ("model", "model_u", "die")          # the types sla_model_spacing applies to
 # the dental indication found from a file's name / shape -> its model type
 KIND_MODEL_TYPE = {"crown": "cb", "gingiva": "cb", "guide": "guide", "model": "model", "die": "die",
                    "splint": "splint_h", "denture": "denture"}
@@ -611,6 +616,11 @@ class Config:
             for k, v in typed.items():
                 if k not in overrides:
                     self.values[k] = v
+            # models and dies: the printer's own spacing when it has one (the lab: 7 mm on Phrozen printers)
+            own = float(self.values.get("sla_model_spacing") or 0.0)
+            if own > 0 and self.values.get("sla_model_type") in MODEL_SPACING_TYPES \
+                    and "sla_support_spacing" not in overrides:
+                self.values["sla_support_spacing"] = own
         return self
 
     def copy(self) -> "Config":

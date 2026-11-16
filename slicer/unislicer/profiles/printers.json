@@ -423,7 +423,10 @@
    "resolution_x": 7500,
    "resolution_y": 3240,
    "sla_format": "ctb",
-   "material_name": "Standard resin"
+   "material_name": "Standard resin",
+   "sla_support_spacing": 7.0,
+   "sla_internal_spacing": 7.0,
+   "sla_model_spacing": 7.0
   }
  },
  "phrozen_sonic_mini_8k_s": {
@@ -437,7 +440,10 @@
    "resolution_x": 7536,
    "resolution_y": 3240,
    "sla_format": "prz",
-   "material_name": "Standard resin"
+   "material_name": "Standard resin",
+   "sla_support_spacing": 7.0,
+   "sla_internal_spacing": 7.0,
+   "sla_model_spacing": 7.0
   }
  },
  "phrozen_sonic_mighty_8k": {
@@ -451,7 +457,10 @@
    "resolution_x": 7680,
    "resolution_y": 4320,
    "sla_format": "ctb",
-   "material_name": "Standard resin"
+   "material_name": "Standard resin",
+   "sla_support_spacing": 7.0,
+   "sla_internal_spacing": 7.0,
+   "sla_model_spacing": 7.0
   }
  },
  "phrozen_sonic_mega_8k": {
@@ -465,7 +474,10 @@
    "resolution_x": 7680,
    "resolution_y": 4320,
    "sla_format": "ctb",
-   "material_name": "Standard resin"
+   "material_name": "Standard resin",
+   "sla_support_spacing": 7.0,
+   "sla_internal_spacing": 7.0,
+   "sla_model_spacing": 7.0
   }
  },
  "creality_ender3_s1": {
@@ -580,7 +592,10 @@
    "sla_format": "prz",
    "sla_layer_height": 0.05,
    "bottom_layers": 6,
-   "material_name": "Dental resin"
+   "material_name": "Dental resin",
+   "sla_support_spacing": 7.0,
+   "sla_internal_spacing": 7.0,
+   "sla_model_spacing": 7.0
   },
   "plates": [
    {
@@ -613,7 +628,10 @@
    "sla_format": "prz",
    "sla_layer_height": 0.05,
    "bottom_layers": 6,
-   "material_name": "Dental resin"
+   "material_name": "Dental resin",
+   "sla_support_spacing": 7.0,
+   "sla_internal_spacing": 7.0,
+   "sla_model_spacing": 7.0
   },
   "plates": [
    {
@@ -950,7 +968,10 @@
    "sla_format": "prz",
    "sla_layer_height": 0.05,
    "bottom_layers": 6,
-   "material_name": "Dental resin"
+   "material_name": "Dental resin",
+   "sla_support_spacing": 7.0,
+   "sla_internal_spacing": 7.0,
+   "sla_model_spacing": 7.0
   },
   "plates": [
    {
@@ -983,7 +1004,10 @@
    "resolution_y": 2400,
    "sla_format": "zip",
    "sla_layer_height": 0.05,
-   "bottom_layers": 6
+   "bottom_layers": 6,
+   "sla_support_spacing": 7.0,
+   "sla_internal_spacing": 7.0,
+   "sla_model_spacing": 7.0
   }
  },
  "phrozen_8k_2023": {
@@ -1000,7 +1024,10 @@
    "resolution_y": 2560,
    "sla_format": "prz",
    "sla_layer_height": 0.05,
-   "bottom_layers": 6
+   "bottom_layers": 6,
+   "sla_support_spacing": 7.0,
+   "sla_internal_spacing": 7.0,
+   "sla_model_spacing": 7.0
   },
   "hidden": true
  },
@@ -1018,7 +1045,10 @@
    "resolution_y": 2160,
    "sla_format": "zip",
    "sla_layer_height": 0.05,
-   "bottom_layers": 6
+   "bottom_layers": 6,
+   "sla_support_spacing": 7.0,
+   "sla_internal_spacing": 7.0,
+   "sla_model_spacing": 7.0
   }
  },
  "phrozen_sonic_xl_4k_2022": {
@@ -1035,7 +1065,10 @@
    "resolution_y": 2400,
    "sla_format": "zip",
    "sla_layer_height": 0.05,
-   "bottom_layers": 6
+   "bottom_layers": 6,
+   "sla_support_spacing": 7.0,
+   "sla_internal_spacing": 7.0,
+   "sla_model_spacing": 7.0
   }
  },
  "phrozen_sonic_xl_4k_plus": {
@@ -1053,7 +1086,10 @@
    "sla_format": "prz",
    "sla_layer_height": 0.05,
    "bottom_layers": 6,
-   "material_name": "Dental resin"
+   "material_name": "Dental resin",
+   "sla_support_spacing": 7.0,
+   "sla_internal_spacing": 7.0,
+   "sla_model_spacing": 7.0
   }
  }
 }

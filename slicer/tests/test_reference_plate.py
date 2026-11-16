@@ -8,7 +8,9 @@ from unislicer import profiles, reference
 
 @pytest.mark.parametrize("shape,raft", reference.CONFIGS)
 def test_reference_plate(shape, raft):
-    base = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True})
+    # the support engine against its stored numbers at the model types' own spacing (5.5 mm): Phrozen
+    # printers default to 7 mm on models and dies (the lab's choice), which only spreads the points
+    base = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True, "sla_model_spacing": 0.0})
     faults = []
     for name, mesh, model_type in reference.synthetic_plate():
         cfg = reference.config_for(base, shape, raft, model_type)
