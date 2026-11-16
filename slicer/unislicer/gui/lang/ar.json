@@ -1483,5 +1483,8 @@
 "Assemble to original position (Assembly)": "تجميع إلى الموضع الأصلي (تجميعة)",
 "Assembled {} parts to their original position - each stays separate": "تم تجميع {} أجزاء إلى موضعها الأصلي - يبقى كل جزء منفصلاً",
 "To assemble, re-open the files (the original position is not kept for parts opened earlier)": "للتجميع، أعد فتح الملفات (الموضع الأصلي لا يُحفظ للأجزاء المفتوحة سابقاً)",
-"Other maker": "صانع آخر"
+"Other maker": "صانع آخر",
+"Updates": "تحديثات",
+"Check for a new version and install it": "التحقق من وجود إصدار جديد وتثبيته",
+"Checking for an update...": "جارٍ التحقق من وجود تحديث..."
 }

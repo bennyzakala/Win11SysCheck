@@ -2355,6 +2355,33 @@ def test_cfs_slots_mapping_and_reading_from_the_printer(monkeypatch):
         network.creality_cfs_slots("10.0.0.7")
 
 
+def test_there_is_an_updates_button_by_the_version_number():
+    """A small 'Updates' button sits in the status bar next to the version number; it is always visible, and
+    clicking it checks for a new version (here, running from source, it just says so - no network call)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui.i18n import tr
+        w = MainWindow(); w.show(); app.processEvents()
+        assert w.updates_btn.isVisible() and w.updates_btn.text() == tr("upd_button")
+        # it is a permanent status-bar widget (bottom bar, by the version), not floating in the view
+        assert w.updates_btn.parent() is not None
+        # from source there is no build to compare against, so a click just reports that - and never crashes
+        w.updates_clicked(); app.processEvents()
+        assert not w.update_btn.isVisible()        # no phantom "update available" button appears
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_the_prepare_preview_control_does_not_cover_the_toolbar_line():
     """The toolbar has a thin separator line along its bottom edge. The Prepare/Preview control must sit at its own
     height, centred in the bar - if it fills the full bar height its opaque body hides that line under it."""

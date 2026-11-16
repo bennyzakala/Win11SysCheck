@@ -214,6 +214,13 @@ class MainWindow(QMainWindow):
         self.update_btn.hide()
         self.update_btn.clicked.connect(self.install_update)
         self.statusBar().addPermanentWidget(self.update_btn)
+        # a small always-there button by the version number: check for a new version (and install it) on demand
+        self.updates_btn = QPushButton(tr("upd_button"))
+        self.updates_btn.setObjectName("RowApply")
+        self.updates_btn.setCursor(Qt.PointingHandCursor)
+        self.updates_btn.setToolTip(tr("upd_button_tip"))
+        self.updates_btn.clicked.connect(self.updates_clicked)
+        self.statusBar().addPermanentWidget(self.updates_btn)
         ver = QLabel(f"UniSlicer {__version__}")
         ver.setObjectName("Faint")
         self.statusBar().addPermanentWidget(ver)
@@ -3595,6 +3602,15 @@ class MainWindow(QMainWindow):
             return False
 
     # ================================================================ updates
+    def updates_clicked(self):
+        """The 'Updates' button by the version number: if a newer build was already found, install it; otherwise
+        check now (and if one turns up, the 'Update available' button appears to install it)."""
+        if getattr(self, "_update_info", None):
+            self.install_update()
+            return
+        self.status.setText(tr("upd_checking"))
+        self.check_updates(manual=True)
+
     def check_updates(self, manual: bool = False):
         """Ask GitHub (in the background) whether a newer build is published; if so the status bar shows
         'Update available'. Nothing about the user or their files is sent."""
