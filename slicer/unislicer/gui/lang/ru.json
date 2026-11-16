@@ -1476,6 +1476,6 @@
 "No stalls recorded yet - the log is made the first time the window stalls.": "Зависаний пока не записано - журнал создаётся при первом зависании окна.",
 "Join at the nearest point": "Соединение в ближайшей точке",
 "Join every neighbour: a joint between every two neighbouring parts (a stiff plate). Join at the nearest point: as Join every neighbour, each joint where the two parts come closest. Minimal joints: each part joined one way only (less resin)": "Соединить всех соседей: соединение между каждыми двумя соседними моделями (жёсткая платформа). Соединение в ближайшей точке: как «Соединить всех соседей», каждое соединение там, где модели ближе всего. Минимум соединений: каждая модель соединена только одним путём (меньше смолы)",
-"Model / die support spacing (0 = by type)": "Шаг поддержек модели / культи (0 = по типу)",
-"Support point spacing for models, U models and dies when the model type comes from the file name. 0 = by type (5.5 mm). Phrozen printers: 7.0": "Шаг точек поддержки для моделей, U-моделей и культей, когда тип модели берётся из имени файла. 0 = по типу (5,5 мм). Принтеры Phrozen: 7,0"
+"Model support spacing (0 = by type)": "Шаг поддержек модели (0 = по типу)",
+"Support point spacing for models and U models when the model type comes from the file name (dies keep 5.5 mm). 0 = by type (5.5 mm). Phrozen printers: 7.0": "Шаг точек поддержки для моделей и U-моделей, когда тип модели берётся из имени файла (культи остаются 5,5 мм). 0 = по типу (5,5 мм). Принтеры Phrozen: 7,0"
 }

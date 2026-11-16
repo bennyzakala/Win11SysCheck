@@ -9251,7 +9251,7 @@ def test_a_single_support_build_is_never_left_marked_running(tmp_path):
 def test_models_get_their_supports_5_5_mm_apart():
     """Lab: support points 5.5 mm apart by default on (jaw) models - the Model and Model U types, and dies;
     crowns, guides and the rest keep their own spacing. On every Phrozen printer the lab then chose 7 mm:
-    the support point spacing, the internal support spacing and models / dies (crowns and guides as before)."""
+    the support point spacing, the internal support spacing and models (dies, crowns and guides as before)."""
     from unislicer import profiles
 
     def spacing(t, printer="elegoo_mars3"):
@@ -9265,7 +9265,8 @@ def test_models_get_their_supports_5_5_mm_apart():
     for pr in phrozen:
         plate = profiles.build_config(pr, None, None, {})
         assert plate["sla_support_spacing"] == 7.0 and plate["sla_internal_spacing"] == 7.0, pr
-        assert spacing("model", pr) == 7.0 and spacing("model_u", pr) == 7.0 and spacing("die", pr) == 7.0, pr
+        assert spacing("model", pr) == 7.0 and spacing("model_u", pr) == 7.0, pr
+        assert spacing("die", pr) == 5.5, pr                 # the lab: dies stay as they were
         assert spacing("cb", pr) == 2.0 and spacing("guide", pr) == 2.5, pr
         # a spacing the user sets wins
         assert profiles.build_config(pr, None, None, {"sla_model_type": "model", "sla_support_spacing": 4.0})[

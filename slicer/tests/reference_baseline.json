@@ -126,46 +126,46 @@
   "used": 3
  },
  "325dc9aa88a6/pillar/mini": {
-  "points": 6,
-  "raft_area": 56.0,
+  "points": 3,
+  "raft_area": 42.7,
   "sticking_out": 0,
   "through": 0,
-  "used": 6
+  "used": 3
  },
  "325dc9aa88a6/pillar/none": {
-  "points": 6,
+  "points": 3,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 6
+  "used": 3
  },
  "325dc9aa88a6/tree/raft_label": {
-  "points": 6,
-  "raft_area": 46.1,
+  "points": 3,
+  "raft_area": 46.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 6
+  "used": 3
  },
  "325dc9aa88a6/tree/solid": {
-  "points": 6,
-  "raft_area": 115.4,
+  "points": 3,
+  "raft_area": 98.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 6
+  "used": 3
  },
  "325dc9aa88a6/tree/solid_lite": {
-  "points": 6,
-  "raft_area": 73.8,
+  "points": 3,
+  "raft_area": 72.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 6
+  "used": 3
  },
  "325dc9aa88a6/tree/tiny": {
-  "points": 6,
+  "points": 3,
   "raft_area": 17.6,
   "sticking_out": 0,
   "through": 0,
-  "used": 6
+  "used": 3
  },
  "50a1606b14eb/pillar/mini": {
   "points": 35,
@@ -378,46 +378,46 @@
   "used": 11
  },
  "7ed9b6731225/pillar/mini": {
-  "points": 3,
-  "raft_area": 42.2,
+  "points": 5,
+  "raft_area": 66.8,
   "sticking_out": 0,
   "through": 0,
-  "used": 3
+  "used": 5
  },
  "7ed9b6731225/pillar/none": {
-  "points": 3,
+  "points": 5,
   "raft_area": 0.0,
   "sticking_out": 0,
   "through": 0,
-  "used": 3
+  "used": 5
  },
  "7ed9b6731225/tree/raft_label": {
-  "points": 3,
+  "points": 5,
   "raft_area": 101.2,
   "sticking_out": 0,
   "through": 0,
-  "used": 3
+  "used": 5
  },
  "7ed9b6731225/tree/solid": {
-  "points": 3,
-  "raft_area": 117.2,
+  "points": 5,
+  "raft_area": 163.3,
   "sticking_out": 0,
   "through": 0,
-  "used": 3
+  "used": 5
  },
  "7ed9b6731225/tree/solid_lite": {
-  "points": 3,
+  "points": 5,
   "raft_area": 101.2,
   "sticking_out": 0,
   "through": 0,
-  "used": 3
+  "used": 5
  },
  "7ed9b6731225/tree/tiny": {
-  "points": 3,
-  "raft_area": 54.6,
+  "points": 5,
+  "raft_area": 54.7,
   "sticking_out": 0,
   "through": 0,
-  "used": 3
+  "used": 5
  },
  "8e89ae41cd2d/pillar/mini": {
   "points": 24,
