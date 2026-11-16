@@ -1477,5 +1477,6 @@
 "Join at the nearest point": "الربط عند أقرب نقطة",
 "Join every neighbour: a joint between every two neighbouring parts (a stiff plate). Join at the nearest point: as Join every neighbour, each joint where the two parts come closest. Minimal joints: each part joined one way only (less resin)": "ربط كل الجيران: وصلة بين كل نموذجين متجاورين (منصة صلبة). الربط عند أقرب نقطة: مثل ربط كل الجيران، وكل وصلة حيث يكون النموذجان أقرب ما يكون. أقل عدد من الوصلات: كل نموذج مربوط بطريق واحد فقط (راتنج أقل)",
 "Model support spacing (0 = by type)": "تباعد دعامات النموذج (0 = حسب النوع)",
-"Support point spacing for models and U models when the model type comes from the file name (dies keep 5.5 mm). 0 = by type (5.5 mm). Phrozen printers: 7.0": "تباعد نقاط الدعم للنماذج ونماذج U عندما يُحدَّد نوع النموذج من اسم الملف (تبقى الدعامات السنية 5.5 مم). 0 = حسب النوع (5.5 مم). طابعات Phrozen: 7.0"
+"Support point spacing for models and U models when the model type comes from the file name (dies keep 5.5 mm). 0 = by type (5.5 mm). Phrozen printers: 7.0": "تباعد نقاط الدعم للنماذج ونماذج U عندما يُحدَّد نوع النموذج من اسم الملف (تبقى الدعامات السنية 5.5 مم). 0 = حسب النوع (5.5 مم). طابعات Phrozen: 7.0",
+"An empty plate for new work (Ctrl+N)": "منصة فارغة لعمل جديد (Ctrl+N)"
 }

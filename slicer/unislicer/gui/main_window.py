@@ -490,6 +490,7 @@ class MainWindow(QMainWindow):
             self._top_tools.append(b)
             return b
 
+        tool("square", tr("new_project"), tr("new_project_tip"), lambda: self._act("new_project", "button", self.new_project))
         tool("open", tr("open"), tr("open_tip"), lambda: self._act("open", "button", self.open_files))
         shapes = tool("shapes", tr("shapes"), tr("shapes"), None)
         menu = QMenu(self)

@@ -8,6 +8,7 @@ STRINGS = {
     "open": ("פתח מודל", "Open model"),
     "manual_menu": ("חוברת הדרכה", "User guide"),
     "new_project": ("פרויקט חדש", "New project"),
+    "new_project_tip": ("פלטה ריקה לעבודה חדשה (Ctrl+N)", "An empty plate for new work (Ctrl+N)"),
     "new_project_done": ("פרויקט חדש: המשטח נוקה (Ctrl+Z מחזיר את כל המודלים)", "New project: the plate is empty (Ctrl+Z brings every model back)"),
     "new_project_empty": ("המשטח כבר ריק", "The plate is already empty"),
     "open_tip": ("פתיחת קובצי STL / OBJ / 3MF (Ctrl+O)", "Open STL / OBJ / 3MF files (Ctrl+O)"),
