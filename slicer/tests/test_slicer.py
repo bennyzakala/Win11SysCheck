@@ -2355,6 +2355,42 @@ def test_cfs_slots_mapping_and_reading_from_the_printer(monkeypatch):
         network.creality_cfs_slots("10.0.0.7")
 
 
+def test_a_narrow_top_bar_shows_icons_and_never_clips_the_mode_control():
+    """When the window is narrower than the toolbar needs for its full text labels, the tool buttons drop to
+    icons only (names kept in tooltips) instead of clipping; and the Prepare/Preview control always keeps its
+    full width, so it never shows as 'epa'/'evi'."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import Qt
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        # the threshold is measured, not a fixed guess
+        assert getattr(w, "_top_bar_need", 0) > 0
+        # pretend the window is narrower than the bar needs -> every text tool becomes icon-only
+        w._top_bar_need = w.width() + 400
+        w._compact_top_bar(); app.processEvents()
+        text_tools = [b for b in w._top_tools if b.text()]
+        assert text_tools and all(b.toolButtonStyle() == Qt.ToolButtonIconOnly for b in text_tools)
+        # ... but the Prepare/Preview control keeps its full width (no clipping)
+        assert w.prepare_btn.width() >= w.prepare_btn.sizeHint().width()
+        assert w.preview_btn.width() >= w.preview_btn.sizeHint().width()
+        # when there is plenty of room (need tiny) the labels come back
+        w._top_bar_need = 1
+        w._compact_top_bar(); app.processEvents()
+        assert all(b.toolButtonStyle() == Qt.ToolButtonTextBesideIcon for b in text_tools)
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_there_is_an_updates_button_by_the_version_number():
     """A small 'Updates' button sits in the status bar next to the version number; it is always visible, and
     clicking it checks for a new version (here, running from source, it just says so - no network call)."""

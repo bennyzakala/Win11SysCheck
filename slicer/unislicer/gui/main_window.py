@@ -336,13 +336,28 @@ class MainWindow(QMainWindow):
 
     def _compact_top_bar(self):
         """On a narrow window (small screen, large Windows scaling) the top bar shows icons only, so it never
-        forces the window wider than the screen; the names stay in the tooltips."""
+        forces the window wider than the screen and the labels never clip; the names stay in the tooltips.
+        The threshold is the width the bar really needs with full labels (it varies with theme, language and
+        font scaling), not a fixed guess - measured once with the labels shown, then cached."""
         tools = getattr(self, "_top_tools", [])
-        if not tools:
+        bar = getattr(self, "_top_bar", None)
+        if not tools or bar is None:
             return
+        need = getattr(self, "_top_bar_need", None)
+        if need is None:
+            for b in tools:                              # measure with every label shown
+                if b.text():
+                    b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            bar.layout().activate()
+            need = bar.sizeHint().width()
+            if need <= 0:
+                return                                   # layout not ready yet; try again on the next resize
+            self._top_bar_need = need
+        # the window cannot be dragged narrower than its minimum, so a small / scaled screen is the real limit:
+        # compare against whichever is smaller, the window or the screen it is on
         screen = self.screen() or QApplication.primaryScreen()
-        avail = screen.availableGeometry().width() if screen is not None else 1920
-        compact = min(self.width(), avail) < 1500
+        avail = screen.availableGeometry().width() if screen is not None else self.width()
+        compact = min(self.width(), avail) < need + 8    # +8 so it does not flip right at the boundary
         style = Qt.ToolButtonIconOnly if compact else Qt.ToolButtonTextBesideIcon
         if tools[0].toolButtonStyle() != style:
             for b in tools:
@@ -457,19 +472,20 @@ class MainWindow(QMainWindow):
         bar = QFrame()
         bar.setObjectName("TopBar")
         bar.setFixedHeight(60)
+        self._top_bar = bar
         lay = QHBoxLayout(bar)
         lay.setContentsMargins(16, 0, 16, 0)
         lay.setSpacing(6)
         logo = QLabel()
-        mark = theme.brand_pixmap("mark", 38) if not theme.LOGO_FILE else None
-        logo.setPixmap(mark or theme.logo_pixmap(32, 36))
+        mark = theme.brand_pixmap("mark", 32) if not theme.LOGO_FILE else None
+        logo.setPixmap(mark or theme.logo_pixmap(28, 32))
         lay.addWidget(logo)
-        word = theme.brand_pixmap("wordmark", 22) if not theme.LOGO_FILE else None
+        word = theme.brand_pixmap("wordmark", 18) if not theme.LOGO_FILE else None
         if word is not None:
             wl = QLabel()
             wl.setPixmap(word)
             lay.addWidget(wl)
-            lay.addSpacing(8)
+            lay.addSpacing(6)
         names = QVBoxLayout()
         names.setSpacing(0)
         t = QLabel("UniSlicer")
@@ -605,6 +621,7 @@ class MainWindow(QMainWindow):
 
         seg = QFrame()
         seg.setObjectName("Segmented")
+        seg.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)   # keep its full width - it must not clip to "epa"/"evi"
         sl = QHBoxLayout(seg)
         sl.setContentsMargins(3, 3, 3, 3)
         sl.setSpacing(2)
