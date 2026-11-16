@@ -2355,6 +2355,36 @@ def test_cfs_slots_mapping_and_reading_from_the_printer(monkeypatch):
         network.creality_cfs_slots("10.0.0.7")
 
 
+def test_the_prepare_preview_control_does_not_cover_the_toolbar_line():
+    """The toolbar has a thin separator line along its bottom edge. The Prepare/Preview control must sit at its own
+    height, centred in the bar - if it fills the full bar height its opaque body hides that line under it."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import QPoint
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        seg = w.prepare_btn.parent()
+        bar = seg.parent()
+        while bar is not None and bar.objectName() != "TopBar":
+            bar = bar.parent()
+        assert bar is not None and bar.height() > 0
+        # the control is shorter than the bar, and clears the bottom ~3px where the separator line is drawn
+        assert seg.height() < bar.height() - 4, (seg.height(), bar.height())
+        bottom = seg.mapTo(bar, QPoint(0, 0)).y() + seg.height()
+        assert bottom <= bar.height() - 3, (bottom, bar.height())
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_the_printer_is_chosen_from_a_menu_grouped_by_maker():
     """The printer picker is a button that opens a menu grouped by maker (Phrozen, Elegoo, ...); the button names the
     current printer, the maker submenu holds that maker's printers, and choosing one from the menu switches to it -

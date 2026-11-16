@@ -610,7 +610,8 @@ class MainWindow(QMainWindow):
         self.prepare_btn.setChecked(True)
         self.prepare_btn.clicked.connect(lambda: self.set_mode("prepare"))
         self.preview_btn.clicked.connect(lambda: self.set_mode("preview"))
-        lay.addWidget(seg)
+        # centre it at its own height - if it fills the bar it covers the separator line under the bar
+        lay.addWidget(seg, 0, Qt.AlignVCenter)
         lay.addStretch(1)
         self.assistant_btn = tool("bulb", tr("assistant"), tr("assistant_tip"), self._toggle_assistant)
         look = tool("sun", tr("theme"), tr("theme_tip"), None)
