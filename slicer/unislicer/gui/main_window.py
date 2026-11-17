@@ -1237,14 +1237,9 @@ class MainWindow(QMainWindow):
         from .remote_dialog import RemoteController
         self.remote = RemoteController(parent=self)
         self.remote.commandDone.connect(self._remote_command_done)
-        if self.store.value("remote_crashed", "false") == "true":
-            # the previous run crashed in the cloud-link network path: pause auto-connect and say so, so it
-            # does not reconnect-and-crash on every launch. Re-enabling it in Remote Control clears this.
-            self.store.setValue("remote_crashed", "false")
-            self.remote.pause_after_crash()
-            self._later(1500, lambda: self.status.setText(tr("remote_paused_note")))
-        else:
-            self._later(1500, self.remote.start_if_enabled)
+        # no persistent cloud connection is kept: learning is synced periodically (below) with a short-lived
+        # connect each time, so the link is never held open - it cannot sit open retrying, or crash, between
+        # syncs. (Pairing a new computer still opens the connection for that one interactive session.)
         # shared learning between the user's computers: every 15 minutes (and once soon after start)
         self._learn_sync_timer = QTimer(self)
         self._learn_sync_timer.setInterval(15 * 60 * 1000)
@@ -7328,6 +7323,7 @@ class MainWindow(QMainWindow):
     def sync_learning(self, manual: bool = False):
         """Upload what this computer's assistant learned and merge in what the user's other computers learned
         (their Firebase project, under the Google account this computer is linked to)."""
+        import socket
         from .. import learning_sync, remote
         if self._learn_sync_task is not None and self._learn_sync_task.isRunning():
             return
@@ -7335,17 +7331,19 @@ class MainWindow(QMainWindow):
             if manual:
                 self._show_sync_status(tr("learn_layout_off"))
             return
-        agent = getattr(self.remote, "agent", None)
-        if agent is None or not agent.running() or agent.state != "linked":
+        cfg, st = self.remote.config(), self.remote.state()
+        if cfg is None or not st.get("owner") or not st.get("refresh_token"):
             self._show_sync_status(tr("learn_sync_link"))
             if manual and QMessageBox.question(self, tr("learn_share"), tr("learn_sync_link_q")) == QMessageBox.Yes:
                 self.remote_control()
             return
         text = learning_sync.snapshot(self.assistant.data)
+        name = st.get("name") or socket.gethostname() or "UniSlicer"
+        folder = self.remote.folder
 
         def work(progress, cancelled):
-            try:
-                return agent.sync_learning(text)
+            try:                                     # a short-lived connect: no persistent link is held open
+                return remote.sync_learning_once(cfg, folder, text, name)
             except remote.RemoteError as e:          # offline, a blocked or inspected connection: not a bug
                 return remote.RemoteError(str(e))
 

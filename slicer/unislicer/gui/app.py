@@ -162,7 +162,8 @@ def run(paths: list[str] | None = None) -> int:
         return module in str(getattr(d, "where", ""))
     # 1) worker-process path (prepare / slicing on a heavy plate): cap the worker count.
     SAFE_WORKERS = 2                                     # fewer cores: much less memory in flight, most of the speed
-    if _native_crash_in(previous_crash, "parallel.py"):
+    crashed_in_workers = _native_crash_in(previous_crash, "parallel.py")
+    if crashed_in_workers:
         store.setValue("safe_workers", str(SAFE_WORKERS))
     try:
         cap = int(store.value("safe_workers", "0"))
@@ -170,10 +171,6 @@ def run(paths: list[str] | None = None) -> int:
         cap = 0
     if cap > 0:
         parallel.set_safe_cap(cap)
-    # 2) cloud link path (the remote agent's network / SSL threads): pause auto-connect. main_window reads
-    # this flag when it sets the remote agent up, pauses it, and tells the user how to turn it back on.
-    if _native_crash_in(previous_crash, "remote.py"):
-        store.setValue("remote_crashed", "true")
 
     state = {"window": None, "software_gl": False, "retry_gpu": False}
     can_fall_back = sys.platform == "win32" and not os.environ.get("UNISLICER_SOFTWARE_GL")

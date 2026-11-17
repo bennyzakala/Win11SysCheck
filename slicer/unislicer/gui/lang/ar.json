@@ -1490,6 +1490,5 @@
 "Fast processing (all cores)": "معالجة سريعة (كل الأنوية)",
 "A previous crash in processing was detected - preparation now runs on fewer cores for stability. You can restore full speed in the 'More' menu.": "تم اكتشاف تعطل سابق في المعالجة - يتم الآن تشغيل التحضير على عدد أقل من الأنوية للاستقرار. يمكنك استعادة السرعة الكاملة من قائمة 'المزيد'.",
 "Full speed - processing will use all cores": "سرعة كاملة - ستستخدم المعالجة كل الأنوية",
-"Stable mode - processing will use fewer cores": "وضع مستقر - ستستخدم المعالجة عدداً أقل من الأنوية",
-"The cloud link was paused after a crash (learning sync is paused). To turn it back on: 'More' menu -> 'Remote control'.": "تم إيقاف الاتصال السحابي مؤقتاً بعد تعطل (مزامنة التعلم متوقفة). لإعادة تشغيله: قائمة 'المزيد' -> 'التحكم عن بُعد'."
+"Stable mode - processing will use fewer cores": "وضع مستقر - ستستخدم المعالجة عدداً أقل من الأنوية"
 }

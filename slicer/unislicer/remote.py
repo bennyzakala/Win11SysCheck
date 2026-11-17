@@ -106,6 +106,36 @@ def save_state(st: dict, folder: str | None = None) -> None:
     os.replace(tmp, path)
 
 
+def sync_learning_once(cfg: dict, folder: str | None, snapshot_text: str, name: str) -> list[dict]:
+    """One short-lived learning sync: sign in with the saved link, upload this computer's learning, read the
+    other linked computers' snapshots, then let the connection go. No persistent connection is held between
+    syncs - so the cloud link is only open for the moment of the sync and cannot sit open, retry or crash."""
+    st = load_state(folder)
+    owner, refresh = st.get("owner"), st.get("refresh_token", "")
+    if cfg is None or not owner or not refresh:
+        raise RemoteError("not_linked")
+    fb = Firebase(cfg, refresh)
+    fb.sign_in()
+    base = f"teams/{owner}/learning"
+    fb.put(f"{base}/{fb.uid}", {"data": snapshot_text, "at": SERVER_TIME, "name": name})
+    rows = fb.get(base) or {}
+    out = []
+    for uid, row in (rows.items() if isinstance(rows, dict) else []):
+        if uid == fb.uid or not isinstance(row, dict) or not isinstance(row.get("data"), str):
+            continue
+        try:
+            data = json.loads(row["data"])
+        except ValueError:
+            continue
+        if isinstance(data, dict):
+            data["_from"] = {"uid": uid, "name": str(row.get("name", "")), "at": row.get("at", 0)}
+            out.append(data)
+    out.sort(key=lambda d: -float(d["_from"].get("at") or 0))
+    st["refresh_token"], st["uid"] = fb.refresh_token, fb.uid     # a refreshed token is kept for next time
+    save_state(st, folder)
+    return out
+
+
 def new_code(n: int = 8) -> str:
     rnd = random.SystemRandom()
     return "".join(rnd.choice(CODE_ALPHABET) for _ in range(n))

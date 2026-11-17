@@ -232,42 +232,62 @@ def test_a_native_worker_crash_turns_on_the_safe_mode(monkeypatch, tmp_path):
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
-def test_a_cloud_link_native_crash_pauses_auto_connect(tmp_path):
-    """A native crash in the cloud-link (remote) network path pauses auto-connect, so it does not reconnect and
-    crash on every launch; the link is not forgotten, and turning it back on clears the pause (sync resumes)."""
+def test_learning_sync_is_a_short_lived_connect_not_a_held_open_link(tmp_path, monkeypatch):
+    """Learning sync connects, uploads this computer's learning, reads the others', and lets the connection go -
+    no persistent link is held open between syncs (so it cannot sit open retrying, or crash). It also needs no
+    running agent: the saved link (owner + refresh token) is enough."""
+    from unislicer import remote
+    calls = {"put": [], "get": [], "signed": 0, "made": 0}
+
+    class FakeFB:
+        def __init__(self, cfg, refresh):
+            calls["made"] += 1
+            self.uid, self.refresh_token = "me", "fresh-token"
+        def sign_in(self):
+            calls["signed"] += 1
+            return self.uid
+        def put(self, path, value):
+            calls["put"].append((path, value))
+        def get(self, path):
+            calls["get"].append(path)
+            return {"me": {"data": "{}", "name": "this"},            # my own row is skipped
+                    "other": {"data": '{"layouts": 3}', "name": "Lab-2", "at": 10}}
+
+    monkeypatch.setattr(remote, "Firebase", FakeFB)
+    remote.save_state({"owner": "owner@x", "refresh_token": "t0", "enabled": True, "name": "Lab-1"}, str(tmp_path))
+    out = remote.sync_learning_once(remote.builtin_config() or {"apiKey": "k", "databaseURL": "d"},
+                                    str(tmp_path), '{"layouts": 1}', "Lab-1")
+    assert calls["made"] == 1 and calls["signed"] == 1                # one short-lived connect
+    assert calls["put"] and calls["put"][0][0] == "teams/owner@x/learning/me"   # uploaded my learning
+    assert out and out[0]["layouts"] == 3 and out[0]["_from"]["name"] == "Lab-2"  # read the peer, not myself
+    assert remote.load_state(str(tmp_path)).get("refresh_token") == "fresh-token"  # refreshed token kept
+    # with no saved link it refuses cleanly (and never touches the network)
+    remote.save_state({}, str(tmp_path))
+    try:
+        remote.sync_learning_once({"apiKey": "k"}, str(tmp_path), "{}", "Lab-1")
+        assert False, "expected not_linked"
+    except remote.RemoteError:
+        pass
+
+
+def test_the_app_starts_and_exits_cleanly(tmp_path):
+    """Run the real startup path (app.run in smoke mode), which the widget tests skip - it catches a NameError
+    or crash in run() itself (e.g. a variable referenced after a refactor) that only shows when the exe starts."""
     import subprocess, sys, textwrap
     code = textwrap.dedent('''
-        import os
+        import os, sys
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
-        from PySide6.QtWidgets import QApplication
-        app = QApplication([])
-        from unislicer.gui.remote_dialog import RemoteController
-        folder = os.environ["UNISLICER_TMP"]
-        ctl = RemoteController(folder=folder)
-        ctl.save(enabled=True)
-        assert not ctl.crash_paused()
-        started = []
-        ctl.start = lambda: started.append(1)            # do not touch the network in a test
-        ctl.start_if_enabled(); assert started == [1]     # normally it connects
-        started.clear()
-        ctl.pause_after_crash()
-        assert ctl.crash_paused() and ctl.state().get("enabled")   # paused but not forgotten
-        ctl.start_if_enabled(); assert started == []      # paused: no auto-connect
-        ctl.save(crash_paused=False)                      # what turning it back on does
-        ctl.start_if_enabled(); assert started == [1]     # resumes
-        # the startup rule keys off the diagnosed area, not the whole dump (remote threads show in every dump)
-        def crash_in(where, module):
-            class D: pass
-            d = D(); d.error = "Fatal error (native crash)"; d.where = where
-            return module in str(getattr(d, "where", ""))
-        assert crash_in("remote.py:504 in _status_loop", "remote.py")
-        assert not crash_in("parallel.py:218 in _run_in", "remote.py")   # a worker crash is not the cloud path
-        print("ok")
+        os.environ["UNISLICER_SMOKE_TEST"] = "1"
+        from unislicer.gui.app import run
+        rc = run([])
+        print("exit", rc)
+        sys.exit(rc)
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), UNISLICER_TMP=str(tmp_path))
-    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
-    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path))
+    env["UNISLICER_SMOKE_TEST"] = "1"
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120, env=env)
+    assert r.returncode == 0 and "exit 0" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
 def test_parallel_matches_serial(monkeypatch):
@@ -4153,12 +4173,11 @@ def test_window_syncs_learning_with_a_linked_computer():
         other["overrides"] = {"sla_raft_type=\\"hexagon\\"": {"count": 5, "last": 1}}
         other["_from"] = {"uid": "pc2", "name": "Lab 2", "at": 123}
         sent = []
-        class FakeAgent:
-            state = "linked"
-            def running(self): return True
-            def sync_learning(self, text):
-                sent.append(text); return [dict(other)]
-        w.remote.agent = FakeAgent()
+        from unislicer import remote
+        def fake_once(cfg, folder, text, name):          # a short-lived connect, no running agent needed
+            sent.append(text); return [dict(other)]
+        remote.sync_learning_once = fake_once
+        w.remote.save(config={"apiKey": "k", "databaseURL": "d"}, owner="owner@x", refresh_token="t0", enabled=True)
         w.sync_learning(manual=True)
         end = time.time() + 30
         while (w._learn_sync_task is None or w._learn_sync_task.isRunning() or not sent) and time.time() < end:
@@ -4169,7 +4188,7 @@ def test_window_syncs_learning_with_a_linked_computer():
         assert w.assistant.data["overrides"].get('sla_raft_type="hexagon"', {}).get("count") == 5, w.assistant.data["overrides"]
         assert "1" in w.assistant_panel.sync_status.text() or "Lab" in w.status.text() or w.store.value("learning_sync_peers") in (1, "1")
         # not linked: says so, does not crash
-        w.remote.agent = None
+        w.remote.save(owner="", refresh_token="")
         QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)
         w.sync_learning(manual=True)
         print("ok")
@@ -7945,13 +7964,11 @@ def test_a_blocked_learning_sync_is_a_network_message_not_a_program_bug(tmp_path
         from unislicer import diagnose, remote
         from unislicer.gui.main_window import MainWindow
         w = MainWindow(); w.show(); app.processEvents()
-        class Agent:
-            state = "linked"
-            def running(self): return True
-            def sync_learning(self, text):
-                raise remote.RemoteError("offline: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
-                                         "Hostname mismatch")
-        w.remote.agent = Agent()
+        def blocked(cfg, folder, text, name):
+            raise remote.RemoteError("offline: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+                                     "Hostname mismatch")
+        remote.sync_learning_once = blocked
+        w.remote.save(config={"apiKey": "k", "databaseURL": "d"}, owner="owner@x", refresh_token="t0", enabled=True)
         assert w.assistant.enabled
         before = len(diagnose.CrashLog().entries())
         w.sync_learning(manual=False)

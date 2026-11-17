@@ -64,7 +64,7 @@ class RemoteController(QObject):
                                   on_state=lambda s, d: self.stateChanged.emit(s, d),
                                   on_claim=lambda email: self.claimRequested.emit(email),
                                   on_command=lambda c, ok, m: self.commandDone.emit(c, ok, m))
-        self.save(enabled=True, crash_paused=False)      # an explicit turn-on clears a crash pause
+        self.save(enabled=True)
         self.agent.start()
         return True
 
@@ -91,19 +91,8 @@ class RemoteController(QObject):
         self.stateChanged.emit("idle", "")
 
     def start_if_enabled(self):
-        st = self.state()
-        if st.get("enabled") and not st.get("crash_paused") and self.config() is not None:
+        if self.state().get("enabled") and self.config() is not None:
             self.start()
-
-    def pause_after_crash(self):
-        """A native crash happened in the cloud-link network path. Stop auto-connecting on launch (so it does
-        not reconnect-and-crash every time) without forgetting the link - turning it back on in Remote Control
-        clears this and resumes the learning sync between the lab's computers."""
-        if self.state().get("enabled"):
-            self.save(crash_paused=True)
-
-    def crash_paused(self) -> bool:
-        return bool(self.state().get("crash_paused"))
 
     def shutdown(self):
         if self.agent is not None and self.agent.running():
