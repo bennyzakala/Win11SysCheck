@@ -1490,5 +1490,6 @@
 "Fast processing (all cores)": "Быстрая обработка (все ядра)",
 "A previous crash in processing was detected - preparation now runs on fewer cores for stability. You can restore full speed in the 'More' menu.": "Обнаружен предыдущий сбой при обработке - подготовка теперь выполняется на меньшем числе ядер для стабильности. Полную скорость можно вернуть в меню «Ещё».",
 "Full speed - processing will use all cores": "Полная скорость - обработка будет использовать все ядра",
-"Stable mode - processing will use fewer cores": "Стабильный режим - обработка будет использовать меньше ядер"
+"Stable mode - processing will use fewer cores": "Стабильный режим - обработка будет использовать меньше ядер",
+"The cloud link was paused after a crash (learning sync is paused). To turn it back on: 'More' menu -> 'Remote control'.": "Облачная связь приостановлена после сбоя (синхронизация обучения приостановлена). Чтобы включить снова: меню «Ещё» -> «Удалённое управление»."
 }

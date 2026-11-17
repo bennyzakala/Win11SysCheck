@@ -252,6 +252,8 @@ STRINGS = {
     "upd_ask": ("יש גרסה חדשה מ-{}.\n\nלהוריד ולהתקין עכשיו? UniSlicer ייסגר בזמן ההתקנה ויפתח שוב בסיומה (הפלטה נשמרת).", "A new version from {} is available.\n\nDownload and install it now? UniSlicer closes while it installs and opens again when done (the plate is kept)."),
     "upd_downloading": ("מוריד עדכון... {}%", "Downloading the update... {}%"),
     "upd_saved": ("קובץ ההתקנה נשמר: {}", "Installer saved: {}"),
+    "remote_paused_note": ("החיבור לענן הושהה אחרי קריסה (סנכרון הלמידה מושהה). להפעלה מחדש: תפריט 'עוד' ← 'שליטה מרחוק'.",
+                           "The cloud link was paused after a crash (learning sync is paused). To turn it back on: 'More' menu -> 'Remote control'."),
     "safe_mode_menu": ("עיבוד מהיר (כל הליבות)", "Fast processing (all cores)"),
     "safe_mode_note": ("זוהתה קריסה קודמת בעיבוד — ההכנה תרוץ כעת על פחות ליבות ליציבות. אפשר להחזיר מהירות מלאה בתפריט 'עוד'.",
                        "A previous crash in processing was detected - preparation now runs on fewer cores for stability. You can restore full speed in the 'More' menu."),

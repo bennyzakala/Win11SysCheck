@@ -232,6 +232,44 @@ def test_a_native_worker_crash_turns_on_the_safe_mode(monkeypatch, tmp_path):
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_a_cloud_link_native_crash_pauses_auto_connect(tmp_path):
+    """A native crash in the cloud-link (remote) network path pauses auto-connect, so it does not reconnect and
+    crash on every launch; the link is not forgotten, and turning it back on clears the pause (sync resumes)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.remote_dialog import RemoteController
+        folder = os.environ["UNISLICER_TMP"]
+        ctl = RemoteController(folder=folder)
+        ctl.save(enabled=True)
+        assert not ctl.crash_paused()
+        started = []
+        ctl.start = lambda: started.append(1)            # do not touch the network in a test
+        ctl.start_if_enabled(); assert started == [1]     # normally it connects
+        started.clear()
+        ctl.pause_after_crash()
+        assert ctl.crash_paused() and ctl.state().get("enabled")   # paused but not forgotten
+        ctl.start_if_enabled(); assert started == []      # paused: no auto-connect
+        ctl.save(crash_paused=False)                      # what turning it back on does
+        ctl.start_if_enabled(); assert started == [1]     # resumes
+        # the startup rule keys off the diagnosed area, not the whole dump (remote threads show in every dump)
+        def crash_in(where, module):
+            class D: pass
+            d = D(); d.error = "Fatal error (native crash)"; d.where = where
+            return module in str(getattr(d, "where", ""))
+        assert crash_in("remote.py:504 in _status_loop", "remote.py")
+        assert not crash_in("parallel.py:218 in _run_in", "remote.py")   # a worker crash is not the cloud path
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), UNISLICER_TMP=str(tmp_path))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_parallel_matches_serial(monkeypatch):
     from unislicer import parallel
     w = placed(primitives.sphere(20, 120, 240)).world_mesh()

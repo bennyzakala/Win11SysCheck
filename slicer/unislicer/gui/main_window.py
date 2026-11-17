@@ -1237,7 +1237,14 @@ class MainWindow(QMainWindow):
         from .remote_dialog import RemoteController
         self.remote = RemoteController(parent=self)
         self.remote.commandDone.connect(self._remote_command_done)
-        self._later(1500, self.remote.start_if_enabled)
+        if self.store.value("remote_crashed", "false") == "true":
+            # the previous run crashed in the cloud-link network path: pause auto-connect and say so, so it
+            # does not reconnect-and-crash on every launch. Re-enabling it in Remote Control clears this.
+            self.store.setValue("remote_crashed", "false")
+            self.remote.pause_after_crash()
+            self._later(1500, lambda: self.status.setText(tr("remote_paused_note")))
+        else:
+            self._later(1500, self.remote.start_if_enabled)
         # shared learning between the user's computers: every 15 minutes (and once soon after start)
         self._learn_sync_timer = QTimer(self)
         self._learn_sync_timer.setInterval(15 * 60 * 1000)
