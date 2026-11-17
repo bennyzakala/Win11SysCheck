@@ -1486,5 +1486,9 @@
 "Other maker": "Другой производитель",
 "Updates": "Обновления",
 "Check for a new version and install it": "Проверить новую версию и установить её",
-"Checking for an update...": "Проверка обновления..."
+"Checking for an update...": "Проверка обновления...",
+"Fast processing (all cores)": "Быстрая обработка (все ядра)",
+"A previous crash in processing was detected - preparation now runs on fewer cores for stability. You can restore full speed in the 'More' menu.": "Обнаружен предыдущий сбой при обработке - подготовка теперь выполняется на меньшем числе ядер для стабильности. Полную скорость можно вернуть в меню «Ещё».",
+"Full speed - processing will use all cores": "Полная скорость - обработка будет использовать все ядра",
+"Stable mode - processing will use fewer cores": "Стабильный режим - обработка будет использовать меньше ядер"
 }

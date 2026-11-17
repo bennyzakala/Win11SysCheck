@@ -11,7 +11,20 @@ from typing import Callable, Iterable, Sequence
 
 _pool: ProcessPoolExecutor | None = None
 _disabled = False   # set when the pool cannot start (then everything runs in-process)
+_safe_cap: int | None = None  # safe mode after a native crash in the worker path: cap the worker count (or 1)
 _lock = threading.Lock()
+
+
+def set_safe_cap(cap: int | None) -> None:
+    """Cap the number of worker processes (None lifts the cap). The safe mode that turns on after a native
+    crash in the parallel path uses this: fewer workers means far less memory in flight (the usual cause of a
+    native fault on a heavy plate), while keeping most of the speed; a cap of 1 runs everything in-process."""
+    global _safe_cap
+    _safe_cap = None if cap is None else max(1, int(cap))
+
+
+def safe_cap() -> int | None:
+    return _safe_cap
 
 
 _in_worker = False   # set in the worker processes: they never start worker processes of their own
@@ -21,16 +34,22 @@ def workers() -> int:
     """Worker count; UNISLICER_WORKERS overrides it (1 disables multiprocessing). Inside a worker always 1: a
     worker that sliced (the support points' island check) started a pool of its own - up to 8 processes in
     each of 8 workers, all at full CPU, and they went on after the program was closed (the lab saw 26
-    UniSlicer processes and the computer at 100% CPU)."""
+    UniSlicer processes and the computer at 100% CPU). The safe-mode cap wins over all of these, so a machine
+    that crashed in the worker path stays within its safe limit."""
     if _in_worker:
         return 1
     env = os.environ.get("UNISLICER_WORKERS")
+    n = None
     if env:
         try:
-            return max(1, int(env))
+            n = max(1, int(env))
         except ValueError:
-            pass
-    return max(1, min(8, (os.cpu_count() or 1)))
+            n = None
+    if n is None:
+        n = max(1, min(8, (os.cpu_count() or 1)))
+    if _safe_cap is not None:
+        n = min(n, _safe_cap)
+    return max(1, n)
 
 
 def _watch_parent() -> None:

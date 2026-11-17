@@ -172,6 +172,66 @@ def test_parallel_survives_a_pool_that_was_shut_down(monkeypatch):
         parallel.shutdown()
 
 
+def test_safe_cap_limits_the_worker_count(monkeypatch):
+    """Safe mode (after a native crash in the worker path) caps the worker count: fewer processes, far less
+    memory in flight, and a cap of 1 means everything runs in-process. The cap wins even over UNISLICER_WORKERS."""
+    from unislicer import parallel
+    monkeypatch.setenv("UNISLICER_WORKERS", "8")
+    try:
+        parallel.set_safe_cap(None)
+        assert parallel.workers() == 8 and parallel.safe_cap() is None
+        parallel.set_safe_cap(2)
+        assert parallel.workers() == 2 and parallel.safe_cap() == 2      # the cap wins over the env value
+        parallel.set_safe_cap(1)
+        assert parallel.workers() == 1                                   # a cap of 1 disables multiprocessing
+        assert parallel.pool() is None
+        parallel.set_safe_cap(None)
+        assert parallel.workers() == 8                                   # lifting the cap restores it
+    finally:
+        parallel.set_safe_cap(None)
+
+
+def test_a_native_worker_crash_turns_on_the_safe_mode(monkeypatch, tmp_path):
+    """The menu's 'Fast processing' toggle caps or restores the workers and remembers the choice; and a recorded
+    native crash in the parallel path is what app startup keys the safe mode off."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        os.environ.pop("UNISLICER_WORKERS", None)
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import parallel
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        assert w.safe_mode_act.isChecked()                       # fast by default
+        w.safe_mode_act.setChecked(False); app.processEvents()   # user (or safe mode) turns it off
+        assert parallel.safe_cap() == w.SAFE_WORKERS and w.store.value("safe_workers") in (str(w.SAFE_WORKERS), w.SAFE_WORKERS)
+        w.safe_mode_act.setChecked(True); app.processEvents()    # back to fast
+        assert parallel.safe_cap() is None and str(w.store.value("safe_workers")) == "0"
+        # a new project restores full speed even if the safe mode was on
+        w.safe_mode_act.setChecked(False); app.processEvents()
+        assert parallel.safe_cap() == w.SAFE_WORKERS
+        w.new_project(); app.processEvents()
+        assert w.safe_mode_act.isChecked() and parallel.safe_cap() is None
+        # the startup rule: a native crash whose stack is in the worker path trips the safe mode
+        class D: pass
+        d = D(); d.error = "Fatal error (native crash)"; d.where = "parallel.py:218 in _run_in"; d.details = "...parallel.py..."
+        def native_worker_crash(x):
+            return x is not None and getattr(x,"error","")=="Fatal error (native crash)" and "parallel.py" in (str(getattr(x,"where",""))+str(getattr(x,"details","")))
+        assert native_worker_crash(d)
+        d2 = D(); d2.error = "Fatal error (native crash)"; d2.where = "viewer.py:10 in paintGL"; d2.details = "opengl"
+        assert not native_worker_crash(d2)                       # a graphics crash is not the worker path
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path)
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    env.pop("UNISLICER_WORKERS", None)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_parallel_matches_serial(monkeypatch):
     from unislicer import parallel
     w = placed(primitives.sphere(20, 120, 240)).world_mesh()

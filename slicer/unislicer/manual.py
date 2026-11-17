@@ -43,6 +43,9 @@ CHAPTERS = (
 <p>כשיש גרסה חדשה מופיע בשורת המצב שבתחתית החלון הכפתור {t:upd_available}. לחיצה מורידה את הגרסה, בודקת
 שהקובץ שלם ותקין (חתימת SHA-256) ומתקינה אותה. אפשר גם לבדוק ביד: {t:more} ← {t:upd_check_now}.
 האפשרות {t:upd_check_start} בודקת בכל הפעלה.</p>
+<p>אם התוכנה נסגרה פעם בפתאומיות באמצע הכנה של פלטה כבדה, בהפעלה הבאה היא עוברת לבד למצב יציב שמריץ את
+העיבוד על פחות ליבות (פחות עומס זיכרון). להחזרת המהירות המלאה: {t:more} ← {t:safe_mode_menu}. פרויקט חדש
+({t:new_project}) גם הוא מחזיר למהירות מלאה.</p>
 <p>מספר הגרסה (למשל 1.0.215) מופיע בחלון העדכון ובדו״ח העבודה. כל שינוי בתוכנה מקבל מספר חדש.</p>
 """),
     ("screen", "המסך הראשי", """
@@ -247,7 +250,7 @@ MENU_KEYS = ("open", "shapes", "add_text", "void_title", "ocp_button", "auto_pre
              "auto_layout", "lay_fill", "align_menu", "duplicate", "delete", "undo", "redo", "more",
              "open_project", "recent_files", "save_project", "export_stl", "estimate_title", "report_save",
              "report_auto", "project_auto", "auto_close_holes", "open_up_menu", "tissue_up_menu",
-             "upd_check_now", "upd_check_start", "mouse_menu", "ap_show_menu", "show_defects", "export_as",
+             "upd_check_now", "upd_check_start", "safe_mode_menu", "mouse_menu", "ap_show_menu", "show_defects", "export_as",
              "export_library_open", "export_library_choose", "net_title", "fl_menu", "queue_title",
              "remote_title", "cad_title", "multiply", "cut_height", "split_parts", "repair_mesh",
              "repair_advanced", "texture_title", "pixel_edit", "prepare", "preview", "assistant", "theme",

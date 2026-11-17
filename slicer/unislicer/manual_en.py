@@ -23,6 +23,9 @@ follows.</li>
 <p>When a new version is out, an {t:upd_available} button appears in the status bar at the bottom of the window. Clicking it
 downloads the version, checks that the file is whole and genuine (SHA-256) and installs it. You can also check
 by hand: {t:more} → {t:upd_check_now}. {t:upd_check_start} checks at every start.</p>
+<p>If the program once closed suddenly during preparation of a heavy plate, on the next start it switches by
+itself to a stable mode that runs the processing on fewer cores (less memory load). To restore full speed:
+{t:more} → {t:safe_mode_menu}. A new project ({t:new_project}) also restores full speed.</p>
 <p>The version number (for example 1.0.215) is shown in the update window and in the job report. Every change
 to the program gets a new number.</p>
 """),

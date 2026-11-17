@@ -1486,5 +1486,9 @@
 "Other maker": "صانع آخر",
 "Updates": "تحديثات",
 "Check for a new version and install it": "التحقق من وجود إصدار جديد وتثبيته",
-"Checking for an update...": "جارٍ التحقق من وجود تحديث..."
+"Checking for an update...": "جارٍ التحقق من وجود تحديث...",
+"Fast processing (all cores)": "معالجة سريعة (كل الأنوية)",
+"A previous crash in processing was detected - preparation now runs on fewer cores for stability. You can restore full speed in the 'More' menu.": "تم اكتشاف تعطل سابق في المعالجة - يتم الآن تشغيل التحضير على عدد أقل من الأنوية للاستقرار. يمكنك استعادة السرعة الكاملة من قائمة 'المزيد'.",
+"Full speed - processing will use all cores": "سرعة كاملة - ستستخدم المعالجة كل الأنوية",
+"Stable mode - processing will use fewer cores": "وضع مستقر - ستستخدم المعالجة عدداً أقل من الأنوية"
 }

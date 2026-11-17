@@ -368,6 +368,30 @@ class MainWindow(QMainWindow):
         super().resizeEvent(e)
         self._compact_top_bar()
 
+    # -------------------------------------------------------------- safe (fewer-cores) processing mode
+    SAFE_WORKERS = 2
+
+    def _set_fast_processing(self, on: bool) -> None:
+        """The 'Fast processing' menu item: on = all cores, off = the safe cap (fewer cores). Remembered per
+        machine, so a known-bad computer keeps the safe cap across restarts until the user turns it back on."""
+        from .. import parallel
+        if on:
+            self.store.setValue("safe_workers", "0")
+            parallel.set_safe_cap(None)
+            self.status.setText(tr("safe_mode_on"))
+        else:
+            self.store.setValue("safe_workers", str(self.SAFE_WORKERS))
+            parallel.set_safe_cap(self.SAFE_WORKERS)
+            self.status.setText(tr("safe_mode_off"))
+
+    def note_safe_mode(self) -> None:
+        """Shown once when the safe mode has just turned itself on after a native crash in the worker path."""
+        if getattr(self, "safe_mode_act", None) is not None:
+            self.safe_mode_act.blockSignals(True)
+            self.safe_mode_act.setChecked(False)
+            self.safe_mode_act.blockSignals(False)
+        self.status.setText(tr("safe_mode_note"))
+
     def _build_menu_bar(self):
         """Classic File / Edit / Info menus above the toolbar (every action is also on the toolbar or a key).
         Keys are shown as hints only: the window's own shortcuts already handle them, and giving the menu the
@@ -574,6 +598,15 @@ class MainWindow(QMainWindow):
         self.tissue_up_act.setCheckable(True)
         self.tissue_up_act.setChecked(self.store.value("tissue_flat_up", "true") == "true")
         self.tissue_up_act.toggled.connect(lambda on: self.store.setValue("tissue_flat_up", "true" if on else "false"))
+        # "Fast processing" is on unless the safe mode turned itself on after a native crash in the worker path
+        self.safe_mode_act = mm.addAction(tr("safe_mode_menu"))
+        self.safe_mode_act.setCheckable(True)
+        try:
+            _cap = int(self.store.value("safe_workers", "0"))
+        except (TypeError, ValueError):
+            _cap = 0
+        self.safe_mode_act.setChecked(_cap <= 0)
+        self.safe_mode_act.toggled.connect(self._set_fast_processing)
         mm.addAction(theme.icon("bulb"), tr("manual_menu") + "\tF1", self.open_manual)
         mm.addAction(tr("upd_check_now"), lambda: self.check_updates(manual=True))
         self.upd_auto_act = mm.addAction(tr("upd_check_start"))
@@ -2324,6 +2357,9 @@ class MainWindow(QMainWindow):
     def new_project(self):
         """File > New project (Ctrl+N): an empty plate - every model goes; the printer, the material and the
         settings stay. One Ctrl+Z brings the whole plate back."""
+        # a fresh project returns to full speed: the safe (fewer-cores) mode is only a temporary net after a crash
+        if getattr(self, "safe_mode_act", None) is not None and not self.safe_mode_act.isChecked():
+            self.safe_mode_act.setChecked(True)
         if not self.objects:
             self.status.setText(tr("new_project_empty"))
             return

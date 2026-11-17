@@ -152,6 +152,25 @@ def run(paths: list[str] | None = None) -> int:
     previous_crash = reporter.install()          # catches every error from here on and explains it
     reporter.reported.connect(lambda d: state["window"] is not None and state["window"].on_crash_reported(d))
 
+    # safe mode: if a previous run crashed in the native worker-process path (prepare / slicing on a heavy
+    # plate), keep this machine in-process from now on so it never hits that crash again. The user can turn
+    # multi-core back on from the menu; the choice is remembered per machine.
+    from .. import parallel
+    def _native_worker_crash(d) -> bool:
+        if d is None or getattr(d, "error", "") != "Fatal error (native crash)":
+            return False
+        return "parallel.py" in (str(getattr(d, "where", "")) + str(getattr(d, "details", "")))
+    SAFE_WORKERS = 2                                     # fewer cores: much less memory in flight, most of the speed
+    crashed_in_workers = _native_worker_crash(previous_crash)
+    if crashed_in_workers:
+        store.setValue("safe_workers", str(SAFE_WORKERS))
+    try:
+        cap = int(store.value("safe_workers", "0"))
+    except (TypeError, ValueError):
+        cap = 0
+    if cap > 0:
+        parallel.set_safe_cap(cap)
+
     state = {"window": None, "software_gl": False, "retry_gpu": False}
     can_fall_back = sys.platform == "win32" and not os.environ.get("UNISLICER_SOFTWARE_GL")
 
@@ -218,6 +237,8 @@ def run(paths: list[str] | None = None) -> int:
         QTimer.singleShot(400, win.offer_recovery)      # plate from autosave after a crash
     if previous_crash is not None and not SMOKE:
         reporter.show_previous(previous_crash)          # the last run closed suddenly: say why
+    if crashed_in_workers and not SMOKE and win is not None:
+        win.note_safe_mode()                            # tell them prepare now runs on fewer cores, and how to undo
     if SMOKE:
         QTimer.singleShot(0, lambda: _trace("event loop running"))
         QTimer.singleShot(4000, app.quit)  # used by the build pipeline to check the app starts
