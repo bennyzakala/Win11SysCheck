@@ -340,6 +340,38 @@ def test_the_export_button_snake_overlay_starts_and_restores(tmp_path):
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_the_activity_bar_runs_along_the_bottom_of_the_view(tmp_path):
+    """A thin marquee activity bar sits along the bottom of the 3D view; it is hidden until a print file is
+    exported, then runs (together with the Export-button animation) and hides again. start/stop are safe to
+    call repeatedly and never raise."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.marquee import MarqueeBar
+        bar = MarqueeBar()
+        assert not bar.running() and not bar.isVisible()
+        bar.start()
+        assert bar.running()
+        bar._tick(); bar._tick()                          # advance the slide; must not raise
+        bar.start()                                       # a second start while running is a no-op
+        bar.stop()
+        assert not bar.running()
+        bar.stop()                                        # stopping when idle is a no-op
+        # it is present in the main window and starts hidden
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        assert hasattr(w, "marquee") and not w.marquee.running()
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_the_app_starts_and_exits_cleanly(tmp_path):
     """Run the real startup path (app.run in smoke mode), which the widget tests skip - it catches a NameError
     or crash in run() itself (e.g. a variable referenced after a refactor) that only shows when the exe starts."""

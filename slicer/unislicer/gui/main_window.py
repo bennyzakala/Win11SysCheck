@@ -1011,6 +1011,12 @@ class MainWindow(QMainWindow):
         nav.setAttribute(Qt.WA_TransparentForMouseEvents)
         grid.addWidget(nav, 0, 0, Qt.AlignBottom | Qt.AlignHCenter)
 
+        # a thin activity bar flush along the bottom of the 3D view, under the hint line - it runs while a print
+        # file is being exported (together with the phrases and figures on the Export button)
+        from .marquee import MarqueeBar
+        self.marquee = MarqueeBar(holder)
+        grid.addWidget(self.marquee, 0, 0, Qt.AlignBottom)
+
         # layer slider
         self.layer_box = _card()
         self.layer_box.setStyleSheet(f"QFrame#Card {{ background: {theme.overlay(0.92)}; }}")
@@ -6113,6 +6119,9 @@ class MainWindow(QMainWindow):
         busy = attach(self.export_btn)
         busy.start()
         task.finished.connect(busy.stop)
+        if getattr(self, "marquee", None) is not None:      # the activity bar along the bottom of the 3D view
+            self.marquee.start()
+            task.finished.connect(self.marquee.stop)
         self.status.setText(busy_text)
         task.start()
         return task
