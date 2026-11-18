@@ -53,7 +53,8 @@ class ProfileManager(QDialog):
         left.addWidget(self.tree, 1)
         row = QHBoxLayout()
         for text, icon_name, slot in ((tr("pm_new"), "plus", self._new), (tr("pm_duplicate"), "copy", self._duplicate),
-                                      (tr("pm_import"), "open", self._import), (tr("pm_export"), "download", self._export)):
+                                      (tr("pm_import"), "open", self._import), (tr("pm_export"), "download", self._export),
+                                      (tr("pm_export_all"), "download", self._export_all)):
             b = QPushButton(theme.icon(icon_name, theme.TEXT, 15), text)
             b.clicked.connect(slot)
             row.addWidget(b)
@@ -305,6 +306,21 @@ class ProfileManager(QDialog):
             if self._dirty:
                 self._save()
             profiles.export_profiles(self.kind, [self._pid], path)
+
+    def _export_all(self):
+        if self._dirty:
+            self._save()
+        pids = profiles.user_profile_ids(self.kind)
+        if not pids:
+            QMessageBox.information(self, tr("pm_export_all"), tr("pm_export_all_none"))
+            return
+        default = tr("resin_library") if self.kind == "materials" and self.technology == "sla" else tr("pm_export_all")
+        path, _ = QFileDialog.getSaveFileName(self, tr("pm_export_all"), f"{default}.json",
+                                              "UniSlicer profiles (*.json)")
+        if not path:
+            return
+        profiles.export_profiles(self.kind, pids, path)
+        QMessageBox.information(self, tr("pm_export_all"), tr("pm_export_all_done").format(len(pids)))
 
     def _use(self):
         if self._dirty and not self._save():

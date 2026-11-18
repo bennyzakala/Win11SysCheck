@@ -270,6 +270,37 @@ def test_learning_sync_is_a_short_lived_connect_not_a_held_open_link(tmp_path, m
         pass
 
 
+def test_export_all_profiles_sends_only_your_own(tmp_path, monkeypatch):
+    """'Export all' writes every profile the user made or edited to one file - and only those, not the built-in
+    ones (they are on every install already). The file imports back with the profiles intact."""
+    from unislicer import profiles
+    monkeypatch.setattr(profiles, "USER_DIR", str(tmp_path))
+    # a brand-new custom resin, and an edit to a built-in one (both become 'user' profiles)
+    mine = profiles.save_user_profile("materials", "Lab Secret Resin", {"sla_exposure_time": 2.4}, "sla", vendor="MyLab")
+    builtins = profiles.builtin_ids("materials")
+    some_builtin = next(iter(builtins))
+    base = profiles.load("materials")[some_builtin]
+    profiles.save_user_profile("materials", base.get("name", "x"), dict(base.get("values", {}), sla_exposure_time=9.9),
+                               profiles.technology_of(base), pid=some_builtin)
+    ids = profiles.user_profile_ids("materials")
+    assert mine in ids and some_builtin in ids                 # custom + edited built-in
+    assert not (set(ids) - set(profiles.load("materials")))    # all are real
+    # export all, then read the file: it holds the user profiles and is tagged for this kind
+    out = tmp_path / "all.json"
+    profiles.export_profiles("materials", ids, str(out))
+    import json as _json
+    doc = _json.loads(out.read_text(encoding="utf-8"))
+    assert doc["unislicer_profiles"] == "materials" and len(doc["profiles"]) == len(ids)
+    assert any(p.get("name") == "Lab Secret Resin" for p in doc["profiles"].values())
+    # a pristine machine (empty user dir) imports them back
+    other = tmp_path / "other"
+    monkeypatch.setattr(profiles, "USER_DIR", str(other))
+    added = profiles.import_profiles("materials", str(out))
+    assert len(added) == len(ids)
+    names = {profiles.load("materials")[a]["name"] for a in added}
+    assert "Lab Secret Resin" in names
+
+
 def test_the_export_button_snake_overlay_starts_and_restores(tmp_path):
     """While an export runs a snake overlay plays on the Export button (a random two-word phrase in place of the
     label, a snake round the border); stopping puts the label back. It must not change the button's text for

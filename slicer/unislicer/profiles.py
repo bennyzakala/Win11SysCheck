@@ -127,6 +127,12 @@ def builtin_ids(kind: str) -> set:
     return set(_load(os.path.join(BUILTIN_DIR, f"{kind}.json"))) | set(_builtin_extras(kind))
 
 
+def user_profile_ids(kind: str) -> list[str]:
+    """Ids of every profile the user made or edited (the ones kept in the user file) - what 'Export all' sends.
+    Built-in profiles are left out: they are already on every install, so exporting them would only duplicate."""
+    return [pid for pid, prof in load(kind).items() if prof.get("user")]
+
+
 def builtin(kind: str, pid: str | None) -> dict | None:
     """The shipped (original) profile, ignoring any user change saved under the same id."""
     if not pid:
