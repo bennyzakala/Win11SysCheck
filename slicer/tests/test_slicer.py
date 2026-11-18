@@ -311,16 +311,21 @@ def test_the_export_button_snake_overlay_starts_and_restores(tmp_path):
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
         from PySide6.QtWidgets import QApplication, QPushButton
         app = QApplication([])
-        from unislicer.gui import busy_button
+        from unislicer.gui import busy_button, i18n
         assert len(busy_button.FIGURES) >= 50             # at least 50 different figures
-        assert len(busy_button._VERBS) * len(busy_button._NOUNS) >= 50   # at least 50 phrases possible
-        # nonsense phrases are two words and never repeat back-to-back, with lots of variety
-        seen = [busy_button.random_phrase()]
-        for _ in range(120):
-            p = busy_button.random_phrase(seen[-1])
-            assert len(p.split()) == 2 and p != seen[-1]
-            seen.append(p)
-        assert len({p for p in seen}) >= 50               # at least 50 distinct phrases actually seen
+        # the phrases follow the chosen language - every supported language has its own pool
+        assert set(busy_button._PHRASES) >= {"he", "en", "ru", "ar"}
+        for lang, (verbs, nouns) in busy_button._PHRASES.items():
+            assert len(verbs) * len(nouns) >= 50          # at least 50 phrases possible per language
+            i18n.LANG = lang
+            seen = [busy_button.random_phrase()]
+            for _ in range(120):
+                p = busy_button.random_phrase(seen[-1])
+                assert len(p.split()) == 2 and p != seen[-1]
+                assert p.split()[0] in verbs and p.split()[1] in nouns   # really from this language's pool
+                seen.append(p)
+            assert len(set(seen)) >= 50                    # at least 50 distinct phrases actually seen
+        i18n.LANG = "he"
         btn = QPushButton("Export print file")
         busy = busy_button.attach(btn)
         assert busy_button.attach(btn) is busy            # one overlay per button, reused

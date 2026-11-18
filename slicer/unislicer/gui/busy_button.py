@@ -12,23 +12,43 @@ from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPolygonF
 from PySide6.QtWidgets import QWidget
 
-# nonsense two-word phrases: a verb + an unrelated thing, combined at random (Hebrew). ~35 x ~40 = well over a
-# thousand combinations, so no two are alike for a long time.
-_VERBS = ["אופה", "מטגן", "מלטש", "מצייר", "סורק", "מגהץ", "קודח", "אורג", "מבשל", "מצלם",
-          "שוקל", "מלחים", "מבריש", "מנגן", "שותל", "מודד", "מלקק", "מקפל", "צובע", "חופר",
-          "גוזר", "מלטף", "מרסק", "מדגדג", "מצחצח", "מבריק", "מגלגל", "מנפח", "מייבש", "ממיס",
-          "סורג", "מתכנת", "מרכיב", "מכייל", "מנדנד", "מעסה", "מגרד", "מפזר", "ממחזר", "מברבר"]
-_NOUNS = ["עוגה", "טוסטים", "עננים", "גרביים", "מקרונים", "כתרים", "פנגווינים", "חלומות", "בועות",
-          "זיקוקים", "ירח", "קקטוסים", "שוקולד", "כוכבים", "רעיונות", "ג'ירפות", "ואפל", "קשתות", "מברשות",
-          "צדפים", "חלזונות", "ברקים", "פתיתים", "גלידות", "פזלים", "מטריות", "קוביות", "נוצות", "גולות",
-          "דרקונים", "מלפפונים", "פסנתרים", "טורבינות", "חרוזים", "פקקים", "מגנטים", "זחלים", "ברווזים", "פילים"]
+from . import i18n
+
+# nonsense two-word phrases: a verb + an unrelated thing, combined at random, per language so they follow the
+# chosen interface language. Each language has ~20 x ~20 = hundreds of combinations, so no two are alike for a
+# long time. Every word is a single token, so a phrase is always exactly two words.
+_PHRASES = {
+    "he": (["אופה", "מטגן", "מלטש", "מצייר", "סורק", "מגהץ", "קודח", "אורג", "מבשל", "מצלם",
+            "שוקל", "מלחים", "מבריש", "מנגן", "שותל", "מודד", "מלקק", "מקפל", "צובע", "חופר"],
+           ["עוגה", "טוסטים", "עננים", "גרביים", "מקרונים", "כתרים", "פנגווינים", "חלומות", "בועות",
+            "זיקוקים", "קקטוסים", "שוקולד", "כוכבים", "רעיונות", "ג'ירפות", "דרקונים", "מלפפונים", "זחלים", "ברווזים", "פילים"]),
+    "en": (["Baking", "Frying", "Polishing", "Painting", "Scanning", "Ironing", "Drilling", "Weaving", "Cooking",
+            "Photographing", "Weighing", "Soldering", "Brushing", "Playing", "Planting", "Measuring", "Folding",
+            "Juggling", "Tickling", "Recycling"],
+           ["clouds", "toast", "cakes", "socks", "macarons", "crowns", "penguins", "dreams", "bubbles",
+            "fireworks", "cacti", "chocolate", "stars", "ideas", "giraffes", "dragons", "cucumbers", "ducks",
+            "waffles", "rainbows"]),
+    "ru": (["Печёт", "Жарит", "Полирует", "Рисует", "Сканирует", "Гладит", "Сверлит", "Плетёт", "Варит",
+            "Фотографирует", "Взвешивает", "Паяет", "Чистит", "Играет", "Сажает", "Измеряет", "Складывает",
+            "Жонглирует", "Красит", "Копает"],
+           ["облака", "тосты", "торты", "носки", "макаруны", "короны", "пингвинов", "мечты", "пузыри",
+            "фейерверки", "кактусы", "шоколад", "звёзды", "идеи", "жирафов", "драконов", "огурцы", "уток",
+            "вафли", "радуги"]),
+    "ar": (["يخبز", "يقلي", "يلمّع", "يرسم", "يمسح", "يكوي", "يثقب", "ينسج", "يطبخ", "يصوّر",
+            "يزن", "يلحم", "ينظف", "يعزف", "يزرع", "يقيس", "يطوي", "يتلاعب", "يصبغ", "يحفر"],
+           ["غيوماً", "توستاً", "كعكاً", "جوارب", "ماكروناً", "تيجاناً", "بطاريق", "أحلاماً", "فقاعات",
+            "صبّاراً", "شوكولاتة", "نجوماً", "أفكاراً", "زرافات", "تنانين", "خياراً", "بطّاً", "وافلاً", "نجوماً", "فطراً"]),
+}
 
 
 def random_phrase(avoid: str = "") -> str:
+    lang = getattr(i18n, "LANG", "he")
+    verbs, nouns = _PHRASES.get(lang, _PHRASES["en"])
+    p = f"{random.choice(verbs)} {random.choice(nouns)}"
     for _ in range(8):
-        p = f"{random.choice(_VERBS)} {random.choice(_NOUNS)}"
         if p != avoid:
             return p
+        p = f"{random.choice(verbs)} {random.choice(nouns)}"
     return p
 
 
