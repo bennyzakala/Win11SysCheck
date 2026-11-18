@@ -6107,6 +6107,12 @@ class MainWindow(QMainWindow):
             self._export_tasks = []
         self._export_tasks.append(task)
         task.finished.connect(lambda t=task: t in self._export_tasks and self._export_tasks.remove(t))
+        # a snake runs around the Export button and nonsense phrases flash while it works (just for fun; it
+        # draws on the GUI thread and never touches the export, which runs on its own thread)
+        from .busy_button import attach
+        busy = attach(self.export_btn)
+        busy.start()
+        task.finished.connect(busy.stop)
         self.status.setText(busy_text)
         task.start()
         return task

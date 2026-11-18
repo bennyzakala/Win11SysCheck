@@ -270,6 +270,45 @@ def test_learning_sync_is_a_short_lived_connect_not_a_held_open_link(tmp_path, m
         pass
 
 
+def test_the_export_button_snake_overlay_starts_and_restores(tmp_path):
+    """While an export runs a snake overlay plays on the Export button (a random two-word phrase in place of the
+    label, a snake round the border); stopping puts the label back. It must not change the button's text for
+    good, and the phrases are never the same twice in a row."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication, QPushButton
+        app = QApplication([])
+        from unislicer.gui import busy_button
+        assert len(busy_button.FIGURES) >= 50             # at least 50 different figures
+        assert len(busy_button._VERBS) * len(busy_button._NOUNS) >= 50   # at least 50 phrases possible
+        # nonsense phrases are two words and never repeat back-to-back, with lots of variety
+        seen = [busy_button.random_phrase()]
+        for _ in range(120):
+            p = busy_button.random_phrase(seen[-1])
+            assert len(p.split()) == 2 and p != seen[-1]
+            seen.append(p)
+        assert len({p for p in seen}) >= 50               # at least 50 distinct phrases actually seen
+        btn = QPushButton("Export print file")
+        busy = busy_button.attach(btn)
+        assert busy_button.attach(btn) is busy            # one overlay per button, reused
+        assert not busy.running()
+        busy.start()
+        assert busy.running() and btn.text() == ""        # the label is hidden, the overlay draws the phrase
+        busy._tick(); busy._tick()                        # advance; must not raise
+        busy.start()                                      # starting again while running is a no-op
+        busy.stop()
+        assert not busy.running() and btn.text() == "Export print file"   # label restored exactly
+        busy.stop()                                       # stopping when idle is a no-op
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_the_app_starts_and_exits_cleanly(tmp_path):
     """Run the real startup path (app.run in smoke mode), which the widget tests skip - it catches a NameError
     or crash in run() itself (e.g. a variable referenced after a refactor) that only shows when the exe starts."""
