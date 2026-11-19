@@ -579,6 +579,37 @@ def test_a_die_is_supported_only_along_its_base():
     assert all(p["sla_support_base"] == 0.0 for k, p in settings.MODEL_TYPE_PRESETS.items() if k != "die")
 
 
+def test_a_die_keeps_base_only_supports_even_on_as_the_support_settings():
+    """The lab tunes the support density on the plate and leaves Model type on 'As the support settings' so a
+    model type does not overwrite that density. A die whose file name says so must still get its supports held
+    at the base there - without the type preset touching the density - while a plain model keeps whole supports."""
+    from unislicer import settings
+    from unislicer.scene import SceneObject
+    from unislicer.mesh import Mesh
+    stem = primitives.cylinder(2.5, 10, 32)
+    cap = primitives.cylinder(6, 4, 48)
+    cap = Mesh(cap.vertices + [0, 0, 10], cap.faces, "c")
+    m = Mesh.merge([Mesh(stem.vertices, stem.faces, "s"), cap], "die")
+    # plate stays on 'As the support settings' (plate) with the lab's own density
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {
+        "sla_model_type": "plate", "support_enable": True, "sla_density": 7})
+    die = SceneObject.from_mesh(m); die.name = "SGD-044-E-37-28-33_Tooth_27.stl"
+    model = SceneObject.from_mesh(m); model.name = "Patient_Model_Upper.stl"
+    dc, mc = die.config(cfg), model.config(cfg)
+    # the die gets the base band; the plain model does not
+    assert dc["sla_support_base"] == settings.MODEL_TYPE_PRESETS["die"]["sla_support_base"] > 0
+    assert mc["sla_support_base"] == 0.0
+    # 'As the support settings' is respected: neither the die nor the model has its spacing or density
+    # changed - unlike forcing the die TYPE, which would pull in the die preset's own tighter spacing
+    assert dc["sla_support_spacing"] == mc["sla_support_spacing"] == cfg["sla_support_spacing"]
+    assert dc["sla_support_spacing"] != settings.MODEL_TYPE_PRESETS["die"]["sla_support_spacing"]
+    assert dc["sla_density"] == mc["sla_density"] == cfg["sla_density"]
+    # an explicit base the user set on the plate is left alone (not overwritten by the die default)
+    cfg2 = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {
+        "sla_model_type": "plate", "support_enable": True, "sla_support_base": 15.0})
+    assert die.config(cfg2)["sla_support_base"] == 15.0
+
+
 def test_crown_with_unjoined_margin_is_stitched_not_lidded():
     """A CAD export with a crown's outer and inner surfaces unjoined at the margin (two rims a hair apart,
     with different vertex counts): closing each rim with a flat lid filled every opening of an 11-unit bridge

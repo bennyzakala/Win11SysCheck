@@ -76,11 +76,21 @@ class SceneObject:
         """This model's own settings, plus - when Supports > Model type is Automatic - the model type found
         from its file name and shape (its supports come with it). The model's own choices win."""
         own = dict(self.settings)
-        if own.get("sla_model_type", cfg.get("sla_model_type")) == "auto" and cfg.get("technology") == "sla":
+        if cfg.get("technology") == "sla":
             from . import dental_cad
-            kind = dental_cad.model_type_of(self.name, self.mesh)
-            if kind:
-                own = {"sla_model_type": kind, **{k: v for k, v in own.items() if k != "sla_model_type"}}
+            mt = own.get("sla_model_type", cfg.get("sla_model_type"))
+            if mt == "auto":
+                kind = dental_cad.model_type_of(self.name, self.mesh)
+                if kind:
+                    own = {"sla_model_type": kind, **{k: v for k, v in own.items() if k != "sla_model_type"}}
+            elif mt == "plate" and not (own.get("sla_support_base") or cfg.get("sla_support_base")):
+                # "As the support settings" keeps the user's own density and the rest of their
+                # support choices; a die still gets its supports concentrated at the base so they
+                # do not climb it and come off easily after printing. Only the base band is added.
+                if dental_cad.model_type_of(self.name, self.mesh) == "die":
+                    from .settings import MODEL_TYPE_PRESETS
+                    base = MODEL_TYPE_PRESETS.get("die", {}).get("sla_support_base", 35.0)
+                    own = {**own, "sla_support_base": base}
         return own
 
     def filaments_used(self) -> list[int]:
