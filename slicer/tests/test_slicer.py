@@ -480,6 +480,7 @@ def test_support_spacing_and_height_come_from_the_printer_not_the_preset_resin_o
     for pid in ("phrozen_sonic_xl_4k_plus", "phrozen_sonic_cs_plus", "phrozen_sonic_ls_plus"):
         base = profiles.build_config(pid, None, None, {})
         assert base["sla_support_spacing"] == 7.0 and base["sla_elevation"] == 5.0
+        assert base["sla_support_type"] == "pillar"      # dental default: straight pillars, not tree
         # picking the Medium preset by hand must not drop the spacing
         picked = profiles.build_config(pid, None, None, {"sla_support_preset": "medium"})
         assert picked["sla_support_spacing"] == 7.0

@@ -425,6 +425,7 @@
    "sla_format": "ctb",
    "material_name": "Standard resin",
    "sla_support_spacing": 7.0,
+   "sla_support_type": "pillar",
    "sla_internal_spacing": 7.0,
    "sla_model_spacing": 7.0
   }
@@ -442,6 +443,7 @@
    "sla_format": "prz",
    "material_name": "Standard resin",
    "sla_support_spacing": 7.0,
+   "sla_support_type": "pillar",
    "sla_internal_spacing": 7.0,
    "sla_model_spacing": 7.0
   }
@@ -459,6 +461,7 @@
    "sla_format": "ctb",
    "material_name": "Standard resin",
    "sla_support_spacing": 7.0,
+   "sla_support_type": "pillar",
    "sla_internal_spacing": 7.0,
    "sla_model_spacing": 7.0
   }
@@ -476,6 +479,7 @@
    "sla_format": "ctb",
    "material_name": "Standard resin",
    "sla_support_spacing": 7.0,
+   "sla_support_type": "pillar",
    "sla_internal_spacing": 7.0,
    "sla_model_spacing": 7.0
   }
@@ -594,6 +598,7 @@
    "bottom_layers": 6,
    "material_name": "Dental resin",
    "sla_support_spacing": 7.0,
+   "sla_support_type": "pillar",
    "sla_internal_spacing": 7.0,
    "sla_model_spacing": 7.0
   },
@@ -630,6 +635,7 @@
    "bottom_layers": 6,
    "material_name": "Dental resin",
    "sla_support_spacing": 7.0,
+   "sla_support_type": "pillar",
    "sla_internal_spacing": 7.0,
    "sla_model_spacing": 7.0
   },
@@ -970,6 +976,7 @@
    "bottom_layers": 6,
    "material_name": "Dental resin",
    "sla_support_spacing": 7.0,
+   "sla_support_type": "pillar",
    "sla_internal_spacing": 7.0,
    "sla_model_spacing": 7.0
   },
@@ -1006,6 +1013,7 @@
    "sla_layer_height": 0.05,
    "bottom_layers": 6,
    "sla_support_spacing": 7.0,
+   "sla_support_type": "pillar",
    "sla_internal_spacing": 7.0,
    "sla_model_spacing": 7.0
   }
@@ -1026,6 +1034,7 @@
    "sla_layer_height": 0.05,
    "bottom_layers": 6,
    "sla_support_spacing": 7.0,
+   "sla_support_type": "pillar",
    "sla_internal_spacing": 7.0,
    "sla_model_spacing": 7.0
   },
@@ -1047,6 +1056,7 @@
    "sla_layer_height": 0.05,
    "bottom_layers": 6,
    "sla_support_spacing": 7.0,
+   "sla_support_type": "pillar",
    "sla_internal_spacing": 7.0,
    "sla_model_spacing": 7.0
   }
@@ -1067,6 +1077,7 @@
    "sla_layer_height": 0.05,
    "bottom_layers": 6,
    "sla_support_spacing": 7.0,
+   "sla_support_type": "pillar",
    "sla_internal_spacing": 7.0,
    "sla_model_spacing": 7.0
   }
@@ -1088,6 +1099,7 @@
    "bottom_layers": 6,
    "material_name": "Dental resin",
    "sla_support_spacing": 7.0,
+   "sla_support_type": "pillar",
    "sla_internal_spacing": 7.0,
    "sla_model_spacing": 7.0
   }
