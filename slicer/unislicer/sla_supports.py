@@ -176,21 +176,37 @@ def effective_spacing(cfg: Config) -> float:
 
 MIN_PART_POINTS = 3      # a small part (a die) never stands on fewer supports than this
 MIN_GRID_SPACING = 1.5   # mm: how far the grid is tightened to get them
+DIE_POINT_SPAN = 4.0     # a die held only at its base gets one more support per this much footprint (mm)
+DIE_MAX_POINTS = 8       # but the size floor alone asks for no more than this
+
+
+def _min_part_points(mesh: Mesh, cfg: Config) -> int:
+    """How many supports a part must stand on. MIN_PART_POINTS for any part; more for a die held only at its
+    base (so a bigger die is never left on two or three), one extra per DIE_POINT_SPAN mm of footprint."""
+    base = float(cfg.get("sla_support_base", 0.0) or 0.0)
+    if not (0.0 < base < 100.0):
+        return MIN_PART_POINTS
+    lo, hi = mesh.bounds
+    span = float(math.hypot(float(hi[0] - lo[0]), float(hi[1] - lo[1])))   # footprint diagonal
+    return int(max(MIN_PART_POINTS, min(DIE_MAX_POINTS, round(span / DIE_POINT_SPAN))))
 
 
 def auto_support_points(mesh: Mesh, cfg: Config, report: dict | None = None) -> np.ndarray:
-    """Contact points (N, 3) on the underside of ``mesh`` that need support. A part that gets fewer than
-    MIN_PART_POINTS at the set spacing (a small die at 5.5 mm stood on one) gets its grid tightened, step
-    by step, until it has them (or the grid reaches MIN_GRID_SPACING)."""
+    """Contact points (N, 3) on the underside of ``mesh`` that need support. A part that gets fewer than its
+    minimum at the set spacing (a small die at 5.5 mm stood on one) gets its grid tightened, step by step,
+    until it has them (or the grid reaches MIN_GRID_SPACING). A die held only at its base asks for more the
+    bigger it is."""
     spacing = effective_spacing(cfg)
+    need = _min_part_points(mesh, cfg)
     pts = _support_points_at(mesh, cfg, spacing, report)
-    while 0 < len(pts) < MIN_PART_POINTS and spacing > MIN_GRID_SPACING:
+    while 0 < len(pts) < need and spacing > MIN_GRID_SPACING:
         spacing = max(MIN_GRID_SPACING, spacing * 0.7)
         denser = _support_points_at(mesh, cfg, spacing, report)
         if len(denser) > len(pts):
             pts = denser
     if report is not None:
         report["spacing_used"] = spacing
+        report["min_points"] = need
     return pts
 
 
@@ -241,10 +257,15 @@ def _support_points_at(mesh: Mesh, cfg: Config, spacing: float, report: dict | N
     if 0.0 < base < 100.0 and len(pts):
         cap = lo[2] + (base / 100.0) * float(hi[2] - lo[2])
         low = pts[pts[:, 2] <= cap + 1e-6]
-        if len(low):
-            pts = low
-            if report is not None:
-                report["base_only"] = base
+        need = _min_part_points(mesh, cfg)
+        if len(low) >= need:
+            pts = low                                  # the base band alone holds it
+        else:
+            # the band is too sparse to hold the die on its own: keep the lowest 'need' points instead,
+            # so it never stands on one or two - even if a couple sit just above the band
+            pts = pts[np.argsort(pts[:, 2])[:max(need, len(low))]]
+        if report is not None:
+            report["base_only"] = base
     return pts
 
 

@@ -610,6 +610,31 @@ def test_a_die_keeps_base_only_supports_even_on_as_the_support_settings():
     assert die.config(cfg2)["sla_support_base"] == 15.0
 
 
+def test_a_die_never_stands_on_fewer_than_three_supports_and_more_when_bigger():
+    """A die held only at its base must never come out on one or two supports (it would snap off the plate
+    mid-print); it stands on at least three, and on more the bigger its footprint is."""
+    from unislicer import sla_supports
+    from unislicer.mesh import Mesh
+
+    def die_of(radius, height):
+        stem = primitives.cylinder(radius, height, 48)
+        cap = primitives.cylinder(radius * 2.2, height * 0.4, 64)
+        cap = Mesh(cap.vertices + [0, 0, height], cap.faces, "c")
+        return Mesh.merge([Mesh(stem.vertices, stem.faces, "s"), cap], "die")
+
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {
+        "sla_model_type": "die", "support_enable": True})
+    small, big = die_of(2.0, 9), die_of(6.0, 16)
+    n_small = len(sla_supports.auto_support_points(small, cfg))
+    n_big = len(sla_supports.auto_support_points(big, cfg))
+    assert n_small >= sla_supports.MIN_PART_POINTS == 3        # never one or two
+    assert n_big > n_small                                     # a bigger die gets more
+    assert sla_supports._min_part_points(big, cfg) > sla_supports._min_part_points(small, cfg)
+    # the size floor only applies to a die (base-only); an ordinary part keeps the flat minimum
+    plain = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": True})
+    assert sla_supports._min_part_points(big, plain) == sla_supports.MIN_PART_POINTS
+
+
 def test_crown_with_unjoined_margin_is_stitched_not_lidded():
     """A CAD export with a crown's outer and inner surfaces unjoined at the margin (two rims a hair apart,
     with different vertex counts): closing each rim with a flat lid filled every opening of an 11-unit bridge
