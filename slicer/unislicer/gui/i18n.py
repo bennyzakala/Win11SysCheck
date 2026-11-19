@@ -379,6 +379,8 @@ STRINGS = {
     "fl_step_done": ("הסתיים", "Done"),
     "fl_sent": ("העבודה נשלחה למדפסת {}", "The job was sent to printer {}"),
     "fl_saved": ("נשמר: {}", "Saved: {}"),
+    "fl_gap_eased": ("חלק מהדגמים היו קרובים מדי זה לזה - הורחקו ל-{:.0f} מ\"מ כדי שלא יתחברו בהדפסה.", "Some models were too close - eased apart to {:.0f} mm so they will not fuse while printing."),
+    "fl_gap_full": ("הפלטה צפופה מדי כדי להבטיח {:.0f} מ\"מ בין כל הדגמים - ייתכן שחלקם עדיין קרובים. הסר דגם או שניים ושלח שוב.", "The plate is too full to guarantee {:.0f} mm between every model - some may still be close. Remove a model or two and send again."),
     "fl_time": ("זמן הדפסה לפי PreForm: {}", "Print time according to PreForm: {}"),
     "fl_warnings": ("אזהרות PreForm: {} כוסות יניקה, {} נקודות שפל ללא תמיכה, {} מודלים עם תמיכה חסרה", "PreForm warnings: {} suction cups, {} unsupported minima, {} under-supported models"),
     "fl_failed": ("השליחה נכשלה: {}", "Sending failed: {}"),

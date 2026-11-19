@@ -144,6 +144,58 @@ def footprint(o: SceneObject) -> Polygon:
     return affinity.translate(hit[0], mat[0, 3], mat[1, 3])
 
 
+def spread_to_gap(shapes: list, gap: float, bounds=None, iters: int = 400):
+    """Per-shape (dx, dy) so that no two shapes are nearer than ``gap`` mm, moving each as little as possible:
+    too-close pairs are pushed apart along the line between their centres, over a few relaxation passes, so an
+    arrangement is kept while parts that would touch are eased apart. ``shapes`` are shapely geometries in one
+    frame; ``bounds`` (x0, y0, x1, y1), when given, is kept around every shape. Returns (offsets, ok) - ok is
+    False when a shape could not be both separated and kept inside ``bounds`` (the plate is too full)."""
+    n = len(shapes)
+    off = np.zeros((n, 2))
+    if n < 2:
+        return [(0.0, 0.0)] * n, True
+    for _ in range(iters):
+        cur = [affinity.translate(shapes[i], off[i, 0], off[i, 1]) for i in range(n)]
+        bb = [g.bounds for g in cur]
+        moved = False
+        for i in range(n):
+            for j in range(i + 1, n):
+                if (bb[i][0] - bb[j][2] > gap or bb[j][0] - bb[i][2] > gap or
+                        bb[i][1] - bb[j][3] > gap or bb[j][1] - bb[i][3] > gap):
+                    continue                                   # bounding boxes already far enough apart
+                d = cur[i].distance(cur[j])
+                if d >= gap - 1e-9:
+                    continue
+                ci, cj = cur[i].centroid, cur[j].centroid
+                v = np.array([ci.x - cj.x, ci.y - cj.y])
+                nv = float(np.hypot(*v))
+                if nv < 1e-9:
+                    v, nv = np.array([1.0, 0.0]), 1.0
+                push = (v / nv) * ((gap - d) / 2.0 + 1e-3)
+                off[i] += push
+                off[j] -= push
+                moved = True
+        if bounds is not None:
+            x0, y0, x1, y1 = bounds
+            for i in range(n):
+                bx0, by0, bx1, by1 = affinity.translate(shapes[i], off[i, 0], off[i, 1]).bounds
+                off[i, 0] += max(0.0, x0 - bx0) - max(0.0, bx1 - x1)
+                off[i, 1] += max(0.0, y0 - by0) - max(0.0, by1 - y1)
+        if not moved:
+            break
+    cur = [affinity.translate(shapes[i], off[i, 0], off[i, 1]) for i in range(n)]
+    ok = True
+    for i in range(n):
+        if bounds is not None:
+            bx0, by0, bx1, by1 = cur[i].bounds
+            if bx0 < bounds[0] - 1e-2 or by0 < bounds[1] - 1e-2 or bx1 > bounds[2] + 1e-2 or by1 > bounds[3] + 1e-2:
+                ok = False
+        for j in range(i + 1, n):
+            if cur[i].distance(cur[j]) < gap - 1e-2:
+                ok = False
+    return [(float(off[i, 0]), float(off[i, 1])) for i in range(n)], ok
+
+
 def _rotations(kind: str) -> list[float]:
     return {"none": [0.0], "90": [0.0, 90.0], "free": [float(a) for a in range(0, 180, 15)]}.get(kind, [0.0])
 

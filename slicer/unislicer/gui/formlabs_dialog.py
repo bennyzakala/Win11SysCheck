@@ -15,6 +15,28 @@ from .. import formlabs
 from .i18n import tr
 from .worker import Task
 
+MIN_SEND_GAP = 2.0       # mm: parts never reach the printer closer than this, so a tight plate cannot fuse
+
+
+def eased_positions(meshes, build, gap: float = MIN_SEND_GAP):
+    """Where to place each model (x, y) so the plate keeps its arrangement but no two parts' real outlines
+    (model, supports and raft) reach the printer nearer than ``gap`` mm - any that would touch are eased apart,
+    kept inside the ``build`` (bx, by) bed. Returns (positions, eased, full): ``eased`` if any part was moved,
+    ``full`` if the bed is too packed to guarantee the gap (some may still be close)."""
+    from ..layout import spread_to_gap
+    from shapely.geometry import MultiPoint
+    centers = [((m.bounds[0, :2] + m.bounds[1, :2]) / 2.0) for _n, m in meshes]
+    group = (np.min(centers, axis=0) + np.max(centers, axis=0)) / 2.0
+    base = [(float(c[0] - group[0]), float(c[1] - group[1])) for c in centers]
+    hulls = [MultiPoint(m.vertices[:, :2] - group).convex_hull for _n, m in meshes]
+    bed = (-float(build[0]) / 2 + 1.0, -float(build[1]) / 2 + 1.0,
+           float(build[0]) / 2 - 1.0, float(build[1]) / 2 - 1.0) if build and len(build) >= 2 else None
+    offs, ok = spread_to_gap(hulls, gap, bed)
+    eased = any(abs(dx) > 1e-2 or abs(dy) > 1e-2 for dx, dy in offs)
+    pos = [(base[k][0] + offs[k][0], base[k][1] + offs[k][1]) for k in range(len(base))]
+    return pos, eased, (not ok)
+
+
 STEP_KEYS = {"scene": "fl_step_scene", "import": "fl_step_import", "orient": "fl_step_orient",
              "supports": "fl_step_supports", "layout": "fl_step_layout", "check": "fl_step_check",
              "save": "fl_step_save", "print": "fl_step_print", "done": "fl_step_done"}
@@ -307,10 +329,11 @@ class FormlabsDialog(QDialog):
         # and repacks a full plate, which is both slow and a different plate). Re-centre the group on the bed so
         # it never matters where UniSlicer's origin is.
         positions = None
+        gap_eased = gap_full = False
         if mode == "none" and len(meshes) > 1:
-            centers = [((m.bounds[0, :2] + m.bounds[1, :2]) / 2.0) for _n, m in meshes]
-            group = (np.min([c for c in centers], axis=0) + np.max([c for c in centers], axis=0)) / 2.0
-            positions = [(float(c[0] - group[0]), float(c[1] - group[1])) for c in centers]
+            ti = self.ptype.currentIndex()
+            bld = self.types[ti].get("build") if 0 <= ti < len(self.types) else []
+            positions, gap_eased, gap_full = eased_positions(meshes, bld, MIN_SEND_GAP)
         for k, (name, mesh) in enumerate(meshes):
             safe = "".join(ch if ch.isalnum() or ch in "-_ ." else "_" for ch in (name or "model"))[:60] or "model"
             path = os.path.join(folder, f"{k + 1:02d}_{safe}.stl")
@@ -357,6 +380,10 @@ class FormlabsDialog(QDialog):
                 return
             bad = formlabs.validation_problems(result.get("validation"))
             lines = [tr("fl_sent").format(printer) if printer else tr("fl_saved").format(save_form)]
+            if gap_full:
+                lines.append(tr("fl_gap_full").format(MIN_SEND_GAP))
+            elif gap_eased:
+                lines.append(tr("fl_gap_eased").format(MIN_SEND_GAP))
             if result.get("print_time_s"):
                 from .. import gcode
                 lines.append(tr("fl_time").format(gcode.format_duration(result["print_time_s"])))

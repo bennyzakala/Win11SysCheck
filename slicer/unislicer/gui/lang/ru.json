@@ -714,6 +714,8 @@
 "Save to another folder, e.g. Documents or the desktop.": "Сохраните в другую папку, напр. «Документы» или рабочий стол.",
 "Saved as the default in \"{}\"": "Сохранено как значение по умолчанию в «{}»",
 "Saved: {}": "Сохранено: {}",
+"Some models were too close - eased apart to {:.0f} mm so they will not fuse while printing.": "Некоторые модели были слишком близко — раздвинуты до {:.0f} мм, чтобы они не слиплись при печати.",
+"The plate is too full to guarantee {:.0f} mm between every model - some may still be close. Remove a model or two and send again.": "Платформа слишком заполнена, чтобы гарантировать {:.0f} мм между всеми моделями — некоторые всё ещё могут быть близко. Уберите одну-две модели и отправьте снова.",
 "Saves resin and reduces suction; add drain holes": "Экономит смолу и уменьшает присасывание; добавьте дренажные отверстия",
 "Scale": "Масштаб",
 "Scales the model up to offset resin shrinkage": "Увеличивает модель, чтобы компенсировать усадку смолы",

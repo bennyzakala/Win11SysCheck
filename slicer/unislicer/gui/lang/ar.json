@@ -714,6 +714,8 @@
 "Save to another folder, e.g. Documents or the desktop.": "احفظ في مجلد آخر، مثل المستندات أو سطح المكتب.",
 "Saved as the default in \"{}\"": "حُفظ كقيمة افتراضية في «{}»",
 "Saved: {}": "تم الحفظ: {}",
+"Some models were too close - eased apart to {:.0f} mm so they will not fuse while printing.": "كانت بعض النماذج قريبة جدًا - تمت مباعدتها إلى {:.0f} مم حتى لا تلتصق أثناء الطباعة.",
+"The plate is too full to guarantee {:.0f} mm between every model - some may still be close. Remove a model or two and send again.": "المنصة ممتلئة جدًا بحيث لا يمكن ضمان {:.0f} مم بين كل النماذج - قد يبقى بعضها قريبًا. أزِل نموذجًا أو اثنين وأعد الإرسال.",
 "Saves resin and reduces suction; add drain holes": "يوفّر الراتنج ويقلّل الشفط؛ أضف ثقوب تصريف",
 "Scale": "المقياس",
 "Scales the model up to offset resin shrinkage": "يكبّر النموذج لتعويض انكماش الراتنج",

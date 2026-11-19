@@ -5352,6 +5352,40 @@ def test_formlabs_send_through_preformserver(tmp_path):
         srv.close()
 
 
+def test_formlabs_send_eases_parts_that_would_fuse_and_keeps_the_arrangement():
+    """Sending UniSlicer's own plate to a Form keeps the arrangement, but two parts must never reach the
+    printer touching (they fuse mid-print). Parts closer than the minimum gap are eased apart; a well-spaced
+    plate is sent unchanged; an over-full bed is reported so the user can thin it out."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from unislicer.gui.formlabs_dialog import eased_positions, MIN_SEND_GAP
+    from shapely.geometry import MultiPoint
+
+    def gap_between(meshes, positions):
+        hulls = [MultiPoint(m.vertices[:, :2]).convex_hull for _n, m in meshes]
+        from shapely import affinity
+        g = [affinity.translate(h, px - float((m.bounds[0, 0] + m.bounds[1, 0]) / 2),
+                                py - float((m.bounds[0, 1] + m.bounds[1, 1]) / 2))
+             for h, (px, py), (_n, m) in zip(hulls, positions, meshes)]
+        return min(g[i].distance(g[j]) for i in range(len(g)) for j in range(i + 1, len(g)))
+
+    # two 10 mm cubes almost touching (0.3 mm apart) on a roomy Form 4 bed (145 x 145)
+    a = ("a", primitives.box(10, 10, 6))
+    b = ("b", primitives.box(10, 10, 6).translated([10.3, 0, 0]))
+    pos, eased, full = eased_positions([a, b], [145.0, 145.0])
+    assert eased and not full
+    assert gap_between([a, b], pos) >= MIN_SEND_GAP - 0.05       # never fuse
+    # already 5 mm apart: left as placed, nothing eased
+    c = ("c", primitives.box(10, 10, 6).translated([15.0, 0, 0]))
+    pos2, eased2, full2 = eased_positions([a, c], [145.0, 145.0])
+    assert not eased2 and not full2
+    # three cubes crammed onto a tiny bed: cannot guarantee the gap - reported, not silently fused
+    d = ("d", primitives.box(10, 10, 6).translated([10.3, 0, 0]))
+    e = ("e", primitives.box(10, 10, 6).translated([20.6, 0, 0]))
+    _pos3, _eased3, full3 = eased_positions([a, d, e], [26.0, 14.0])
+    assert full3
+
+
 def test_formlabs_dialog_connects_finds_and_sends(tmp_path):
     import json as _json, subprocess, sys, textwrap
     globals()["json"] = _json
