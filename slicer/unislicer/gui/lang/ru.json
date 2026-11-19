@@ -1493,5 +1493,7 @@
 "Stable mode - processing will use fewer cores": "Стабильный режим - обработка будет использовать меньше ядер",
 "Export all…": "Экспортировать все…",
 "No profiles of your own to export (all the ones here are built in). Edit or create a profile first.": "Нет ваших собственных профилей для экспорта (все здесь встроенные). Сначала измените или создайте профиль.",
-"Exported {} of your profiles to one file. Import it on the other computers.": "Экспортировано {} ваших профилей в один файл. Импортируйте его на других компьютерах."
+"Exported {} of your profiles to one file. Import it on the other computers.": "Экспортировано {} ваших профилей в один файл. Импортируйте его на других компьютерах.",
+"Support only the base (dies)": "Поддержки только у основания (штампики)",
+"For dies: places supports only in the bottom part of the model (a % of its height), so they do not climb it and come off easily after printing. 0 = support the whole model": "Для штампиков: размещает поддержки только в нижней части модели (% от её высоты), чтобы они не поднимались по ней и легко снимались после печати. 0 = поддерживать всю модель"
 }

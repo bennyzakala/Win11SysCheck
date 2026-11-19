@@ -1493,5 +1493,7 @@
 "Stable mode - processing will use fewer cores": "وضع مستقر - ستستخدم المعالجة عدداً أقل من الأنوية",
 "Export all…": "تصدير الكل…",
 "No profiles of your own to export (all the ones here are built in). Edit or create a profile first.": "لا توجد ملفات تعريف خاصة بك للتصدير (كل الموجودة هنا مدمجة). عدّل أو أنشئ ملف تعريف أولاً.",
-"Exported {} of your profiles to one file. Import it on the other computers.": "تم تصدير {} من ملفات التعريف الخاصة بك إلى ملف واحد. استوردها على الأجهزة الأخرى."
+"Exported {} of your profiles to one file. Import it on the other computers.": "تم تصدير {} من ملفات التعريف الخاصة بك إلى ملف واحد. استوردها على الأجهزة الأخرى.",
+"Support only the base (dies)": "دعامات عند القاعدة فقط (الدايات)",
+"For dies: places supports only in the bottom part of the model (a % of its height), so they do not climb it and come off easily after printing. 0 = support the whole model": "للدايات: يضع الدعامات في الجزء السفلي من النموذج فقط (نسبة من ارتفاعه)، حتى لا تتسلق عليه وتُزال بسهولة بعد الطباعة. 0 = دعم النموذج بالكامل"
 }

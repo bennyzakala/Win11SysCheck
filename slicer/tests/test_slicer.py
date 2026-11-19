@@ -550,6 +550,35 @@ def test_supports_reach_every_tip_that_starts_in_the_air():
     assert rep.get("minima_added", 0) == 0                     # the grid holds a flat underside
 
 
+def test_a_die_is_supported_only_along_its_base():
+    """A die's supports used to run up its body (the cap/bulge underside) and were hard to pull off after
+    printing. The die type keeps the supports in the lower part of the model, so they do not climb it; other
+    types still support the whole part, and the die preset carries this (while other presets clear it)."""
+    from unislicer import settings, sla_supports
+    from unislicer.mesh import Mesh
+    # a mushroom: a thin stem with a wide cap whose underside overhangs at mid-height, like a die's bulge
+    stem = primitives.cylinder(2.5, 10, 32)
+    cap = primitives.cylinder(6, 4, 48)
+    cap = Mesh(cap.vertices + [0, 0, 10], cap.faces, "c")
+    m = Mesh.merge([Mesh(stem.vertices, stem.faces, "s"), cap], "die")
+    lo = float(m.bounds[0, 2])
+    h = float(m.bounds[1, 2] - m.bounds[0, 2])
+
+    def top_fraction(base):
+        cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {
+            "sla_model_type": "die", "sla_support_base": base, "support_enable": True, "sla_support_spacing": 2.0})
+        pts = sla_supports.auto_support_points(m, cfg)
+        return len(pts), (float(pts[:, 2].max()) - lo) / h
+
+    n_all, top_all = top_fraction(0.0)
+    n_base, top_base = top_fraction(35.0)
+    assert top_all > 0.6                          # with no cap: supports climb up to the cap (~70% up)
+    assert top_base <= 0.36 and n_base < n_all    # die: only the bottom ~35%, far fewer supports, none climbing
+    # the die preset turns this on; the other model types keep the whole-part support (no leak)
+    assert settings.MODEL_TYPE_PRESETS["die"]["sla_support_base"] > 0
+    assert all(p["sla_support_base"] == 0.0 for k, p in settings.MODEL_TYPE_PRESETS.items() if k != "die")
+
+
 def test_crown_with_unjoined_margin_is_stitched_not_lidded():
     """A CAD export with a crown's outer and inner surfaces unjoined at the margin (two rims a hair apart,
     with different vertex counts): closing each rim with a flat lid filled every opening of an 11-unit bridge

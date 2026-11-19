@@ -235,6 +235,16 @@ def _support_points_at(mesh: Mesh, cfg: Config, spacing: float, report: dict | N
             report["minima_added"] = int(len(extra))
         if len(extra):
             pts = np.vstack([pts, extra])
+    # a die: keep the supports in the lower part of the model (a % of its height) so they do not climb it and
+    # are easy to pull off. Only drop the higher ones when something is left to stand on.
+    base = float(cfg.get("sla_support_base", 0.0) or 0.0)
+    if 0.0 < base < 100.0 and len(pts):
+        cap = lo[2] + (base / 100.0) * float(hi[2] - lo[2])
+        low = pts[pts[:, 2] <= cap + 1e-6]
+        if len(low):
+            pts = low
+            if report is not None:
+                report["base_only"] = base
     return pts
 
 

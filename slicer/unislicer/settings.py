@@ -245,6 +245,10 @@ SCHEMA: list[Setting] = [
       tip_he="נקודות תמיכה ברשת על משטחים שנוטים יותר מזווית הסף", tip_en="Grid of contact points on surfaces steeper than the overhang angle"),
     S("sla_support_minima", "bool", True, "support", "sla", "תמיכות לנקודות נמוכות (מינימום)", "Support minima",
       tip_he="תמיכה בכל נקודה שנמוכה מכל סביבתה (קצה תלוי שמתחיל באוויר)", tip_en="A support at every point lower than everything around it (a tip that would start in mid-air)"),
+    S("sla_support_base", "float", 0.0, "support", "sla", "תמיכות רק בתחתית (לדאי)", "Support only the base (dies)", "%", 0, 100, 5,
+      advanced=True,
+      tip_he="לדאים: ממקם תמיכות רק בחלק התחתון של המודל (אחוז מהגובה), כך שהן לא מטפסות עליו וקל להסירן לאחר הדפסה. 0 = תמיכות על כל המודל",
+      tip_en="For dies: places supports only in the bottom part of the model (a % of its height), so they do not climb it and come off easily after printing. 0 = support the whole model"),
     S("sla_density", "float", 100.0, "support", "sla", "צפיפות תמיכות", "Support density", "%", 25, 400, 5,
       tip_he="מכפיל את מספר נקודות התמיכה (100% = לפי המרווח). חומר חלש או מודל כבד: יותר; חומר חזק: פחות",
       tip_en="Scales the number of support points (100% = as spaced). Weak resin or heavy part: more; strong resin: fewer"),
@@ -498,25 +502,27 @@ SUPPORT_PRESETS = {
 # crowns and bridges, none on any fitting surface, models held on their base only, stronger for dentures.
 MODEL_TYPE_PRESETS = {
     "cb": {"sla_tip_diameter": 0.35, "sla_pillar_diameter": 0.9, "sla_support_spacing": 2.0, "support_angle": 45.0,
-           "sla_contact_depth": 0.15, "sla_avoid_fit": True, "sla_skip_ledges": False},
+           "sla_contact_depth": 0.15, "sla_avoid_fit": True, "sla_skip_ledges": False, "sla_support_base": 0.0},
     "guide": {"sla_tip_diameter": 0.4, "sla_pillar_diameter": 1.0, "sla_support_spacing": 2.5, "support_angle": 45.0,
-              "sla_contact_depth": 0.2, "sla_avoid_fit": True, "sla_skip_ledges": False},
+              "sla_contact_depth": 0.2, "sla_avoid_fit": True, "sla_skip_ledges": False, "sla_support_base": 0.0},
     "model": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 5.5, "support_angle": 50.0,
-              "sla_contact_depth": 0.2, "sla_avoid_fit": False, "sla_skip_ledges": True},
+              "sla_contact_depth": 0.2, "sla_avoid_fit": False, "sla_skip_ledges": True, "sla_support_base": 0.0},
     "model_u": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 5.5, "support_angle": 50.0,
-                "sla_contact_depth": 0.2, "sla_avoid_fit": False, "sla_skip_ledges": True},
-    # a die: supported like a model, but its points closer (5.5 mm apart left a small die on one support)
+                "sla_contact_depth": 0.2, "sla_avoid_fit": False, "sla_skip_ledges": True, "sla_support_base": 0.0},
+    # a die: supports only along its lower part, so they do not climb the die and are easy to pull off (the
+    # lab: supports that ran up a die were hard to remove after printing). Points closer, too (5.5 mm apart
+    # left a small die on one support).
     "die": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 5.5, "support_angle": 50.0,
-            "sla_contact_depth": 0.2, "sla_avoid_fit": False, "sla_skip_ledges": True},
+            "sla_contact_depth": 0.2, "sla_avoid_fit": False, "sla_skip_ledges": True, "sla_support_base": 35.0},
     # gingiva: supported as a crown (it was the crown type before it got its own raft)
     "gingiva": {"sla_tip_diameter": 0.35, "sla_pillar_diameter": 0.9, "sla_support_spacing": 2.0, "support_angle": 45.0,
-                "sla_contact_depth": 0.15, "sla_avoid_fit": True, "sla_skip_ledges": False},
+                "sla_contact_depth": 0.15, "sla_avoid_fit": True, "sla_skip_ledges": False, "sla_support_base": 0.0},
     "splint_h": {"sla_tip_diameter": 0.4, "sla_pillar_diameter": 1.0, "sla_support_spacing": 2.5, "support_angle": 40.0,
-                 "sla_contact_depth": 0.2, "sla_avoid_fit": True, "sla_skip_ledges": False},
+                 "sla_contact_depth": 0.2, "sla_avoid_fit": True, "sla_skip_ledges": False, "sla_support_base": 0.0},
     "splint_v": {"sla_tip_diameter": 0.35, "sla_pillar_diameter": 0.9, "sla_support_spacing": 3.0, "support_angle": 45.0,
-                 "sla_contact_depth": 0.15, "sla_avoid_fit": True, "sla_skip_ledges": False},
+                 "sla_contact_depth": 0.15, "sla_avoid_fit": True, "sla_skip_ledges": False, "sla_support_base": 0.0},
     "denture": {"sla_tip_diameter": 0.6, "sla_pillar_diameter": 1.4, "sla_support_spacing": 2.5, "support_angle": 40.0,
-                "sla_contact_depth": 0.25, "sla_avoid_fit": True, "sla_skip_ledges": False},
+                "sla_contact_depth": 0.25, "sla_avoid_fit": True, "sla_skip_ledges": False, "sla_support_base": 0.0},
 }
 MODEL_TYPE_KEYS = {k for p in MODEL_TYPE_PRESETS.values() for k in p}
 MODEL_SPACING_TYPES = ("model", "model_u")          # the types sla_model_spacing applies to (dies keep 5.5 mm)
