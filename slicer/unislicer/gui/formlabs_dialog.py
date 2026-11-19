@@ -302,9 +302,21 @@ class FormlabsDialog(QDialog):
         from ..mesh import save_stl
         paths = []
         meshes = self.export_meshes(mode)
+        # the models already carry UniSlicer's supports and arrangement: keep that exact plate on the printer -
+        # send each at its own spot and let PreFormServer skip its auto-layout (otherwise it re-arranges, turns
+        # and repacks a full plate, which is both slow and a different plate). Re-centre the group on the bed so
+        # it never matters where UniSlicer's origin is.
+        positions = None
+        if mode == "none" and len(meshes) > 1:
+            centers = [((m.bounds[0, :2] + m.bounds[1, :2]) / 2.0) for _n, m in meshes]
+            group = (np.min([c for c in centers], axis=0) + np.max([c for c in centers], axis=0)) / 2.0
+            positions = [(float(c[0] - group[0]), float(c[1] - group[1])) for c in centers]
         for k, (name, mesh) in enumerate(meshes):
             safe = "".join(ch if ch.isalnum() or ch in "-_ ." else "_" for ch in (name or "model"))[:60] or "model"
             path = os.path.join(folder, f"{k + 1:02d}_{safe}.stl")
+            if positions is not None:                      # centre each model's own geometry; its spot is the position
+                c = (mesh.bounds[0, :2] + mesh.bounds[1, :2]) / 2.0
+                mesh = mesh.translated([-float(c[0]), -float(c[1]), 0.0])
             save_stl(mesh, path)
             paths.append(path)
         if not paths:
@@ -320,7 +332,8 @@ class FormlabsDialog(QDialog):
         def work(progress, cancelled):
             try:
                 return self.client.send(paths, dict(scene), printer, job_name, supports=mode,
-                                        orient=self.orient.isChecked(), print_now=print_now, save_form=save_form,
+                                        orient=self.orient.isChecked(), positions=positions,
+                                        print_now=print_now, save_form=save_form,
                                         progress=progress, cancelled=cancelled)
             except formlabs.FormlabsError as e:
                 # PreForm's own answer (does not fit, printer not found...) is a message, not a program bug

@@ -218,34 +218,39 @@ class Client:
 
     # ------------------------------------------------------------ a job
     def send(self, stl_paths: list[str], scene_settings: dict, printer: str, job_name: str, *, supports: str = "auto",
-             orient: bool = False, print_now: bool | None = None, save_form: str = "",
+             orient: bool = False, positions: list | None = None, print_now: bool | None = None, save_form: str = "",
              progress: Callable[[str, float], None] | None = None, cancelled=None) -> dict:
         """Prepare and send one job. ``supports``: "auto" (PreForm's supports), "mini_rafts_on_bp" (on the
         build platform) or "none" (models already carry UniSlicer's supports, or print straight on the
-        platform). ``printer`` "" with ``save_form`` only saves the .form file. Returns {"scene", "job_id",
+        platform). ``positions``: one (x, y) per model to place each where UniSlicer put it and KEEP that
+        arrangement - PreForm's auto-orient and auto-layout are skipped, so the plate on the printer is the one
+        you see here (used when the models carry their own supports). Without it PreForm arranges the plate
+        itself. ``printer`` "" with ``save_form`` only saves the .form file. Returns {"scene", "job_id",
         "validation", "print_time_s"}."""
         def step(name, f=0.0):
             if progress:
                 progress(name, f)
 
+        keep = bool(positions) and len(positions) == len(stl_paths)
         step("scene")
         _, scene = self.request("POST", "/scene/", dict(scene_settings))
         sid = scene["id"]
         try:
             for k, path in enumerate(stl_paths):
                 step("import", k / max(1, len(stl_paths)))
-                # an explicit position: PreForm otherwise places each import on the platform at once and gives
-                # up ("unable to fit the models into the work area") as soon as it is full; the layout step
-                # below arranges them all together, with its retries
+                # with ``positions`` each model keeps the spot UniSlicer gave it; otherwise everything goes to
+                # the platform centre and the layout step below arranges it (PreForm gives up with "unable to
+                # fit the models into the work area" as soon as the centre is full, so the retries matter there)
+                px, py = (float(positions[k][0]), float(positions[k][1])) if keep else (0.0, 0.0)
                 body = {"file": os.path.abspath(path), "repair_behavior": "REPAIR", "units": "MILLIMETERS",
-                        "position": {"x": 0.0, "y": 0.0, "z": 0.0}}
+                        "position": {"x": px, "y": py, "z": 0.0}}
                 try:
                     self.call("POST", f"/scene/{sid}/import-model/", body, cancelled=cancelled)
                 except FormlabsError as e:
                     if not _layout_full(e):
                         raise
                     raise FormlabsError(f"{e} ({k} of {len(stl_paths)} models went in)", "LAYOUT_DOES_NOT_FIT")
-            if orient:
+            if orient and not keep:                        # keeping the arrangement means keeping its orientation too
                 step("orient")
                 self.call("POST", f"/scene/{sid}/auto-orient/", {"models": "ALL"}, cancelled=cancelled)
             if supports in ("auto", "mini_rafts_on_bp"):
@@ -254,8 +259,9 @@ class Client:
                 if supports == "mini_rafts_on_bp":
                     body["raft_type"] = "MINI_RAFTS_ON_BP"
                 self.call("POST", f"/scene/{sid}/auto-support/", body, cancelled=cancelled)
-            step("layout")
-            self.layout(sid, len(stl_paths), cancelled)
+            if not keep:                                   # keep=True: do NOT re-arrange - the plate stays as sent
+                step("layout")
+                self.layout(sid, len(stl_paths), cancelled)
             step("check")
             validation = {}
             try:
@@ -277,7 +283,10 @@ class Client:
                 body = {"printer": printer, "job_name": job_name or "UniSlicer"}
                 if print_now is not None:
                     body["print_now"] = bool(print_now)
-                r = self.call("POST", f"/scene/{sid}/print/", body, cancelled=cancelled)
+                # the upload to the printer can take minutes on a full plate - surface its progress so it does
+                # not look stuck (PreForm reports the operation's progress as it sends)
+                r = self.call("POST", f"/scene/{sid}/print/", body,
+                              progress=lambda f: step("print", f), cancelled=cancelled)
                 job_id = str(r.get("job_id", ""))
             step("done", 1.0)
             return {"scene": sid, "job_id": job_id, "validation": validation, "print_time_s": seconds}

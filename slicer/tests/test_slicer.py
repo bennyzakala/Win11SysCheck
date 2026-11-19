@@ -5243,6 +5243,18 @@ def test_formlabs_send_through_preformserver(tmp_path):
         except formlabs.FormlabsError as e:
             assert e.code == "LAYOUT_DOES_NOT_FIT" and "2 models" in str(e)
         assert len(srv.printed) == printed
+        # keep UniSlicer's arrangement: each model goes to its own spot and PreForm's auto-layout and auto-orient
+        # are skipped, so the plate on the printer is the one set up here (not re-arranged, turned or repacked)
+        ss = types[0]["materials"][0]["settings"][0]["scene_settings"]
+        srv.layout_mode = "full"                        # auto-layout would fail here - it must be skipped
+        n = len(srv.scenes)
+        r = c.send([stl, stl], ss, "192.168.7.20", "keep", supports="none",
+                   orient=True, positions=[(12.0, -3.0), (-8.0, 5.0)])
+        sid = f"scene{n + 1}"
+        assert r["job_id"] == "job-1"                   # printed, although layout_mode="full" (layout was skipped)
+        assert "auto-layout" not in srv.scenes[sid] and "auto-orient" not in srv.scenes[sid]
+        imp = [b for m, p, b in srv.calls if m == "POST" and p == f"/scene/{sid}/import-model/"]
+        assert [(b["position"]["x"], b["position"]["y"]) for b in imp] == [(12.0, -3.0), (-8.0, 5.0)]
         srv.layout_mode = "ok"
         dead = formlabs.Client(port=1)
         assert not dead.running()
