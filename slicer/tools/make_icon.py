@@ -35,27 +35,11 @@ def _mark(width: int) -> Image.Image:
 
 
 def _art(scale: float = 1.0) -> Image.Image:
-    """The fox and the layers on a transparent square (``scale`` < 1 leaves a margin round them)."""
+    """Only the Prodentix fox, centred on a transparent square - no wordmark, no layers (``scale`` < 1 leaves
+    a wider margin, for phones that cut their own shape)."""
     art = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    d = ImageDraw.Draw(art)
-    cx, lw = 512, 46
-    r = lw / 2
-    w, h, gap, top = 300, 145, 112, 590
-    for k, col in reversed(list(enumerate((BLACK, PINK, PINK_SOFT)))):
-        y = top + k * gap
-        if k == 0:                                   # the top layer, filled
-            d.polygon([(cx - w - r, y), (cx, y - h - r * 0.9), (cx + w + r, y), (cx, y + h + r * 0.9)], fill=col)
-        else:                                        # the layers below it
-            d.line([(cx - w, y), (cx, y + h), (cx + w, y)], fill=col, width=lw, joint="curve")
-            for px in (cx - w, cx + w):
-                d.ellipse((px - r, y - r, px + r, y + r), fill=col)
-    fox = _mark(440)
-    art.alpha_composite(fox, (cx - fox.width // 2, 260 - fox.height // 2))
-    if scale != 1.0:
-        n = int(S * scale)
-        small = art.resize((n, n), Image.LANCZOS)
-        art = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-        art.alpha_composite(small, ((S - n) // 2, (S - n) // 2))
+    fox = _mark(int(740 * scale))
+    art.alpha_composite(fox, ((S - fox.width) // 2, (S - fox.height) // 2))
     return art
 
 
