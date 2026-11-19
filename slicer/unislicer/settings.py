@@ -489,11 +489,13 @@ SCHEMA: list[Setting] = [
 
 SCHEMA_BY_KEY = {s.key: s for s in SCHEMA}
 
-# resin support presets: (tip diameter, pillar diameter, point spacing) in mm
+# resin support presets: support thickness (tip diameter, pillar diameter) in mm. Point spacing is NOT part of
+# a preset - it belongs to the printer (a Phrozen dental plate keeps its 7 mm under any preset); set it on its
+# own row. (Kept out so picking "Medium" does not pull a dental plate down to a generic 3 mm.)
 SUPPORT_PRESETS = {
-    "light": {"sla_tip_diameter": 0.3, "sla_pillar_diameter": 0.8, "sla_support_spacing": 3.5},
-    "medium": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 3.0},
-    "heavy": {"sla_tip_diameter": 0.8, "sla_pillar_diameter": 1.8, "sla_support_spacing": 2.5},
+    "light": {"sla_tip_diameter": 0.3, "sla_pillar_diameter": 0.8},
+    "medium": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2},
+    "heavy": {"sla_tip_diameter": 0.8, "sla_pillar_diameter": 1.8},
 }
 
 

@@ -473,7 +473,13 @@ class Assistant:
                 continue
             key, raw = k.split("=", 1)
             value = json.loads(raw)
-            if key in SCHEMA_BY_KEY and current.get(key) == value:
+            meta = SCHEMA_BY_KEY.get(key)
+            # never offer to bake a support / raft value into a profile: spacing and height belong to the
+            # printer, and a saved default there would silently override it (the dense-supports learning still
+            # adapts spacing at slice time). Other habits are fine to suggest.
+            if meta is None or meta.category in ("support", "raft"):
+                continue
+            if current.get(key) == value:
                 out.append(Suggestion(f"default_{k}", "habit", "sg_make_default", (key, value),
                                       "save_default", {"key": key, "value": value}))
         for name, entry in self.data["actions"].items():

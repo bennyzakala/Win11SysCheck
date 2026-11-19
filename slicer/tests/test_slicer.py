@@ -465,6 +465,48 @@ def test_support_presets():
     heavy = profiles.build_config("elegoo_mars3", None, None, {"sla_support_preset": "heavy"})
     light = profiles.build_config("elegoo_mars3", None, None, {"sla_support_preset": "light"})
     assert heavy["sla_pillar_diameter"] > light["sla_pillar_diameter"]
+    # a preset sets support thickness, not point spacing - spacing belongs to the printer, so it is the same
+    # under every preset (picking "Medium" must not pull a plate to a generic density)
+    assert heavy["sla_support_spacing"] == light["sla_support_spacing"]
+
+
+def test_support_spacing_and_height_come_from_the_printer_not_the_preset_resin_or_quality():
+    """A Phrozen dental plate keeps 7 mm point spacing and 5 mm support height whatever preset, resin or
+    quality is chosen - support geometry is the printer's, so the generic 'Medium' preset (and any value an
+    old learned default wrongly saved into a resin or quality) can no longer pull it to a different number."""
+    from unislicer import settings
+    # the preset carries no spacing any more
+    assert all("sla_support_spacing" not in p for p in settings.SUPPORT_PRESETS.values())
+    for pid in ("phrozen_sonic_xl_4k_plus", "phrozen_sonic_cs_plus", "phrozen_sonic_ls_plus"):
+        base = profiles.build_config(pid, None, None, {})
+        assert base["sla_support_spacing"] == 7.0 and base["sla_elevation"] == 5.0
+        # picking the Medium preset by hand must not drop the spacing
+        picked = profiles.build_config(pid, None, None, {"sla_support_preset": "medium"})
+        assert picked["sla_support_spacing"] == 7.0
+    # a stray support/raft value saved in a resin or quality profile is ignored: the printer's value stands
+    mats = profiles.load("materials")
+    stray = next(iter(mats))
+    orig = dict(mats[stray].get("values", {}))
+    try:
+        mats[stray]["values"] = {**orig, "sla_support_spacing": 2.0, "sla_elevation": 1.0}
+        c = profiles.build_config("phrozen_sonic_xl_4k_plus", stray, None, {})
+        assert c["sla_support_spacing"] == 7.0 and c["sla_elevation"] == 5.0
+    finally:
+        mats[stray]["values"] = orig
+
+
+def test_the_assistant_never_offers_to_bake_a_support_value_as_a_default(tmp_path):
+    """Support spacing / height belong to the printer; the assistant must not suggest saving one into a profile
+    (it would silently override the printer). Other repeated settings can still become a habit suggestion."""
+    from unislicer.assistant import Assistant
+    a = Assistant(str(tmp_path))
+    for _ in range(3):
+        a.record_override("sla_support_spacing", 5.0)
+        a.record_override("hollow_enable", True)
+    ctx = {"overrides": {"sla_support_spacing": 5.0, "hollow_enable": True}}
+    ids = {s.id for s in a.suggestions(ctx)}
+    assert not any("sla_support_spacing" in i for i in ids)     # support is never offered as a default
+    assert any("hollow_enable" in i for i in ids)               # an ordinary (non-support) habit still is
 
 
 def test_mirror_and_project_roundtrip(tmp_path):

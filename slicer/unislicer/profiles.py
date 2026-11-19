@@ -248,6 +248,15 @@ def import_profiles(kind: str, path: str) -> list[str]:
     return added
 
 
+def _support_raft_key(key: str) -> bool:
+    """Support / raft geometry belongs to the printer profile - not to a resin or a layer-height quality. A
+    value wrongly saved into a material or quality (e.g. an old learned default) is ignored, so the printer's
+    own default stands."""
+    from .settings import SCHEMA_BY_KEY
+    s = SCHEMA_BY_KEY.get(key)
+    return bool(s and s.category in ("support", "raft"))
+
+
 def apply_layer_table(cfg: Config, printer: str | None, material: str | None, overrides: dict | None = None) -> Config:
     """Resins with a per-printer table (e.g. Phrozen DS Slicer profiles): take the row for this printer, the
     layer height nearest to the chosen one and the Stable / Fast mode. Values the user set stay as they are."""
@@ -262,7 +271,8 @@ def apply_layer_table(cfg: Config, printer: str | None, material: str | None, ov
     modes = table[key]
     row = modes.get(cfg["exposure_mode"]) or modes.get("stable") or next(iter(modes.values()))
     keep = set(overrides or {}) | set(prof.get("user_keys", []))
-    cfg.update({k: v for k, v in row.items() if k not in keep and k != "sla_layer_height"})
+    cfg.update({k: v for k, v in row.items()
+                if k not in keep and k != "sla_layer_height" and not _support_raft_key(k)})
     cfg.values["sla_layer_height"] = want if "sla_layer_height" in keep or abs(float(key) - want) > 1e-6 else float(key)
     return cfg
 
@@ -273,10 +283,13 @@ def build_config(printer: str | None = None, material: str | None = None, qualit
     for kind, pid in (("printers", printer), ("materials", material), ("qualities", quality)):
         if not pid:
             continue
-        profiles = load(kind)
-        if pid not in profiles:
-            raise KeyError(f"Unknown {kind[:-1]} profile '{pid}'. Available: {', '.join(sorted(profiles))}")
-        cfg.update(profiles[pid].get("values", {}))
+        profs = load(kind)
+        if pid not in profs:
+            raise KeyError(f"Unknown {kind[:-1]} profile '{pid}'. Available: {', '.join(sorted(profs))}")
+        vals = profs[pid].get("values", {})
+        if kind != "printers":            # support / raft geometry belongs to the printer, not the resin or quality
+            vals = {k: v for k, v in vals.items() if not _support_raft_key(k)}
+        cfg.update(vals)
     if overrides:
         cfg.update(overrides)
     cfg.values["_raft_chosen"] = bool(overrides and "sla_raft_type" in overrides)   # see settings.TYPE_RAFT
