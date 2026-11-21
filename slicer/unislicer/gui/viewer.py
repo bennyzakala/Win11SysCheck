@@ -33,6 +33,7 @@ MESH_FS = """#version 330 core
 in vec3 vNormal; in vec3 vPos; out vec4 frag;
 uniform vec3 uKey; uniform vec3 uFill; uniform vec3 uRim; uniform vec3 uAmbLo; uniform vec3 uAmbHi;   // the theme's light
 uniform vec3 uColor; uniform vec3 uEye; uniform float uOverhang; uniform int uShowOverhang; uniform float uClipZ; uniform float uAlpha;
+uniform int uXray;   // x-ray view: keep the silhouette / edges opaque so the shape still reads, see-through face-on
 // section view: cut along X (0), Y (1) or Z (2); uClipSign -1 keeps the other side
 uniform int uClipAxis; uniform float uClipSign;
 // plate bounds: the part of a model outside them is painted purple
@@ -68,7 +69,14 @@ void main(){
   vec3 h = normalize(l1 + v); float spec = pow(max(dot(n, h), 0.0), 48.0) * 0.30;
   float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0);
   vec3 c = base * (amb + d) + vec3(spec) + rim * uRim;
-  frag = vec4(c, uAlpha);
+  float a = uAlpha;
+  if (uXray == 1) {
+    // opaque toward the silhouette (grazing angle), see-through where we look straight at a face, so the
+    // shape's outline and curvature still read - especially from straight above
+    float edge = pow(1.0 - max(dot(n, v), 0.0), 1.5);
+    a = clamp(uAlpha + (1.0 - uAlpha) * edge, uAlpha, 1.0);
+  }
+  frag = vec4(c, a);
 }"""
 
 BED_VS = """#version 330 core
@@ -1019,6 +1027,7 @@ class Viewer(QOpenGLWidget):
         GL.glUniform1i(self._u(p, "uClipAxis"), 2 if preview else int(self.section_axis))
         GL.glUniform1f(self._u(p, "uClipSign"), 1.0 if preview else float(self.section_sign))
         GL.glUniform1f(self._u(p, "uAlpha"), 1.0)
+        GL.glUniform1i(self._u(p, "uXray"), 0)
         self._set_plate_bounds(p)
         see_raft = below and self.raft_top > 0.0 and self.technology == "sla"
         rafts = []                                    # (matrix, buffer) of supports whose raft is drawn see-through
@@ -1051,6 +1060,7 @@ class Viewer(QOpenGLWidget):
                 xray = self.xray and not preview       # see-through body so its supports / cavities show
                 if xray:
                     GL.glUniform1f(self._u(p, "uAlpha"), 0.32)
+                    GL.glUniform1i(self._u(p, "uXray"), 1)
                     GL.glEnable(GL.GL_BLEND)
                     GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
                     GL.glDepthMask(GL.GL_FALSE)
@@ -1068,6 +1078,7 @@ class Viewer(QOpenGLWidget):
                     GL.glDepthMask(GL.GL_TRUE)
                     GL.glDisable(GL.GL_BLEND)
                     GL.glUniform1f(self._u(p, "uAlpha"), 1.0)
+                    GL.glUniform1i(self._u(p, "uXray"), 0)
                 GL.glUniform1i(self._u(p, "uBound"), 0)
                 if obj.get("hole_buffer") is not None and not preview:
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
