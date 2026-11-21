@@ -257,13 +257,13 @@ def _support_points_at(mesh: Mesh, cfg: Config, spacing: float, report: dict | N
     if 0.0 < base < 100.0 and len(pts):
         cap = lo[2] + (base / 100.0) * float(hi[2] - lo[2])
         low = pts[pts[:, 2] <= cap + 1e-6]
-        need = _min_part_points(mesh, cfg)
-        if len(low) >= need:
-            pts = low                                  # the base band alone holds it
+        if len(low):
+            pts = low                                  # keep ONLY the base band - never climb the die. When this
+            # is too few, auto_support_points tightens the grid so more land in the band, not higher up.
         else:
-            # the band is too sparse to hold the die on its own: keep the lowest 'need' points instead,
-            # so it never stands on one or two - even if a couple sit just above the band
-            pts = pts[np.argsort(pts[:, 2])[:max(need, len(low))]]
+            # nothing at all in the base band (a part with no low overhang): keep the single lowest point so it
+            # is not left floating, rather than scattering supports up its body
+            pts = pts[np.argsort(pts[:, 2])[:1]]
         if report is not None:
             report["base_only"] = base
     return pts

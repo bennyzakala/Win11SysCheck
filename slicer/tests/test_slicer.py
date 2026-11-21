@@ -668,8 +668,16 @@ def test_a_die_never_stands_on_fewer_than_three_supports_and_more_when_bigger():
     cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {
         "sla_model_type": "die", "support_enable": True})
     small, big = die_of(2.0, 9), die_of(6.0, 16)
-    n_small = len(sla_supports.auto_support_points(small, cfg))
-    n_big = len(sla_supports.auto_support_points(big, cfg))
+
+    def count_and_reach(mesh):
+        pts = sla_supports.auto_support_points(mesh, cfg)
+        lo, h = float(mesh.bounds[0, 2]), float(mesh.bounds[1, 2] - mesh.bounds[0, 2])
+        return len(pts), (float(pts[:, 2].max()) - lo) / h
+    n_small, reach_small = count_and_reach(small)
+    n_big, reach_big = count_and_reach(big)
+    # reaching the minimum must densify the base, never climb the die: even when the band is sparse, the extra
+    # supports stay low (this used to pull a point ~54% up a real die)
+    assert reach_small <= 0.36 and reach_big <= 0.36
     assert n_small >= sla_supports.MIN_PART_POINTS == 3        # never one or two
     assert n_big > n_small                                     # a bigger die gets more
     assert sla_supports._min_part_points(big, cfg) > sla_supports._min_part_points(small, cfg)
