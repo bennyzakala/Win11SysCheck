@@ -2669,6 +2669,10 @@ class MainWindow(QMainWindow):
         try:
             tech = cfg["technology"]
             weights = self.assistant.orient_weights(tech)
+            from .. import dental_cad
+            # a die is always printed standing on its base; the general scorer (supports only) would lay it on
+            # a side or flip it, so a die gets upright_rotation instead
+            dies = [tech == "sla" and dental_cad.model_type_of(o.name, o.mesh) == "die" for o in targets]
             jobs = [(Mesh(o.mesh.vertices, o.mesh.faces, o.mesh.name), o.matrix().copy(), tech, cfg["support_angle"],
                      weights) for o in targets]
 
@@ -2676,7 +2680,8 @@ class MainWindow(QMainWindow):
                 # off the window's thread (there it held the window, not even repainted, ~4 s for 10 parts);
                 # the window waits without input meanwhile, as for supports. Not in the worker pool: numpy
                 # already spreads each part over the cores, the pool was slower (6.3 s against 5.0 s)
-                return [orient.rotation_job(*j) for j in jobs]
+                return [orient.upright_rotation(j[0], j[1]) if die else orient.rotation_job(*j)
+                        for j, die in zip(jobs, dies)]
 
             # a long job: the checks on a timer (suggestions, collisions, outlines) wait for it - started
             # meanwhile they took the cores from it (Auto prepare 9 s -> 16 s)

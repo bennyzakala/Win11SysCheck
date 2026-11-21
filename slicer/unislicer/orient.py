@@ -120,6 +120,24 @@ def rotation_job(mesh: Mesh, matrix, technology: str, support_angle: float, weig
     return best_rotation(mesh.transform(matrix), technology, support_angle, weights=weights)
 
 
+def upright_rotation(mesh: Mesh, matrix) -> np.ndarray:
+    """Stand an elongated die on its base: its longest axis vertical, the flat cut end (the margin) down. The
+    general scorer, which only minimises supports, lays a die on a side or flips it upside down; a die is
+    always printed standing on its base, so it gets this instead."""
+    m = mesh.transform(matrix)
+    lo, hi = m.bounds
+    axis = int(np.argmax(hi - lo))                       # the die's long axis (it is clearly elongated)
+    tri = m.vertices[m.faces]
+    nrm = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    area = np.linalg.norm(nrm, axis=1) * 0.5
+    along = nrm[:, axis] / np.maximum(np.linalg.norm(nrm, axis=1), 1e-9)
+    a_pos = float(area[along > 0.85].sum())              # flat cut capping the +axis end
+    a_neg = float(area[along < -0.85].sum())             # and the -axis end
+    base = np.zeros(3)
+    base[axis] = 1.0 if a_pos >= a_neg else -1.0         # the end with the bigger flat cut is the base
+    return rotation_between(base, DOWN)                  # put that end on the plate
+
+
 def best_rotation(mesh: Mesh, technology: str, support_angle: float = 45.0, elevation: float = 5.0,
                   samples: int = 240, weights: np.ndarray | None = None) -> np.ndarray:
     """3x3 rotation that puts the mesh in its best orientation (``weights``: learned scoring weights)."""

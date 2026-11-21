@@ -778,6 +778,39 @@ def test_auto_orient():
     assert not np.any(np.abs(n[:, 2]) > 0.999)   # resin: tilted, no faces parallel to the screen
 
 
+def test_a_die_is_oriented_standing_on_its_base_not_flipped():
+    """Auto-orienting a die must stand it on its base (longest axis vertical, the flat cut end on the plate),
+    not lay it on a side or flip it upside down the way the supports-only scorer does."""
+    from unislicer import orient
+    from unislicer.mesh import Mesh
+    # an elongated die as a cone: one flat cut base (the margin) and a tapering body with no flat top, long
+    # axis = Z - so the flat end is unambiguously the base
+    seg = 48
+    ang = np.linspace(0, 2 * np.pi, seg, endpoint=False)
+    ring = np.column_stack([6 * np.cos(ang), 6 * np.sin(ang), np.zeros(seg)])
+    verts = np.vstack([ring, [0, 0, 16.0], [0, 0, 0.0]])          # ring, apex, base centre
+    apex, ctr = seg, seg + 1
+    faces = []
+    for i in range(seg):
+        j = (i + 1) % seg
+        faces.append([i, j, apex])                               # cone side
+        faces.append([ctr, j, i])                                # flat base cap (faces down)
+    die = Mesh(verts.astype(float), np.array(faces, dtype=np.int64), "die")
+    for rot in ([0, 0, 0], [180, 0, 0], [0, 90, 0], [35, 20, 10]):   # however it comes in - flipped, on its side
+        o = placed(die)
+        o.rotation[:] = rot
+        R = orient.upright_rotation(o.mesh, o.matrix())
+        v = (o.mesh.transform(o.matrix())).vertices @ R.T
+        ext = v.max(0) - v.min(0)
+        assert int(np.argmax(ext)) == 2                           # longest axis ends up vertical
+        tri = v[o.mesh.faces]
+        n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        a = np.linalg.norm(n, axis=1) * 0.5
+        nz = n[:, 2] / np.maximum(np.linalg.norm(n, axis=1), 1e-9)
+        # the wide flat base ends up facing down (its big flat cut is on the plate, not up)
+        assert float(a[nz < -0.85].sum()) > float(a[nz > 0.85].sum())
+
+
 def test_compensation_and_profile_library(tmp_path, monkeypatch):
     m = placed(primitives.box(20, 20, 10), 70, 45).world_mesh()
     base = sla.prepare([m], profiles.build_config("elegoo_mars3", None, "sla_fast", {"bottom_xy_auto": False}))
