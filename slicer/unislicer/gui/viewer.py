@@ -1048,38 +1048,46 @@ class Viewer(QOpenGLWidget):
                 # part outside painted purple (shader)
                 color = (1.0, 0.16, 0.22) if state == "collision" else theme.MODEL_OUTSIDE if state == "outside" else (
                     theme.MODEL_SELECTED if uid in self.selection else theme.MODEL_COLOR)
-                GL.glUniform1i(self._u(p, "uBound"), int(state == "partial" and not preview))
                 if obj.get("color") is not None and state not in ("collision", "outside"):
                     own = obj["color"]                 # its material / dental shade
                     color = tuple(0.75 * a + 0.25 * b for a, b in zip(own, theme.MODEL_SELECTED)) \
                         if uid in self.selection else own
                 lit = uid if state not in ("collision", "outside") and not preview else None
                 color = self._flash_lit(uid, self._hover_lit(lit, color))
-                GL.glUniform3f(self._u(p, "uColor"), *color)
+                sel = uid in self.selection
                 self._set_model(p, obj["matrix"])
                 xray = self.xray and not preview       # see-through body so its supports / cavities show
-                if xray:
-                    GL.glUniform1f(self._u(p, "uAlpha"), 0.32)
-                    GL.glUniform1i(self._u(p, "uXray"), 1)
-                    GL.glEnable(GL.GL_BLEND)
-                    GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
-                    GL.glDepthMask(GL.GL_FALSE)
-                regions = self._region_buffers(obj) if state not in ("collision", "outside") else None
-                if regions and not (self.interacting and len(obj["mesh"].faces) > self.LOD_FACES):
-                    sel = uid in self.selection
-                    for buf, rgb in regions:          # e.g. a denture: gingiva and every tooth in its shade
-                        c = color if rgb is None else self._flash_lit(uid, self._hover_lit(lit, (
-                            tuple(0.75 * a + 0.25 * b for a, b in zip(rgb, theme.MODEL_SELECTED)) if sel else rgb)))
-                        GL.glUniform3f(self._u(p, "uColor"), *c)
-                        buf.draw(GL.GL_TRIANGLES)
-                else:
-                    self._buffer_for(obj, "buffer", "mesh").draw(GL.GL_TRIANGLES)
-                if xray:                               # back to opaque for this part's holes, labels and supports
-                    GL.glDepthMask(GL.GL_TRUE)
-                    GL.glDisable(GL.GL_BLEND)
-                    GL.glUniform1f(self._u(p, "uAlpha"), 1.0)
-                    GL.glUniform1i(self._u(p, "uXray"), 0)
-                GL.glUniform1i(self._u(p, "uBound"), 0)
+
+                def draw_body():
+                    GL.glUniform1i(self._u(p, "uBound"), int(state == "partial" and not preview))
+                    GL.glUniform3f(self._u(p, "uColor"), *color)
+                    if xray:                           # transparent and it does not write depth
+                        GL.glUniform1f(self._u(p, "uAlpha"), 0.32)
+                        GL.glUniform1i(self._u(p, "uXray"), 1)
+                        GL.glEnable(GL.GL_BLEND)
+                        GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+                        GL.glDepthMask(GL.GL_FALSE)
+                    regions = self._region_buffers(obj) if state not in ("collision", "outside") else None
+                    if regions and not (self.interacting and len(obj["mesh"].faces) > self.LOD_FACES):
+                        for buf, rgb in regions:      # e.g. a denture: gingiva and every tooth in its shade
+                            c = color if rgb is None else self._flash_lit(uid, self._hover_lit(lit, (
+                                tuple(0.75 * a + 0.25 * b for a, b in zip(rgb, theme.MODEL_SELECTED)) if sel else rgb)))
+                            GL.glUniform3f(self._u(p, "uColor"), *c)
+                            buf.draw(GL.GL_TRIANGLES)
+                    else:
+                        self._buffer_for(obj, "buffer", "mesh").draw(GL.GL_TRIANGLES)
+                    if xray:
+                        GL.glDepthMask(GL.GL_TRUE)
+                        GL.glDisable(GL.GL_BLEND)
+                        GL.glUniform1f(self._u(p, "uAlpha"), 1.0)
+                        GL.glUniform1i(self._u(p, "uXray"), 0)
+                    GL.glUniform1i(self._u(p, "uBound"), 0)
+
+                # x-ray: draw this part's supports + raft (opaque) first, then the see-through body over them,
+                # so the raft does not hide the model and the body's shape still reads. Otherwise body first.
+                if not xray:
+                    draw_body()
+                GL.glUniform1i(self._u(p, "uBound"), 0)   # the holes / labels / supports below are never bounded
                 if obj.get("hole_buffer") is not None and not preview:
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
                     GL.glUniform3f(self._u(p, "uColor"), 1.0, 0.35, 0.42)
@@ -1120,6 +1128,8 @@ class Viewer(QOpenGLWidget):
                     buf.draw(GL.GL_TRIANGLES)
                     GL.glUniform1i(self._u(p, "uRaftCut"), 0)
                     GL.glUniform1i(self._u(p, "uShowOverhang"), int(self.show_overhang and not preview))
+                if xray:                               # the see-through body over its now-opaque supports / raft
+                    draw_body()
         GL.glUniform1i(self._u(p, "uShowOverhang"), 0)
         cutters = [(uid, o) for uid, o in self.objects.items() if o["state"] == "cutter"] if not preview else []
         if cutters:
