@@ -174,21 +174,22 @@ def effective_spacing(cfg: Config) -> float:
     return cfg["sla_support_spacing"] / math.sqrt(max(cfg["sla_density"], 1.0) / 100.0)
 
 
-MIN_PART_POINTS = 3      # a small part (a die) never stands on fewer supports than this
+MIN_PART_POINTS = 3      # a small part never stands on fewer supports than this
 MIN_GRID_SPACING = 1.5   # mm: how far the grid is tightened to get them
-DIE_POINT_SPAN = 4.0     # a die held only at its base gets one more support per this much footprint (mm)
+DIE_MIN_POINTS = 4       # a die (held only at its base) always stands on at least this many
+DIE_POINT_SPAN = 4.0     # and gets one more support per this much footprint (mm)
 DIE_MAX_POINTS = 8       # but the size floor alone asks for no more than this
 
 
 def _min_part_points(mesh: Mesh, cfg: Config) -> int:
-    """How many supports a part must stand on. MIN_PART_POINTS for any part; more for a die held only at its
-    base (so a bigger die is never left on two or three), one extra per DIE_POINT_SPAN mm of footprint."""
+    """How many supports a part must stand on. MIN_PART_POINTS for any part; for a die held only at its base
+    at least DIE_MIN_POINTS, and more the bigger it is - one extra per DIE_POINT_SPAN mm of footprint."""
     base = float(cfg.get("sla_support_base", 0.0) or 0.0)
     if not (0.0 < base < 100.0):
         return MIN_PART_POINTS
     lo, hi = mesh.bounds
     span = float(math.hypot(float(hi[0] - lo[0]), float(hi[1] - lo[1])))   # footprint diagonal
-    return int(max(MIN_PART_POINTS, min(DIE_MAX_POINTS, round(span / DIE_POINT_SPAN))))
+    return int(max(DIE_MIN_POINTS, min(DIE_MAX_POINTS, round(span / DIE_POINT_SPAN))))
 
 
 def auto_support_points(mesh: Mesh, cfg: Config, report: dict | None = None) -> np.ndarray:

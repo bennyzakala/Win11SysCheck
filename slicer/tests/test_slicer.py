@@ -653,9 +653,9 @@ def test_a_die_keeps_base_only_supports_even_on_as_the_support_settings():
     assert die.config(cfg2)["sla_support_base"] == 15.0
 
 
-def test_a_die_never_stands_on_fewer_than_three_supports_and_more_when_bigger():
+def test_a_die_never_stands_on_fewer_than_four_supports_and_more_when_bigger():
     """A die held only at its base must never come out on one or two supports (it would snap off the plate
-    mid-print); it stands on at least three, and on more the bigger its footprint is."""
+    mid-print); it stands on at least four, and on more the bigger its footprint is."""
     from unislicer import sla_supports
     from unislicer.mesh import Mesh
 
@@ -678,7 +678,7 @@ def test_a_die_never_stands_on_fewer_than_three_supports_and_more_when_bigger():
     # reaching the minimum must densify the base, never climb the die: even when the band is sparse, the extra
     # supports stay low (this used to pull a point ~54% up a real die)
     assert reach_small <= 0.36 and reach_big <= 0.36
-    assert n_small >= sla_supports.MIN_PART_POINTS == 3        # never one or two
+    assert n_small >= sla_supports.DIE_MIN_POINTS == 4         # every die: at least four, never one or two or three
     assert n_big > n_small                                     # a bigger die gets more
     assert sla_supports._min_part_points(big, cfg) > sla_supports._min_part_points(small, cfg)
     # the size floor only applies to a die (base-only); an ordinary part keeps the flat minimum
