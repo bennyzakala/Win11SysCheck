@@ -705,6 +705,7 @@ STRINGS = {
     "unsupported_found": ("נמצאו אזורים תלויים בלי תמיכה ב-{} מודלים (מסומנים באדום)", "Unsupported overhangs on {} model(s) (shown red)"),
     "unsupported_none": ("כל המשטחים התלויים נתמכים", "All overhangs are supported"),
     "section_view_tip": ("תצוגת חתך: חותך את המודלים בגובה שנבחר כדי לראות פנימה (כמו כלי ה-Clipping ב-Asiga Composer)", "Section view: cuts the models at the chosen height to look inside (like Asiga Composer's clipping tool)"),
+    "xray_view_tip": ("מבט רנטגן: הופך את המודלים לשקופים כדי לראות דרכם את התמיכות, החללים והתמיכות הפנימיות", "X-ray view: makes the models see-through so you can see the supports, cavities and internal supports through them"),
     "islands_support_all": ("הוסף תמיכה לכל האיים", "Support all islands"),
     "islands_supported": ("נוספו {} תמיכות לאיים. פרוס שוב כדי לבדוק", "Added {} supports at islands. Slice again to check"),
     "islands_none": ("אין איים מהפריסה האחרונה", "No islands from the last slice"),

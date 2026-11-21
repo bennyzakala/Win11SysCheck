@@ -460,6 +460,7 @@ class Viewer(QOpenGLWidget):
         self.section_z = 1e9                     # clipping height of the section view in the prepare mode
         self.section_axis = 2                    # ... along X (0), Y (1) or Z (2)
         self.section_sign = 1.0                  # 1: keep what is below / before the cut, -1: what is past it
+        self.xray = False                        # x-ray view: models drawn see-through so supports / cavities show
         # while the view or a model moves, big meshes are drawn from a light copy; full detail returns
         # a moment after the movement stops
         from PySide6.QtCore import QTimer
@@ -798,6 +799,12 @@ class Viewer(QOpenGLWidget):
         self.overhang_sin = math.sin(math.radians(angle_deg))
         self.update()
 
+    def set_xray(self, on: bool):
+        """X-ray view: draw the models see-through so their supports, hollow cavities and internal supports
+        show through them."""
+        self.xray = bool(on)
+        self.update()
+
     # ---------------------------------------------------------- camera views
     def _scene_center(self):
         x0, y0, x1, y1 = getattr(self, "plate", (0.0, 0.0, self.bed[0], self.bed[1]))
@@ -1041,6 +1048,12 @@ class Viewer(QOpenGLWidget):
                 color = self._flash_lit(uid, self._hover_lit(lit, color))
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 self._set_model(p, obj["matrix"])
+                xray = self.xray and not preview       # see-through body so its supports / cavities show
+                if xray:
+                    GL.glUniform1f(self._u(p, "uAlpha"), 0.32)
+                    GL.glEnable(GL.GL_BLEND)
+                    GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+                    GL.glDepthMask(GL.GL_FALSE)
                 regions = self._region_buffers(obj) if state not in ("collision", "outside") else None
                 if regions and not (self.interacting and len(obj["mesh"].faces) > self.LOD_FACES):
                     sel = uid in self.selection
@@ -1051,6 +1064,10 @@ class Viewer(QOpenGLWidget):
                         buf.draw(GL.GL_TRIANGLES)
                 else:
                     self._buffer_for(obj, "buffer", "mesh").draw(GL.GL_TRIANGLES)
+                if xray:                               # back to opaque for this part's holes, labels and supports
+                    GL.glDepthMask(GL.GL_TRUE)
+                    GL.glDisable(GL.GL_BLEND)
+                    GL.glUniform1f(self._u(p, "uAlpha"), 1.0)
                 GL.glUniform1i(self._u(p, "uBound"), 0)
                 if obj.get("hole_buffer") is not None and not preview:
                     GL.glUniform1i(self._u(p, "uShowOverhang"), 0)

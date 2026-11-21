@@ -5145,6 +5145,34 @@ def test_mesh_problems_are_drawn_on_the_model():
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_xray_view_toggle_drives_the_viewer():
+    """The X-ray toolbar toggle turns the viewer's see-through mode on and off, and the view keeps rendering
+    with a model on the plate (the see-through look itself is a shader alpha, checked by eye)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1000, 700); w.show(); app.processEvents()
+        w.add_mesh(primitives.box(40, 40, 30)); app.processEvents()
+        assert not w.viewer.xray
+        w.xray_btn.setChecked(True); app.processEvents()
+        assert w.viewer.xray                                  # the toggle reached the viewer
+        w.viewer.grabFramebuffer()                            # still renders with see-through models (no crash)
+        w.xray_btn.setChecked(False); app.processEvents()
+        assert not w.viewer.xray
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_support_free_zones_keep_automatic_supports_away():
     """A support-free zone (e.g. a splint's biting surface) removes the automatic contact points inside it,
     in the editor and when slicing; it follows the model, survives undo and is saved in the project."""

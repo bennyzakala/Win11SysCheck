@@ -729,6 +729,7 @@
 "Seam position": "موضع الدرز",
 "Search settings…": "البحث في الإعدادات…",
 "Section view: cuts the models at the chosen height to look inside (like Asiga Composer's clipping tool)": "منظر مقطعي: يقطع النماذج عند الارتفاع المختار للنظر إلى الداخل (مثل أداة القص في Asiga Composer)",
+"X-ray view: makes the models see-through so you can see the supports, cavities and internal supports through them": "عرض الأشعة السينية: يجعل النماذج شفافة حتى ترى من خلالها الدعامات والتجاويف والدعامات الداخلية",
 "Select & move": "تحديد وتحريك",
 "Select a model first": "حدّد نموذجًا أولًا",
 "Select all": "تحديد الكل",

@@ -729,6 +729,7 @@
 "Seam position": "Положение шва",
 "Search settings…": "Поиск настроек…",
 "Section view: cuts the models at the chosen height to look inside (like Asiga Composer's clipping tool)": "Вид в разрезе: разрезает модели на выбранной высоте, чтобы заглянуть внутрь (как инструмент отсечения в Asiga Composer)",
+"X-ray view: makes the models see-through so you can see the supports, cavities and internal supports through them": "Рентгеновский вид: делает модели прозрачными, чтобы сквозь них были видны поддержки, полости и внутренние поддержки",
 "Select & move": "Выбор и перемещение",
 "Select a model first": "Сначала выберите модель",
 "Select all": "Выбрать всё",
