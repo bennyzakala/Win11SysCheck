@@ -5853,6 +5853,10 @@ def test_dental_files_recognised_by_name_and_shape():
     # a lab code with a tooth range and unit count is the restoration (crown / bridge) itself
     assert dental_cad.detect_indication("FYQ-SOD260046892-044-P-16-16-1-00-R685_2.stl") == "crown"
     assert dental_cad.detect_indication("BHK-SOD260045947-12-P.stl") == "unknown"   # no range: the shape decides
+    # a wax-up model whose name has "model"/"waxup" embedded (and a long tooth range) is a MODEL, not a bridge -
+    # it must lie flat, base down, not get the crown's open-up turn (which put it upside down)
+    assert dental_cad.detect_indication("SOD260045427-002-13-12-11-21-22-23-digitalwaxupmodel.stl") == "model"
+    assert dental_cad.detect_indication("case-14-13-12-waxup.stl") == "model"
     arch = primitives.box(60, 45, 15)
     assert dental_cad.indication_from_shape(arch) == "model"
     die = primitives.cylinder(4, 15)
