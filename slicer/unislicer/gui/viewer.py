@@ -75,6 +75,10 @@ void main(){
     // shape's outline and curvature still read - especially from straight above
     float edge = pow(1.0 - max(dot(n, v), 0.0), 1.5);
     a = clamp(uAlpha + (1.0 - uAlpha) * edge, uAlpha, 1.0);
+    // a glowing blue x-ray / hologram: a deep-blue body with bright cyan edges that glow at the silhouette
+    vec3 xbody = vec3(0.16, 0.42, 0.80);
+    vec3 xedge = vec3(0.55, 0.88, 1.0);
+    c = mix(xbody, xedge, edge) + edge * vec3(0.20, 0.45, 0.65);
   }
   frag = vec4(c, a);
 }"""
@@ -984,8 +988,12 @@ class Viewer(QOpenGLWidget):
         # gradient background
         GL.glDisable(GL.GL_DEPTH_TEST)
         GL.glUseProgram(self._bg)
-        GL.glUniform3f(self._u(self._bg, "uTop"), *theme.VIEW_BG_TOP)
-        GL.glUniform3f(self._u(self._bg, "uBottom"), *theme.VIEW_BG_BOTTOM)
+        if self.xray and self.mode != self.MODE_PREVIEW:      # x-ray: a dark room so the glowing models stand out
+            GL.glUniform3f(self._u(self._bg, "uTop"), 0.015, 0.02, 0.035)
+            GL.glUniform3f(self._u(self._bg, "uBottom"), 0.0, 0.0, 0.0)
+        else:
+            GL.glUniform3f(self._u(self._bg, "uTop"), *theme.VIEW_BG_TOP)
+            GL.glUniform3f(self._u(self._bg, "uBottom"), *theme.VIEW_BG_BOTTOM)
         GL.glBindVertexArray(self._empty_vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
         GL.glEnable(GL.GL_DEPTH_TEST)
