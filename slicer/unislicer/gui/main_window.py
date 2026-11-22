@@ -7549,6 +7549,15 @@ class MainWindow(QMainWindow):
         if not [o for o in self.objects if o.role != "cutter"]:
             self.status.setText(tr("fl_nothing"))
             return
+        cfg = self.settings.config()
+        # the models that will be sent (the selection, or the whole plate): block if any is off the plate, so a
+        # part that would be cut off or re-arranged by PreForm is caught here, not on the printer
+        chosen = [o for o in (self.selected_objects() or self.objects) if o.role != "cutter"]
+        outside = out_of_bounds(chosen, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg),
+                                region=plate_region(cfg))
+        if outside:
+            QMessageBox.warning(self, tr("fl_send"), tr("out_of_bounds").format(", ".join(o.name for o in outside)))
+            return
         if getattr(self, "_formlabs", None) is None:
             self._formlabs = formlabs.Client(port=int(self.store.value("formlabs_port", formlabs.DEFAULT_PORT)))
             QApplication.instance().aboutToQuit.connect(self._formlabs.stop)

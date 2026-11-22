@@ -5498,6 +5498,41 @@ def test_formlabs_send_eases_parts_that_would_fuse_and_keeps_the_arrangement():
     assert full3
 
 
+def test_send_to_formlabs_blocks_a_model_off_the_plate():
+    """Sending to Formlabs warns and stops if a model is off the plate (it would be cut off or re-arranged on
+    the printer), the same block as slicing - the send dialog never opens."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication, QMessageBox
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui import main_window as mw
+        w = mw.MainWindow(); app.processEvents()
+        o = w.add_mesh(primitives.box(15, 15, 10)); app.processEvents()
+        o.x, o.y = 9000.0, 9000.0                      # far off the plate
+        warned = {}
+        mw.QMessageBox.warning = staticmethod(lambda *a, **k: warned.update(title=a[1], text=a[2]))
+        opened = {"n": 0}
+        class FakeDlg:
+            def __init__(self, *a, **k): opened["n"] += 1
+            def exec(self): return 0
+        from unislicer.gui import formlabs_dialog
+        formlabs_dialog.FormlabsDialog = FakeDlg          # the function imports it from here
+        w.send_to_formlabs()
+        assert warned, "no warning shown"
+        assert "outside" in warned["text"] or "\\u05de\\u05d7\\u05d5\\u05e5" in warned["text"], warned
+        assert opened["n"] == 0, "the send dialog opened despite an off-plate model"
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_formlabs_dialog_connects_finds_and_sends(tmp_path):
     import json as _json, subprocess, sys, textwrap
     globals()["json"] = _json
