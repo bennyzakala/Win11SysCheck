@@ -6616,6 +6616,36 @@ def test_long_bridge_named_by_lab_code_is_a_bridge_not_a_model():
     assert dental_cad.detect_indication("case-2024-11-05.stl") == "unknown"
 
 
+def test_provisional_unit_code_is_read_as_a_crown_not_unknown():
+    """Lab names for provisional / temporary units carry a letter unit code where a permanent crown has a
+    plain count ("...-44-44-S1-A35-", an S1 temporary on tooth 44). The tooth-range reader took only a
+    digit count, so these fell through to the shape and were sometimes laid on their side. A letter-prefixed
+    unit code now reads as the restoration too."""
+    from unislicer import dental_cad
+    assert dental_cad.detect_indication("TDF-SOD260049840-044-P-44-44-S1-A35-.stl") == "crown"
+    assert dental_cad.detect_indication("TDF-SOD260049840-044-P-44-44-S1-A35-_0.stl") == "crown"
+    assert dental_cad.detect_indication("ABC-SOD111-044-P-14-24-P8-A3-.stl") == "crown"   # provisional bridge span
+    assert dental_cad.model_type_of("TDF-SOD260049840-044-P-44-44-S1-A35-", None) == "cb"
+    # a plain-count permanent crown still reads as before, and a model / die / gingiva is untouched
+    assert dental_cad.detect_indication("FYQ-SOD260046892-044-P-16-16-1-00-R685_2.stl") == "crown"
+    assert dental_cad.detect_indication("SOD260045427-002-13-12-11-21-22-23-digitalwaxupmodel.stl") == "model"
+    assert dental_cad.detect_indication("EGI-SOD260046764-114-Z-14-14-1-00-V227_Tooth_14.stl") == "die"
+    assert dental_cad.detect_indication("BAH-SOD260046430-034-X-35-36-2-C2-B592_Tissue_17.stl") == "gingiva"
+    assert dental_cad.detect_indication("upper.stl") == "unknown"
+
+
+def test_phrozen_printers_default_to_the_prz_format():
+    """Phrozen's own slicer writes .prz; the lab prints Phrozen jobs as .prz. Every current Phrozen printer
+    now defaults to it (the three legacy CHITUBOX-ZIP models keep their factory format, which their firmware
+    reads instead of .prz)."""
+    for pid in ("phrozen_sonic_mini_8k", "phrozen_sonic_mini_8k_s", "phrozen_sonic_mighty_8k",
+                "phrozen_sonic_mega_8k", "phrozen_sonic_cs_plus", "phrozen_lumii_2k",
+                "phrozen_sonic_ls_plus", "phrozen_sonic_xl_4k_plus", "phrozen_8k_2023"):
+        assert profiles.build_config(pid)["sla_format"] == "prz", pid
+    for pid in ("phrozen_sonic_xl_4k", "phrozen_sonic_4k_2022", "phrozen_sonic_xl_4k_2022"):
+        assert profiles.build_config(pid)["sla_format"] == "zip", pid
+
+
 def test_auto_label_never_puts_a_label_on_a_crown(tmp_path):
     """Labels > Auto label on the whole plate: models and dies get their label, crowns and bridges do not -
     a label on the tooth itself would spoil it (their code goes on the raft)."""
