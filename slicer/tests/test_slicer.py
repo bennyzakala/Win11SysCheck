@@ -5502,6 +5502,38 @@ def test_formlabs_send_eases_parts_that_would_fuse_and_keeps_the_arrangement():
     assert full3
 
 
+def test_the_last_raft_type_is_remembered_as_the_default():
+    """The raft type the user picks is kept as the default for the next plate (and new dental models use it
+    instead of their type's solid-lite raft), until they change it."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); app.processEvents()
+        w.settings.printer_id = "phrozen_sonic_ls_plus"; w.settings.rebuild()
+        w.settings._on_changed("sla_raft_type", "grid")        # the user picks a raft type (a real edit)
+        assert w.store.value("last_raft_type", "") == "grid", "the choice was not remembered"
+        w.store.sync()
+        # a fresh window reads the same store: the remembered raft is the default
+        w2 = MainWindow(); app.processEvents()
+        assert w2.settings.overrides.get("sla_raft_type") == "grid", w2.settings.overrides
+        # and a newly loaded die uses it, not its type's solid-lite raft
+        w2.settings.printer_id = "phrozen_sonic_ls_plus"; w2.settings.rebuild()
+        o = w2.add_mesh(primitives.box(8, 8, 14)); o.settings["sla_model_type"] = "die"; app.processEvents()
+        assert o.config(w2.settings.config())["sla_raft_type"] == "grid"
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_an_off_plate_model_pulses_red_until_arranged_back():
     """Blocking a slice because a model is off the plate also pulses that model in a warning colour (on top of
     the warning text), and the pulse stops once the model is moved back on the plate."""

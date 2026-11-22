@@ -1227,6 +1227,11 @@ class MainWindow(QMainWindow):
             overrides = json.loads(s.value("overrides", "{}"))
         except (TypeError, ValueError):
             pass
+        if not isinstance(overrides, dict):
+            overrides = {}
+        rt = s.value("last_raft_type", "")             # the raft type the user last chose stays the default
+        if rt and "sla_raft_type" not in overrides:
+            overrides["sla_raft_type"] = rt
         self.settings = SettingsPanel(s.value("printer", "creality_ender3v2"), s.value("material", None),
                                       s.value("quality", None), overrides, s.value("advanced", "false") == "true")
         try:                                       # settings sections open / closed as last time
@@ -1274,6 +1279,8 @@ class MainWindow(QMainWindow):
         self._settings_timer.timeout.connect(self._on_settings_changed)
         self.settings.changed.connect(self._settings_timer.start)
         self.settings.valueEdited.connect(lambda k, v: self.assistant.record_override(k, v))
+        self.settings.valueEdited.connect(self._remember_raft)
+        self.settings.scopeEdited.connect(self._remember_raft)
         self.settings.technologyChanged.connect(lambda _t: self._apply_printer())
         self.settings.filamentEditRequested.connect(self.filaments_dialog)
         self.settings.cfsSyncRequested.connect(self.sync_cfs)
@@ -5989,6 +5996,11 @@ class MainWindow(QMainWindow):
             self.slice()
         else:
             self.status.setText(tr("applied_saved").format(name))
+
+    def _remember_raft(self, key, value):
+        """The raft type the user picks is kept as the default for the next plate, until they change it."""
+        if key == "sla_raft_type" and value:
+            self.store.setValue("last_raft_type", str(value))
 
     def _save_state(self):
         s = self.store
