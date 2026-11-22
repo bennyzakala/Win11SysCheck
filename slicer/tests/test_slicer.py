@@ -620,6 +620,10 @@ def test_a_die_is_supported_only_along_its_base():
     # the die preset turns this on; the other model types keep the whole-part support (no leak)
     assert settings.MODEL_TYPE_PRESETS["die"]["sla_support_base"] > 0
     assert all(p["sla_support_base"] == 0.0 for k, p in settings.MODEL_TYPE_PRESETS.items() if k != "die")
+    # a die is held only at its base, so its tips bite wider and deeper for a sure bond (some were not catching
+    # the tooth with a thin, shallow head)
+    die = settings.MODEL_TYPE_PRESETS["die"]
+    assert die["sla_tip_diameter"] >= 0.6 and die["sla_contact_depth"] >= 0.3
 
 
 def test_a_die_keeps_base_only_supports_even_on_as_the_support_settings():
@@ -5496,6 +5500,39 @@ def test_formlabs_send_eases_parts_that_would_fuse_and_keeps_the_arrangement():
     e = ("e", primitives.box(10, 10, 6).translated([20.6, 0, 0]))
     _pos3, _eased3, full3 = eased_positions([a, d, e], [26.0, 14.0])
     assert full3
+
+
+def test_an_off_plate_model_pulses_red_until_arranged_back():
+    """Blocking a slice because a model is off the plate also pulses that model in a warning colour (on top of
+    the warning text), and the pulse stops once the model is moved back on the plate."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui import main_window as mw
+        mw.QMessageBox.warning = staticmethod(lambda *a, **k: None)
+        w = mw.MainWindow(); app.processEvents()
+        o = w.add_mesh(primitives.box(15, 15, 10)); app.processEvents()
+        o.x, o.y = 9000.0, 9000.0                       # far off the plate
+        w._objects_changed(); app.processEvents()
+        assert o.uid not in w.viewer._alert             # not pulsing yet, only coloured off-plate
+        w.slice()                                       # blocked -> starts the pulse
+        assert o.uid in w.viewer._alert, "off-plate model is not pulsing after a blocked slice"
+        # move it back onto the plate: the pulse clears
+        from unislicer.scene import plate_rect
+        r = plate_rect(w.settings.config()); o.x = (r[0]+r[2])/2; o.y = (r[1]+r[3])/2
+        w._objects_changed(); app.processEvents()
+        assert o.uid not in w.viewer._alert, "pulse did not stop after arranging the model back"
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
 def test_send_to_formlabs_blocks_a_model_off_the_plate():

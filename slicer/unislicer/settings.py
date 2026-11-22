@@ -514,8 +514,10 @@ MODEL_TYPE_PRESETS = {
     # a die: supports only along its lower part, so they do not climb the die and are easy to pull off (the
     # lab: supports that ran up a die were hard to remove after printing). Points closer, too (5.5 mm apart
     # left a small die on one support).
-    "die": {"sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2, "sla_support_spacing": 5.5, "support_angle": 50.0,
-            "sla_contact_depth": 0.2, "sla_avoid_fit": False, "sla_skip_ledges": True, "sla_support_base": 35.0},
+    # a die is held at its base only, so its tips can be wider and bite deeper for a sure bond (the base is cut
+    # off anyway) - some tips were not catching the tooth with a thin, shallow head
+    "die": {"sla_tip_diameter": 0.65, "sla_pillar_diameter": 1.2, "sla_support_spacing": 5.5, "support_angle": 50.0,
+            "sla_contact_depth": 0.35, "sla_avoid_fit": False, "sla_skip_ledges": True, "sla_support_base": 35.0},
     # gingiva: supported as a crown (it was the crown type before it got its own raft)
     "gingiva": {"sla_tip_diameter": 0.35, "sla_pillar_diameter": 0.9, "sla_support_spacing": 2.0, "support_angle": 45.0,
                 "sla_contact_depth": 0.15, "sla_avoid_fit": True, "sla_skip_ledges": False, "sla_support_base": 0.0},

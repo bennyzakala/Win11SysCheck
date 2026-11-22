@@ -3895,6 +3895,7 @@ class MainWindow(QMainWindow):
             self._collision_timer.start()
             if self.minima_btn.isChecked():
                 self._unsupported_timer.start()
+        self.viewer.prune_alert(set(outside))           # a part moved back on the plate stops pulsing red
         if outside:
             self.status.setText(tr("out_of_bounds").format(", ".join(sorted(outside.values()))))
         elif self.status.text().startswith(tr("out_of_bounds").split("{")[0]):
@@ -6042,6 +6043,7 @@ class MainWindow(QMainWindow):
         cfg = self.settings.config()
         outside = out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg), region=plate_region(cfg))
         if outside:
+            self.viewer.set_alert({o.uid for o in outside})      # pulse them red until arranged back
             QMessageBox.warning(self, tr("slice"), tr("out_of_bounds").format(", ".join(o.name for o in outside)))
             return
         models = [o for o in self.objects if o.role != "cutter"]
@@ -7556,6 +7558,7 @@ class MainWindow(QMainWindow):
         outside = out_of_bounds(chosen, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg),
                                 region=plate_region(cfg))
         if outside:
+            self.viewer.set_alert({o.uid for o in outside})      # pulse them red until arranged back
             QMessageBox.warning(self, tr("fl_send"), tr("out_of_bounds").format(", ".join(o.name for o in outside)))
             return
         if getattr(self, "_formlabs", None) is None:

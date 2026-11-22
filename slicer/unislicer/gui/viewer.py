@@ -473,6 +473,7 @@ class Viewer(QOpenGLWidget):
         self.section_axis = 2                    # ... along X (0), Y (1) or Z (2)
         self.section_sign = 1.0                  # 1: keep what is below / before the cut, -1: what is past it
         self.xray = False                        # x-ray view: models drawn see-through so supports / cavities show
+        self._alert = set()                      # uids pulsed in a warning colour until arranged back on the plate
         # while the view or a model moves, big meshes are drawn from a light copy; full detail returns
         # a moment after the movement stops
         from PySide6.QtCore import QTimer
@@ -1061,7 +1062,7 @@ class Viewer(QOpenGLWidget):
                     color = tuple(0.75 * a + 0.25 * b for a, b in zip(own, theme.MODEL_SELECTED)) \
                         if uid in self.selection else own
                 lit = uid if state not in ("collision", "outside") and not preview else None
-                color = self._flash_lit(uid, self._hover_lit(lit, color))
+                color = self._alert_lit(uid, self._flash_lit(uid, self._hover_lit(lit, color)))
                 sel = uid in self.selection
                 self._set_model(p, obj["matrix"])
                 xray = self.xray and not preview       # see-through body so its supports / cavities show
@@ -1935,6 +1936,38 @@ class Viewer(QOpenGLWidget):
             if self.__dict__.get("_flash_timer") is not None:
                 self._flash_timer.stop()
         self.update()
+
+    def set_alert(self, uids):
+        """Pulse these models in a warning colour until they are arranged back on the plate (cleared with
+        prune_alert as each returns). Used when a slice / send is blocked because a model is off the plate."""
+        self._alert = set(uids)
+        from PySide6.QtCore import QTimer
+        t = self.__dict__.get("_alert_timer")
+        if self._alert:
+            if t is None:
+                t = self._alert_timer = QTimer(self)
+                t.setInterval(40)
+                t.timeout.connect(self.update)
+            t.start()
+        elif t is not None:
+            t.stop()
+        self.update()
+
+    def prune_alert(self, still_off_plate):
+        """Drop any alerted model that is back on the plate; stops pulsing once none remain off."""
+        if self._alert:
+            keep = self._alert & set(still_off_plate)
+            if keep != self._alert:
+                self.set_alert(keep)
+
+    ALERT_COLOR = (1.0, 0.26, 0.22)                 # a vivid red-orange: 'this model is off the plate'
+
+    def _alert_lit(self, uid, color):
+        if uid not in self._alert:
+            return color
+        import math, time
+        amt = 0.4 + 0.5 * (0.5 + 0.5 * math.sin(time.monotonic() * 4.5))   # a steady pulse
+        return tuple(c + (f - c) * amt for c, f in zip(color, self.ALERT_COLOR))
 
     FLASH_COLOR = (0.31, 0.55, 1.0)                 # a vivid blue - visible on any model / dental shade
 
