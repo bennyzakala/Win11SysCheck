@@ -1746,7 +1746,9 @@ class MainWindow(QMainWindow):
 
         paths = list(paths)
         if len(paths) <= 1:
-            return [one(p) for p in paths]
+            # one file read on the window's thread froze it through the parse and the crown-opening cut
+            # (~0.1 s, more for a big or open mesh); on a background thread the window keeps repainting
+            return self._in_background(lambda: [one(p) for p in paths])
         from .. import file_reading, parallel
         if parallel.pool() is not None and not parallel.busy():
             # in the worker pool: on threads here the parsing held the window up to ~0.9 s at a time
