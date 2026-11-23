@@ -83,6 +83,104 @@ QLabel#AppTitle {{ color: #ffffff; }}
 QLabel#SectionTitle {{ color: {GLOW}; }}
 QScrollBar::handle {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6a55d8, stop:1 #ff3fb4); border-radius: 5px; }}
 """),
+    # Hologram HUD: deep space-black blue, a glowing cyan readout, a teal second light - a mission-control screen
+    "hud": dict(
+        BG="#05080f", SURFACE="#0b1322", SURFACE_2="#0f1828", SURFACE_3="#152235", BORDER="#1d3450",
+        BORDER_HOVER="#2b6f8f", TEXT="#d7f3ff", TEXT_DIM="#7fa8c4", TEXT_FAINT="#5c7e96",
+        ACCENT="#2bd6ff", ACCENT_HOVER="#5fe4ff", ACCENT_PRESSED="#17a8d0", ACCENT_SOFT="#0d2b3d",
+        ACCENT_DISABLED="#1c3a48", ACCENT_DISABLED_TEXT="#7fb3c8", ON_ACCENT="#04121b",
+        SUCCESS="#36f0d0", WARNING="#ffcf5a", DANGER="#ff5d72", OVERLAY=(10, 20, 38),
+        VIEW_BG_TOP=(0.040, 0.078, 0.150), VIEW_BG_BOTTOM=(0.014, 0.030, 0.060),
+        MODEL_COLOR=(0.35, 0.78, 1.00), MODEL_SELECTED=(0.21, 0.94, 0.82), MODEL_OUTSIDE=(1.00, 0.36, 0.45),
+        SUPPORT_COLOR=(0.29, 0.84, 0.91), BED_COLOR=(0.030, 0.090, 0.160), GRID_COLOR=(0.17, 0.55, 0.72),
+        LOGO_GRADIENT=("#2bd6ff", "#36f0d0"), DARK=True, GLOW="#2bd6ff",
+        LIGHT={"uKey": (0.55, 0.74, 0.84), "uFill": (0.12, 0.34, 0.50), "uRim": (0.20, 0.85, 0.95),
+               "uAmbLo": (0.05, 0.12, 0.20), "uAmbHi": (0.12, 0.30, 0.42)},
+        EXTRA_QSS="""
+QMainWindow, QDialog {{ background: qlineargradient(x1:0.5, y1:0, x2:0.5, y2:1, stop:0 #0a1426, stop:0.6 #05080f, stop:1 #03050b); }}
+QFrame#TopBar {{ background: rgba(9,18,34,0.94); border-bottom: 1px solid {ACCENT}; }}
+QFrame#SideBar {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0a1322, stop:1 #070d19); }}
+QFrame#Card, QWidget#Card {{ background: rgba(12,24,44,0.72); border: 1px solid {BORDER}; border-radius: 12px; }}
+QPushButton {{ border-radius: 9px; }}
+QPushButton:hover {{ border-color: {ACCENT}; }}
+QPushButton#Primary, QPushButton#Success {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT}, stop:1 {SUCCESS}); color: {ON_ACCENT}; border: none; border-radius: 10px; }}
+QPushButton#Primary:hover, QPushButton#Success:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT_HOVER}, stop:1 #6bffe6); }}
+QPushButton#Primary:pressed, QPushButton#Success:pressed {{ background: {ACCENT_PRESSED}; }}
+QPushButton:checked {{ background: {ACCENT}; color: {ON_ACCENT}; border: 1px solid {ACCENT}; }}
+QToolButton:checked {{ border: 1px solid {ACCENT}; border-radius: 9px; }}
+QProgressBar::chunk {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT}, stop:1 {SUCCESS}); border-radius: 6px; }}
+QSlider::sub-page:horizontal, QSlider::add-page:vertical {{ background: {ACCENT}; border-radius: 3px; }}
+QSlider::handle {{ background: #04121b; border: 2px solid {ACCENT}; }}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{ border: 1px solid {ACCENT}; }}
+QListWidget::item:selected, QTreeWidget::item:selected {{ background: rgba(43,214,255,0.22); color: {TEXT}; border-radius: 8px; }}
+QLabel#SectionTitle {{ color: {ACCENT}; }}
+QScrollBar::handle {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1f6f8f, stop:1 {ACCENT}); border-radius: 5px; }}
+"""),
+    # Frosted glass: a blue-to-violet night behind lighter translucent panels and hairline white edges
+    "glass": dict(
+        BG="#20244f", SURFACE="#2a2e5e", SURFACE_2="#262a58", SURFACE_3="#33376a", BORDER="#44497a",
+        BORDER_HOVER="#6670b0", TEXT="#eef1ff", TEXT_DIM="#bcc3ea", TEXT_FAINT="#8f97c4",
+        ACCENT="#8ea8ff", ACCENT_HOVER="#a9bdff", ACCENT_PRESSED="#6f8cf0", ACCENT_SOFT="#343a72",
+        ACCENT_DISABLED="#3c4278", ACCENT_DISABLED_TEXT="#cfd6ff", ON_ACCENT="#15183a",
+        SUCCESS="#5fe0a8", WARNING="#ffcf7a", DANGER="#ff7a95", OVERLAY=(38, 42, 90),
+        VIEW_BG_TOP=(0.160, 0.140, 0.340), VIEW_BG_BOTTOM=(0.090, 0.090, 0.240),
+        MODEL_COLOR=(0.68, 0.73, 1.00), MODEL_SELECTED=(1.00, 0.78, 0.45), MODEL_OUTSIDE=(1.00, 0.48, 0.58),
+        SUPPORT_COLOR=(0.80, 0.84, 1.00), BED_COLOR=(0.120, 0.120, 0.300), GRID_COLOR=(0.50, 0.52, 0.78),
+        LOGO_GRADIENT=("#8ea8ff", "#c4a9ff"), DARK=True, GLOW="#a9bdff",
+        LIGHT={"uKey": (0.70, 0.72, 0.84), "uFill": (0.26, 0.28, 0.44), "uRim": (0.52, 0.58, 0.95),
+               "uAmbLo": (0.16, 0.16, 0.30), "uAmbHi": (0.30, 0.30, 0.46)},
+        EXTRA_QSS="""
+QMainWindow, QDialog {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1a1f4d, stop:0.5 #272a5c, stop:1 #3a2a63); }}
+QFrame#TopBar {{ background: rgba(255,255,255,0.08); border-bottom: 1px solid rgba(255,255,255,0.18); }}
+QFrame#SideBar {{ background: rgba(255,255,255,0.055); border: none; }}
+QFrame#Card, QWidget#Card {{ background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.18); border-radius: 16px; }}
+QPushButton {{ background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.16); border-radius: 12px; }}
+QPushButton:hover {{ background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.32); }}
+QPushButton#Primary, QPushButton#Success {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {ACCENT}, stop:1 #c4a9ff); color: {ON_ACCENT}; border: 1px solid rgba(255,255,255,0.40); border-radius: 13px; }}
+QPushButton#Primary:hover, QPushButton#Success:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {ACCENT_HOVER}, stop:1 #d4bcff); }}
+QPushButton:checked {{ background: {ACCENT}; color: {ON_ACCENT}; border: 1px solid rgba(255,255,255,0.4); }}
+QProgressBar::chunk {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT}, stop:1 #c4a9ff); border-radius: 6px; }}
+QSlider::sub-page:horizontal, QSlider::add-page:vertical {{ background: {ACCENT}; border-radius: 3px; }}
+QSlider::handle {{ background: #ffffff; border: 2px solid {ACCENT}; }}
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{ background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18); }}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{ border: 1px solid {ACCENT}; }}
+QListWidget::item:selected, QTreeWidget::item:selected {{ background: rgba(142,168,255,0.35); color: #ffffff; border-radius: 8px; }}
+QLabel#SectionTitle {{ color: #cdd5ff; }}
+QScrollBar::handle {{ background: rgba(255,255,255,0.22); border-radius: 5px; }}
+"""),
+    # Neon cyberpunk: near-black with a magenta/cyan current running through the chrome
+    "cyber": dict(
+        BG="#0a0510", SURFACE="#120a1e", SURFACE_2="#180d28", SURFACE_3="#211036", BORDER="#3a1d52",
+        BORDER_HOVER="#ff2bd0", TEXT="#ffe9fb", TEXT_DIM="#c79ad4", TEXT_FAINT="#8f6aa0",
+        ACCENT="#ff2bd0", ACCENT_HOVER="#ff5cdc", ACCENT_PRESSED="#d416ad", ACCENT_SOFT="#331041",
+        ACCENT_DISABLED="#4a2152", ACCENT_DISABLED_TEXT="#c79ad4", ON_ACCENT="#0a0510",
+        SUCCESS="#49f0b0", WARNING="#ffc861", DANGER="#ff5a7a", OVERLAY=(18, 10, 30),
+        VIEW_BG_TOP=(0.120, 0.040, 0.170), VIEW_BG_BOTTOM=(0.030, 0.015, 0.050),
+        MODEL_COLOR=(1.00, 0.33, 0.85), MODEL_SELECTED=(0.13, 0.89, 1.00), MODEL_OUTSIDE=(1.00, 0.55, 0.25),
+        SUPPORT_COLOR=(0.13, 0.89, 1.00), BED_COLOR=(0.060, 0.030, 0.120), GRID_COLOR=(0.60, 0.17, 0.68),
+        LOGO_GRADIENT=("#ff2bd0", "#20e3ff"), DARK=True, GLOW="#20e3ff",
+        LIGHT={"uKey": (0.80, 0.60, 0.75), "uFill": (0.10, 0.50, 0.60), "uRim": (1.00, 0.20, 0.82),
+               "uAmbLo": (0.10, 0.03, 0.16), "uAmbHi": (0.22, 0.10, 0.30)},
+        EXTRA_QSS="""
+QMainWindow, QDialog {{ background: qlineargradient(x1:0.8, y1:0, x2:0.2, y2:1, stop:0 #15071f, stop:0.55 #0a0510, stop:1 #06030b); }}
+QFrame#TopBar {{ background: #100718; border-bottom: 2px solid qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT}, stop:1 {GLOW}); }}
+QFrame#SideBar {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #120a1e, stop:1 #0a0512); }}
+QFrame#Card, QWidget#Card {{ background: #140a22; border: 1px solid {BORDER}; border-radius: 12px; }}
+QPushButton {{ border-radius: 10px; }}
+QPushButton:hover {{ border-color: {GLOW}; }}
+QPushButton#Primary, QPushButton#Success {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT}, stop:1 {GLOW}); color: #ffffff; border: 1px solid rgba(255,255,255,0.30); border-radius: 12px; }}
+QPushButton#Primary:hover, QPushButton#Success:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT_HOVER}, stop:1 #5cf0ff); }}
+QPushButton#Primary:pressed, QPushButton#Success:pressed {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT_PRESSED}, stop:1 #17b8d8); }}
+QPushButton:checked {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT}, stop:1 {GLOW}); color: #ffffff; border: 1px solid {GLOW}; }}
+QToolButton:checked {{ border: 1px solid {GLOW}; border-radius: 9px; }}
+QProgressBar::chunk {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT}, stop:1 {GLOW}); border-radius: 6px; }}
+QSlider::sub-page:horizontal, QSlider::add-page:vertical {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT}, stop:1 {GLOW}); border-radius: 3px; }}
+QSlider::handle {{ background: #ffffff; border: 2px solid {ACCENT}; }}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{ border: 1px solid {GLOW}; }}
+QListWidget::item:selected, QTreeWidget::item:selected {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(255,43,208,0.42), stop:1 rgba(32,227,255,0.22)); color: #ffffff; border-radius: 8px; }}
+QLabel#SectionTitle {{ color: {GLOW}; }}
+QScrollBar::handle {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {ACCENT}, stop:1 {GLOW}); border-radius: 5px; }}
+"""),
 }
 THEME_NAMES = tuple(THEMES)
 # the active theme's colours (filled in by set_theme)
