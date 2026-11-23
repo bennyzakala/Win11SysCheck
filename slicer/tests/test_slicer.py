@@ -5525,6 +5525,17 @@ def test_the_last_raft_type_is_remembered_as_the_default():
         w2.settings.printer_id = "phrozen_sonic_ls_plus"; w2.settings.rebuild()
         o = w2.add_mesh(primitives.box(8, 8, 14)); o.settings["sla_model_type"] = "die"; app.processEvents()
         assert o.config(w2.settings.config())["sla_raft_type"] == "grid"
+        # the user changes it again, to raft&label, then back to solid: the LAST choice is what sticks
+        w2.settings._on_changed("sla_raft_type", "raft_label"); app.processEvents()
+        w2.settings._on_changed("sla_raft_type", "solid"); w2.store.sync()
+        w3 = MainWindow(); app.processEvents()
+        assert w3.settings.overrides.get("sla_raft_type") == "solid", w3.settings.overrides
+        # the bug: a stale raft&label saved in the plate overrides must NOT override the remembered choice
+        import json as _json
+        w3.store.setValue("overrides", _json.dumps({**w3.settings.overrides, "sla_raft_type": "raft_label"}))
+        w3.store.setValue("last_raft_type", "solid"); w3.store.sync()
+        w4 = MainWindow(); app.processEvents()
+        assert w4.settings.overrides.get("sla_raft_type") == "solid", w4.settings.overrides
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -1229,9 +1229,9 @@ class MainWindow(QMainWindow):
             pass
         if not isinstance(overrides, dict):
             overrides = {}
-        rt = s.value("last_raft_type", "")             # the raft type the user last chose stays the default
-        if rt and "sla_raft_type" not in overrides:
-            overrides["sla_raft_type"] = rt
+        rt = s.value("last_raft_type", "")             # the raft type the user last chose stays the default -
+        if rt:                                         # it wins even over a stale saved plate raft (e.g. a
+            overrides["sla_raft_type"] = rt            # raft&label chosen once and kept in the saved overrides)
         self.settings = SettingsPanel(s.value("printer", "creality_ender3v2"), s.value("material", None),
                                       s.value("quality", None), overrides, s.value("advanced", "false") == "true")
         try:                                       # settings sections open / closed as last time
