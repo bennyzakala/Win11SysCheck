@@ -5545,6 +5545,47 @@ def test_the_last_raft_type_is_remembered_as_the_default():
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_the_profile_library_opens_after_the_gear_click_unwinds():
+    """The gear by Printer / Material opens the profile library, and closing it rebuilds the settings panel -
+    both gear buttons included. Opening the dialog straight from the gear's own clicked signal rebuilt (and so
+    deleted) the button mid-signal: a native use-after-free that crashed, often only on the next gear click
+    (open the printer gear, close, open the material gear). The library now opens once the click has unwound,
+    so the button is never deleted while its signal is still on the stack."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication, QToolButton
+        app = QApplication([])
+        from unislicer.gui import settings_panel as sp
+        import unislicer.gui.profile_manager as pm
+        from unislicer.gui.i18n import tr
+        opened = []
+        class StubPM:                       # a library dialog that opens and closes with no change
+            def __init__(self, kind, tech, current, parent=None):
+                self.selected_id = None; opened.append(kind)
+            def exec(self): return 0
+        pm.ProfileManager = StubPM
+        p = sp.SettingsPanel("phrozen_sonic_ls_plus", None, None, {}, False)
+        def gear(tip):
+            return [b for b in p.findChildren(QToolButton) if b.toolTip() == tip][0]
+        gear(tr("manage_printers")).click()
+        assert opened == [], "the library opened synchronously inside the click - it must defer"
+        app.processEvents(); app.processEvents()
+        assert opened == ["printers"], opened
+        # closing rebuilt the panel; the material gear is a fresh live button and opening it is safe
+        gear(tr("manage_materials")).click()
+        assert opened == ["printers"]
+        app.processEvents(); app.processEvents()
+        assert opened == ["printers", "materials"], opened
+        assert gear(tr("manage_printers")).isEnabled() and gear(tr("manage_materials")).isEnabled()
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_an_off_plate_model_pulses_red_until_arranged_back():
     """Blocking a slice because a model is off the plate also pulses that model in a warning colour (on top of
     the warning text), and the pulse stops once the model is moved back on the plate."""

@@ -401,7 +401,12 @@ class SettingsPanel(QWidget):
                 lib.setIcon(theme.icon("settings", theme.TEXT_DIM, 16))
                 lib.setToolTip(tr("manage_printers") if key == "printer" else tr("manage_materials"))
                 lib.setCursor(Qt.PointingHandCursor)
-                lib.clicked.connect(lambda _=False, k=key: self.open_library("printers" if k == "printer" else "materials"))
+                # open after the click event has unwound: open_library rebuilds the panel (both these gear
+                # buttons included) when the dialog closes, and doing that inside the button's own clicked
+                # emission deleted the button mid-signal - a use-after-free that crashed natively, often only
+                # on the next gear click (open one gear, close, open the other)
+                lib.clicked.connect(lambda _=False, k=key: QTimer.singleShot(
+                    0, lambda k=k: self.open_library("printers" if k == "printer" else "materials")))
                 row.addWidget(lib)
             if key == "material":
                 # back to the resin's original settings: drops edits in the panel and changes saved over the profile
