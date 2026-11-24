@@ -5567,6 +5567,11 @@ def test_the_printer_picker_shows_each_printers_picture(tmp_path):
         a = pi.pixmap("phrozen_sonic_xl_4k_plus", printers["phrozen_sonic_xl_4k_plus"], 64).toImage()
         b = pi.pixmap("phrozen_sonic_xl_4k", printers["phrozen_sonic_xl_4k"], 64).toImage()
         assert a != b                                     # the look-alikes draw differently
+        # the lab's own printers ship with the maker's photo; the look-alikes keep the drawing
+        for pid in ("phrozen_sonic_xl_4k_plus", "phrozen_sonic_ls_plus", "phrozen_sonic_cs_plus",
+                    "formlabs_form4b", "formlabs_form4bl"):
+            assert pi.photo_path(pid) and pi.photo_path(pid).startswith(pi.BUILTIN_DIR), pid
+        assert pi.photo_path("phrozen_sonic_xl_4k") is None and pi.photo_path("phrozen_sonic_xl_4k_2022") is None
         p = SettingsPanel("phrozen_sonic_xl_4k_plus", None, None, {{}}, False)
         assert not p.printer_button.icon().isNull()
         menu = p.printer_button.menu()
