@@ -4,14 +4,30 @@ from __future__ import annotations
 import json
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QInputDialog, QLabel,
-                               QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QScrollArea, QSizePolicy, QSpinBox,
-                               QPushButton, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog,
+                               QLabel, QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QProxyStyle, QScrollArea,
+                               QSizePolicy, QSpinBox, QPushButton, QStyle, QToolButton, QVBoxLayout, QWidget)
 
 from .. import profiles
 from ..gcode import default_end_gcode, default_start_gcode
 from ..settings import (CATEGORIES, MODEL_TYPE_KEYS, SCHEMA_BY_KEY, SIMPLE_KEYS, SUPPORT_PRESETS, Config,
                         applies_to_process, visible_settings)
+
+PRINTER_PICTURE = 44           # px: each printer's picture in the printer menu (and on its button)
+
+
+class _MenuPictures(QProxyStyle):
+    """Menu icons as large as the printers' pictures (Qt draws menu icons at the small icon size)."""
+
+    def __init__(self, size: int):
+        super().__init__()
+        self._size = size
+
+    def pixelMetric(self, metric, option=None, widget=None):
+        if metric == QStyle.PM_SmallIconSize:
+            return self._size
+        return super().pixelMetric(metric, option, widget)
+
 
 PROCESS_BADGE = {"lcd": "LCD", "dlp": "DLP", "laser": "SLA", "polyjet": "POLYJET"}
 # UniSlicer is for resin printers only: filament (FDM) printers, materials and settings are not offered
@@ -705,6 +721,14 @@ class SettingsPanel(QWidget):
         i = combo.currentIndex()
         name = combo.itemText(i) if i >= 0 else tr("printer")
         btn.setText("  " + name + "    ▾  ")
+        # the chosen printer's picture on the button too: a look-alike (XL 4K 2020 for the XL 4K Plus) shows
+        pid = combo.itemData(i) if i >= 0 else None
+        if pid:
+            from PySide6.QtGui import QIcon
+            from . import printer_images
+            btn.setIcon(QIcon(printer_images.pixmap(pid, profiles.load("printers").get(pid, {}), PRINTER_PICTURE * 2)))
+            btn.setIconSize(QSize(PRINTER_PICTURE, PRINTER_PICTURE))
+            btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         btn.setMenu(self._build_printer_menu())
 
     def _build_printer_menu(self) -> QMenu:
@@ -720,7 +744,11 @@ class SettingsPanel(QWidget):
                 continue
             vendor = printers.get(pid, {}).get("vendor") or tr("vendor_other")
             by_vendor.setdefault(vendor, []).append(i)
+        from PySide6.QtGui import QIcon
+        from . import printer_images
         menu = QMenu(self.printer_button)
+        pictures = _MenuPictures(PRINTER_PICTURE)
+        pictures.setParent(menu)
         cur = combo.currentIndex()
         starred = lambda i: combo.itemText(i).lstrip().startswith("★")
         for vendor, idxs in by_vendor.items():
@@ -728,17 +756,46 @@ class SettingsPanel(QWidget):
             idxs = sorted(idxs, key=lambda i: 0 if starred(i) else 1)
             favs = sum(1 for i in idxs if starred(i))
             sub = menu.addMenu(f"  {vendor}    ({len(idxs)})")
+            sub.setStyle(pictures)
             for n, i in enumerate(idxs):
                 if n == favs and 0 < favs < len(idxs):
                     sub.addSeparator()
                 act = sub.addAction(combo.itemText(i))
+                pid = combo.itemData(i)
+                act.setIcon(QIcon(printer_images.pixmap(pid, printers.get(pid, {}), PRINTER_PICTURE * 2)))
                 note = combo.itemData(i, Qt.ToolTipRole)
                 if note:
                     act.setToolTip(str(note))
                 act.setCheckable(True)
                 act.setChecked(i == cur)
                 act.triggered.connect(lambda _=False, i=i: self.printer_combo.setCurrentIndex(i))
+        # the chosen printer's photo: the maker's product photo, or one of the machine in the lab
+        pid = combo.itemData(cur) if cur >= 0 else None
+        if pid:
+            menu.addSeparator()
+            menu.addAction(tr("printer_photo_set"), lambda: QTimer.singleShot(0, lambda: self._choose_printer_photo(pid)))
+            if printer_images.has_own_photo(pid):
+                menu.addAction(tr("printer_photo_clear"), lambda: QTimer.singleShot(0, lambda: self._clear_printer_photo(pid)))
         return menu
+
+    def _choose_printer_photo(self, pid: str):
+        import os
+        from . import printer_images
+        path, _ = QFileDialog.getOpenFileName(self, tr("printer_photo_set"), os.path.expanduser("~"),
+                                              "Images (*.png *.jpg *.jpeg *.webp *.bmp)")
+        if not path:
+            return
+        try:
+            printer_images.set_photo(pid, path)
+        except (OSError, ValueError):
+            QMessageBox.warning(self, tr("printer_photo_set"), tr("printer_photo_bad"))
+            return
+        self._sync_printer_button()
+
+    def _clear_printer_photo(self, pid: str):
+        from . import printer_images
+        printer_images.clear_photo(pid)
+        self._sync_printer_button()
 
     def _fill_printers(self):
         self._building = True

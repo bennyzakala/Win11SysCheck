@@ -5545,6 +5545,58 @@ def test_the_last_raft_type_is_remembered_as_the_default():
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_the_printer_picker_shows_each_printers_picture(tmp_path):
+    """A lab sliced for the Phrozen Sonic XL 4K (2020) - 50 um pixels - and printed on its XL 4K Plus (52 um):
+    every part came out 4% too large. The printer menu and its button now show each printer's picture (a photo
+    set for it, else a drawing with its model written on it), and a photo can be set for the chosen printer."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent(f'''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtGui import QImage, QColor
+        app = QApplication([])
+        from unislicer import profiles
+        profiles.USER_DIR = {str(tmp_path)!r}
+        from unislicer.gui import printer_images as pi
+        from unislicer.gui.settings_panel import SettingsPanel, PRINTER_PICTURE
+        from unislicer.gui.i18n import tr
+        printers = profiles.load("printers")
+        assert pi.short_label(printers["phrozen_sonic_xl_4k_plus"]) == "XL 4K PLUS"
+        assert pi.short_label(printers["phrozen_sonic_xl_4k"]) == "XL 4K 2020"
+        a = pi.pixmap("phrozen_sonic_xl_4k_plus", printers["phrozen_sonic_xl_4k_plus"], 64).toImage()
+        b = pi.pixmap("phrozen_sonic_xl_4k", printers["phrozen_sonic_xl_4k"], 64).toImage()
+        assert a != b                                     # the look-alikes draw differently
+        p = SettingsPanel("phrozen_sonic_xl_4k_plus", None, None, {{}}, False)
+        assert not p.printer_button.icon().isNull()
+        menu = p.printer_button.menu()
+        sub = [x.menu() for x in menu.actions() if x.menu() and "Phrozen" in x.menu().title()][0]
+        assert all(not x.icon().isNull() for x in sub.actions() if not x.isSeparator())
+        assert sub.actionGeometry(sub.actions()[0]).height() >= PRINTER_PICTURE
+        texts = [x.text() for x in menu.actions()]
+        assert tr("printer_photo_set") in texts and tr("printer_photo_clear") not in texts
+        # the lab sets a photo: it replaces the drawing, on the button too; removing it brings the drawing back
+        img = QImage(40, 30, QImage.Format_RGB32); img.fill(QColor(0, 200, 0))
+        src = os.path.join({str(tmp_path)!r}, "xl.png"); img.save(src)
+        pi.set_photo("phrozen_sonic_xl_4k_plus", src)
+        shown = pi.pixmap("phrozen_sonic_xl_4k_plus", printers["phrozen_sonic_xl_4k_plus"], 64).toImage()
+        assert QColor(shown.pixel(32, 32)).green() > 150
+        p._sync_printer_button()
+        assert tr("printer_photo_clear") in [x.text() for x in p.printer_button.menu().actions()]
+        p._clear_printer_photo("phrozen_sonic_xl_4k_plus")
+        assert not pi.has_own_photo("phrozen_sonic_xl_4k_plus")
+        try:
+            pi.set_photo("phrozen_sonic_xl_4k_plus", os.path.join({str(tmp_path)!r}, "nope.txt"))
+            raise SystemExit("a non-picture was taken")
+        except ValueError:
+            pass
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=180)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_a_resin_for_other_printers_is_not_kept_hidden_in_use():
     """Phrozen's own slicer has two "Washable Dental Model" resins: "Phrozen" (XL / 4K printers only) and
     "Phrozen Dental" (all of the lab's printers). The first is not listed on the LS+, but when it was the chosen
