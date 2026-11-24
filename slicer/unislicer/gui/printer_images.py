@@ -15,7 +15,9 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
 
 PHOTO_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
-BUILTIN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brand", "printers")
+BRAND = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brand")
+BUILTIN_DIR = os.path.join(BRAND, "printers")
+MATERIAL_BUILTIN_DIR = os.path.join(BRAND, "materials")
 
 # the cover / accent colour of each maker's machines (Phrozen and Formlabs: amber and orange UV covers)
 VENDOR_COLOURS = {"phrozen": "#f0a12c", "formlabs": "#f26b21", "elegoo": "#e8432f", "anycubic": "#2f7de8",
@@ -23,18 +25,22 @@ VENDOR_COLOURS = {"phrozen": "#f0a12c", "formlabs": "#f26b21", "elegoo": "#e8432
 _cache: dict = {}
 
 
-def photo_dir() -> str:
+def photo_dir(kind: str = "printers") -> str:
     from .. import profiles
-    return os.path.join(profiles.USER_DIR, "printer_photos")
+    return os.path.join(profiles.USER_DIR, "printer_photos" if kind == "printers" else "material_photos")
+
+
+def _folders(kind: str) -> tuple:
+    return photo_dir(kind), (BUILTIN_DIR if kind == "printers" else MATERIAL_BUILTIN_DIR)
 
 
 def _safe_id(pid: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", pid or "")
 
 
-def photo_path(pid: str) -> str | None:
-    """The photo set for this printer (the lab's own first, then one shipped with the program), or None."""
-    for folder in (photo_dir(), BUILTIN_DIR):
+def photo_path(pid: str, kind: str = "printers") -> str | None:
+    """The photo set for this printer / resin (the lab's own first, then one shipped with the program), or None."""
+    for folder in _folders(kind):
         for ext in PHOTO_EXTENSIONS:
             p = os.path.join(folder, _safe_id(pid) + ext)
             if os.path.isfile(p):
@@ -42,29 +48,29 @@ def photo_path(pid: str) -> str | None:
     return None
 
 
-def set_photo(pid: str, source: str) -> str:
+def set_photo(pid: str, source: str, kind: str = "printers") -> str:
     """Keep a copy of ``source`` as this printer's photo (any earlier one goes). Returns the kept file."""
     ext = os.path.splitext(source)[1].lower()
     if ext not in PHOTO_EXTENSIONS or QPixmap(source).isNull():
         raise ValueError("not a picture")
-    clear_photo(pid)
-    os.makedirs(photo_dir(), exist_ok=True)
-    dest = os.path.join(photo_dir(), _safe_id(pid) + ext)
+    clear_photo(pid, kind)
+    os.makedirs(photo_dir(kind), exist_ok=True)
+    dest = os.path.join(photo_dir(kind), _safe_id(pid) + ext)
     shutil.copyfile(source, dest)
     _cache.clear()
     return dest
 
 
-def clear_photo(pid: str) -> None:
+def clear_photo(pid: str, kind: str = "printers") -> None:
     for ext in PHOTO_EXTENSIONS:
-        p = os.path.join(photo_dir(), _safe_id(pid) + ext)
+        p = os.path.join(photo_dir(kind), _safe_id(pid) + ext)
         if os.path.isfile(p):
             os.remove(p)
     _cache.clear()
 
 
-def has_own_photo(pid: str) -> bool:
-    return any(os.path.isfile(os.path.join(photo_dir(), _safe_id(pid) + e)) for e in PHOTO_EXTENSIONS)
+def has_own_photo(pid: str, kind: str = "printers") -> bool:
+    return any(os.path.isfile(os.path.join(photo_dir(kind), _safe_id(pid) + e)) for e in PHOTO_EXTENSIONS)
 
 
 def short_label(printer: dict) -> str:
@@ -130,9 +136,18 @@ def drawing(pid: str, printer: dict, size: int) -> QPixmap:
 def pixmap(pid: str, printer: dict, size: int) -> QPixmap:
     """This printer's picture at ``size`` px (square, transparent margins): its photo when it has one, else the
     drawing."""
-    photo = photo_path(pid)
+    return _picture(pid, "printers", size, lambda: drawing(pid, printer, size))
+
+
+def material_pixmap(mid: str, material: dict, size: int) -> QPixmap:
+    """This resin's picture: its bottle photo when it has one, else a bottle drawn in the resin's colour."""
+    return _picture(mid, "materials", size, lambda: bottle(material, size))
+
+
+def _picture(pid: str, kind: str, size: int, draw) -> QPixmap:
+    photo = photo_path(pid, kind)
     stamp = os.path.getmtime(photo) if photo else None
-    key = (pid, size, photo, stamp)
+    key = (kind, pid, size, photo, stamp)
     hit = _cache.get(key)
     if hit is not None:
         return hit
@@ -147,6 +162,62 @@ def pixmap(pid: str, printer: dict, size: int) -> QPixmap:
             p.drawPixmap((size - scaled.width()) // 2, (size - scaled.height()) // 2, scaled)
             p.end()
     if out is None:
-        out = drawing(pid, printer, size)
+        out = draw()
     _cache[key] = out
     return out
+
+
+# the resin's colour from its name: the imported Phrozen profiles all carry one placeholder colour
+_NAME_COLOURS = (  # a colour named in the resin's name first ("Castable W40 Orange"), then what the resin is for
+    ("orange", "#e8853a"), ("violet", "#8a5cd6"), ("purple", "#8a5cd6"), ("black", "#2d2d30"), ("grey", "#8c9097"),
+    ("gray", "#8c9097"), ("white", "#efefeb"), ("clear", "#cfe7f2"), ("blue", "#3f7fd6"), ("red", "#d64545"),
+    ("yellow", "#e3c93a"), ("pink", "#e8879a"), ("green", "#3faa66"), ("beige", "#d8b38e"), ("ivory", "#efe5cc"),
+    ("skin", "#e7c0a3"), ("gingiva", "#e8879a"), ("denture", "#d65f6e"), ("castable", "#3faa66"),
+    ("splint", "#cfe7f2"), ("guard", "#cfe7f2"), ("flex", "#cfe7f2"), ("guide", "#e8a13a"), ("crown", "#efe5cc"),
+    ("temp", "#efe5cc"), ("tooth", "#efe5cc"), ("c&b", "#efe5cc"), ("model", "#d8b38e"))
+_PLACEHOLDER = (0.784, 0.976, 1.0)
+
+
+def resin_colour(material: dict) -> QColor:
+    name = str(material.get("name") or "").lower()
+    for word, hexc in _NAME_COLOURS:
+        if word in name:
+            return QColor(hexc)
+    rgb = material.get("color")
+    if rgb and tuple(round(float(c), 3) for c in rgb[:3]) != _PLACEHOLDER:
+        return QColor.fromRgbF(*[min(1.0, max(0.0, float(c))) for c in rgb[:3]])
+    hue = sum(ord(ch) for ch in name) * 37 % 360        # a resin with nothing to go by: its own steady hue
+    return QColor.fromHsv(hue, 120, 200)
+
+
+def bottle(material: dict, size: int) -> QPixmap:
+    """A resin bottle in the resin's colour, with a label."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    colour = resin_colour(material)
+    edge = QPen(colour.darker(165), max(1.0, size / 48))
+    cap = QRectF(size * 0.36, size * 0.04, size * 0.28, size * 0.14)
+    p.setPen(QPen(QColor("#15171c"), max(1.0, size / 64)))
+    p.setBrush(QColor("#30343c"))
+    p.drawRoundedRect(cap, size * 0.03, size * 0.03)
+    neck = QRectF(size * 0.40, size * 0.17, size * 0.20, size * 0.08)
+    p.setBrush(colour.darker(115))
+    p.setPen(edge)
+    p.drawRect(neck)
+    body = QRectF(size * 0.22, size * 0.24, size * 0.56, size * 0.72)
+    path = QPainterPath()
+    path.addRoundedRect(body, size * 0.10, size * 0.10)
+    p.fillPath(path, colour)
+    p.drawPath(path)
+    p.fillRect(QRectF(body.x() + body.width() * 0.10, body.y() + size * 0.05, body.width() * 0.10,
+                      body.height() * 0.80), QColor(255, 255, 255, 70))
+    label = QRectF(body.x() + size * 0.04, body.y() + body.height() * 0.38, body.width() - size * 0.08,
+                   body.height() * 0.34)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(255, 255, 255, 230))
+    p.drawRect(label)
+    p.fillRect(QRectF(label.x(), label.y(), label.width(), label.height() * 0.22), colour.darker(130))
+    p.end()
+    return pm

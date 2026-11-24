@@ -5602,6 +5602,45 @@ def test_the_printer_picker_shows_each_printers_picture(tmp_path):
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_the_resin_list_shows_each_resins_bottle(tmp_path):
+    """Next to each resin in the list, its bottle: the maker's photo for the lab's model resins, else a bottle
+    drawn in the resin's colour (taken from its name - the imported profiles share one placeholder colour).
+    Right-click on the resin sets a photo of its own."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent(f'''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtGui import QImage, QColor
+        app = QApplication([])
+        from unislicer import profiles
+        profiles.USER_DIR = {str(tmp_path)!r}
+        from unislicer.gui import printer_images as pi
+        from unislicer.gui.settings_panel import SettingsPanel, MATERIAL_PICTURE
+        washable = "phrozen_ds_phrozen_dental_washable_dental_model"
+        assert pi.photo_path(washable, "materials").startswith(pi.MATERIAL_BUILTIN_DIR)
+        assert pi.resin_colour({{"name": "Castable W40 Orange"}}).name() == "#e8853a"      # the named colour first
+        assert pi.resin_colour({{"name": "Gingiva Mask"}}).name() != pi.resin_colour({{"name": "Washable Dental Model"}}).name()
+        p = SettingsPanel("phrozen_sonic_xl_4k_plus", washable, None, {{}}, False)
+        c = p.material_combo
+        assert c.iconSize().width() == MATERIAL_PICTURE
+        assert all(not c.itemIcon(i).isNull() for i in range(c.count()) if c.itemData(i))
+        mid = "phrozen_ds_phrozen_dental_gingiva_mask"
+        img = QImage(20, 40, QImage.Format_RGB32); img.fill(QColor(0, 0, 220))
+        src = os.path.join({str(tmp_path)!r}, "b.png"); img.save(src)
+        pi.set_photo(mid, src, "materials")
+        assert pi.has_own_photo(mid, "materials") and not pi.has_own_photo(mid)        # kept apart from printers
+        shown = pi.material_pixmap(mid, {{}}, 64).toImage()
+        assert QColor(shown.pixel(32, 32)).blue() > 150
+        pi.clear_photo(mid, "materials")
+        assert not pi.has_own_photo(mid, "materials")
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=180)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_a_resin_for_other_printers_is_not_kept_hidden_in_use():
     """Phrozen's own slicer has two "Washable Dental Model" resins: "Phrozen" (XL / 4K printers only) and
     "Phrozen Dental" (all of the lab's printers). The first is not listed on the LS+, but when it was the chosen

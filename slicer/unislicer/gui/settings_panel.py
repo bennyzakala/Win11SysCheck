@@ -14,6 +14,7 @@ from ..settings import (CATEGORIES, MODEL_TYPE_KEYS, SCHEMA_BY_KEY, SIMPLE_KEYS,
                         applies_to_process, visible_settings)
 
 PRINTER_PICTURE = 44           # px: each printer's picture in the printer menu (and on its button)
+MATERIAL_PICTURE = 30          # px: each resin's bottle in the resin list
 
 
 class _MenuPictures(QProxyStyle):
@@ -541,6 +542,10 @@ class SettingsPanel(QWidget):
 
         self.printer_combo.currentIndexChanged.connect(self._on_printer)
         self.material_combo.currentIndexChanged.connect(self._on_material)
+        # each resin's bottle beside its name; right-click sets the resin's own photo (the maker's bottle)
+        self.material_combo.setIconSize(QSize(MATERIAL_PICTURE, MATERIAL_PICTURE))
+        self.material_combo.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.material_combo.customContextMenuRequested.connect(self._material_photo_menu)
         self.quality_combo.currentIndexChanged.connect(self._on_quality)
         self._fill_printers()
         self._fill_dependent()
@@ -792,6 +797,36 @@ class SettingsPanel(QWidget):
             return
         self._sync_printer_button()
 
+    def _material_photo_menu(self, pos):
+        from . import printer_images
+        mid = self.material_id
+        if not mid:
+            return
+        m = QMenu(self)
+        m.addAction(tr("material_photo_set"), lambda: QTimer.singleShot(0, lambda: self._choose_material_photo(mid)))
+        if printer_images.has_own_photo(mid, "materials"):
+            m.addAction(tr("material_photo_clear"), lambda: QTimer.singleShot(0, lambda: self._clear_material_photo(mid)))
+        m.exec(self.material_combo.mapToGlobal(pos))
+
+    def _choose_material_photo(self, mid: str):
+        import os
+        from . import printer_images
+        path, _ = QFileDialog.getOpenFileName(self, tr("material_photo_set"), os.path.expanduser("~"),
+                                              "Images (*.png *.jpg *.jpeg *.webp *.bmp)")
+        if not path:
+            return
+        try:
+            printer_images.set_photo(mid, path, "materials")
+        except (OSError, ValueError):
+            QMessageBox.warning(self, tr("material_photo_set"), tr("printer_photo_bad"))
+            return
+        self._fill_dependent()
+
+    def _clear_material_photo(self, mid: str):
+        from . import printer_images
+        printer_images.clear_photo(mid, "materials")
+        self._fill_dependent()
+
     def _clear_printer_photo(self, pid: str):
         from . import printer_images
         printer_images.clear_photo(pid)
@@ -956,7 +991,12 @@ class SettingsPanel(QWidget):
                     label = f"{vendor} · {label}"
                 if kind == "materials" and linked(p):
                     label = "★ " + label
-                combo.addItem(label, pid)
+                if kind == "materials":
+                    from PySide6.QtGui import QIcon
+                    from . import printer_images
+                    combo.addItem(QIcon(printer_images.material_pixmap(pid, p, MATERIAL_PICTURE * 2)), label, pid)
+                else:
+                    combo.addItem(label, pid)
                 if p.get("note"):
                     combo.setItemData(combo.count() - 1, p["note"], Qt.ToolTipRole)
             current = getattr(self, attr)

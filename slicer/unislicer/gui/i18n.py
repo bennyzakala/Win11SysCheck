@@ -848,6 +848,8 @@ STRINGS = {
     "theme_neon": ("ניאון (סרט אנימציה)", "Neon (animated film)"),
     "printer_photo_set": ("הגדר תמונה למדפסת הזו…", "Set a photo for this printer…"),
     "printer_photo_clear": ("הסר את התמונה של המדפסת", "Remove this printer's photo"),
+    "material_photo_set": ("הגדר תמונה לשרף הזה…", "Set a photo for this resin…"),
+    "material_photo_clear": ("הסר את התמונה של השרף", "Remove this resin's photo"),
     "printer_photo_bad": ("הקובץ אינו תמונה שאפשר לפתוח (PNG, JPG, WEBP או BMP).", "That file is not a picture that can be opened (PNG, JPG, WEBP or BMP)."),
     "theme_hud": ("הולוגרמה (HUD)", "Hologram HUD"),
     "theme_glass": ("זכוכית מט", "Frosted glass"),
