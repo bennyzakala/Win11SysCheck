@@ -14,7 +14,7 @@ from ..settings import (CATEGORIES, MODEL_TYPE_KEYS, SCHEMA_BY_KEY, SIMPLE_KEYS,
                         applies_to_process, visible_settings)
 
 PRINTER_PICTURE = 44           # px: each printer's picture in the printer menu (and on its button)
-MATERIAL_PICTURE = 30          # px: each resin's bottle in the resin list
+MATERIAL_PICTURE = 44          # px: each resin's bottle in the resin list
 
 
 class _MenuPictures(QProxyStyle):
