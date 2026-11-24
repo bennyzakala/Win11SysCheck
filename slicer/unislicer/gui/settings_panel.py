@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog,
                                QLabel, QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QProxyStyle, QScrollArea,
                                QSizePolicy, QSpinBox, QPushButton, QStyle, QToolButton, QVBoxLayout, QWidget)
@@ -28,6 +29,24 @@ class _MenuPictures(QProxyStyle):
         if metric == QStyle.PM_SmallIconSize:
             return self._size
         return super().pixelMetric(metric, option, widget)
+
+
+# what a resin is for, from its name (the order also sets the order of the sections in the resin menu)
+RESIN_TYPES = ("model", "crown", "splint", "guide", "gingiva", "denture", "castable", "other")
+_RESIN_TYPE_WORDS = (("castable", ("castable", "wax", "cast ")), ("gingiva", ("gingiva", "gum", "tissue")),
+                     ("denture", ("denture",)), ("guide", ("guide", "surgical")),
+                     ("splint", ("splint", "guard", "occlusal", "bite", "aligner", "retainer", "ortho flex", "flex")),
+                     ("crown", ("crown", "bridge", "c&b", "temp", "tooth", "teeth", "veneer", "permanent", "inlay",
+                                "try-in", "a1", "a2", "a3", "b1")),
+                     ("model", ("model", "study", "ortho", "die", "washable", "dental")))
+
+
+def resin_type(prof: dict) -> str:
+    name = " " + str(prof.get("name") or "").lower() + " "
+    for kind, words in _RESIN_TYPE_WORDS:
+        if any(w in name for w in words):
+            return kind
+    return "other"
 
 
 PROCESS_BADGE = {"lcd": "LCD", "dlp": "DLP", "laser": "SLA", "polyjet": "POLYJET"}
@@ -468,6 +487,22 @@ class SettingsPanel(QWidget):
                 self.printer_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
                 cl.addWidget(self.printer_button)
                 combo.currentIndexChanged.connect(self._sync_printer_button)
+            if key == "material":
+                # the resins grouped by company, then by what they are for (models, crowns, splints...): the combo
+                # stays as the hidden state store, as for the printers
+                combo.hide()
+                self.material_button = QToolButton()
+                self.material_button.setObjectName("PrinterPick")
+                self.material_button.setPopupMode(QToolButton.InstantPopup)
+                self.material_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+                self.material_button.setIconSize(QSize(MATERIAL_PICTURE, MATERIAL_PICTURE))
+                self.material_button.setCursor(Qt.PointingHandCursor)
+                self.material_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+                self.material_button.setContextMenuPolicy(Qt.CustomContextMenu)
+                self.material_button.customContextMenuRequested.connect(
+                    lambda pos: self._material_photo_menu(pos, self.material_button))
+                cl.addWidget(self.material_button)
+                combo.currentIndexChanged.connect(self._sync_material_button)
             if key == "quality":
                 # resin mode (Stable / Fast) right under the quality: picks the maker's exposure and motion row
                 self.mode_combo = self._profile_combo()
@@ -797,16 +832,89 @@ class SettingsPanel(QWidget):
             return
         self._sync_printer_button()
 
-    def _material_photo_menu(self, pos):
+    def _material_photo_menu(self, pos, widget=None):
         from . import printer_images
         mid = self.material_id
         if not mid:
             return
+        widget = widget or self.material_combo
         m = QMenu(self)
         m.addAction(tr("material_photo_set"), lambda: QTimer.singleShot(0, lambda: self._choose_material_photo(mid)))
         if printer_images.has_own_photo(mid, "materials"):
             m.addAction(tr("material_photo_clear"), lambda: QTimer.singleShot(0, lambda: self._clear_material_photo(mid)))
-        m.exec(self.material_combo.mapToGlobal(pos))
+        m.exec(widget.mapToGlobal(pos))
+
+    def _sync_material_button(self, *_):
+        """Show the chosen resin (its bottle and name) on the button, and rebuild the company / type menu."""
+        btn = getattr(self, "material_button", None)
+        if btn is None:
+            return
+        combo = self.material_combo
+        i = combo.currentIndex()
+        btn.setText("  " + (combo.itemText(i) if i >= 0 else tr("material")) + "    ▾  ")
+        btn.setIcon(combo.itemIcon(i) if i >= 0 else QIcon())
+        btn.setMenu(self._build_material_menu())
+
+    def _build_material_menu(self) -> QMenu:
+        """The resins now in the list: a submenu per company (those with resins made for this printer first),
+        and in it a section per kind of resin; the lab's own saved profiles in a submenu of their own. Picking
+        one selects it through the combo, so every bit of material-change logic runs as before."""
+        import collections
+        from . import printer_images
+        combo = self.material_combo
+        mats = profiles.load("materials")
+        pictures = _MenuPictures(MATERIAL_PICTURE)
+        menu = QMenu(self.material_button)
+        pictures.setParent(menu)
+        cur = combo.currentIndex()
+        groups: dict = collections.OrderedDict()
+        for i in range(combo.count()):
+            mid = combo.itemData(i)
+            if not mid:
+                continue
+            prof = mats.get(mid, {})
+            company = tr("my_profiles") if str(mid).startswith("user_") else (prof.get("vendor") or tr("vendor_other"))
+            groups.setdefault(company, []).append(i)
+        starred = lambda i: combo.itemText(i).lstrip().startswith("★")
+        mine = next((c for c, idxs in groups.items() if cur in idxs), None)       # the chosen resin's company first
+        order = sorted(groups, key=lambda c: (c != tr("my_profiles"), c != mine,
+                                              not any(starred(i) for i in groups[c]), c.lower()))
+        amp = lambda t: t.replace("&", "&&")              # a menu reads "&" as a shortcut mark ("Crown & bridge")
+        for company in order:
+            idxs = groups[company]
+            mark = "★ " if any(starred(i) for i in idxs) else ""
+            sub = menu.addMenu(amp(f"  {mark}{company}    ({len(idxs)})"))
+            sub.setStyle(pictures)
+            by_type: dict = collections.OrderedDict((k, []) for k in RESIN_TYPES)
+            for i in idxs:
+                by_type[resin_type(mats.get(combo.itemData(i), {}))].append(i)
+            for kind, members in by_type.items():
+                if not members:
+                    continue
+                head = sub.addAction(amp(tr("mtype_" + kind)))
+                head.setEnabled(False)
+                f = head.font()
+                f.setBold(True)
+                head.setFont(f)
+                for i in sorted(members, key=lambda i: (0 if starred(i) else 1, combo.itemText(i).lower())):
+                    text = combo.itemText(i)
+                    prefix = f"{company} · "
+                    short = text.replace(prefix, "", 1) if prefix in text else text
+                    act = sub.addAction(combo.itemIcon(i), "   " + amp(short))
+                    note = combo.itemData(i, Qt.ToolTipRole)
+                    if note:
+                        act.setToolTip(str(note))
+                    act.setCheckable(True)
+                    act.setChecked(i == cur)
+                    act.triggered.connect(lambda _=False, i=i: self.material_combo.setCurrentIndex(i))
+                sub.addSeparator()
+        mid = combo.itemData(cur) if cur >= 0 else None
+        if mid:
+            menu.addSeparator()
+            menu.addAction(tr("material_photo_set"), lambda: QTimer.singleShot(0, lambda: self._choose_material_photo(mid)))
+            if printer_images.has_own_photo(mid, "materials"):
+                menu.addAction(tr("material_photo_clear"), lambda: QTimer.singleShot(0, lambda: self._clear_material_photo(mid)))
+        return menu
 
     def _choose_material_photo(self, mid: str):
         import os
@@ -1019,6 +1127,7 @@ class SettingsPanel(QWidget):
                 setattr(self, attr, current)
             combo.setCurrentIndex(max(0, combo.findData(current)))
         self._building = False
+        self._sync_material_button()
 
     # ---- values kept per printer + material (exposure and motion, the machine's own)
     def _machine_store(self) -> dict:

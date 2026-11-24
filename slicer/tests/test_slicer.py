@@ -5641,6 +5641,49 @@ def test_the_resin_list_shows_each_resins_bottle(tmp_path):
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_the_resin_menu_is_grouped_by_company_and_kind():
+    """The resin list was one long list of ~180 resins. It is now a menu: a submenu per company (the chosen
+    resin's company first), and in each a section per kind of resin - models, crowns / temporaries, splints,
+    guides, gingiva, dentures, castable, other - with the lab's saved profiles apart."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.settings_panel import SettingsPanel, resin_type
+        from unislicer.gui.i18n import tr
+        assert resin_type({"name": "Washable Dental Model"}) == "model"
+        assert resin_type({"name": "Crown & bridge (temporary)"}) == "crown"
+        assert resin_type({"name": "Splint / night guard (clear)"}) == "splint"
+        assert resin_type({"name": "Surgical guide resin"}) == "guide"
+        assert resin_type({"name": "Gingiva mask (flexible)"}) == "gingiva"
+        assert resin_type({"name": "Castable Resin Dental Green"}) == "castable"
+        washable = "phrozen_ds_phrozen_dental_washable_dental_model"
+        p = SettingsPanel("phrozen_sonic_xl_4k_plus", washable, None, {}, False)
+        assert not p.material_combo.isVisibleTo(p) and "Washable Dental Model" in p.material_button.text()
+        assert not p.material_button.icon().isNull()
+        menu = p.material_button.menu()
+        subs = [a.menu() for a in menu.actions() if a.menu()]
+        assert "Phrozen Dental" in subs[0].title()                    # the chosen resin's company first
+        acts = subs[0].actions()
+        heads = [a.text() for a in acts if not a.isEnabled() and not a.isSeparator()]
+        assert heads[0] == tr("mtype_model") and tr("mtype_crown") in heads
+        names = [a.text().strip() for a in acts if a.isEnabled()]
+        assert any("Crown & bridge" in a.replace("&&", "&") and "&&" in a for a in names), names
+        pick = [a for a in acts if a.isEnabled() and "Dental Study Model" in a.text()][0]
+        pick.trigger(); app.processEvents()
+        assert p.material_id == "phrozen_ds_phrozen_dental_dental_study_model"
+        assert "Dental Study Model" in p.material_button.text()
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=180, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_a_resin_for_other_printers_is_not_kept_hidden_in_use():
     """Phrozen's own slicer has two "Washable Dental Model" resins: "Phrozen" (XL / 4K printers only) and
     "Phrozen Dental" (all of the lab's printers). The first is not listed on the LS+, but when it was the chosen
