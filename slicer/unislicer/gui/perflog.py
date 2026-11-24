@@ -185,20 +185,17 @@ class StallLog:
                     stalled_since = self._beat
                     where = collections.Counter()
                     others = collections.Counter()
-                frames = sys._current_frames()
-                frame = frames.get(self._main)
+                # only the window thread's stack is read, and only while it is stalled (stuck in one call, so
+                # its frames are not being freed under us). Reaching into the OTHER, running threads' frames
+                # from here crashed the program natively: on Python 3.11+ a thread frees its interpreter
+                # frames as it returns from each call, and walking them from this watchdog is a use-after-free
+                # - heap corruption (Windows 0xc0000374) that faulted right in that loop. So it is gone; the
+                # "meanwhile" breakdown of the worker threads is not worth crashing the program for.
+                frame = sys._current_frames().get(self._main)
                 k = _frames(frame) if frame is not None else None
                 if k:
                     where[k] += 1
-                # what the other threads run meanwhile: one of them holding the interpreter stalls the window
-                # while its own thread is in Qt (the first log: 43 s of stalls "in app.run")
-                names = {t.ident: t.name for t in threading.enumerate()}
-                for tid, fr in frames.items():
-                    if tid in (self._main, threading.get_ident()):
-                        continue
-                    o = _frames(fr, 3)
-                    if o and not o.startswith("[threading.py:wait]") and "queue.py:get" not in o:
-                        others[f"{names.get(tid, '?')}: {o}"] += 1
+                del frame
             elif stalled_since is not None:
                 length = self._beat - stalled_since
                 if length < 120:                    # not a computer that slept
