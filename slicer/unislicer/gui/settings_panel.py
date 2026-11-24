@@ -903,6 +903,17 @@ class SettingsPanel(QWidget):
                 if p.get("note"):
                     combo.setItemData(combo.count() - 1, p["note"], Qt.ToolTipRole)
             current = getattr(self, attr)
+            shown = {combo.itemData(i) for i in range(combo.count())} - {None}
+            if current in available and current not in shown and shown:
+                # a resin made for other printers only (e.g. "Phrozen · Washable Dental Model" chosen on the XL,
+                # then the LS+): it is not in the list here, but it stayed in use behind it - with the generic
+                # values it has off its own printers (6 s exposure instead of 1 s). The same-named resin made for
+                # this printer is taken instead (Phrozen Dental · Washable Dental Model), else the first one for it
+                name = profiles.display_name(available[current])
+                same = [k for k in shown if linked(available[k]) and profiles.display_name(available[k]) == name]
+                firsts = [k for k in shown if linked(available[k])]
+                current = (same or firsts or [combo.itemData(0)])[0]
+                setattr(self, attr, current)
             if current not in available:
                 linked_ids = [k for k, v in available.items() if self.printer_id in v.get("printers", [])]
                 current = linked_ids[0] if linked_ids else next(iter(available), None)
@@ -987,7 +998,11 @@ class SettingsPanel(QWidget):
         mats = profiles.for_technology("materials", profiles.technology_of(printer), profiles.process_of(printer))
         linked = [m for m, prof in mats.items() if pid in prof.get("printers", [])]
         if linked and self.material_id not in linked:
-            self.material_id = linked[0]
+            # the same resin made for this printer when there is one (Phrozen · Washable Dental Model on the XL ->
+            # Phrozen Dental · Washable Dental Model on the LS+), not just the first in the list
+            name = profiles.display_name(mats[self.material_id]) if self.material_id in mats else None
+            same = [m for m in linked if name and profiles.display_name(mats[m]) == name]
+            self.material_id = (same or linked)[0]
         self._fill_dependent()                  # (may change the material to one the printer takes)
         self._unstash_machine()                 # what was changed on this printer before comes back
         self.rebuild()

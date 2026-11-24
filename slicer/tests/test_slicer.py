@@ -5545,6 +5545,40 @@ def test_the_last_raft_type_is_remembered_as_the_default():
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_a_resin_for_other_printers_is_not_kept_hidden_in_use():
+    """Phrozen's own slicer has two "Washable Dental Model" resins: "Phrozen" (XL / 4K printers only) and
+    "Phrozen Dental" (all of the lab's printers). The first is not listed on the LS+, but when it was the chosen
+    resin (picked on the XL, kept in the settings or a project) it stayed in use there behind the list - with the
+    generic 6 s exposure instead of the LS+'s 1 s. It is now swapped for the same resin made for the LS+."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.settings_panel import SettingsPanel
+        xl_only = "phrozen_ds_phrozen_washable_dental_model"
+        dental = "phrozen_ds_phrozen_dental_washable_dental_model"
+        # stored / project state: the XL-only resin with the LS+
+        p = SettingsPanel("phrozen_sonic_ls_plus", xl_only, None, {}, False)
+        assert p.material_id == dental, p.material_id
+        assert p.material_combo.itemData(p.material_combo.currentIndex()) == dental
+        assert p.config()["exposure_time"] == 1.0, p.config()["exposure_time"]
+        # chosen on the XL (where it belongs), then the printer is switched to the LS+
+        q = SettingsPanel("phrozen_sonic_xl_4k_plus", xl_only, None, {}, False)
+        assert q.material_id == xl_only
+        q._on_printer(q.printer_combo.findData("phrozen_sonic_ls_plus"))
+        assert q.material_id == dental, q.material_id
+        assert q.config()["exposure_time"] == 1.0
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=180, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_the_profile_library_opens_after_the_gear_click_unwinds():
     """The gear by Printer / Material opens the profile library, and closing it rebuilds the settings panel -
     both gear buttons included. Opening the dialog straight from the gear's own clicked signal rebuilt (and so
