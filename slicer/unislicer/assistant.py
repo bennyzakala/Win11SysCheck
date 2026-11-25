@@ -417,7 +417,9 @@ class Assistant:
             else:
                 out.append(Suggestion("cups_orient", "problem", "sg_cups_orient", (), "auto_orient_all", {}, False))
         if job.get("islands"):
-            out.append(Suggestion("islands", "problem", "sg_islands", (job["islands"],), "denser_supports", {}, False))
+            # a support under each island - never a denser spacing for every part: the spacing on screen is the
+            # lab's, and rebuilding all parts threw away the supports placed by hand
+            out.append(Suggestion("islands", "problem", "sg_islands", (job["islands"],), "support_islands", {}, False))
         if job.get("thin"):
             out.append(Suggestion("thin", "problem", "sg_thin", (job["thin"],), None, {}, False))
         for o in ctx.get("objects", []):

@@ -596,7 +596,7 @@ STRINGS = {
     "saved_default": ("נשמר כברירת מחדל בפרופיל \"{}\"", "Saved as the default in \"{}\""),
     "sg_cups_drain": ("נמצאה כוס יניקה: המודל חלול בלי חורי ניקוז. להוסיף 2 חורי ניקוז?", "Suction cup found: the model is hollow with no drain holes. Add 2 drain holes?"),
     "sg_cups_orient": ("נמצאה כוס יניקה. כיוון אוטומטי בדרך כלל פותר את זה.", "Suction cup found. Auto-orient usually fixes this."),
-    "sg_islands": ("{} איים לא נתמכים. ליצור תמיכות צפופות יותר?", "{} unsupported islands. Generate denser supports?"),
+    "sg_islands": ("{} איים לא נתמכים. להוסיף תמיכה מתחת לכל אחד?", "{} unsupported islands. Add a support under each one?"),
     "sg_thin": ("חלקים דקים ב-{} שכבות עלולים לא להיווצר. כדאי לעבות אותם במודל או להגדיל את המודל.", "Thin features on {} layers may not form. Thicken them in the model or scale it up."),
     "sg_not_watertight": ("\"{}\" אינו אטום (יש בו חורים ברשת). מומלץ לתקן אותו בתוכנת עריכה לפני הדפסה.", "\"{}\" is not watertight (holes in the mesh). Repair it in a mesh editor before printing."),
     "sg_hollow": ("חלילה תחסוך כ-{:.0f} מ\"ל שרף. להפעיל חלילה עם חורי ניקוז?", "Hollowing would save about {:.0f} ml of resin. Turn on hollowing with drain holes?"),

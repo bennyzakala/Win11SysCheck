@@ -9298,7 +9298,7 @@ def test_join_all_rafts_makes_the_plate_one_piece_on_screen_and_in_the_print(tmp
     assert pieces == 2 and len(joints.faces) and joints.is_watertight()        # the far one stays apart
     assert abs(joints.bounds[0][2]) < 1e-9 and abs(joints.bounds[1][2] - T) < 1e-6
     z = joints.vertices[:, 2]
-    assert np.any(np.abs(z - T / 2) < 1e-6), "no notch (half as thick) next to the rafts"
+    assert np.any(np.abs(z - T / 2) < 0.002), "no notch (half as thick) next to the rafts"   # just off the layer plane
     a, b = outl[0], outl[1]
     from shapely.geometry import Polygon
     top = [Polygon(t[:, :2]) for t in joints.vertices[joints.faces] if np.all(np.abs(t[:, 2] - T) < 1e-6)]
@@ -11609,4 +11609,80 @@ def test_assemble_fits_parts_to_their_designed_positions(tmp_path):
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=180)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_a_long_solid_raft_keeps_its_round_ends_and_a_joint_notch_is_never_a_missing_layer():
+    """Audit: a 76 mm jaw raft was drawn through 48 points - the chords cut its round ends through the outer
+    support's foot. And a joint's half-thick notch ended exactly on a slicing plane (raft 0.55, layer 0.05):
+    that one layer had no notch, and the joint above it floated in the print."""
+    from shapely.geometry import box, Point
+    from unislicer import sla_supports
+    from unislicer.slicing import slice_mesh
+    long_raft = box(0, 0, 20, 76).buffer(3.0)
+    slab = sla_supports._slab(long_raft, 0.0, 1.0, 40.0)
+    bottom = slice_mesh(slab, [0.02])[0]
+    assert bottom.area > long_raft.area * 0.995
+    assert bottom.buffer(0.05).contains(Point(10, 78.9))          # the round end, not a chord across it
+    # a joined pair with a 0.55 mm raft: every layer of the notch has the notch in it
+    a, b = box(0, 0, 10, 20), box(16, 0, 26, 20)
+    mesh, pieces = sla_supports.raft_joints([a, b], 0.55, 10.0, 30.0)
+    assert pieces == 1
+    planes = [0.025 + 0.05 * i for i in range(11)]
+    for z, layer in zip(planes, slice_mesh(mesh, planes)):
+        if z < 0.275:
+            assert not layer.is_empty and layer.intersects(box(10, 0, 16, 20)), z
+
+
+def test_a_broken_layer_with_a_wide_hole_and_a_backwards_edge_is_still_filled():
+    """Audit: a jaw model with a 2.3 mm hole in its wall and flipped triangles - its outline came apart into
+    chains that met end to end, the gap was wider than the bridge, and the whole layer printed as nothing."""
+    from unislicer import slicing
+
+    def segs(pts):
+        return [[pts[i], pts[i + 1]] for i in range(len(pts) - 1)]
+    bottom = [(0, 0), (5, 0), (10, 0), (15, 0), (20, 0), (20, 3.0)]
+    right = [(20, 5.3), (20, 10)]                          # 2.3 mm hole between the two
+    top_backwards = [(0, 10), (5, 10), (10, 10), (15, 10), (20, 10)]
+    left = [(0, 10), (0, 5), (0, 0)]
+    layer = slicing.even_odd_geometry(np.array(segs(bottom) + segs(right) + segs(top_backwards) + segs(left), float))
+    assert abs(layer.area - 200.0) < 1.0
+    # a real hole stays a hole: a ring inside a ring
+    outer = [(0, 0), (20, 0), (20, 10), (0, 10), (0, 0)]
+    inner = [(5, 3), (5, 7), (15, 7), (15, 3), (5, 3)]
+    ring = slicing.even_odd_geometry(np.array(segs(outer) + segs(inner), float))
+    assert abs(ring.area - 160.0) < 1.0
+
+
+def test_the_assistants_islands_suggestion_adds_supports_under_the_islands_and_keeps_the_spacing(tmp_path):
+    """Audit: "N unsupported islands - denser supports?" set the spacing to 0.75x for the plate and rebuilt
+    every part's supports (the ones placed by hand were lost). The lab: the assistant never changes the
+    spacing or the angle. It now adds a support under each island, as the Fix button does."""
+    import os, subprocess, sys, textwrap
+    from unislicer.assistant import Assistant
+    a = Assistant(str(tmp_path / "a"))
+    s = [x for x in a.suggestions({"technology": "sla", "job": {"islands": 3}}) if x.id == "islands"]
+    assert s and s[0].action == "support_islands"
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.assistant import Suggestion
+        w = MainWindow()
+        called = []
+        w.support_all_islands = lambda: called.append(1)
+        spacing = w.settings.config()["sla_support_spacing"]
+        for action in ("support_islands", "denser_supports"):          # an old saved one does the same
+            w._apply_suggestion(Suggestion("islands", "problem", "sg_islands", (3,), action, {}, False))
+        assert called == [1, 1], called
+        assert w.settings.config()["sla_support_spacing"] == spacing
+        assert "sla_support_spacing" not in w.settings.overrides
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

@@ -220,26 +220,34 @@ def even_odd_geometry(segments: np.ndarray, gap: float = 4 * GAP_TOLERANCE) -> M
     seg = seg[np.hypot(*(seg[:, 1] - seg[:, 0]).T) > 1e-9]
     if len(seg) < 3:
         return EMPTY
-    # bridge small gaps: dangling chain ends to dangling chain starts
-    kstart = np.round(seg[:, 0] * KEY_SCALE).astype(np.int64)
-    kend = np.round(seg[:, 1] * KEY_SCALE).astype(np.int64)
-    starts_set = set(map(tuple, kstart.tolist()))
-    ends_set = set(map(tuple, kend.tolist()))
-    tails = seg[[tuple(k) not in starts_set for k in kend.tolist()], 1]     # chain ends nothing continues from
-    heads = seg[[tuple(k) not in ends_set for k in kstart.tolist()], 0]     # chain starts nothing leads into
+    # bridge small gaps between dangling ends: any loose end to the nearest other loose end, whatever the
+    # chains' directions (a chain of flipped triangles runs backwards, and its end meets another end - matching
+    # ends to starts only left one jaw model's outline open, and that layer printed as nothing). The face
+    # search does not care about direction, and the crossing count below still tells inside from outside.
+    keys = np.round(seg.reshape(-1, 2) * KEY_SCALE).astype(np.int64)
+    uniq, inv, count = np.unique(keys, axis=0, return_inverse=True, return_counts=True)
+    inv = inv.reshape(-1)
+    loose_idx = np.flatnonzero(count[inv] == 1)
+    loose = seg.reshape(-1, 2)[loose_idx]
     extra = []
-    if len(tails) and len(heads) and len(tails) * len(heads) <= 4_000_000:
-        d = np.hypot(tails[:, None, 0] - heads[None, :, 0], tails[:, None, 1] - heads[None, :, 1])
-        used_t = np.zeros(len(tails), dtype=bool)
-        used_h = np.zeros(len(heads), dtype=bool)
-        for flat in np.argsort(d, axis=None):
-            ti, hi = divmod(int(flat), len(heads))
-            if d[ti, hi] > gap:
-                break
-            if used_t[ti] or used_h[hi]:
-                continue
-            used_t[ti] = used_h[hi] = True
-            extra.append([tails[ti], heads[hi]])
+    if 1 < len(loose) <= 3000:
+        d = np.hypot(loose[:, None, 0] - loose[None, :, 0], loose[:, None, 1] - loose[None, :, 1])
+        d[np.arange(len(loose)), np.arange(len(loose))] = np.inf
+        partner = loose_idx ^ 1                       # the other end of the same segment
+        same = loose_idx[None, :] == partner[:, None]
+        d[same] = np.inf                              # never close a single segment on itself
+        used = np.zeros(len(loose), dtype=bool)
+        order = np.argsort(d, axis=None)
+        # the close ends first; then what is still open, up to 2.5x as far (a 2.3 mm hole in a wall)
+        for limit in (gap, gap * 2.5):
+            for flat in order:
+                a_i, b_i = divmod(int(flat), len(loose))
+                if d[a_i, b_i] > limit:
+                    break
+                if a_i >= b_i or used[a_i] or used[b_i]:
+                    continue
+                used[a_i] = used[b_i] = True
+                extra.append([loose[a_i], loose[b_i]])
     if extra:
         seg = np.vstack([seg, np.array(extra)])
     lines = shapely.union_all(shapely.linestrings(seg))          # nodes every crossing
@@ -247,23 +255,33 @@ def even_odd_geometry(segments: np.ndarray, gap: float = 4 * GAP_TOLERANCE) -> M
     if not faces:
         return EMPTY
     a, b = seg[:, 0], seg[:, 1]
-    ya, yb = a[:, 1], b[:, 1]
-    winding = []
-    for f in faces:
-        px, py = f.representative_point().coords[0]
-        up = (ya <= py) & (yb > py)
-        down = (yb <= py) & (ya > py)
+
+    def votes(px, py, axis, sign):
+        """(winding, odd crossings) along a ray from the point: to +x/-x (axis 0) or +y/-y (axis 1)."""
+        u, v = axis, 1 - axis                     # the ray runs along u; v is crossed
+        va, vb = a[:, v], b[:, v]
+        q = py if axis == 0 else px
+        o = px if axis == 0 else py
+        up = (va <= q) & (vb > q)
+        down = (vb <= q) & (va > q)
         m = up | down
         if not m.any():
-            winding.append(0)
-            continue
-        t = (py - ya[m]) / (yb[m] - ya[m])
-        xs = a[m, 0] + t * (b[m, 0] - a[m, 0])
-        right = xs > px
-        winding.append((int(up[m][right].sum()) - int(down[m][right].sum()), int(right.sum()) % 2))
+            return 0, 0
+        t = (q - va[m]) / (vb[m] - va[m])
+        at = a[m, u] + t * (b[m, u] - a[m, u])
+        ahead = (at > o) if sign > 0 else (at < o)
+        return int(up[m][ahead].sum()) - int(down[m][ahead].sum()), int(ahead.sum()) % 2
+
     # solid: a non-zero winding (overlapping bodies stay solid) or an odd crossing count (still right where
-    # some triangles of a broken mesh are flipped inside out)
-    solid = [f for f, (w, odd) in zip(faces, winding) if w != 0 or odd]
+    # some triangles of a broken mesh are flipped inside out) - asked along four rays, at least two agreeing:
+    # one ray running along a fold of a broken contour counted it twice and a whole jaw layer came out empty
+    solid = []
+    for f in faces:
+        px, py = f.representative_point().coords[0]
+        yes = sum(1 for axis, sign in ((0, 1), (0, -1), (1, 1), (1, -1))
+                  if any(votes(px, py, axis, sign)))
+        if yes >= 2:
+            solid.append(f)
     return as_multipolygon(shapely.union_all(solid)) if solid else EMPTY
 
 

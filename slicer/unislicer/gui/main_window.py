@@ -7407,12 +7407,8 @@ class MainWindow(QMainWindow):
                 self.assistant.learn_repair(fp, recipe)          # choosing it again confirms it
                 self._objects_changed()
                 self.status.setText(tr("rr_done").format(o.name, self._recipe_text(recipe)))
-        elif a == "denser_supports":
-            cfg = self.settings.config()
-            self.settings.set_value("sla_support_spacing", round(cfg["sla_support_spacing"] * 0.75, 2))
-            self._select_uid(None)
-            if cfg["technology"] == "sla":
-                self.generate_supports()
+        elif a in ("support_islands", "denser_supports"):      # "denser_supports": a suggestion saved earlier
+            self.support_all_islands()
         elif a == "multiply":
             if self.objects:
                 self._select_uid(self.objects[0].uid)

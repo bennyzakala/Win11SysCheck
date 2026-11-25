@@ -667,10 +667,15 @@ def _braces(pillars: list, under: "_Underside", cfg: Config, segs: int) -> list[
 SHAPE_SEGMENTS = {"cylinder": SEGMENTS, "prism": 6, "cube": 4}
 
 
-def _sample_convex(poly, n: int = 48) -> np.ndarray:
-    """n points on a convex polygon's boundary at evenly spaced angles around its centroid."""
+def _sample_convex(poly, n: int | None = None) -> np.ndarray:
+    """n points on a convex polygon's boundary at evenly spaced angles around its centroid. By default
+    enough of them to sit at most ~0.6 mm apart at the far end: 48 on a 76 mm jaw raft were 5 mm apart there,
+    and the chords cut its round ends through the outer support's foot (it stood half over nothing)."""
     c = np.array(poly.centroid.coords[0])
     big = max(poly.bounds[2] - poly.bounds[0], poly.bounds[3] - poly.bounds[1]) * 2 + 1
+    if n is None:
+        far = float(np.max(np.hypot(*(np.asarray(poly.exterior.coords) - c).T)))
+        n = int(min(max(48, math.ceil(2 * math.pi * far / 0.6)), 720))
     pts = []
     ring = poly.exterior
     for a in np.linspace(0, 2 * np.pi, n, endpoint=False):
@@ -688,7 +693,8 @@ def _slab(poly, z0: float, z1: float, slope_deg: float) -> Mesh:
     top = poly.buffer(-inset) if inset > 0 else poly
     if top.is_empty or top.area < poly.area * 0.2:
         top = poly
-    b, t = _sample_convex(bottom), _sample_convex(top)
+    b = _sample_convex(bottom)
+    t = _sample_convex(top, len(b))
     n = len(b)
     v = np.vstack([np.column_stack([b, np.full(n, z0)]), np.column_stack([t, np.full(n, z1)]),
                    [[*b.mean(axis=0), z0], [*t.mean(axis=0), z1]]])
@@ -1982,7 +1988,10 @@ def raft_joints(outlines: list, thickness, width: float = 10.0, reach: float = 3
     # separate solids sharing edges, and slicing them together joined loops of different solids - a raft
     # ringed by joints came out covered by a notch-thin layer of joint
     solid_u = {t: unary_union(polys).buffer(0) for t, polys in solid.items()}
-    notch_u = {t / 2: unary_union(polys).buffer(0) for t, polys in thin.items()}
+    # the notch's height a hair off half the raft: exactly half (0.275 mm of a 0.55 mm raft) lies on a slicing
+    # plane ((k + 0.5) layers), and slicing exactly at the band edge came out empty - one missing layer cut
+    # the joint above it off from the raft (it printed loose)
+    notch_u = {t / 2 + 0.0013: unary_union(polys).buffer(0) for t, polys in thin.items()}
     levels = sorted(set(solid_u) | set(notch_u))
     meshes = []
     z0 = 0.0
