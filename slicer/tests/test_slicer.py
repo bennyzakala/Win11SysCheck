@@ -5643,6 +5643,9 @@ def test_support_head_styles_adaptive_vertical_upright():
         return float(d.mean())
     # an old setting with only a tilt (Upright + tilt) still leans, as before there were styles
     assert sla_supports.head_style({"sla_head_style": "upright", "sla_head_tilt": 45.0}) == "adaptive"
+    # Adaptive at 0 deg leans nowhere: it is Upright, as the screen then shows (it showed Adaptive and 0 deg)
+    assert sla_supports.head_style({"sla_head_style": "adaptive", "sla_head_tilt": 0.0}) == "upright"
+    assert sla_supports.head_style({"sla_head_style": "vertical", "sla_head_tilt": 0.0}) == "vertical"
     assert lean(out[("adaptive", 45.0)][0]) > lean(out[("upright", 0.0)][0]) + 0.5
     assert lean(out[("vertical", 0.0)][0]) > lean(out[("upright", 0.0)][0]) + 0.5
     # the curved head is built from several pieces along its arc
@@ -5714,6 +5717,11 @@ def test_new_project_keeps_the_raft_last_chosen_for_a_model():
         assert o.settings.get("sla_raft_type") == "solid_lite", o.settings
         assert w.store.value("last_raft_type", "") == "solid_lite", "the model menu's raft was not remembered"
         w._raft_dialog.close()
+        # a part added now gets it at Auto-generate (it got the plate's Solid); the plate keeps its raft
+        assert w.settings.config()["sla_raft_type"] == "solid"
+        o3 = w.add_mesh(primitives.box(10, 10, 5)); app.processEvents()
+        w._select_uid(None); w.generate_supports(); app.processEvents()
+        assert o3.config(w.settings.config())["sla_raft_type"] == "solid_lite"
         w.new_project(); app.processEvents()
         assert w.settings.overrides.get("sla_raft_type") == "solid_lite", w.settings.overrides
         o2 = w.add_mesh(primitives.box(10, 10, 5)); app.processEvents()

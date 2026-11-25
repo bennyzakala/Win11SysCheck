@@ -1279,10 +1279,15 @@ def _raft_plan(feet: list, cfg: Config, pad: float, radii: list | None = None, o
 
 def head_style(values: dict) -> str:
     """The support head style. Upright with a head tilt set is Adaptive: settings saved before there was a
-    style leaned their heads with the tilt alone (picking Upright sets the tilt to 0)."""
+    style leaned their heads with the tilt alone (picking Upright sets the tilt to 0). Adaptive with a 0 tilt
+    leans nowhere, so it is Upright - the picture shown is what is built. Vertical (a curved head) leans 45 deg
+    when no tilt is set."""
     style = values.get("sla_head_style", "upright")
-    if style == "upright" and float(values.get("sla_head_tilt") or 0) > 0:
+    tilt = float(values.get("sla_head_tilt") or 0)
+    if style == "upright" and tilt > 0:
         return "adaptive"
+    if style == "adaptive" and tilt <= 0:
+        return "upright"           # an adaptive head with no tilt does not lean: it is what the screen shows
     return style
 
 
@@ -1321,7 +1326,7 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     sphere_tip = cfg["sla_tip_shape"] == "sphere"
     tree = cfg["sla_support_type"] == "tree"
     style = head_style(cfg.values)
-    # upright: never leaning; adaptive / vertical (a curved head): leaning to the surface, 45 deg unless set
+    # upright: never leaning; adaptive: the head tilt; vertical (a curved head): the tilt, 45 deg unless set
     tilt_deg = 0.0 if style == "upright" else (cfg["sla_head_tilt"] or 45.0)
     max_tilt = math.radians(tilt_deg)
     curved = style == "vertical"

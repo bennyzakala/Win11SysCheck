@@ -1280,7 +1280,7 @@ class MainWindow(QMainWindow):
         self.settings.changed.connect(self._settings_timer.start)
         self.settings.valueEdited.connect(lambda k, v: self.assistant.record_override(k, v))
         self.settings.valueEdited.connect(self._remember_raft)
-        self.settings.scopeEdited.connect(self._remember_raft)
+        self.settings.scopeEdited.connect(lambda k, v: self._remember_raft(k, v, for_models=True))
         self.settings.technologyChanged.connect(lambda _t: self._apply_printer())
         self.settings.filamentEditRequested.connect(self.filaments_dialog)
         self.settings.cfsSyncRequested.connect(self.sync_cfs)
@@ -2272,6 +2272,11 @@ class MainWindow(QMainWindow):
         obj = SceneObject.from_mesh(mesh)
         cfg = self.settings.config()
         obj.x, obj.y = self._plate_center(cfg)
+        # a model added now takes the raft picked last (Solid lite, say) when the plate's is another: picked
+        # for one model, the plate stayed on Solid and every part added after it got Solid at Auto-generate
+        last = getattr(self, "_new_model_raft", "")
+        if cfg["technology"] == "sla" and last and cfg["sla_raft_type"] != last:
+            obj.settings["sla_raft_type"] = last
         self.objects.append(obj)
         if rearrange:
             self._arrange(cfg)
@@ -2398,6 +2403,7 @@ class MainWindow(QMainWindow):
         self.__dict__.pop("_last_result", None)        # nothing of the old plate can be exported any more
         self._refresh_objects(select=None)
         self._restore_last_raft()
+        self._new_model_raft = ""                      # the empty plate is on the last raft now
         self.status.setText(tr("new_project_done"))
 
     def delete_selected(self):
@@ -5626,7 +5632,7 @@ class MainWindow(QMainWindow):
 
         def changed(key, value):
             self._ensure_supports_enabled()
-            self._remember_raft(key, value)          # picked here too, it is the next plate's raft
+            self._remember_raft(key, value, for_models=bool(group))   # picked here too: the next plate's raft
             if group and key not in self.PLATE_RAFT_KEYS:
                 self._push_undo()
                 for o in group:
@@ -6024,10 +6030,14 @@ class MainWindow(QMainWindow):
         if rt and self.settings.overrides.get("sla_raft_type") != rt:
             self.settings.set_value("sla_raft_type", rt)
 
-    def _remember_raft(self, key, value):
-        """The raft type the user picks is kept as the default for the next plate, until they change it."""
+    def _remember_raft(self, key, value, for_models: bool = False):
+        """The raft type the user picks is kept as the default for the next plate, until they change it.
+        Picked for some models only (their raft menu, or with models selected), the plate keeps its own - and
+        every model added after it takes the picked one (see add_mesh): the plate stayed on Solid, and parts
+        added after a Solid lite pick got Solid at Auto-generate. Set on the plate, that is what new models get."""
         if key == "sla_raft_type" and value:
             self.store.setValue("last_raft_type", str(value))
+            self._new_model_raft = str(value) if for_models else ""
 
     def _save_state(self):
         s = self.store
@@ -7578,6 +7588,9 @@ class MainWindow(QMainWindow):
             self._remember_file(path)
         if state:
             self.settings.load_state(state)
+            last = str(self.store.value("last_raft_type", "") or "")
+            # the project's models keep their rafts; one added to it takes the raft picked last
+            self._new_model_raft = last if "sla_raft_type" not in (state.get("overrides") or {}) else ""
         self.objects = objects
         self._apply_printer()
         self._refresh_objects(select=objects[0].uid if objects else None)
