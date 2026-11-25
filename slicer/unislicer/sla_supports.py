@@ -204,7 +204,10 @@ def auto_support_points(mesh: Mesh, cfg: Config, report: dict | None = None) -> 
     while 0 < len(pts) < need and spacing > MIN_GRID_SPACING:
         spacing = max(MIN_GRID_SPACING, spacing * 0.7)
         denser = _support_points_at(mesh, cfg, spacing, report)
-        if len(denser) > len(pts):
+        # more points - or as many, standing lower (a base-only part's one point: 6.5 mm up on the part at
+        # the set spacing, 0.3 mm above its bottom on a tighter grid)
+        if len(denser) > len(pts) or (len(denser) == len(pts) and len(pts)
+                                      and float(denser[:, 2].min()) < float(pts[:, 2].min()) - 1e-6):
             pts = denser
     marked = np.zeros((0, 3))
     zone = float(cfg.get("sla_support_zone", 0.0) or 0.0)
@@ -252,7 +255,11 @@ def _support_points_at(mesh: Mesh, cfg: Config, spacing: float, report: dict | N
     xs = np.arange(lo[0] + spacing / 2, hi[0], spacing)
     ys = np.arange(lo[1] + spacing / 2, hi[1], spacing)
     points = []
-    for gx in (xs if cfg["sla_support_overhangs"] else []):
+    # "Support overhangs" off: still the part's own underside at its bottom - a die's flat base had nothing
+    # under it (only a minimum high up was left) and the part stood on nothing
+    # (both off - overhangs and minima - is no automatic supports at all, as asked: none then)
+    bottom_only = not cfg["sla_support_overhangs"]
+    for gx in (xs if cfg["sla_support_overhangs"] or cfg["sla_support_minima"] else []):
         column = np.nonzero((caster.tmin[:, 0] <= gx) & (caster.tmax[:, 0] >= gx))[0]
         if len(column) == 0:
             continue
@@ -260,6 +267,8 @@ def _support_points_at(mesh: Mesh, cfg: Config, spacing: float, report: dict | N
             z, faces = caster.hits(gx, gy, column)
             for k in range(len(z)):
                 if not overhang[faces[k]]:
+                    continue
+                if bottom_only and z[k] > lo[2] + 0.5:
                     continue
                 if k > 0 and z[k] - z[k - 1] < 1e-3:
                     continue  # duplicate hit on a shared edge
@@ -296,8 +305,13 @@ def _support_points_at(mesh: Mesh, cfg: Config, spacing: float, report: dict | N
             # is too few, auto_support_points tightens the grid so more land in the band, not higher up.
         else:
             # nothing at all in the base band (a part with no low overhang): keep the single lowest point so it
-            # is not left floating, rather than scattering supports up its body
-            pts = pts[np.argsort(pts[:, 2])[:1]]
+            # is not left floating, rather than scattering supports up its body - the lowest whose support
+            # reaches the plate (the lowest of all could stand on the part itself, and the part stood on
+            # nothing: Support only the base at 4% on a crown)
+            caster = caster_for(mesh)
+            order = np.argsort(pts[:, 2])
+            on_bed = [i for i in order if caster.base_below(pts[i]) <= 1e-6]
+            pts = pts[[on_bed[0] if on_bed else order[0]]]
         if report is not None:
             report["base_only"] = base
     return pts
@@ -1489,9 +1503,12 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
                 return True
             return caster.column_blocked(x, y, 0.0, top - h_len / 2, contact[2] - 0.05)
         a = np.array([x, y, top - h_len])
+        # the arm up to the surface (the contact): past it the tip is meant to be inside the model - checked
+        # to the tip, a deep contact (2 mm) took every leaning support for one running through the model
+        c = np.asarray(contact, dtype=float)
         if curved:
-            return any(caster.inside(q) for q in head_curve(a, tip)[:-1])
-        return any(caster.inside(a + (tip - a) * t) for t in (0.0, 0.2, 0.4, 0.6, 0.8))
+            return any(caster.inside(q) for q in head_curve(a, c)[:-1])
+        return any(caster.inside(a + (c - a) * t) for t in (0.0, 0.2, 0.4, 0.6, 0.8, 0.9))
 
     arm = head_len
 
@@ -1565,6 +1582,10 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
             if height < 0.5 or (not on_bed and not on_model):
                 continue
             h_len = min(head_len, height * 0.5)
+            if h_len < 2.0 * depth + 0.4:                # as above: a short support sinks in less
+                top -= depth - max(0.05, (h_len - 0.4) / 2.0)
+                height = top - bottom
+                h_len = min(head_len, height * 0.5)
         if d is None and blocked(x, y, top, h_len, bottom, p, None):
             # no straight way down: stand the pillar a little to the side, where the way is clear, and
             # reach the contact with a slanted head (as a leaning head does)

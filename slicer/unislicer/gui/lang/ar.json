@@ -1528,5 +1528,6 @@
  "Automatic support zone": "منطقة الدعامات التلقائية",
  "Support all marks ({})": "ادعم كل العلامات ({})",
  "Every red mark gets a support at once (only the selected models', if any). Ctrl+Z undoes it.": "تحصل كل العلامات الحمراء على دعامة دفعة واحدة (للنماذج المحددة فقط إن وجدت). Ctrl+Z للتراجع.",
- "{} supports added at the marks.": "أضيفت {} دعامات عند العلامات."
+ "{} supports added at the marks.": "أضيفت {} دعامات عند العلامات.",
+ "Support height is 0: there is no room for supports under the models - raise 'Support height' (4 mm, say).": "ارتفاع الدعامات 0: لا مكان للدعامات تحت النماذج - ارفع \"ارتفاع الدعامات\" (4 مم مثلًا)."
 }

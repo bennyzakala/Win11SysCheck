@@ -5609,6 +5609,9 @@ class MainWindow(QMainWindow):
             msg = "⚠ " + tr("fit_faces_plate").format(", ".join(upside[:3]) + ("…" if len(upside) > 3 else "")) + " " + msg
         if marked_total:
             msg = "⚠ " + tr("sup_marked").format(marked_total, f"{cfg['sla_jaw_zone']:g}") + " " + msg
+        if cfg["sla_elevation"] < 0.5 and jobs:
+            # no room under the parts: the points are there but no support can stand under them
+            msg = "⚠ " + tr("sup_no_height") + " " + msg
         self.status.setText(msg)
         self._show_marks()
 
@@ -5731,13 +5734,10 @@ class MainWindow(QMainWindow):
             return group[0].config(cfg) if group else cfg
 
         def fill():
+            from ..settings import raft_key_applies
             cfg = view_cfg()
-            kind = cfg["sla_raft_type"]
-            for key, row in rows.items():
-                row.setVisible(not ((key in ("sla_raft_bar_spacing", "sla_raft_bar_width") and kind not in ("grid", "hexagon"))
-                                    or (key == "sla_raft_group_reach" and kind != "mini")
-                                    or (key in ("sla_raft_join_mode", "sla_raft_join_width", "sla_raft_join_reach") and not cfg["sla_raft_join"])
-                                    or (key not in ("sla_raft_type", "sla_elevation") and kind == "none")))
+            for key, row in rows.items():                # only what the chosen raft type uses
+                row.setVisible(raft_key_applies(key, cfg))
 
         def changed(key, value):
             self._ensure_supports_enabled()

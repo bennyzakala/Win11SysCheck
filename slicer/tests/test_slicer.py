@@ -5866,6 +5866,46 @@ def test_settings_panel_keeps_what_was_set_by_hand():
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_raft_settings_show_only_for_the_raft_types_that_use_them():
+    """Raft audit: the raft window showed settings the chosen raft type never uses (the slope on a mini raft,
+    the inset on a solid one...) - changing them did nothing. Each is shown only where it acts."""
+    from unislicer import profiles
+    from unislicer.settings import raft_key_applies
+    def cfg(kind, join=False):
+        return profiles.build_config(None, None, None, {"sla_raft_type": kind, "sla_raft_join": join})
+    assert raft_key_applies("sla_raft_slope", cfg("solid")) and not raft_key_applies("sla_raft_slope", cfg("mini"))
+    assert raft_key_applies("sla_raft_tiny_inset", cfg("tiny")) and not raft_key_applies("sla_raft_tiny_inset", cfg("solid"))
+    assert raft_key_applies("sla_raft_bar_spacing", cfg("grid")) and not raft_key_applies("sla_raft_bar_spacing", cfg("solid_lite"))
+    assert raft_key_applies("sla_raft_group_reach", cfg("mini")) and not raft_key_applies("sla_raft_group_reach", cfg("grid"))
+    assert not raft_key_applies("sla_raft_margin", cfg("solid_lite")) and raft_key_applies("sla_raft_thickness", cfg("solid_lite"))
+    assert not raft_key_applies("sla_raft_thickness", cfg("none")) and raft_key_applies("sla_raft_type", cfg("none"))
+    assert not raft_key_applies("sla_raft_join_width", cfg("solid")) and raft_key_applies("sla_raft_join_width", cfg("solid", True))
+
+
+def test_a_part_never_ends_up_standing_on_nothing():
+    """Support audit: settings that left a part with nothing under it - Support overhangs off on a die (its
+    flat base got no supports, only a point high up), Support only the base at a few % (the band was empty,
+    the one point kept stood on the part itself), and a deep contact with a leaning head (the arm was checked
+    down to the tip, which is meant to be inside the part, so no support was built)."""
+    from unislicer import profiles, primitives, sla_supports
+    from unislicer.scene import SceneObject
+    die = SceneObject(primitives.box(8, 8, 14), name="NAX-SOD26-044-E-15-16-1-A3-_Tooth_16")
+    shelf = primitives.box(10, 10, 6)
+    for part, extra in ((die, {"sla_support_overhangs": False}),
+                        (die, {"sla_support_base": 4.0}),
+                        (SceneObject(shelf, name="x"), {"sla_head_style": "adaptive", "sla_head_tilt": 30.0,
+                                                        "sla_contact_depth": 2.0, "sla_head_length": 10.0})):
+        cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": True, **extra})
+        oc = part.config(cfg)
+        lift = cfg["sla_elevation"] + cfg["sla_raft_thickness"]
+        w = part.mesh.translated([0, 0, lift])
+        pts = sla_supports.auto_support_points(w, oc)
+        sup, used = sla_supports.build_supports(w, oc, pts)[:2]
+        assert len(used), extra
+        assert float(sup.vertices[:, 2].min()) < 0.1, (extra, float(sup.vertices[:, 2].min()))   # down to the plate
+        assert float(pts[:, 2].min()) - lift < 1.0, extra                                      # held at its bottom
+
+
 def test_phrozen_printers_start_on_the_labs_support_settings():
     """The lab's support settings are what a Phrozen printer starts with; anything else is a change by hand."""
     from unislicer import profiles

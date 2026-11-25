@@ -620,6 +620,30 @@ SIMPLE_KEYS = {
 }
 
 
+# raft settings that only some raft types use: shown only for those (changing one did nothing on the others)
+RAFT_KEY_TYPES = {
+    "sla_raft_margin": ("solid", "grid", "hexagon", "mini"),
+    "sla_raft_area_ratio": ("solid", "grid", "hexagon", "mini"),
+    "sla_raft_slope": ("solid",),
+    "sla_raft_tiny_inset": ("tiny",),
+    "sla_raft_bar_spacing": ("grid", "hexagon"),
+    "sla_raft_bar_width": ("grid", "hexagon", "mini"),
+    "sla_raft_group_reach": ("mini",),
+}
+
+
+def raft_key_applies(key: str, cfg) -> bool:
+    """Does this raft setting do anything with the chosen raft type (and joining, when it is a join value)?"""
+    kind = cfg["sla_raft_type"]
+    if key in RAFT_KEY_TYPES:
+        return kind in RAFT_KEY_TYPES[key]
+    if key in ("sla_raft_join_mode", "sla_raft_join_width", "sla_raft_join_reach"):
+        return bool(cfg["sla_raft_join"])
+    if key.startswith("sla_raft_") and key not in ("sla_raft_type", "sla_raft_join"):
+        return kind != "none"
+    return True
+
+
 def visible_settings(category: str, technology: str, show_advanced: bool) -> list[Setting]:
     return [s for s in SCHEMA if s.category == category and s.tech in (technology, "both")
             and (show_advanced or not s.advanced)]

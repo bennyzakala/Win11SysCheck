@@ -500,6 +500,8 @@ STRINGS = {
     "sup_auto": ("צור אוטומטית", "Auto-generate"),
     "sup_marked": ("{} אזורים תלויים מעל {} מ\"מ סומנו באדום (מסגרת מהבהבת) - לחץ על סימון כדי להוסיף שם תמיכה.",
                    "{} overhangs above {} mm are marked red (blinking frame) - click a mark to add a support there."),
+    "sup_no_height": ("גובה התמיכות 0: אין מקום לתמיכות מתחת למודלים - הגדל את 'גובה תמיכות' (למשל 4 מ\"מ).",
+                      "Support height is 0: there is no room for supports under the models - raise 'Support height' (4 mm, say)."),
     "sup_all_marks": ("תמוך בכל הסימונים ({})", "Support all marks ({})"),
     "sup_all_marks_tip": ("כל הסימונים האדומים מקבלים תמיכה בבת אחת (רק של המודלים המסומנים, אם יש). Ctrl+Z מבטל.",
                           "Every red mark gets a support at once (only the selected models', if any). Ctrl+Z undoes it."),

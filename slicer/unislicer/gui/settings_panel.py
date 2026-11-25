@@ -1626,6 +1626,11 @@ class SettingsPanel(QWidget):
             text = search.text().strip().lower()
             if text:
                 items = [x for x in items if text in label(x).lower() or text in x.key or text in x.en.lower()]
+            if cat[0] == "raft":                             # only what the chosen raft type uses
+                from ..settings import raft_key_applies
+                group_ = self.scope_group()
+                view_ = group_[0].config(cfg) if group_ else cfg
+                items = [x for x in items if raft_key_applies(x.key, view_)]
             box = QWidget()
             grid = QGridLayout(box)
             grid.setContentsMargins(8, 8, 8, 8)
@@ -1651,7 +1656,7 @@ class SettingsPanel(QWidget):
 
         def changed(key, value):
             self._on_changed(key, value)
-            if key in ("sla_process", "sla_support_preset", "sla_model_type"):
+            if key in ("sla_process", "sla_support_preset", "sla_model_type", "sla_raft_type", "sla_raft_join"):
                 QTimer.singleShot(0, fill)
 
         def reset(key):
