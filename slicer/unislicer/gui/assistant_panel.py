@@ -176,8 +176,7 @@ class AssistantPanel(QFrame):
         ex = summary["orient_examples"]
         dens = summary["support_density"]
         lines = [tr("learned_orient").format(ex.get("sla", 0) + ex.get("fdm", 0))]
-        if summary["support_sessions"]:
-            lines.append(tr("learned_supports").format(f"{dens * 100:+.0f}%", f"{summary['angle_offset']:+.1f}°"))
+        # the learned support density / angle are no longer applied (the screen's values are used): not listed
         if summary.get("layout_samples") or summary.get("layout_runs"):
             lines.append(tr("learned_layout").format(summary.get("layout_runs", 0), summary.get("layout_samples", 0)))
         if summary.get("layout_taught"):

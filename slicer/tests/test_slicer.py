@@ -1040,18 +1040,20 @@ def test_assistant_supports_prints_and_suggestions(tmp_path):
     from unislicer.assistant import Assistant
     a = Assistant(str(tmp_path))
     cfg = profiles.build_config("elegoo_mars3", None, None, {"support_enable": True, "sla_support_type": "pillar"})
-    base = a.learned_config(cfg)["sla_support_spacing"]
     a.learn_support_edits(auto_count=20, added_angles=[30, 35, 40], removed=0, threshold=50)
+    # what is learned is kept, but the screen's spacing and angle are what Auto-generate uses (the lab asked:
+    # 50 deg / 8 mm on screen were built as 47 deg / 7 mm)
+    assert a.data["supports"]["spacing_scale"] < 1.0 and a.data["supports"]["angle_offset"] < 0.0
     learned = a.learned_config(cfg)
-    assert learned["sla_support_spacing"] < base and learned["support_angle"] < cfg["support_angle"]
+    assert learned["sla_support_spacing"] == cfg["sla_support_spacing"] and learned["support_angle"] == cfg["support_angle"]
     # at most 1 degree a session, and a support placed on a wall or a top face (angle 0 or less) teaches
     # nothing about the angle - one such click moved it 16 degrees, two 25 (50 -> 25)
     b = Assistant(str(tmp_path / "b"))
     b.learn_support_edits(auto_count=20, added_angles=[-5.0], removed=0, threshold=50)
     b.learn_support_edits(auto_count=20, added_angles=[-5.0, 0.0], removed=0, threshold=50)
-    assert b.learned_config(cfg)["support_angle"] == cfg["support_angle"]
+    assert b.data["supports"]["angle_offset"] == 0.0
     b.learn_support_edits(auto_count=20, added_angles=[10.0], removed=0, threshold=50)
-    assert cfg["support_angle"] - 1.0 <= b.learned_config(cfg)["support_angle"] < cfg["support_angle"]
+    assert -1.0 <= b.data["supports"]["angle_offset"] < 0.0
     tips = a.record_print("fail_supports", "sla", cfg)
     assert tips and tips[0].action_args == {"sla_support_preset": "heavy"}
     for _ in range(3):
@@ -8716,8 +8718,9 @@ def test_learning_seed_and_learned_supports_as_the_lab_chose(tmp_path):
     crown.settings["sla_model_type"] = "cb"
     plain = crown.config(cfg)
     learned = b.learned_config(crown.config(cfg))
-    assert abs(learned["sla_support_spacing"] - plain["sla_support_spacing"] * 0.8) < 1e-6
-    assert abs(learned["support_angle"] - (plain["support_angle"] - 3.0)) < 1e-6
+    # the crown's own preset is what is used - the learned spacing / angle are no longer laid over it
+    assert learned["sla_support_spacing"] == plain["sla_support_spacing"]
+    assert learned["support_angle"] == plain["support_angle"]
 
 
 def test_arrange_keeps_only_what_was_chosen_in_the_layout_window(tmp_path):

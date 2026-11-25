@@ -238,14 +238,11 @@ class Assistant:
 
     # ------------------------------------------------------------- supports
     def learned_config(self, cfg: Config) -> Config:
-        """``cfg`` with the learned support density and overhang angle applied."""
-        if not self.enabled:
-            return cfg
-        s = self.data["supports"]
-        out = cfg.copy()
-        out.values["sla_support_spacing"] = float(np.clip(cfg["sla_support_spacing"] * s["spacing_scale"], 0.5, 20))
-        out.values["support_angle"] = float(np.clip(cfg["support_angle"] + s["angle_offset"], 5, 85))
-        return out
+        """``cfg`` as it is: the support spacing and overhang angle shown on screen are what Auto-generate
+        uses. The lab asked for it: the learned density and angle had moved them quietly (50 deg built as 47,
+        8 mm as 7) while the screen still said 50 and 8. What is learned is still kept (support_summary), it
+        is just not laid over the settings any more."""
+        return cfg
 
     def learn_support_edits(self, auto_count: int, added_angles: list[float], removed: int, threshold: float) -> bool:
         """After auto-generation the user added supports (with the overhang angle of each spot) and removed some."""
