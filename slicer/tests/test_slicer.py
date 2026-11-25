@@ -5716,6 +5716,11 @@ def test_red_marks_blink_and_a_click_adds_the_support():
         w._on_mark_picked(o.uid, 0); app.processEvents()
         assert len(o.support_points) == n_sup + 1 and len(o.__dict__["marked_points"]) == n_marks - 1
         assert len(w.viewer.marks.get(o.uid, [])) == n_marks - 1
+        assert w.sup_marks_btn.isVisibleTo(w) or not w.isVisible()
+        assert str(n_marks - 1) in w.sup_marks_btn.text()
+        w.support_all_marks(); app.processEvents()                       # the rest at once
+        assert len(o.support_points) == n_sup + n_marks and not o.__dict__.get("marked_points")
+        assert not w.viewer.marks and not w.sup_marks_btn.isVisibleTo(w)
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

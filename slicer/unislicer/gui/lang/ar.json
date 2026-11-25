@@ -1525,5 +1525,8 @@
  "Support added at the mark. {} marks left.": "أضيفت دعامة عند العلامة. بقي {} من العلامات.",
  "Jaw models: automatic supports only at the bottom": "نماذج الفك: دعامات تلقائية في الأسفل فقط",
  "On a jaw model the automatic supports (and the island pillars at slicing) are made only up to this height above the model's bottom. A higher overhang gets no support - it is marked red with a blinking frame, and a click on it adds one. 0 = the whole height": "في نموذج الفك تُنشأ الدعامات التلقائية (وأعمدة الجزر عند التقطيع) حتى هذا الارتفاع فوق أسفل النموذج فقط. الجزء المتدلي الأعلى لا يحصل على دعامة - يُعلَّم بالأحمر مع إطار وامض، والنقر عليه يضيف دعامة. 0 = كامل الارتفاع",
- "Automatic support zone": "منطقة الدعامات التلقائية"
+ "Automatic support zone": "منطقة الدعامات التلقائية",
+ "Support all marks ({})": "ادعم كل العلامات ({})",
+ "Every red mark gets a support at once (only the selected models', if any). Ctrl+Z undoes it.": "تحصل كل العلامات الحمراء على دعامة دفعة واحدة (للنماذج المحددة فقط إن وجدت). Ctrl+Z للتراجع.",
+ "{} supports added at the marks.": "أضيفت {} دعامات عند العلامات."
 }

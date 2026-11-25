@@ -1525,5 +1525,8 @@
  "Support added at the mark. {} marks left.": "Поддержка добавлена в отмеченном месте. Осталось отметок: {}.",
  "Jaw models: automatic supports only at the bottom": "Модели челюстей: автоподдержки только снизу",
  "On a jaw model the automatic supports (and the island pillars at slicing) are made only up to this height above the model's bottom. A higher overhang gets no support - it is marked red with a blinking frame, and a click on it adds one. 0 = the whole height": "У модели челюсти автоматические поддержки (и опоры для островов при нарезке) ставятся только до этой высоты над низом модели. Нависание выше не поддерживается - оно отмечается красным с мигающей рамкой, щелчок по нему добавляет поддержку. 0 = по всей высоте",
- "Automatic support zone": "Зона автоподдержек"
+ "Automatic support zone": "Зона автоподдержек",
+ "Support all marks ({})": "Поддержать все отметки ({})",
+ "Every red mark gets a support at once (only the selected models', if any). Ctrl+Z undoes it.": "Все красные отметки получают поддержку сразу (только у выбранных моделей, если они есть). Ctrl+Z отменяет.",
+ "{} supports added at the marks.": "Добавлено поддержек на отметках: {}."
 }

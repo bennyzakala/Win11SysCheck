@@ -835,6 +835,13 @@ class MainWindow(QMainWindow):
         raft_btn.setCursor(Qt.PointingHandCursor)
         raft_btn.clicked.connect(self.raft_menu)
         row.addWidget(raft_btn, 2, 1)
+        # the red marks (high overhangs a jaw model's supports leave): all of them supported at once
+        self.sup_marks_btn = QPushButton(theme.icon("pillar", theme.ACCENT, 16), tr("sup_all_marks").format(0))
+        self.sup_marks_btn.setToolTip(tr("sup_all_marks_tip"))
+        self.sup_marks_btn.setCursor(Qt.PointingHandCursor)
+        self.sup_marks_btn.clicked.connect(self.support_all_marks)
+        self.sup_marks_btn.setVisible(False)
+        row.addWidget(self.sup_marks_btn, 3, 0, 1, 2)
         sl.addLayout(row)
         self.sup_info = QLabel(tr("sup_none"))
         self.sup_info.setObjectName("Faint")
@@ -5473,6 +5480,32 @@ class MainWindow(QMainWindow):
             if w is not None:
                 marks[o.uid] = w
         self.viewer.set_marks(marks)
+        n = sum(len(p) for p in marks.values())
+        btn = getattr(self, "sup_marks_btn", None)
+        if btn is not None:
+            btn.setText(tr("sup_all_marks").format(n))
+            btn.setVisible(n > 0)
+
+    def support_all_marks(self):
+        """Every red mark gets its support at once (selected models' only, when some are selected) - one Ctrl+Z."""
+        targets = [o for o in (self.selected_objects() or self.objects)
+                   if o.role != "cutter" and len(o.__dict__.get("marked_points", ()))]
+        if not targets:
+            return
+        self._push_undo()
+        self._ensure_supports_enabled()
+        lift = self._lift(self.settings.config())
+        added = 0
+        for o in targets:
+            p = self._marks_world(o, lift)
+            if o.support_points is None:
+                o.support_points = np.zeros((0, 3))
+            o.set_world_support_points(np.vstack([o.world_support_points(lift), p]), lift)
+            added += len(p)
+            o.__dict__.pop("marked_points", None)
+        self._objects_changed(refresh_list=False)
+        self._show_marks()
+        self.status.setText(tr("sup_all_marks_done").format(added))
 
     def _on_mark_picked(self, uid, index: int):
         """A red mark clicked: a support goes there (the user decided this overhang needs one)."""
