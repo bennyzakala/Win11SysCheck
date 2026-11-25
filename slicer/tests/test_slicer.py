@@ -5545,6 +5545,30 @@ def test_the_last_raft_type_is_remembered_as_the_default():
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_auto_orient_keeps_a_crowns_opening_up():
+    """On the lab's real bridges the general orienter (supports only) put 9 of 33 crowns/bridges with their
+    opening - the fitting side - on the plate or sideways (a 46-47 bridge at 161 deg from up): supports inside
+    the fitting surface, a crown that no longer seats. A crown or bridge is now turned only among the
+    orientations with its opening at most 60 deg from up, and one already right keeps its turn."""
+    from unislicer import primitives, orient, dental_cad
+    from unislicer.mesh import rotation_between
+    cap = primitives.crown_cap()
+    d0 = dental_cad.opening_direction(cap)
+    assert d0 is not None
+    for axis in ([1, 0, 0], [0, 1, 0], [1, 1, 0], [0, 0, 1], [1, 0, 1]):
+        for deg in (0, 70, 120, 180):
+            a = np.radians(deg)
+            k = np.asarray(axis, float) / np.linalg.norm(axis)
+            K = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+            R = np.eye(3) + np.sin(a) * K + (1 - np.cos(a)) * K @ K
+            M = np.eye(4); M[:3, :3] = R
+            turn = orient.crown_rotation_job(cap, M, d0, "sla", 45.0)
+            up = (np.asarray(turn) @ R @ d0)[2]
+            assert up >= np.cos(np.radians(orient.CROWN_MAX_TILT)) - 1e-6, (axis, deg, up)
+    # without a known opening it is the general orienter
+    assert np.allclose(orient.crown_rotation(cap, None, "sla"), orient.best_rotation(cap, "sla"))
+
+
 def test_new_project_keeps_the_raft_last_chosen_for_a_model():
     """The lab picks Solid lite in a model's raft menu; after New project the plate was back on Solid - the
     choice was kept only on that model (gone with it) and never remembered. Now the raft picked there is
@@ -6945,6 +6969,13 @@ def test_provisional_unit_code_is_read_as_a_crown_not_unknown():
     from unislicer import dental_cad
     assert dental_cad.detect_indication("TDF-SOD260049840-044-P-44-44-S1-A35-.stl") == "crown"
     assert dental_cad.detect_indication("TDF-SOD260049840-044-P-44-44-S1-A35-_0.stl") == "crown"
+    # crowns listed apart, or a range with an empty field: still the restoration (they were "unknown", so
+    # auto-orient did not keep their opening up - one 15-16 bridge went opening-down on the plate)
+    assert dental_cad.detect_indication("WCY-SOD260050208-044-P-12--P-24-P-27-_1.stl") == "crown"
+    assert dental_cad.detect_indication("QZY-SOD260049340-004-P-15-16--2-D3-.stl") == "crown"
+    assert dental_cad.detect_indication("SOD260044387-004-P-23.stl") == "crown"
+    assert dental_cad.detect_indication("SOD260049832-W305-PUD_2_Print.stl") == "denture"
+    assert dental_cad.detect_indication("NAX-SOD260048661-044-E-15-16-1-A3-_Tooth_16.stl") == "die"
     assert dental_cad.detect_indication("ABC-SOD111-044-P-14-24-P8-A3-.stl") == "crown"   # provisional bridge span
     assert dental_cad.model_type_of("TDF-SOD260049840-044-P-44-44-S1-A35-", None) == "cb"
     # a plain-count permanent crown still reads as before, and a model / die / gingiva is untouched

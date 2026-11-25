@@ -67,7 +67,8 @@ def detect_indication(path: str, order_text: str = "") -> str:
     # teeth 14 to 24, 8 units): the restoration itself - a crown or bridge, however long the bridge.
     # the unit field may carry a letter code for a provisional / temporary unit ("...-44-44-S1-A35-", an
     # "S1" temporary on tooth 44) as well as a plain count, so both read as the restoration.
-    if _TOOTH_RANGE.search(os.path.basename(path)):
+    base = os.path.basename(path)
+    if _TOOTH_RANGE.search(base) or _RESTORATION_TEETH.search(base):
         return "crown"
     return "unknown"
 
@@ -75,6 +76,9 @@ def detect_indication(path: str, order_text: str = "") -> str:
 _FDI = r"(?:[1-4][1-8]|[5-8][1-5])"
 _MODEL_WORD = re.compile(r" model[a-z]+ ")
 _TOOTH_RANGE = re.compile(rf"-{_FDI}-{_FDI}-[A-Za-z]{{0,2}}\d{{1,2}}(?=[-_.]|$)")
+# a lab order with its restoration code and the teeth written another way: single crowns listed apart
+# ("...-044-P-12--P-24-P-27-", crowns on 12, 24 and 27) or a range with an empty field ("...-P-15-16--2-")
+_RESTORATION_TEETH = re.compile(rf"-[PM]-{_FDI}(?=[-_.]|$)")
 
 
 def order_text_for(path: str) -> str:

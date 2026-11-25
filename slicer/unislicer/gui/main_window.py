@@ -2689,16 +2689,28 @@ class MainWindow(QMainWindow):
             from .. import dental_cad
             # a die is always printed standing on its base; the general scorer (supports only) would lay it on
             # a side or flip it, so a die gets upright_rotation instead
-            dies = [tech == "sla" and dental_cad.model_type_of(o.name, o.mesh) == "die" for o in targets]
+            types = [dental_cad.model_type_of(o.name, o.mesh) if tech == "sla" else "" for o in targets]
+            dies = [t == "die" for t in types]
+            # a crown / bridge keeps its opening (the fitting side) facing up: the general scorer once put a
+            # bridge's opening on the plate, supports inside the fitting surface
+            crowns = [t == "cb" or o.settings.get("sla_model_type") == "cb" for t, o in zip(types, targets)]
             jobs = [(Mesh(o.mesh.vertices, o.mesh.faces, o.mesh.name), o.matrix().copy(), tech, cfg["support_angle"],
                      weights) for o in targets]
+            meshes = [o.mesh for o in targets]
 
             def work():
                 # off the window's thread (there it held the window, not even repainted, ~4 s for 10 parts);
                 # the window waits without input meanwhile, as for supports. Not in the worker pool: numpy
                 # already spreads each part over the cores, the pool was slower (6.3 s against 5.0 s)
-                return [orient.upright_rotation(j[0], j[1]) if die else orient.rotation_job(*j)
-                        for j, die in zip(jobs, dies)]
+                out = []
+                for j, die, crown, m in zip(jobs, dies, crowns, meshes):
+                    if die:
+                        out.append(orient.upright_rotation(j[0], j[1]))
+                    elif crown:
+                        out.append(orient.crown_rotation_job(j[0], j[1], dental_cad.opening_direction(m), *j[2:]))
+                    else:
+                        out.append(orient.rotation_job(*j))
+                return out
 
             # a long job: the checks on a timer (suggestions, collisions, outlines) wait for it - started
             # meanwhile they took the cores from it (Auto prepare 9 s -> 16 s)
