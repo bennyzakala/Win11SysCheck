@@ -471,7 +471,7 @@ def test_support_presets():
 
 
 def test_support_spacing_and_height_come_from_the_printer_not_the_preset_resin_or_quality():
-    """A Phrozen dental plate keeps 7 mm point spacing and 5 mm support height whatever preset, resin or
+    """A Phrozen dental plate keeps 8 mm point spacing and 5 mm support height whatever preset, resin or
     quality is chosen - support geometry is the printer's, so the generic 'Medium' preset (and any value an
     old learned default wrongly saved into a resin or quality) can no longer pull it to a different number."""
     from unislicer import settings
@@ -479,11 +479,11 @@ def test_support_spacing_and_height_come_from_the_printer_not_the_preset_resin_o
     assert all("sla_support_spacing" not in p for p in settings.SUPPORT_PRESETS.values())
     for pid in ("phrozen_sonic_xl_4k_plus", "phrozen_sonic_cs_plus", "phrozen_sonic_ls_plus"):
         base = profiles.build_config(pid, None, None, {})
-        assert base["sla_support_spacing"] == 7.0 and base["sla_elevation"] == 5.0
+        assert base["sla_support_spacing"] == 8.0 and base["sla_elevation"] == 5.0
         assert base["sla_support_type"] == "pillar"      # dental default: straight pillars, not tree
         # picking the Medium preset by hand must not drop the spacing
         picked = profiles.build_config(pid, None, None, {"sla_support_preset": "medium"})
-        assert picked["sla_support_spacing"] == 7.0
+        assert picked["sla_support_spacing"] == 8.0
     # a stray support/raft value saved in a resin or quality profile is ignored: the printer's value stands
     mats = profiles.load("materials")
     stray = next(iter(mats))
@@ -491,7 +491,7 @@ def test_support_spacing_and_height_come_from_the_printer_not_the_preset_resin_o
     try:
         mats[stray]["values"] = {**orig, "sla_support_spacing": 2.0, "sla_elevation": 1.0}
         c = profiles.build_config("phrozen_sonic_xl_4k_plus", stray, None, {})
-        assert c["sla_support_spacing"] == 7.0 and c["sla_elevation"] == 5.0
+        assert c["sla_support_spacing"] == 8.0 and c["sla_elevation"] == 5.0
     finally:
         mats[stray]["values"] = orig
 
@@ -10241,7 +10241,8 @@ def test_models_get_their_supports_5_5_mm_apart():
     assert len(phrozen) >= 12
     for pr in phrozen:
         plate = profiles.build_config(pr, None, None, {})
-        assert plate["sla_support_spacing"] == 7.0 and plate["sla_internal_spacing"] == 7.0, pr
+        # the lab moved the plate's point spacing and the internal spacing to 8 mm (2026-11-25); models stay 7
+        assert plate["sla_support_spacing"] == 8.0 and plate["sla_internal_spacing"] == 8.0, pr
         assert spacing("model", pr) == 7.0 and spacing("model_u", pr) == 7.0, pr
         assert spacing("die", pr) == 5.5, pr                 # the lab: dies stay as they were
         assert spacing("cb", pr) == 2.0 and spacing("guide", pr) == 2.5, pr
