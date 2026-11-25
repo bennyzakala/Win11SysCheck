@@ -218,32 +218,33 @@ class Client:
 
     # ------------------------------------------------------------ a job
     def send(self, stl_paths: list[str], scene_settings: dict, printer: str, job_name: str, *, supports: str = "auto",
-             orient: bool = False, positions: list | None = None, print_now: bool | None = None, save_form: str = "",
+             orient: bool = False, keep: bool = False, print_now: bool | None = None, save_form: str = "",
              progress: Callable[[str, float], None] | None = None, cancelled=None) -> dict:
         """Prepare and send one job. ``supports``: "auto" (PreForm's supports), "mini_rafts_on_bp" (on the
         build platform) or "none" (models already carry UniSlicer's supports, or print straight on the
-        platform). ``positions``: one (x, y) per model to place each where UniSlicer put it and KEEP that
-        arrangement - PreForm's auto-orient and auto-layout are skipped, so the plate on the printer is the one
-        you see here (used when the models carry their own supports). Without it PreForm arranges the plate
-        itself. ``printer`` "" with ``save_form`` only saves the .form file. Returns {"scene", "job_id",
+        platform). ``keep``: KEEP UniSlicer's arrangement - ``stl_paths`` is then one file holding the
+        whole plate already laid out (PreForm's import takes no position: every model it imports lands at the
+        platform centre, so separate files would all stack there and fuse), and PreForm's auto-orient and
+        auto-layout are skipped, so the plate on the printer is the one you see here (used when the models
+        carry their own supports). Without it PreForm arranges the plate itself. ``printer`` "" with ``save_form`` only saves the .form file. Returns {"scene", "job_id",
         "validation", "print_time_s"}."""
         def step(name, f=0.0):
             if progress:
                 progress(name, f)
 
-        keep = bool(positions) and len(positions) == len(stl_paths)
         step("scene")
         _, scene = self.request("POST", "/scene/", dict(scene_settings))
         sid = scene["id"]
         try:
             for k, path in enumerate(stl_paths):
                 step("import", k / max(1, len(stl_paths)))
-                # with ``positions`` each model keeps the spot UniSlicer gave it; otherwise everything goes to
-                # the platform centre and the layout step below arranges it (PreForm gives up with "unable to
-                # fit the models into the work area" as soon as the centre is full, so the retries matter there)
-                px, py = (float(positions[k][0]), float(positions[k][1])) if keep else (0.0, 0.0)
+                # an explicit position: without one PreForm places each import on the platform at once and gives
+                # up ("unable to fit the models into the work area") as soon as it is full. Every import goes to
+                # the centre - PreForm does not honour another x/y here (separate models sent to their own spots
+                # all landed in the middle and printed fused) - and the layout step below arranges them, or with
+                # ``keep`` the one file already holds the arranged plate
                 body = {"file": os.path.abspath(path), "repair_behavior": "REPAIR", "units": "MILLIMETERS",
-                        "position": {"x": px, "y": py, "z": 0.0}}
+                        "position": {"x": 0.0, "y": 0.0, "z": 0.0}}
                 try:
                     self.call("POST", f"/scene/{sid}/import-model/", body, cancelled=cancelled)
                 except FormlabsError as e:

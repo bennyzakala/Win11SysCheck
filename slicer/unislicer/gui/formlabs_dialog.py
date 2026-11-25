@@ -37,6 +37,11 @@ def eased_positions(meshes, build, gap: float = MIN_SEND_GAP):
     return pos, eased, (not ok)
 
 
+def job_plate_name(job: str) -> str:
+    """The name of the one-file plate sent when UniSlicer's arrangement is kept."""
+    return (job or "").strip() or "UniSlicer plate"
+
+
 STEP_KEYS = {"scene": "fl_step_scene", "import": "fl_step_import", "orient": "fl_step_orient",
              "supports": "fl_step_supports", "layout": "fl_step_layout", "check": "fl_step_check",
              "save": "fl_step_save", "print": "fl_step_print", "done": "fl_step_done"}
@@ -334,12 +339,20 @@ class FormlabsDialog(QDialog):
             ti = self.ptype.currentIndex()
             bld = self.types[ti].get("build") if 0 <= ti < len(self.types) else []
             positions, gap_eased, gap_full = eased_positions(meshes, bld, MIN_SEND_GAP)
-        for k, (name, mesh) in enumerate(meshes):
+        to_write = meshes
+        if positions is not None:
+            # PreForm's import takes no position - every model it imports lands at the platform centre, so
+            # separate files would all stack there and fuse into one lump. Send the whole plate as ONE file
+            # instead, each part moved to its (eased) spot, so the arrangement cannot be lost on the way.
+            from ..mesh import Mesh
+            placed = []
+            for (_name, mesh), (px, py) in zip(meshes, positions):
+                c = (mesh.bounds[0, :2] + mesh.bounds[1, :2]) / 2.0
+                placed.append(mesh.translated([px - float(c[0]), py - float(c[1]), 0.0]))
+            to_write = [(job_plate_name(self.job.text()), Mesh.merge(placed, "plate"))]
+        for k, (name, mesh) in enumerate(to_write):
             safe = "".join(ch if ch.isalnum() or ch in "-_ ." else "_" for ch in (name or "model"))[:60] or "model"
             path = os.path.join(folder, f"{k + 1:02d}_{safe}.stl")
-            if positions is not None:                      # centre each model's own geometry; its spot is the position
-                c = (mesh.bounds[0, :2] + mesh.bounds[1, :2]) / 2.0
-                mesh = mesh.translated([-float(c[0]), -float(c[1]), 0.0])
             save_stl(mesh, path)
             paths.append(path)
         if not paths:
@@ -355,7 +368,7 @@ class FormlabsDialog(QDialog):
         def work(progress, cancelled):
             try:
                 return self.client.send(paths, dict(scene), printer, job_name, supports=mode,
-                                        orient=self.orient.isChecked(), positions=positions,
+                                        orient=self.orient.isChecked(), keep=positions is not None,
                                         print_now=print_now, save_form=save_form,
                                         progress=progress, cancelled=cancelled)
             except formlabs.FormlabsError as e:
@@ -375,7 +388,7 @@ class FormlabsDialog(QDialog):
                 self.status.setText(tr("fl_failed").format(result["error"]))
                 return
             if result.get("too_big"):
-                self.status.setText(tr("fl_too_big").format(len(paths), footprint / 100.0,
+                self.status.setText(tr("fl_too_big").format(len(meshes), footprint / 100.0,
                                                             plate / 100.0 if plate else 0.0, self.ptype.currentText()))
                 return
             bad = formlabs.validation_problems(result.get("validation"))
@@ -391,7 +404,7 @@ class FormlabsDialog(QDialog):
                 lines.append(tr("fl_warnings").format(bad["cups"], bad["unsupported_minima"], bad["undersupported"]))
             self.status.setText("\n".join(lines))
 
-        self._run(work, done, tr("fl_sending").format(len(paths)))
+        self._run(work, done, tr("fl_sending").format(len(meshes)))
 
     def _send(self):
         printer = self._printer_id()

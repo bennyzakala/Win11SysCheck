@@ -5449,13 +5449,13 @@ def test_formlabs_send_through_preformserver(tmp_path):
         ss = types[0]["materials"][0]["settings"][0]["scene_settings"]
         srv.layout_mode = "full"                        # auto-layout would fail here - it must be skipped
         n = len(srv.scenes)
-        r = c.send([stl, stl], ss, "192.168.7.20", "keep", supports="none",
-                   orient=True, positions=[(12.0, -3.0), (-8.0, 5.0)])
+        r = c.send([stl], ss, "192.168.7.20", "keep", supports="none", orient=True, keep=True)
         sid = f"scene{n + 1}"
         assert r["job_id"] == "job-1"                   # printed, although layout_mode="full" (layout was skipped)
         assert "auto-layout" not in srv.scenes[sid] and "auto-orient" not in srv.scenes[sid]
         imp = [b for m, p, b in srv.calls if m == "POST" and p == f"/scene/{sid}/import-model/"]
-        assert [(b["position"]["x"], b["position"]["y"]) for b in imp] == [(12.0, -3.0), (-8.0, 5.0)]
+        # the arranged plate is one file, imported at the centre (PreForm does not honour per-model spots)
+        assert len(imp) == 1 and (imp[0]["position"]["x"], imp[0]["position"]["y"]) == (0.0, 0.0)
         srv.layout_mode = "ok"
         dead = formlabs.Client(port=1)
         assert not dead.running()
@@ -5883,6 +5883,61 @@ def test_formlabs_dialog_connects_finds_and_sends(tmp_path):
                            encoding="utf-8", errors="replace")
         assert r.returncode == 0 and "STATUS" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
         assert "Form 4BL" in r.stdout and "Error" not in r.stdout.split("STATUS", 1)[1], r.stdout[-1500:]
+    finally:
+        srv.close()
+
+
+def test_formlabs_dialog_sends_unislicers_plate_as_one_arranged_file(tmp_path):
+    """Sending UniSlicer's own plate (its supports, its layout) to a Form: PreForm's import takes no position,
+    so separate files all landed at the platform centre and printed fused into each other. The plate now goes
+    as ONE file with every part already at its spot - the parts stay apart and none is lost."""
+    import json as _json, subprocess, sys, textwrap
+    globals()["json"] = _json
+    srv = _FakePreFormServer()
+    try:
+        code = textwrap.dedent('''
+            import os, time
+            os.environ["QT_QPA_PLATFORM"] = "offscreen"
+            from PySide6.QtWidgets import QApplication
+            from PySide6.QtCore import QSettings
+            app = QApplication([])
+            import numpy as np
+            from unislicer import primitives, formlabs
+            from unislicer.mesh import load_mesh, Mesh
+            from unislicer.gui.formlabs_dialog import FormlabsDialog
+            store = QSettings(os.path.join(os.environ["HOME"], "s.ini"), QSettings.IniFormat)
+            store.setValue("formlabs_port", int(os.environ["FAKE_PORT"]))
+            parts = [("a", primitives.box(10, 10, 5)), ("b", primitives.box(10, 10, 5).translated([30, 0, 0])),
+                     ("c", primitives.box(8, 8, 5).translated([0, 25, 0]))]
+            d = FormlabsDialog(store, lambda mode: list(parts), "job", None, None)
+            def wait():
+                end = time.time() + 120
+                while d.task is not None and d.task.isRunning() and time.time() < end:
+                    app.processEvents(); time.sleep(0.02)
+                d.task.wait(); app.processEvents()
+            d._connect(); wait()
+            d.supports.setCurrentIndex(d.supports.findData("none"))
+            got = {}
+            def send(paths, scene, printer, job, **kw):
+                got["keep"] = kw.get("keep")
+                got["meshes"] = [Mesh.merge(load_mesh(p)) for p in paths]
+                return {"scene": "s", "job_id": "", "validation": {}, "print_time_s": 0.0}
+            d.client.send = send
+            d.printer.setEditText("192.168.7.20")
+            d._send(); wait()
+            assert got.get("keep") is True and len(got["meshes"]) == 1, (got, d.status.text(), d.ptype.currentText(), d.printer.currentText())
+            m = got["meshes"][0]
+            assert len(m.faces) == sum(len(p.faces) for _n, p in parts)
+            # the three parts are still three separate boxes, the same distance apart as on UniSlicer's plate
+            assert np.ptp(m.vertices[:, 0]) > 35.0 and np.ptp(m.vertices[:, 1]) > 28.0, (np.ptp(m.vertices, axis=0))
+            print("ok", flush=True)
+        ''')
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), FAKE_PORT=str(srv.port),
+                   PYTHONIOENCODING="utf-8")
+        r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env,
+                           encoding="utf-8", errors="replace")
+        assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
     finally:
         srv.close()
 
