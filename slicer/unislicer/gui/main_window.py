@@ -2707,7 +2707,10 @@ class MainWindow(QMainWindow):
                     if die:
                         out.append(orient.upright_rotation(j[0], j[1]))
                     elif crown:
-                        out.append(orient.crown_rotation_job(j[0], j[1], dental_cad.opening_direction(m), *j[2:]))
+                        # a full-arch implant bridge goes straight, teeth on the plate: tilted, its screw
+                        # holes seal in the print
+                        out.append(orient.crown_rotation_job(j[0], j[1], dental_cad.opening_direction(m), *j[2:],
+                                                             straight=dental_cad.implant_arch(m)))
                     else:
                         out.append(orient.rotation_job(*j))
                 return out

@@ -235,7 +235,10 @@ def opening_direction(mesh):
       hollow say which way they get out. Cached per mesh."""
     def compute():
         try:
-            return _opening_direction(mesh.decimated(6000))
+            d = _opening_direction(mesh.decimated(6000))
+            if d is None and full_arch(mesh):
+                d = _arch_opening(mesh)
+            return d
         except Exception as exc:                 # no answer: the part is left as it is
             OPENING_ERRORS[:] = (OPENING_ERRORS + [repr(exc)])[-5:]
             return None
@@ -288,6 +291,77 @@ def opening_directions(meshes) -> list:
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=min(4, len(meshes), os.cpu_count() or 1)) as ex:
         return list(ex.map(opening_direction, meshes))
+
+
+def _arch_frame(mesh):
+    """(centre, normal) of an arch: the normal is the axis the part is thinnest along (the arch lies across
+    it). Not snapped to X / Y / Z - a full-arch design can come tilted from the CAD."""
+    import numpy as np
+    v = np.asarray(mesh.vertices, dtype=float)
+    c = v.mean(axis=0)
+    w, vec = np.linalg.eigh(np.cov((v - c).T))
+    return c, vec[:, 0] / (np.linalg.norm(vec[:, 0]) or 1.0)
+
+
+def full_arch(mesh) -> bool:
+    """A full-arch restoration (an implant-supported bridge round the whole jaw, "...-P-27-17-14-"): a big
+    U-shaped part - seen along its thinnest axis its outline fills well under two thirds of its own convex
+    hull, and it spans more than 40 mm. Cached per mesh."""
+    def compute():
+        import numpy as np
+        from .mesh import rotation_between
+        from .layout import _raster_outline
+        try:
+            _c, n = _arch_frame(mesh)
+            M = np.eye(4)
+            M[:3, :3] = rotation_between(n, np.array([0.0, 0.0, 1.0]))
+            t = mesh.decimated(20000).transform(M)
+            size = t.bounds[1] - t.bounds[0]
+            if max(size[0], size[1]) < 40.0:
+                return False
+            outline = _raster_outline(t)
+            return bool(outline.area < 0.62 * outline.convex_hull.area)
+        except Exception:
+            return False
+    return _memo(mesh, "_full_arch", compute)
+
+
+def implant_arch(mesh) -> bool:
+    """A full-arch implant bridge: a full arch with no crown-like hollow to fit over (its fitting side is a
+    ridge with screw / abutment holes). An ordinary long bridge has its crowns' hollows and is not one.
+    These print straight, teeth on the plate - tilted, the screw holes seal in the print. Cached per mesh."""
+    def compute():
+        try:
+            return bool(full_arch(mesh) and _opening_direction(mesh.decimated(6000)) is None
+                        and _arch_opening(mesh) is not None)
+        except Exception:
+            return False
+    return _memo(mesh, "_implant_arch", compute)
+
+
+def _arch_opening(mesh):
+    """The fitting side of a full-arch bridge (where its abutment / screw holes open), as a unit vector, or
+    None. It has no single hollow for the crown test: the side is told by its teeth - cuts across the arch
+    near the biting end fall apart into many cusps and incisal edges, near the fitting side they do not."""
+    import numpy as np
+    from .mesh import rotation_between
+    from .slicing import slice_mesh
+    _c, n = _arch_frame(mesh)
+    M = np.eye(4)
+    M[:3, :3] = rotation_between(n, np.array([0.0, 0.0, 1.0]))
+    t = mesh.decimated(60000).transform(M)
+    lo, hi = float(t.bounds[0][2]), float(t.bounds[1][2])
+    k = 24
+    zs = lo + (hi - lo) * (np.arange(k) + 0.5) / k
+    pieces = []
+    for g in slice_mesh(t, zs):
+        pieces.append(sum(1 for p in getattr(g, "geoms", [g]) if p.geom_type == "Polygon" and not p.is_empty))
+    pieces = np.asarray(pieces, dtype=float)
+    end = max(3, k // 6)
+    low, high = float(pieces[:end].max(initial=0)), float(pieces[-end:].max(initial=0))
+    if max(low, high) < 5 or abs(high - low) < 3:
+        return None                                  # no clear biting end
+    return -n if high > low else n                   # the teeth at one end: it fits from the other
 
 
 def _hole_profile(mesh, axis: int, n: int = 20):

@@ -5569,6 +5569,34 @@ def test_auto_orient_keeps_a_crowns_opening_up():
     assert np.allclose(orient.crown_rotation(cap, None, "sla"), orient.best_rotation(cap, "sla"))
 
 
+def test_a_full_arch_bridge_prints_straight_teeth_on_the_plate():
+    """A full-arch implant bridge ("...-P-27-17-14-") has no single hollow, so no opening was found and the
+    general orienter tilted it - its screw holes seal in the print. It is now told apart (a big U-shaped
+    part), its fitting side is the one away from the teeth (cuts near the biting end fall apart into cusps),
+    and it is turned straight: teeth down on the plate, holes up. An ordinary crown is not a full arch."""
+    from unislicer import primitives, orient, dental_cad
+    from unislicer.mesh import Mesh
+    parts = []
+    for k in range(11):                               # an arch of units, two cusps on each, biting side up
+        a = np.radians(-90 + 180 * k / 10)
+        x, y = 28 * np.cos(a), 28 * np.sin(a)
+        parts.append(primitives.box(9, 9, 8).translated([x, y, 0]))
+        for dx in (-2.5, 2.5):
+            parts.append(primitives.box(2.2, 2.2, 3).translated([x + dx, y, 8]))
+    arch = Mesh.merge(parts)
+    assert dental_cad.full_arch(arch)
+    d = dental_cad.opening_direction(arch)
+    assert d is not None and d[2] < -0.95, d          # it fits from below: the teeth are on top
+    for flip in (np.eye(3), np.diag([1.0, -1.0, -1.0])):
+        M = np.eye(4); M[:3, :3] = flip
+        turn = orient.crown_rotation_job(arch, M, d, "sla", 45.0, straight=True)
+        assert (np.asarray(turn) @ flip @ d)[2] > 0.999      # holes straight up, teeth on the plate
+    assert not dental_cad.full_arch(primitives.crown_cap())
+    # an ordinary bridge round the arch has its crowns' hollows: not an implant bridge, it keeps its tilt
+    assert dental_cad.implant_arch(arch)
+    assert not dental_cad.implant_arch(primitives.crown_cap())
+
+
 def test_new_project_keeps_the_raft_last_chosen_for_a_model():
     """The lab picks Solid lite in a model's raft menu; after New project the plate was back on Solid - the
     choice was kept only on that model (gone with it) and never remembered. Now the raft picked there is

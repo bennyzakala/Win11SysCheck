@@ -150,15 +150,19 @@ CROWN_MAX_TILT = 60.0      # degrees: a crown / bridge's opening (its fitting si
 
 
 def crown_rotation(mesh: Mesh, opening, technology: str, support_angle: float = 45.0, elevation: float = 5.0,
-                   samples: int = 240, weights: np.ndarray | None = None) -> np.ndarray:
+                   samples: int = 240, weights: np.ndarray | None = None, straight: bool = False) -> np.ndarray:
     """The best turn for a crown or bridge with its opening (``opening``: the fitting side's direction, in
     the mesh's own frame) kept facing up - at most CROWN_MAX_TILT from straight up. The general scorer only
     counts supports and turned a two-unit bridge (46-47) with its opening on the plate: supports inside the
-    fitting surface, a crown that no longer seats. Without a known opening it is ``best_rotation``."""
+    fitting surface, a crown that no longer seats. ``straight``: the opening straight up, teeth down on the
+    plate (a full-arch implant bridge: tilted, its screw holes seal in the print). Without a known opening it
+    is ``best_rotation``."""
     if opening is None:
         return best_rotation(mesh, technology, support_angle, elevation, samples, weights)
     d = np.asarray(opening, dtype=float)
     d = d / (np.linalg.norm(d) or 1.0)
+    if straight:
+        return rotation_between(-d, DOWN)
     dirs = candidate_directions(mesh, technology, samples)
     dirs = np.vstack([dirs, -d[None, :]])                # straight up is always a candidate
     # the mesh direction sent DOWN takes the opening to -dot(d, dir) up
@@ -168,11 +172,12 @@ def crown_rotation(mesh: Mesh, opening, technology: str, support_angle: float = 
     return rotation_between(dirs[int(np.argmin(s))], DOWN)
 
 
-def crown_rotation_job(mesh: Mesh, matrix, opening, technology: str, support_angle: float, weights=None) -> np.ndarray:
+def crown_rotation_job(mesh: Mesh, matrix, opening, technology: str, support_angle: float, weights=None,
+                       straight: bool = False) -> np.ndarray:
     """crown_rotation of a placed part (``opening`` in the mesh's own frame, turned with it)."""
     m = np.asarray(matrix, dtype=float)
     d = None if opening is None else m[:3, :3] @ np.asarray(opening, dtype=float)
-    return crown_rotation(mesh.transform(matrix), d, technology, support_angle, weights=weights)
+    return crown_rotation(mesh.transform(matrix), d, technology, support_angle, weights=weights, straight=straight)
 
 
 def current_features(mesh: Mesh, technology: str, support_angle: float, elevation: float = 5.0) -> np.ndarray:
