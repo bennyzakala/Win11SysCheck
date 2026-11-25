@@ -5615,6 +5615,40 @@ def test_an_implant_crown_with_screw_channels_prints_straight():
     assert (np.asarray(turn) @ M[:3, :3] @ d)[2] > 0.999                 # channel straight up
 
 
+def test_the_settings_sections_are_tiles_that_need_no_scrolling():
+    """Printer, Quality, Material, Supports, Raft, Hollowing, Exposure: always in view, no scrolling - a
+    grid of tiles (icon over the full name, four to a row) instead of cards one under another. A search
+    still lists its matches as cards."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui import settings_panel
+        w = MainWindow(); w.store.setValue("preslice", "false"); w.show()
+        w.setMinimumSize(1900, 1040); w.resize(1900, 1040)
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus"); w.settings.rebuild()
+        for _ in range(20): app.processEvents(); time.sleep(0.02)
+        secs = w.settings._sections
+        assert {"printer", "quality", "material", "support", "raft", "hollow", "exposure"} <= set(secs), set(secs)
+        for cat, sec in secs.items():
+            assert sec.header.objectName() == "SectionTile", cat
+            name = settings_panel.category_label(next(c for c in settings_panel.CATEGORIES if c[0] == cat))
+            assert sec.header.text().replace("\\n", " ").replace("&&", "&") == name, (sec.header.text(), name)
+        assert w.settings.scroll.verticalScrollBar().maximum() == 0, "the sections need scrolling"
+        w.settings.filter_text = "spacing"; w.settings.rebuild(); app.processEvents()
+        assert all(s.header.objectName() == "SectionHeader" for s in w.settings._sections.values())
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_phrozen_printers_start_on_the_labs_support_settings():
     """The lab's support settings are what a Phrozen printer starts with; anything else is a change by hand."""
     from unislicer import profiles

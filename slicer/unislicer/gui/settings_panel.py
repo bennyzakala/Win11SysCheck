@@ -113,6 +113,18 @@ class NoWheelCombo(_NoWheelMixin, QComboBox):
     pass
 
 
+def two_lines(text: str) -> str:
+    """A long name on two lines, broken at the space nearest its middle ("חלילה וחורי ניקוז")."""
+    if len(text) <= 9 or " " not in text:
+        return text
+    mid = len(text) / 2
+    k = min((i for i, ch in enumerate(text) if ch == " "), key=lambda i: abs(i - mid))
+    return text[:k] + "\n" + text[k + 1:]
+
+
+TILE_COLUMNS = 4         # the section tiles: four to a row, so the seven sections take two rows
+
+
 class Section(QFrame):
     """Card with an icon header: a left click opens the section in its own window. The settings show
     inside the panel only while searching (the matches)."""
@@ -130,6 +142,7 @@ class Section(QFrame):
         self.header = QToolButton()
         self.header.setObjectName("SectionHeader")
         self.header.setText("  " + title.replace("&", "&&"))
+        self._icon_name = icon_name
         self.header.setIcon(theme.icon(icon_name, theme.ACCENT, 18))
         self.header.setIconSize(QSize(18, 18))
         self.header.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
@@ -153,6 +166,21 @@ class Section(QFrame):
         self.toggle.toggled.connect(self._fold)
         self.toggle.setChecked(expanded)
         self._fold(expanded)
+
+    def as_tile(self, title: str):
+        """A tile of the section grid: the icon above the full name (on two lines when long), so every
+        section shows in the panel at once with no scrolling."""
+        lay = self.layout()
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.setObjectName("TileCard")            # the tile is the card: no second frame round it
+        self.header.setObjectName("SectionTile")
+        self.header.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        self.header.setIconSize(QSize(22, 22))
+        self.header.setIcon(theme.icon(self._icon_name, theme.ACCENT, 22))
+        self.header.setText(two_lines(title).replace("&", "&&"))
+        self.header.setToolTip(title + "\n" + tr("section_open"))
+        self.header.setMinimumWidth(10)
+        self.header.setFixedHeight(64)
 
     def _fold(self, on: bool):
         self.body.setVisible(on)
@@ -1658,6 +1686,19 @@ class SettingsPanel(QWidget):
         v = QVBoxLayout(container)
         v.setContentsMargins(0, 0, 4, 0)
         v.setSpacing(10)
+        # the sections as a grid of tiles (no scrolling) - unless their settings show in the panel
+        # (a search's matches, Simple), when they stay cards one under another
+        tiles = not (bool(self.filter_text) or (getattr(self, "simple", False) and not self.filter_text))
+        grid = None
+        if tiles:
+            from PySide6.QtWidgets import QGridLayout
+            grid_box = QWidget()
+            grid = QGridLayout(grid_box)
+            grid.setContentsMargins(0, 0, 0, 0)
+            grid.setSpacing(6)
+            for c in range(TILE_COLUMNS):
+                grid.setColumnStretch(c, 1)
+            v.addWidget(grid_box)
         self._rows: dict[str, SettingRow] = {}
         self._sections = {}
         simple = getattr(self, "simple", False) and not self.filter_text
@@ -1688,7 +1729,12 @@ class SettingsPanel(QWidget):
                 row.reset.connect(self._on_reset)
                 sec.add_row(row)
                 self._rows[s.key] = row
-            v.addWidget(sec)
+            if grid is not None:
+                sec.as_tile(category_label(cat))
+                k = len(self._sections)
+                grid.addWidget(sec, k // TILE_COLUMNS, k % TILE_COLUMNS)
+            else:
+                v.addWidget(sec)
             self._sections[cat[0]] = sec
         v.addStretch(1)
         banner = QLabel()

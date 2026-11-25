@@ -360,6 +360,10 @@ QToolButton#MaterialDefault[pending="true"] {{ border: 1.5px solid {ACCENT}; col
 QToolButton#Reset {{ padding: 2px; border-radius: 6px; }}
 QToolButton#SectionHeader {{ border: none; border-radius: 10px; padding: 10px 12px; font-weight: 600; font-size: 13px; text-align: left; }}
 QToolButton#SectionHeader:hover {{ background: {SURFACE_2}; }}
+QFrame#TileCard {{ background: transparent; border: none; }}
+QToolButton#SectionTile {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 10px; padding: 2px 1px;
+    font-weight: 600; font-size: 11px; color: {TEXT}; }}
+QToolButton#SectionTile:hover {{ background: {SURFACE_2}; border-color: {ACCENT}; }}
 QToolButton#SectionHeader:checked {{ background: transparent; border: none; }}
 
 QFrame#Segmented {{ background: {SURFACE_2}; border: 1px solid {BORDER}; border-radius: 11px; }}
