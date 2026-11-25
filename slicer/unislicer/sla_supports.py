@@ -211,12 +211,36 @@ def auto_support_points(mesh: Mesh, cfg: Config, report: dict | None = None) -> 
         # automatic supports only up to ``zone`` above the part's bottom; higher points are handed back to be
         # marked (red, blinking) for the user to decide - not supported
         high = pts[:, 2] - float(mesh.bounds[0][2]) > zone + 1e-6
+        if high.any():
+            # inside the hollow under the base (within its outline seen from below) a support stands straight
+            # up from the raft into the hollow - it does not climb the model's walls: those stay supported
+            inner = _under_base(mesh)
+            if inner is not None:
+                from shapely.geometry import Point
+                high &= ~np.array([inner.contains(Point(float(p[0]), float(p[1]))) for p in pts])
         marked, pts = pts[high], pts[~high]
     if report is not None:
         report["spacing_used"] = spacing
         report["min_points"] = need
         report["marked"] = marked
     return pts
+
+
+def _under_base(mesh: Mesh):
+    """The area inside a model's bottom outline (its footprint with any hollow under the base filled), set
+    in 0.8 mm from the outer edge - or None."""
+    try:
+        from shapely.geometry import Polygon
+        from shapely.ops import unary_union
+        from .slicing import slice_mesh
+        g = slice_mesh(mesh, [float(mesh.bounds[0][2]) + 0.3])[0]
+        polys = [Polygon(p.exterior) for p in getattr(g, "geoms", [g]) if p.geom_type == "Polygon" and not p.is_empty]
+        if not polys:
+            return None
+        area = unary_union(polys).buffer(-0.8)
+        return None if area.is_empty else area
+    except Exception:
+        return None
 
 
 def _support_points_at(mesh: Mesh, cfg: Config, spacing: float, report: dict | None) -> np.ndarray:

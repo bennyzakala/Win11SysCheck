@@ -1524,22 +1524,36 @@ class Viewer(QOpenGLWidget):
             self._marks_buf = (_Buffer(tris, [3]), _Buffer(lines, [3]))
             self._marks_new = False
         GL.glUseProgram(self._line_prog)
-        GL.glDisable(GL.GL_DEPTH_TEST)
         GL.glUniformMatrix4fv(self._u(self._line_prog, "uMVP"), 1, GL.GL_TRUE, mvp.astype(np.float32))
-        GL.glUniform4f(self._u(self._line_prog, "uColor"), 1.0, 0.1, 0.15, 1.0)
-        self._marks_buf[0].draw(GL.GL_TRIANGLES)
-        if getattr(self, "_marks_on", True):                 # the frame blinks
-            try:
-                GL.glLineWidth(3.0)
-            except Exception:
-                pass
-            GL.glUniform4f(self._u(self._line_prog, "uColor"), 1.0, 0.85, 0.1, 1.0)
-            self._marks_buf[1].draw(GL.GL_LINES)
-            try:
-                GL.glLineWidth(1.0)
-            except Exception:
-                pass
+        blend = GL.glIsEnabled(GL.GL_BLEND)
+        GL.glEnable(GL.GL_BLEND)
+        GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+        lit = getattr(self, "_marks_on", True)               # the frame blinks
+        # behind the model (seen through it): faint, so they do not look as if they sat on the top; then the
+        # ones in sight on top of that, in full colour
+        for depth, alpha in ((False, 0.28), (True, 1.0)):
+            if depth:
+                GL.glEnable(GL.GL_DEPTH_TEST)
+                GL.glDepthFunc(GL.GL_LEQUAL)
+            else:
+                GL.glDisable(GL.GL_DEPTH_TEST)
+            GL.glUniform4f(self._u(self._line_prog, "uColor"), 1.0, 0.1, 0.15, alpha)
+            self._marks_buf[0].draw(GL.GL_TRIANGLES)
+            if lit:
+                try:
+                    GL.glLineWidth(3.0)
+                except Exception:
+                    pass
+                GL.glUniform4f(self._u(self._line_prog, "uColor"), 1.0, 0.85, 0.1, alpha)
+                self._marks_buf[1].draw(GL.GL_LINES)
+                try:
+                    GL.glLineWidth(1.0)
+                except Exception:
+                    pass
+        GL.glDepthFunc(GL.GL_LEQUAL)              # as the view keeps it
         GL.glEnable(GL.GL_DEPTH_TEST)
+        if not blend:
+            GL.glDisable(GL.GL_BLEND)
 
     def _draw_defects(self, mvp):
         """Open edges (holes) in red and non-manifold edges in orange, drawn on top of the model so a broken
