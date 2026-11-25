@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>הברגה ב‑MillBox</title>
+<style>
+  @page { size: A4; margin: 15mm 14mm; }
+  body { font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif; font-size: 10.5pt; line-height: 1.5; color: #111; background: #fff; }
+  h1 { font-size: 18pt; margin: 0 0 2px; }
+  .sub { color: #555; margin-bottom: 10px; }
+  h2 { font-size: 13pt; border-bottom: 1.5px solid #333; padding-bottom: 2px; margin: 16px 0 6px; page-break-after: avoid; }
+  h3 { font-size: 11pt; margin: 10px 0 3px; page-break-after: avoid; }
+  ul, ol { margin: 3px 0; padding-right: 22px; }
+  li { margin: 2px 0; }
+  .note { border: 1px solid #999; background: #f3f3f3; padding: 6px 10px; margin: 8px 0; }
+  .warn { border-right: 4px solid #b00; background: #fbeeee; padding: 6px 10px; margin: 8px 0; }
+  .ok { border-right: 4px solid #2a7; background: #eef8f2; padding: 6px 10px; margin: 8px 0; }
+  table { border-collapse: collapse; margin: 6px 0; width: 100%; page-break-inside: avoid; }
+  th, td { border: 1px solid #777; padding: 3px 6px; text-align: center; vertical-align: top; }
+  th { background: #e6e6e6; }
+  td.r { text-align: right; }
+  .ui { direction: ltr; unicode-bidi: isolate; font-family: "Liberation Mono", monospace; background: #eee; padding: 0 3px; border-radius: 2px; font-size: 9.5pt; }
+  .flow { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 8px 0; }
+  .flow div.b { border: 1.5px solid #333; border-radius: 4px; padding: 4px 8px; background: #fafafa; font-size: 9.5pt; text-align: center; }
+  .flow span { font-size: 13pt; }
+  .fill td { height: 20px; }
+  .sources { direction: ltr; text-align: left; padding-left: 20px; padding-right: 0; }
+  .sources li { font-size: 8.5pt; word-break: break-all; }
+  .pb { page-break-before: always; }
+  .tag { font-size: 8.5pt; color: #fff; background: #555; border-radius: 3px; padding: 0 4px; }
+  .tag.v { background: #2a7; } .tag.e { background: #c80; }
+</style>
+</head>
+<body>
+
+<h1>הגדרת הברגה (Thread Milling) ב‑MillBox</h1>
+<div class="sub">למכונות BSM‑520W (16 תאים) ו‑BSM‑420W (6 תאים) · טיטניום · 25.11.2026</div>
+
+<div class="note">
+<b>על מה המדריך מבוסס:</b> המקורות הם חיפושים במדריך המקוון של MillBox ובהערות שחרור. את דפי המדריך המלאים לא הצלחתי לפתוח מהסביבה שלי, ואין לי גישה לתוכנה עצמה. לכן אין כאן צילומי מסך אמיתיים. במקומם יש תרשים זרימה וטבלאות למילוי. בכל פרט מסומן מה מקורו:
+<span class="tag v">מאומת</span> מופיע בתיעוד של MillBox,
+<span class="tag e">הערכה</span> ידע כללי בעיבוד שבבי, צריך לבדוק במכונה.
+<br>שמות הכפתורים בתוכנה מופיעים באנגלית כמו שהם במדריך.
+</div>
+
+<h2>שלב 0: לפני הכל, לבדוק מה יש לכם</h2>
+<div class="ok">
+<b>כרסום הברגה קיים ב‑MillBox, אבל הוא תלוי בחבילת המכונה.</b> <span class="tag v">מאומת</span>
+בהערות השחרור של MillBox לחבילת המכונה DEPRAG (גרסה 24.2.5, אפריל 2025) מופיע:
+<span class="ui">Add Optional Tools: M2.0 Thread Tool — T15 (Titanium / CrCo Material)</span>.
+המשמעות היא שהיצרן של המכונה מוסיף לחבילה שלו כלי הברגה ואסטרטגיה מוכנים. צריך לברר אם BSM עשו את אותו הדבר בחבילה של המכונות שלכם.
+</div>
+<ol>
+  <li><b>איזו גרסה ואיזו מהדורה של MillBox יש לכם?</b> להוספת פעולות חדשות לאסטרטגיה צריך את <span class="ui">Strategy Editor</span>. הוא כלול ב‑<b>MillBox Expert</b>, ובמהדורות אחרות נמכר כתוסף. <span class="tag v">מאומת</span></li>
+  <li><b>בארכיון הכלים של קונפיגורציית ה‑BSM‑520W, יש כבר כלי <span class="ui">Thread</span>?</b> אם כן, אפשר לדלג ישר לשלב 4.</li>
+  <li><b>אם אין כלי כזה, לבקש מ‑BioWhite או מ‑BSM</b> את חבילת המכונה המעודכנת עם כלי ההברגה, או אסטרטגיית טיטניום שכוללת Thread Milling.</li>
+</ol>
+
+<h2>תרשים זרימה</h2>
+<div class="flow">
+  <div class="b">1. CAD (exocad)<br>תכנון הבר עם החורים</div><span>←</span>
+  <div class="b">2. ייבוא ל‑MillBox<br>חומר: Titanium</div><span>←</span>
+  <div class="b">3. Curves &amp; Surfaces<br>בדיקת החורים וההברגות</div><span>←</span>
+  <div class="b">4. Strategy Editor<br>קידוח מקדים + הברגה</div><span>←</span>
+  <div class="b">5. Tool archive<br>מספר כלי = מספר תא</div><span>←</span>
+  <div class="b">6. חישוב, סימולציה,<br>ייצוא NC</div><span>←</span>
+  <div class="b">7. מכונה: כלי בתא,<br>מדידת כלי, ניסיון</div>
+</div>
+
+<h2>שלב 1: CAD (exocad)</h2>
+<ul>
+  <li>מתכננים את הבר או הגשר עם ספריית השתל או ה‑Multi‑Unit הנכונה. אם צריך הברגה בתוך החלק, למשל לבורג משני, החור צריך להיות מוגדר בתכנון.</li>
+  <li><b>בייצוא:</b> MillBox קורא את הקבצים <span class="ui">.constructioninfo</span> ו‑<span class="ui">.modelinfo</span> של exocad רק אם יש להם <b>אותו שם בדיוק כמו קובץ ה‑STL</b> והם נמצאים <b>באותה תיקייה</b>. <span class="tag v">מאומת</span> בלי הקבצים האלה התוכנה לא מזהה את צירי הקידוח ואת החיבור לשתל.</li>
+</ul>
+
+<h2>שלב 2: ייבוא ל‑MillBox</h2>
+<ul>
+  <li>מייבאים את ה‑STL, בוחרים חומר טיטניום ואת סוג העבודה (למשל Bar או Screwed Bridge).</li>
+  <li>בעבודות מוברגות התוכנה צריכה לזהות את החיבור לשתל (interface), את צירי הקידוח (drilling axes) ואת פרופיל האמרג'נס (emergence profile). <span class="tag v">מאומת</span></li>
+</ul>
+
+<h2>שלב 3: Curves &amp; Surfaces, לבדוק את החורים</h2>
+<ul>
+  <li>MillBox מזהה חורי ברגים ו‑<b>משטחי הברגה (threaded surfaces)</b> בעזרת עקומות ומשטחים. <span class="tag v">מאומת</span> אם הם לא זוהו, הכרסום עלול לצאת לא כמצופה.</li>
+  <li><b>שינוי קוטר ועומק של חור:</b> נכנסים ל‑<span class="ui">Curves and Surfaces</span> ואז <span class="ui">Change Cylinder Size</span>. על עקומת החור מופיעות שתי נקודות זהב, ולחיצה עליהן פותחת חלון לשינוי הקוטר ועומק הכניסה בלי לשנות את ה‑STL. <span class="tag v">מאומת</span></li>
+  <li><b>Red Caps:</b> הפקודה <span class="ui">Add Red Caps</span> סוגרת את חורי הברגים, כך שפעולות הגס והגימור לא נכנסות אליהם. את החורים מכרסמות רק פעולות <span class="ui">Drilling</span>. <span class="tag v">מאומת</span> ב‑Hybrid Abutment צריך מכסה גם למעלה וגם למטה.</li>
+  <li>כדי לבדוק, אפשר להדליק ולכבות את המכסים ב‑<span class="ui">Visual Layers</span>.</li>
+</ul>
+
+<h2>שלב 4: Strategy Editor, הוספת קידוח והברגה</h2>
+<ol>
+  <li>פותחים את <span class="ui">Strategy Editor</span>, <b>מעתיקים</b> את אסטרטגיית הטיטניום הקיימת (לא עורכים את המקורית) ונותנים לה שם, למשל <span class="ui">Ti Bar + Thread M2</span>. <span class="tag v">מאומת</span>: אפשר להעתיק ולערוך אסטרטגיות מוכנות.</li>
+  <li><b>פעולה 1, קידוח מקדים:</b> מוסיפים או בוחרים פעולת קידוח, למשל <span class="ui">First Drilling of a Possible Hole</span>, ומשייכים לה כלי עם כפתור השיוך. <span class="tag v">מאומת</span> קוטר המקדח לפי הטבלה למטה.</li>
+  <li><b>פעולה 2, הברגה:</b> מוסיפים פעולת Thread או Threading ומשייכים לה את כלי ההברגה. השם המדויק של הפעולה תלוי בגרסה ובחבילת המכונה. <span class="tag e">הערכה</span></li>
+  <li><b>הסדר:</b> קודם הגס, אחר כך הקידוח המקדים, אחר כך ההברגה, ובסוף הגימור.</li>
+  <li>ה‑Editor מסמן בעיות: פעולה בלי הגדרות, כלי שחסר בארכיון, או כלי בלי פרמטרי עיבוד. <span class="tag v">מאומת</span> צריך לתקן את כל הסימונים לפני השמירה.</li>
+</ol>
+
+<h2>שלב 5: Tool archive, יצירת הכלי ופרמטרים</h2>
+<ol>
+  <li>בארכיון הכלים אפשר ליצור כלי חדש, להעתיק, להזיז, למחוק, ולייבא או לייצא ארכיון. <span class="tag v">מאומת</span> הדרך הקלה ביותר היא <b>להעתיק</b> כלי דומה ולשנות אותו.</li>
+  <li>מגדירים את סוג הכלי, הקוטר, האורך והפסיעה (לכלי הברגה), ואת <b>מספר הכלי</b>.</li>
+  <li><b>מספר הכלי חייב להיות מספר התא במחסנית.</b> ב‑520W אפשר T1 עד T16, וב‑420W רק T1 עד T6.</li>
+  <li>לוחצים על <b>סמל גלגל השיניים</b> כדי להוסיף פרמטרי עיבוד לחומר טיטניום. <span class="tag v">מאומת</span> השדות:
+    <table>
+      <tr><th>שדה ב‑MillBox</th><th>משמעות</th></tr>
+      <tr><td><span class="ui">Spindle Speed (Rounds)</span></td><td class="r">סל"ד הציר (RPM)</td></tr>
+      <tr><td><span class="ui">XY Feedrate</span></td><td class="r">הזנה במישור XY, במ"מ לדקה</td></tr>
+      <tr><td><span class="ui">Z Feedrate</span></td><td class="r">הזנה בציר Z (כניסה וקידוח), במ"מ לדקה</td></tr>
+      <tr><td><span class="ui">Feedrate XY full material</span></td><td class="r">הזנה כשהכלי מוקף בחומר. בדרך כלל נמוכה מ‑XY Feedrate</td></tr>
+    </table>
+  </li>
+</ol>
+
+<h2 class="pb">ערכי פתיחה לטיטניום Grade 5, קירור רטוב <span class="tag e">הערכה</span></h2>
+<div class="warn"><b>חשוב:</b> אלה ערכי התחלה מחושבים, לא נתונים של BSM או של CIMsystem. <b>יש להעדיף את הטבלה של יצרן הכלי.</b> צריך גם לבדוק מהו <b>הסל"ד המינימלי</b> של הציר ב‑BSM. אם הוא גבוה מהערך בטבלה, עובדים במינימום ומורידים את ההזנה לשן.</div>
+
+<h3>מידות ההברגה</h3>
+<table>
+  <tr><th>הברגה</th><th>פסיעה</th><th>מקדח מקדים</th><th>קוטר כלי הברגה (בערך)</th><th>עומק קידוח</th></tr>
+  <tr><td>M1.4</td><td>0.30</td><td>1.1 מ"מ</td><td>~1.0 מ"מ</td><td rowspan="3">עומק ההברגה + 0.3–0.5 מ"מ</td></tr>
+  <tr><td>M1.6</td><td>0.35</td><td>1.25 מ"מ</td><td>~1.15 מ"מ</td></tr>
+  <tr><td>M2</td><td>0.40</td><td>1.6 מ"מ</td><td>~1.45 מ"מ</td></tr>
+</table>
+
+<h3>פרמטרים להזנה ב‑MillBox</h3>
+<table>
+  <tr><th>פעולה</th><th>Spindle Speed (RPM)</th><th>Z Feedrate</th><th>XY Feedrate</th><th>הערות</th></tr>
+  <tr><td>קידוח מקדים Ø1.6 (ל‑M2)</td><td>6,000–8,000</td><td>20–40 מ"מ/דקה</td><td>לא רלוונטי</td><td class="r">קידוח בפעימות (Peck) של 0.1–0.2 מ"מ ויציאה לניקוי שבבים</td></tr>
+  <tr><td>קידוח מקדים Ø1.25 (ל‑M1.6)</td><td>7,000–10,000</td><td>15–30 מ"מ/דקה</td><td>לא רלוונטי</td><td class="r">כמו בשורה הקודמת</td></tr>
+  <tr><td>הברגה M2, כלי Ø1.45 עם 3 שיניים</td><td>7,000–9,000</td><td>הליקלי, לפי הפסיעה</td><td>~30–40 מ"מ/דקה במרכז הכלי</td><td class="r">Climb מלמטה למעלה, 2–3 מעברים רדיאליים</td></tr>
+  <tr><td>הברגה M1.6, כלי Ø1.15</td><td>8,000–11,000</td><td>הליקלי</td><td>~20–30 מ"מ/דקה במרכז הכלי</td><td class="r">כמו בשורה הקודמת</td></tr>
+</table>
+<p><b>איך חישבתי:</b> מהירות חיתוך של 30–40 מ'/דקה. הסל"ד מחושב כ‑<span class="ui">n = Vc×1000/(π×d)</span>. הזנה לשן <span class="ui">fz = 0.004–0.006 mm</span>. בהברגה פנימית ההזנה במרכז הכלי שווה להזנה בשפת החיתוך כפול <span class="ui">(D−d)/D</span>. לדוגמה ב‑M2 עם כלי Ø1.45 ב‑8,000 סל"ד: <span class="ui">0.005×3×8000 = 120 mm/min</span> בשפת החיתוך, כפול 0.275, כלומר <b>~33 מ"מ/דקה</b> במרכז הכלי. כדאי לברר אם MillBox מצפה להזנה בשפת החיתוך או במרכז הכלי.</p>
+
+<h2>שלב 6 ו‑7: חישוב, ייצוא ועבודה במכונה</h2>
+<ol>
+  <li>מחשבים את מסלולי הכלי ובודקים בסימולציה שההברגה נמצאת רק בחורים הנכונים.</li>
+  <li>מייצאים את קובץ ה‑NC ובודקים שבקובץ מופיע מספר הכלי הנכון (למשל <span class="ui">T14 M6</span>).</li>
+  <li>מכניסים את הכלי לתא עם אותו מספר, עם טבעת העצירה בגובה של שאר הכלים, ומודדים את אורך הכלי (ב‑520W זה כנראה <span class="ui">Fixed Calibration</span>).</li>
+  <li>הריצה הראשונה היא על בלוק טיטניום לבדיקה, עם Override הזנה של 50–70%. בודקים את ההברגה עם בורג אמיתי, ורק אחר כך עוברים לעבודה אמיתית.</li>
+</ol>
+
+<h2>טבלה למילוי: מה יושב בכל תא</h2>
+<table class="fill">
+  <tr><th style="width:9%">תא</th><th>BSM‑520W: כלי (סוג וקוטר)</th><th style="width:9%">תא</th><th>BSM‑420W: כלי (סוג וקוטר)</th></tr>
+  <tr><td>T1</td><td></td><td>T1</td><td></td></tr>
+  <tr><td>T2</td><td></td><td>T2</td><td></td></tr>
+  <tr><td>T3</td><td></td><td>T3</td><td></td></tr>
+  <tr><td>T4</td><td></td><td>T4</td><td></td></tr>
+  <tr><td>T5</td><td></td><td>T5</td><td></td></tr>
+  <tr><td>T6</td><td></td><td>T6</td><td></td></tr>
+  <tr><td>T7</td><td></td><td colspan="2" rowspan="10" style="background:#f6f6f6; text-align:right; padding:8px">
+    <b>שאלות ל‑BioWhite / BSM:</b>
+    <ol style="margin-top:4px">
+      <li>האם בחבילת MillBox של BSM יש כלי Thread ואסטרטגיה להברגה?</li>
+      <li>מה הסל"ד המינימלי של הציר בכל מכונה?</li>
+      <li>מה קוטר השאנק ומה גובה טבעת העצירה?</li>
+      <li>האם ההזנה ב‑MillBox היא בשפת החיתוך או במרכז הכלי?</li>
+      <li>איזו מהדורה של MillBox יש לנו, והאם יש לנו Strategy Editor?</li>
+    </ol>
+  </td></tr>
+  <tr><td>T8</td><td></td></tr>
+  <tr><td>T9</td><td></td></tr>
+  <tr><td>T10</td><td></td></tr>
+  <tr><td>T11</td><td></td></tr>
+  <tr><td>T12</td><td></td></tr>
+  <tr><td>T13</td><td></td></tr>
+  <tr><td>T14</td><td></td></tr>
+  <tr><td>T15</td><td></td></tr>
+  <tr><td>T16</td><td></td></tr>
+</table>
+
+<h2>מקורות</h2>
+<ul class="sources">
+  <li>MillBox Online Manual – Strategy Editor – https://help.cimsystem.com/millbox-online-manual/docs/strategy-editor</li>
+  <li>MillBox Online Manual – Curves and Surfaces – https://help.cimsystem.com/millbox-online-manual/docs/curves-and-surfaces</li>
+  <li>MillBox – Understanding Curves / Surfaces &amp; Restoration Types – https://help.cimsystem.com/millbox-online-manual/docs/understanding-curves-surfaces-restoration-types</li>
+  <li>MillBox – Add Red Caps – https://help.cimsystem.com/millbox-online-manual/docs/add-red-caps</li>
+  <li>MillBox – Visual Layers – https://help.cimsystem.com/millbox-online-manual/docs/visual-layers</li>
+  <li>MillBox – Exocad integration – https://help.cimsystem.com/docs/exocad-millbox-intergration</li>
+  <li>MillBox – Special Screw Seats Workflow – https://help.cimsystem.com/docs/en/special-screw-seats-workflow-powerball-rosen-segscrew-etc</li>
+  <li>MillBox DEPRAG Release Notes (third-party copy) – https://www.scribd.com/document/1053767921/Millbox-DEPRAG-Release-Notes</li>
+  <li>MillBox Versions – https://www.cimsystem.com/dental/products/millbox-versions/</li>
+  <li>Millbox Tips and Tricks – https://dentaltechtips.com/blog/millbox-tips-and-tricks-part-1-with-evan-katz/</li>
+  <li>Thread milling forces in dental metallic materials – https://www.sciencedirect.com/science/article/pii/S2212827117304110</li>
+</ul>
+
+</body>
+</html>
