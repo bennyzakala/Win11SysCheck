@@ -549,7 +549,16 @@ def _slice_sorted(tris: np.ndarray, normals: np.ndarray, z_planes: list[float], 
             simple = geom.simplify(resolution, preserve_topology=False)
             if not simple.is_valid:
                 simple = shapely.make_valid(simple)
-            geom = as_multipolygon(simple)
+            simple = as_multipolygon(simple)
+            if simple.area < geom.area * 0.995:
+                # it can drop whole pieces (a raft of 618 mm2 next to a joint vanished from one layer, and
+                # the supports above it floated): each piece on its own, and one that loses area stays as it is
+                keep = []
+                for q in polygons_of(geom):
+                    qs = q.simplify(resolution, preserve_topology=False)
+                    keep.append(qs if qs.is_valid and qs.area >= q.area * 0.995 else q)
+                simple = as_multipolygon(union_many(keep))
+            geom = simple
         out.append(geom)
         if progress and (li % 5 == 0 or li == len(z_planes) - 1):
             progress((li + 1) / len(z_planes))

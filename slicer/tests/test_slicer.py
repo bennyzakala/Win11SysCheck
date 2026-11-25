@@ -11827,3 +11827,25 @@ def test_a_piece_inside_another_pieces_hole_is_not_cut_out():
     layers = sla._slice_pieces(both, [0.25, 0.5, 0.75], 0.01)
     for g in layers:
         assert abs(g.area - 900.0) < 1.0, g.area
+
+
+def test_a_layers_simplify_never_drops_a_whole_piece(monkeypatch):
+    """Audit: simplifying a layer of several pieces at once (preserve_topology off) dropped whole pieces on a
+    joined plate - a 545 mm2 raft vanished from one layer and the feet above it floated. A layer that loses
+    area is simplified piece by piece instead, and a piece that would lose area stays as it is."""
+    from shapely.geometry import MultiPolygon as MP
+    from shapely.geometry.base import BaseGeometry
+    from unislicer import primitives, slicing
+    from unislicer.mesh import Mesh
+    real = BaseGeometry.simplify
+
+    def lossy(self, tolerance, preserve_topology=True):
+        out = real(self, tolerance, preserve_topology)
+        if isinstance(self, MP) and len(self.geoms) > 1 and not preserve_topology:
+            return MP(list(out.geoms)[1:])                 # as GEOS did: a piece left out
+        return out
+    monkeypatch.setattr(BaseGeometry, "simplify", lossy)
+    a = primitives.box(10, 10, 2)
+    b = Mesh(a.vertices + [20, 0, 0], a.faces)
+    layer = slicing.slice_mesh(Mesh.merge([a, b], "two"), [1.0], 0.01)[0]
+    assert abs(layer.area - 200.0) < 0.5, layer.area
