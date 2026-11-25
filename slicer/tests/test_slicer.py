@@ -11811,3 +11811,19 @@ def test_a_part_at_support_height_0_stands_on_a_raft_and_a_deep_contact_stays_in
     sup, used = sla_supports.build_supports(wall, cfg, np.array([[5.0, 5.0, 6.0]]))[:2]
     assert len(used) == 1
     assert float(sup.vertices[:, 2].max()) < 7.0 - 0.3, sup.vertices[:, 2].max()
+
+
+def test_a_piece_inside_another_pieces_hole_is_not_cut_out():
+    """Audit: "Join rafts" - the joint's strip has a hole around a mini raft, and the raft stands in it. The
+    holes were nested over all pieces at once, so the joint's hole cut the raft out of the slice, and the
+    support feet above it stood on nothing (floating islands at the raft's top)."""
+    from shapely.geometry import box
+    from unislicer import sla
+    from unislicer.mesh import Mesh
+    from unislicer.mesh_tools import extrude
+    frame = extrude(box(0, 0, 30, 30).difference(box(10, 10, 20, 20)), 0.0, 1.0, "joint")
+    inner = extrude(box(9, 9, 21, 21), 0.0, 1.0, "raft")              # overlaps the frame a little
+    both = Mesh.merge([frame, inner], "Supports")
+    layers = sla._slice_pieces(both, [0.25, 0.5, 0.75], 0.01)
+    for g in layers:
+        assert abs(g.area - 900.0) < 1.0, g.area

@@ -75,10 +75,12 @@ def _segments_at(tris: np.ndarray, normals: np.ndarray, z: float, groups: np.nda
     return seg if groups is None else (seg, groups)
 
 
-def _chain_fast(keys: np.ndarray, segments: np.ndarray):
+def _chain_fast(keys: np.ndarray, segments: np.ndarray, roots: list | None = None):
     """Vectorised linking for the usual clean layer: every end point is the start of exactly one other
-    segment (closed, consistently oriented loops). Returns the loops, or None to use the general path."""
+    segment (closed, consistently oriented loops). Returns the loops, or None to use the general path.
+    ``roots`` (a list) gets the index of one segment of each loop."""
     n = len(segments)
+    orig = np.arange(n)
     flat = keys.reshape(-1, 2)
     one = (flat[:, 0] - flat[:, 0].min()) * (int(flat[:, 1].max() - flat[:, 1].min()) + 1) + (flat[:, 1] - flat[:, 1].min())
     _, ids = np.unique(one, return_inverse=True)
@@ -86,6 +88,7 @@ def _chain_fast(keys: np.ndarray, segments: np.ndarray):
     keep = ids[:, 0] != ids[:, 1]                     # zero-length pieces (the plane grazes a vertex)
     if not keep.all():
         ids, segments = ids[keep], segments[keep]
+        orig = orig[keep]
         n = len(segments)
         if n == 0:
             return []
@@ -120,10 +123,13 @@ def _chain_fast(keys: np.ndarray, segments: np.ndarray):
     labs = root[order]
     cuts = np.flatnonzero(np.diff(labs)) + 1
     pts = segments[order, 0]
+    if roots is not None:
+        roots.extend(orig[labs[np.concatenate([[0], cuts])]].tolist() if len(labs) else [])
     return [(p, len(p)) for p in np.split(pts, cuts)]
 
 
-def _chain(segments: np.ndarray, report: dict | None = None, raw: list | None = None, groups=None):
+def _chain(segments: np.ndarray, report: dict | None = None, raw: list | None = None, groups=None,
+           loop_groups: list | None = None):
     """Link segments into loops. Yields (points (n,2), orientation_vote).
     ``report["messy"]`` is set when the layer has open contours or non-manifold junctions.
     ``groups``: a piece number per segment; segments of different pieces are never linked (supports are many
@@ -134,8 +140,12 @@ def _chain(segments: np.ndarray, report: dict | None = None, raw: list | None = 
     keys = np.round(segments * KEY_SCALE).astype(np.int64)
     if groups is not None:
         keys[:, :, 0] += np.asarray(groups, dtype=np.int64)[:, None] * 1_000_000_000
-    fast = _chain_fast(keys, segments)
+    roots = [] if (loop_groups is not None and groups is not None) else None
+    fast = _chain_fast(keys, segments, roots)
     if fast is not None:
+        if roots is not None:
+            g = np.asarray(groups)
+            loop_groups.extend(int(g[r]) for r in roots)
         if raw is not None:
             # closed again only if the fallback below needs them (a copy of every loop of every layer)
             raw.extend((p, "ring") for p, _ in fast)
@@ -185,11 +195,16 @@ def _chain(segments: np.ndarray, report: dict | None = None, raw: list | None = 
             raw.append((arr if vote >= 0 else arr[::-1], closed))
         if closed:
             loops.append((arr[:-1], vote))
+            if loop_groups is not None and groups is not None:
+                loop_groups.append(int(groups[s0]))
         else:
             open_chains.append([arr, vote])
     if open_chains and report is not None:
         report["messy"] = True
-    loops += _join_open_chains(open_chains)
+    joined = _join_open_chains(open_chains)
+    if loop_groups is not None and groups is not None:
+        loop_groups.extend([-1] * len(joined))      # stitched from open pieces: no one piece
+    loops += joined
     return loops
 
 
@@ -419,8 +434,33 @@ def _loop_polygons(loops):
     return np.abs(a), signs, polys
 
 
+class _Solved(list):
+    """Loops already made into a geometry (see _grouped_loops)."""
+    geom = None
+
+
+def _grouped_loops(loops, loop_groups):
+    """Separate pieces sliced together (supports, rafts and the joints between them): a piece's hole is only
+    a hole in that piece. Nested by area and sign all together, a joint's hole around a raft cut that raft
+    out (the feet above it stood on nothing). Pieces with a hole are made on their own, then all are merged.
+    Without any hole (the usual layer) the loops stay as they are."""
+    signed = [(_signed_area(p) if len(p) >= 3 else 0.0) * (1 if v >= 0 else -1) for p, v in loops]
+    holed = {g for g, a in zip(loop_groups, signed) if a < 0 and g >= 0}
+    if not holed:
+        return loops
+    rest = [lp for lp, g in zip(loops, loop_groups) if g not in holed]
+    pieces = [loops_to_geometry(rest)] if rest else []
+    for g in holed:
+        pieces.append(loops_to_geometry([lp for lp, gg in zip(loops, loop_groups) if gg == g]))
+    out = _Solved()
+    out.geom = as_multipolygon(union_many([q for piece in pieces for q in polygons_of(piece)]))
+    return out
+
+
 def loops_to_geometry(loops) -> MultiPolygon:
     """Combine oriented loops (outer = CCW, hole = CW) into polygons, honoring nesting."""
+    if isinstance(loops, _Solved):
+        return loops.geom
     if not loops:
         return EMPTY
     fast = _loop_polygons(loops)
@@ -491,7 +531,10 @@ def _slice_sorted(tris: np.ndarray, normals: np.ndarray, z_planes: list[float], 
             loops = _chain(seg, report, raw)
         else:
             seg, seg_groups = _segments_at(local, normals[idx], zc, groups[idx])
-            loops = _chain(seg, report, raw, seg_groups)
+            loop_groups = []
+            loops = _chain(seg, report, raw, seg_groups, loop_groups)
+            if not report.get("messy") and len(loop_groups) == len(loops):
+                loops = _grouped_loops(loops, loop_groups)
         # a broken layer (holes, non-manifold edges): fill by winding / crossing parity instead of stitching
         try:
             geom = even_odd_geometry(_oriented_segments(raw)) if report.get("messy") else loops_to_geometry(loops)
