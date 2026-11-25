@@ -1520,5 +1520,10 @@
  "Adaptive: the head leans in a straight line toward the surface, up to the head tilt. Vertical: the head leaves the surface square-on and curves in an arc into an upright pillar - a clean contact on slopes without a long straight arm. Upright: everything straight down, no tilt": "تكيّفية: يميل الرأس بخط مستقيم نحو السطح حتى زاوية ميل الرأس. عمودية: يخرج الرأس عموديًا على السطح وينحني بقوس إلى عمود قائم - تلامس نظيف على المنحدرات دون ذراع مستقيمة طويلة. قائمة: كل شيء مستقيم إلى الأسفل بلا ميل",
  "Adaptive (leans to the surface)": "تكيّفية (تميل نحو السطح)",
  "Vertical (curved head)": "عمودية (رأس منحني)",
- "Upright (fully straight)": "قائمة (مستقيمة تمامًا)"
+ "Upright (fully straight)": "قائمة (مستقيمة تمامًا)",
+ "{} overhangs above {} mm are marked red (blinking frame) - click a mark to add a support there.": "تم تعليم {} من الأجزاء المتدلية فوق {} مم باللون الأحمر (إطار وامض) - انقر على العلامة لإضافة دعامة هناك.",
+ "Support added at the mark. {} marks left.": "أضيفت دعامة عند العلامة. بقي {} من العلامات.",
+ "Jaw models: automatic supports only at the bottom": "نماذج الفك: دعامات تلقائية في الأسفل فقط",
+ "On a jaw model the automatic supports (and the island pillars at slicing) are made only up to this height above the model's bottom. A higher overhang gets no support - it is marked red with a blinking frame, and a click on it adds one. 0 = the whole height": "في نموذج الفك تُنشأ الدعامات التلقائية (وأعمدة الجزر عند التقطيع) حتى هذا الارتفاع فوق أسفل النموذج فقط. الجزء المتدلي الأعلى لا يحصل على دعامة - يُعلَّم بالأحمر مع إطار وامض، والنقر عليه يضيف دعامة. 0 = كامل الارتفاع",
+ "Automatic support zone": "منطقة الدعامات التلقائية"
 }

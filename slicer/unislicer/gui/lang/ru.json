@@ -1520,5 +1520,10 @@
  "Adaptive: the head leans in a straight line toward the surface, up to the head tilt. Vertical: the head leaves the surface square-on and curves in an arc into an upright pillar - a clean contact on slopes without a long straight arm. Upright: everything straight down, no tilt": "Адаптивная: головка наклоняется по прямой к поверхности, до угла наклона головки. Вертикальная: головка выходит перпендикулярно поверхности и плавной дугой переходит в вертикальную опору - чистый контакт на склонах без длинного прямого плеча. Прямая: всё строго вниз, без наклона",
  "Adaptive (leans to the surface)": "Адаптивная (наклон к поверхности)",
  "Vertical (curved head)": "Вертикальная (изогнутая головка)",
- "Upright (fully straight)": "Прямая (строго вертикально)"
+ "Upright (fully straight)": "Прямая (строго вертикально)",
+ "{} overhangs above {} mm are marked red (blinking frame) - click a mark to add a support there.": "{} нависаний выше {} мм отмечены красным (мигающая рамка) - щёлкните по отметке, чтобы добавить там поддержку.",
+ "Support added at the mark. {} marks left.": "Поддержка добавлена в отмеченном месте. Осталось отметок: {}.",
+ "Jaw models: automatic supports only at the bottom": "Модели челюстей: автоподдержки только снизу",
+ "On a jaw model the automatic supports (and the island pillars at slicing) are made only up to this height above the model's bottom. A higher overhang gets no support - it is marked red with a blinking frame, and a click on it adds one. 0 = the whole height": "У модели челюсти автоматические поддержки (и опоры для островов при нарезке) ставятся только до этой высоты над низом модели. Нависание выше не поддерживается - оно отмечается красным с мигающей рамкой, щелчок по нему добавляет поддержку. 0 = по всей высоте",
+ "Automatic support zone": "Зона автоподдержек"
 }

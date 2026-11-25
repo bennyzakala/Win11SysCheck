@@ -252,6 +252,14 @@ SCHEMA: list[Setting] = [
     S("sla_density", "float", 100.0, "support", "sla", "צפיפות תמיכות", "Support density", "%", 25, 400, 5,
       tip_he="מכפיל את מספר נקודות התמיכה (100% = לפי המרווח). חומר חלש או מודל כבד: יותר; חומר חזק: פחות",
       tip_en="Scales the number of support points (100% = as spaced). Weak resin or heavy part: more; strong resin: fewer"),
+    S("sla_jaw_zone", "float", 3.0, "support", "sla", "מודלי לסת: תמיכות אוטומטיות רק בתחתית", "Jaw models: automatic supports only at the bottom",
+      "mm", 0.0, 50.0, 0.5,
+      tip_he="במודל לסת התמיכות האוטומטיות (וגם העמודים לאיים בחיתוך) נוצרות רק עד הגובה הזה מעל תחתית המודל. "
+             "אזור תלוי גבוה יותר לא מקבל תמיכה - הוא מסומן באדום עם מסגרת מהבהבת, ולחיצה עליו מוסיפה תמיכה. 0 = בכל הגובה",
+      tip_en="On a jaw model the automatic supports (and the island pillars at slicing) are made only up to this height above "
+             "the model's bottom. A higher overhang gets no support - it is marked red with a blinking frame, and a click on "
+             "it adds one. 0 = the whole height"),
+    S("sla_support_zone", "float", 0.0, "internal", "sla", "אזור תמיכות אוטומטיות", "Automatic support zone", "mm", 0.0, 50.0, 0.5),
     S("sla_head_style", "enum", "upright", "support", "sla", "סגנון ראש התמיכה", "Support head style",
       options=(("adaptive", "מותאמת (נוטה לפני השטח)", "Adaptive (leans to the surface)"),
                ("vertical", "אנכית (ראש מעוגל)", "Vertical (curved head)"),

@@ -874,6 +874,7 @@ class MainWindow(QMainWindow):
         self.viewer.objectHovered.connect(self._on_hover_object)
         self.viewer.objectDragFinished.connect(self._on_drag_finished)
         self.viewer.surfacePicked.connect(self._on_support_add)
+        self.viewer.markPicked.connect(self._on_mark_picked)
         self.viewer.rotateStarted.connect(self._on_rotate_start)
         self.viewer.rotateDragged.connect(self._on_rotate_drag)
         self.viewer.rotateFinished.connect(self._on_rotate_end)
@@ -3890,6 +3891,8 @@ class MainWindow(QMainWindow):
         cfg = self.settings.config()
         if hasattr(self, "viewer"):
             self._schedule_joints()                  # joined rafts follow the parts
+            if any("marked_points" in o.__dict__ for o in self.objects) or getattr(self.viewer, "marks", None):
+                self._show_marks()                   # the red marks follow the parts too
         outside = {o.uid: o.name for o in out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg), region=plate_region(cfg))}
         uids = {o.uid for o in self.objects}
         for uid in list(self.viewer.objects):
@@ -5434,9 +5437,61 @@ class MainWindow(QMainWindow):
         return hit[1], hit[2]
 
     def _drop_supports(self, o: SceneObject):
+        if o.__dict__.pop("marked_points", None) is not None:
+            self._show_marks()
         if o.support_points is not None:
             o.support_points = None
             self.status.setText(tr("supports_cleared"))
+
+    def _set_marks(self, o: SceneObject, world_points, lift: float):
+        """Keep a part's unsupported high overhang points (red marks), in its own frame like its supports."""
+        pts = np.asarray(world_points, dtype=np.float64).reshape(-1, 3)
+        if not len(pts):
+            o.__dict__.pop("marked_points", None)
+            return
+        m = o.world_matrix()
+        o.__dict__["marked_points"] = (pts - [0, 0, lift] - m[:3, 3]) @ np.linalg.inv(m[:3, :3]).T
+
+    def _marks_world(self, o: SceneObject, lift: float):
+        local = o.__dict__.get("marked_points")
+        if local is None or not len(local):
+            return None
+        m = o.world_matrix()
+        return local @ m[:3, :3].T + m[:3, 3] + [0, 0, lift]
+
+    def _show_marks(self):
+        """The red marks of every part, where it is drawn now (they follow the part when it moves)."""
+        if not hasattr(self, "viewer"):
+            return
+        cfg = self.settings.config()
+        lift = self._lift(cfg)
+        marks = {}
+        for o in self.objects:
+            if o.role == "cutter" or not self._shows_supports(o):
+                continue
+            w = self._marks_world(o, lift)
+            if w is not None:
+                marks[o.uid] = w
+        self.viewer.set_marks(marks)
+
+    def _on_mark_picked(self, uid, index: int):
+        """A red mark clicked: a support goes there (the user decided this overhang needs one)."""
+        o = next((x for x in self.objects if x.uid == uid), None)
+        local = None if o is None else o.__dict__.get("marked_points")
+        if local is None or not (0 <= index < len(local)):
+            return
+        self._push_undo()
+        self._ensure_supports_enabled()
+        lift = self._lift(self.settings.config())
+        p = self._marks_world(o, lift)[index]
+        if o.support_points is None:
+            o.support_points = np.zeros((0, 3))
+        o.set_world_support_points(np.vstack([o.world_support_points(lift), p[None, :]]), lift)
+        o.__dict__["marked_points"] = np.delete(local, index, axis=0)
+        self._objects_changed(refresh_list=False)
+        self._show_marks()
+        left = sum(len(x.__dict__.get("marked_points", ())) for x in self.objects)
+        self.status.setText(tr("sup_mark_added").format(left))
 
     def _support_targets(self) -> list[SceneObject]:
         return self.selected_objects() or list(self.objects)
@@ -5488,8 +5543,13 @@ class MainWindow(QMainWindow):
             return [(pts, report, ocfg) for (pts, report), ocfg in zip(got, ocfgs)]
 
         results = self._in_background(work) if jobs else []
+        marked_total = 0
         for (o, _mesh, _matrix), (pts, report, ocfg) in zip(jobs, results):
             o.set_world_support_points(sla_supports.drop_keepout(pts, o.world_keepout(lift)), lift)
+            marks = sla_supports.drop_keepout(np.asarray(report.get("marked", np.zeros((0, 3)))).reshape(-1, 3),
+                                              o.world_keepout(lift)) if len(report.get("marked", ())) else np.zeros((0, 3))
+            self._set_marks(o, marks, lift)
+            marked_total += len(marks)
             if report.get("points", 0) >= 4 and report["fit_dropped"] > 0.4 * report["points"]:
                 upside.append(o.name or "model")
                 self._fit_down.add(o.uid)
@@ -5501,7 +5561,10 @@ class MainWindow(QMainWindow):
         msg = tr("sup_generated_hint") + (" " + tr("sup_skipped_direct").format(skipped) if skipped else "")
         if upside:
             msg = "⚠ " + tr("fit_faces_plate").format(", ".join(upside[:3]) + ("…" if len(upside) > 3 else "")) + " " + msg
+        if marked_total:
+            msg = "⚠ " + tr("sup_marked").format(marked_total, f"{cfg['sla_jaw_zone']:g}") + " " + msg
         self.status.setText(msg)
+        self._show_marks()
 
     RAFT_KEYS = ("sla_raft_type", "sla_raft_thickness", "sla_raft_margin", "sla_raft_area_ratio", "sla_raft_slope",
                  "sla_raft_bar_spacing", "sla_raft_bar_width", "sla_raft_group_reach", "sla_elevation",

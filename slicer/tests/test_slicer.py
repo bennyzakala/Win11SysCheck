@@ -5649,6 +5649,82 @@ def test_the_settings_sections_are_tiles_that_need_no_scrolling():
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_a_jaw_models_automatic_supports_stay_in_its_bottom_3mm():
+    """Lab: supports climbed the jaw models' walls. On a jaw model the automatic supports stop 3 mm above its
+    bottom; a higher overhang is handed back to be marked (red, blinking) - not supported. A crown keeps
+    supports wherever it needs them. Island pillars at slicing follow the same rule."""
+    from unislicer import primitives, profiles, sla_supports, sla
+    from unislicer.scene import SceneObject
+    from unislicer.mesh import Mesh
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None)
+    assert cfg["sla_jaw_zone"] == 3.0
+    # a block with a shelf sticking out 8 mm up: an overhang high on the part
+    base = primitives.box(30, 20, 12).translated([-15, -10, 0])
+    shelf = primitives.box(10, 20, 2).translated([15, -10, 8])
+    part = Mesh.merge([base, shelf], "SOD260050153-41-modelbase")
+    jaw = SceneObject(part, name="SOD260050153-41-modelbase")
+    crown = SceneObject(part, name="ABC-SOD260050153-044-P-14-14-1-00-")
+    jc, cc = jaw.config(cfg), crown.config(cfg)
+    assert jc["sla_support_zone"] == 3.0 and cc["sla_support_zone"] == 0.0
+    lifted = part.translated([0, 0, 5.0])
+    rep = {}
+    pts = sla_supports.auto_support_points(lifted, jc, rep)
+    assert len(pts) and np.all(pts[:, 2] - 5.0 <= 3.0 + 1e-6)              # only the bottom 3 mm
+    assert len(rep["marked"]) and np.all(rep["marked"][:, 2] - 5.0 > 3.0)  # the shelf: marked, not held
+    rep2 = {}
+    pts2 = sla_supports.auto_support_points(lifted, cc, rep2)
+    assert np.any(pts2[:, 2] - 5.0 > 3.0) and len(rep2["marked"]) == 0     # a crown: held where it needs
+    # island pillars: none for an island high on a jaw model, one for a low island
+    from shapely.geometry import Point, box as sbox
+    layers = [sbox(0, 0, 10, 10) for _ in range(5)] + [sbox(0, 0, 10, 10).union(sbox(20, 0, 22, 2)) for _ in range(5)]
+    from unislicer.slicing import as_multipolygon
+    layers = [as_multipolygon(g) for g in layers]
+    _l, added, left = sla.island_pillars(layers, skip=lambda i, p: True)
+    assert added == 0 and left
+    _l, added, left = sla.island_pillars(layers)
+    assert added >= 1
+
+
+def test_red_marks_blink_and_a_click_adds_the_support():
+    """The high overhangs a jaw model's supports leave are drawn as red spots in a blinking frame; a click on
+    one adds a support there (and the mark goes)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        import numpy as np
+        from unislicer import primitives
+        from unislicer.mesh import Mesh
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.store.setValue("preslice", "false")
+        w.settings.select_printer("phrozen_sonic_xl_4k_plus")
+        base = primitives.box(30, 20, 12).translated([-15, -10, 0])
+        shelf = primitives.box(10, 20, 2).translated([15, -10, 8])
+        o = w.add_mesh(Mesh.merge([base, shelf], "SOD260050153-41-modelbase")); o.name = "SOD260050153-41-modelbase"
+        app.processEvents()
+        w._select_uid(None); w.generate_supports(); app.processEvents()
+        marks = o.__dict__.get("marked_points")
+        assert marks is not None and len(marks), "no marks"
+        shown = w.viewer.marks.get(o.uid)
+        assert shown is not None and len(shown) == len(marks)
+        assert w.viewer._marks_timer.isActive()                          # the frame blinks
+        on = getattr(w.viewer, "_marks_on", True); w.viewer._blink_marks()
+        assert w.viewer._marks_on != on
+        n_sup, n_marks = len(o.support_points), len(marks)
+        w._on_mark_picked(o.uid, 0); app.processEvents()
+        assert len(o.support_points) == n_sup + 1 and len(o.__dict__["marked_points"]) == n_marks - 1
+        assert len(w.viewer.marks.get(o.uid, [])) == n_marks - 1
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_phrozen_printers_start_on_the_labs_support_settings():
     """The lab's support settings are what a Phrozen printer starts with; anything else is a change by hand."""
     from unislicer import profiles
@@ -7687,7 +7763,7 @@ def test_user_guide_covers_every_menu_command_shortcut_and_setting():
         sheet = _html.unescape(manual.build_shortcuts_html(lang))
         assert all((he, en)[col] in sheet for _i, _s, _g, he, en in SHORTCUTS)
         for s in settings.SCHEMA:
-            if s.tech != "fdm":                                  # resin only: filament is not offered
+            if s.tech != "fdm" and s.category != "internal":    # resin only; an internal value is never shown
                 assert f"<b>{(s.he, s.en)[col]}</b>" in flat, (lang, s.key)
         for p in profiles.load("printers").values():
             assert p["name"] in flat or p.get("hidden") or profiles.technology_of(p) == "fdm"

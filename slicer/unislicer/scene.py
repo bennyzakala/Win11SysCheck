@@ -91,6 +91,14 @@ class SceneObject:
                     from .settings import MODEL_TYPE_PRESETS
                     base = MODEL_TYPE_PRESETS.get("die", {}).get("sla_support_base", 35.0)
                     own = {**own, "sla_support_base": base}
+            # a jaw model: automatic supports only in its bottom few mm - a higher overhang is marked, not held
+            # (supports climbing the model's walls were the lab's complaint)
+            if "sla_support_zone" not in own and self.role == "model":
+                typ = own.get("sla_model_type", mt)
+                jaw = typ in ("model", "model_u") or (typ in ("auto", "plate") and
+                                                      dental_cad.model_type_of(self.name, self.mesh) in ("model", "model_u"))
+                if jaw and float(cfg.get("sla_jaw_zone", 0.0) or 0.0) > 0:
+                    own = {**own, "sla_support_zone": float(cfg["sla_jaw_zone"])}
         return own
 
     def filaments_used(self) -> list[int]:

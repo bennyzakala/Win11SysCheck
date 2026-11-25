@@ -454,6 +454,7 @@ class Viewer(QOpenGLWidget):
     rayPicked = Signal(object, object)         # origin, direction (support "remove" mode)
     cameraChanged = Signal()                   # after every repaint (keeps the view cube in step)
     hoverRay = Signal(object, object, object, object)  # origin, direction, uid, model hit point (support modes)
+    markPicked = Signal(object, int)          # uid, index of the red "needs support?" mark clicked
 
     MODE_PREPARE, MODE_PREVIEW = "prepare", "preview"
 
@@ -1195,6 +1196,8 @@ class Viewer(QOpenGLWidget):
                     self._draw_selection_box(mvp, uid, primary=uid == self.selected)
         if self.show_defects and not preview:
             self._draw_defects(mvp)
+        if not preview:
+            self._draw_marks(mvp)
         self._draw_measure(mvp)
         cap = getattr(self, "layer_cap", None)
         if cap is not None and preview:
@@ -1449,6 +1452,94 @@ class Viewer(QOpenGLWidget):
             obj["_defect_lines"] = (op.reshape(-1, 3), bad.reshape(-1, 3))
             obj["_defect_new"] = True
         return True
+
+    # ------------------------------------------------------------ red marks: high overhangs left unsupported
+    MARK_R = 1.8          # mm: the red spot on the overhang
+    MARK_FRAME = 3.6      # mm: half the side of the blinking frame round it
+    MARK_GRAB_PX = 16.0   # how near a click must be to a mark (on the screen) to add its support
+
+    def set_marks(self, marks: dict):
+        """Red spots, each in a blinking frame, on overhangs left without support (a jaw model's supports stop
+        a few mm above its bottom). ``marks``: uid -> (N, 3) points as drawn. A click on one: markPicked."""
+        self.marks = {uid: np.asarray(p, dtype=np.float64).reshape(-1, 3) for uid, p in (marks or {}).items()
+                      if p is not None and len(p)}
+        self._marks_new = True
+        from PySide6.QtCore import QTimer
+        t = self.__dict__.get("_marks_timer")
+        if self.marks:
+            if t is None:
+                t = self._marks_timer = QTimer(self)
+                t.setInterval(450)
+                t.timeout.connect(self._blink_marks)
+            t.start()
+        elif t is not None:
+            t.stop()
+        self.update()
+
+    def _blink_marks(self):
+        self._marks_on = not getattr(self, "_marks_on", True)
+        self.update()
+
+    def mark_at(self, pos):
+        """(uid, index) of the mark under a click, or None."""
+        best, pick = self.MARK_GRAB_PX, None
+        for uid, pts in getattr(self, "marks", {}).items():
+            if uid in self.objects and self.objects[uid].get("hidden"):
+                continue
+            xy, front = self._to_screen(pts)
+            d = np.hypot(xy[:, 0] - pos.x(), xy[:, 1] - pos.y())
+            d[~front] = np.inf
+            k = int(np.argmin(d)) if len(d) else -1
+            if k >= 0 and d[k] < best:
+                best, pick = float(d[k]), (uid, k)
+        return pick
+
+    @classmethod
+    def _mark_geometry(cls, pts: np.ndarray):
+        """Triangles of the red spots and line segments of their frames (horizontal, just under each point)."""
+        a = np.linspace(0, 2 * np.pi, 17)
+        tris, lines = [], []
+        r, f = cls.MARK_R, cls.MARK_FRAME
+        corners = np.array([[-f, -f], [f, -f], [f, f], [-f, f], [-f, -f]])
+        for p in pts:
+            z = p[2] - 0.05
+            ring = np.c_[p[0] + r * np.cos(a), p[1] + r * np.sin(a), np.full(len(a), z)]
+            for i in range(len(a) - 1):
+                tris += [[p[0], p[1], z], ring[i], ring[i + 1]]
+            c = np.c_[p[0] + corners[:, 0], p[1] + corners[:, 1], np.full(5, z)]
+            for i in range(4):
+                lines += [c[i], c[i + 1]]
+        return np.array(tris, dtype=np.float32).reshape(-1, 3), np.array(lines, dtype=np.float32).reshape(-1, 3)
+
+    def _draw_marks(self, mvp):
+        marks = getattr(self, "marks", {})
+        if not marks:
+            return
+        if getattr(self, "_marks_new", True) or getattr(self, "_marks_buf", None) is None:
+            for b in getattr(self, "_marks_buf", None) or ():
+                self._trash(b)
+            pts = np.vstack([p for uid, p in marks.items()
+                             if not (uid in self.objects and self.objects[uid].get("hidden"))] or [np.zeros((0, 3))])
+            tris, lines = self._mark_geometry(pts)
+            self._marks_buf = (_Buffer(tris, [3]), _Buffer(lines, [3]))
+            self._marks_new = False
+        GL.glUseProgram(self._line_prog)
+        GL.glDisable(GL.GL_DEPTH_TEST)
+        GL.glUniformMatrix4fv(self._u(self._line_prog, "uMVP"), 1, GL.GL_TRUE, mvp.astype(np.float32))
+        GL.glUniform4f(self._u(self._line_prog, "uColor"), 1.0, 0.1, 0.15, 1.0)
+        self._marks_buf[0].draw(GL.GL_TRIANGLES)
+        if getattr(self, "_marks_on", True):                 # the frame blinks
+            try:
+                GL.glLineWidth(3.0)
+            except Exception:
+                pass
+            GL.glUniform4f(self._u(self._line_prog, "uColor"), 1.0, 0.85, 0.1, 1.0)
+            self._marks_buf[1].draw(GL.GL_LINES)
+            try:
+                GL.glLineWidth(1.0)
+            except Exception:
+                pass
+        GL.glEnable(GL.GL_DEPTH_TEST)
 
     def _draw_defects(self, mvp):
         """Open edges (holes) in red and non-manifold edges in orange, drawn on top of the model so a broken
@@ -1787,6 +1878,12 @@ class Viewer(QOpenGLWidget):
         self._press_pos = e.position()
         self._drag = None
         self._picked = False
+        if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and getattr(self, "marks", None):
+            hit = self.mark_at(e.position())
+            if hit is not None:                       # a red mark: add the support it asks about
+                self.markPicked.emit(hit[0], hit[1])
+                self._picked = True
+                return
         if e.button() == Qt.LeftButton and self.mode == self.MODE_PREPARE and self.pick_mode:
             if self.pick_mode == "add":
                 uid, point = self.pick_hit(e.position(), supports=False)

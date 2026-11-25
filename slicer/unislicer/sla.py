@@ -757,11 +757,13 @@ def _add_disk(layer, disk):
     return MultiPolygon(rest + polygons_of(shapely.union_all(touch + [disk])))
 
 
-def island_pillars(layers: list, radius: float = PILLAR_RADIUS, rounds: int = 3) -> tuple[list, int, list]:
+def island_pillars(layers: list, radius: float = PILLAR_RADIUS, rounds: int = 3, skip=None) -> tuple[list, int, list]:
     """A thin round pillar under every island, from the island down to the first layer that is solid at that
-    spot (or the plate). Returns the new layers, how many pillars were added and any island still left."""
+    spot (or the plate). Returns the new layers, how many pillars were added and any island still left.
+    ``skip(i, point)``: True for an island that gets no pillar (high on a jaw model - left as it is)."""
     layers = list(layers)
     added = 0
+    skipped = set()
     check = None                             # first round: every layer; then only what the pillars touched
     for _ in range(rounds):                  # a pillar can leave a smaller piece of the island in the air
         islands = find_islands(layers, only=check)
@@ -770,6 +772,9 @@ def island_pillars(layers: list, radius: float = PILLAR_RADIUS, rounds: int = 3)
         check = set()
         for i, poly in islands:
             p = poly.representative_point()
+            if skip is not None and skip(i, p):
+                skipped.add((i, round(p.x, 3), round(p.y, 3)))
+                continue
             disk = p.buffer(radius, quad_segs=8)
             j = i - 1
             check.update((i, i + 1))
@@ -780,6 +785,8 @@ def island_pillars(layers: list, radius: float = PILLAR_RADIUS, rounds: int = 3)
             added += 1
     else:
         islands = find_islands(layers, only=check)
+    if skipped:
+        islands = find_islands(layers)        # the skipped islands are left as they are: report them all
     return layers, added, islands
 
 
@@ -1648,7 +1655,21 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
         layers = _per_layer(_union_chunk, list(zip(layers, sup_layers)))
     pillars, left = 0, None
     if cfg["sla_island_pillars"] and not jetting:
-        layers, pillars, left = island_pillars(layers)
+        # a jaw model: no island pillar higher than its support zone above its bottom (the lab's rule - a high
+        # overhang is the user's call, it is marked in the window)
+        from shapely.geometry import MultiPoint
+        zones = []
+        for k, m in enumerate(models):
+            zone = float(cfgs[k].get("sla_support_zone", 0.0) or 0.0) if k < len(cfgs) else 0.0
+            if zone > 0 and len(m.vertices):
+                step = max(1, len(m.vertices) // 4000)
+                zones.append((MultiPoint(m.vertices[::step, :2]).convex_hull, float(m.bounds[0][2]), zone))
+
+        def high_on_jaw(i, pt):
+            z = planes[i] if i < len(planes) else 0.0
+            return any(z - bottom > zone and hull.contains(pt) for hull, bottom, zone in zones)
+
+        layers, pillars, left = island_pillars(layers, skip=high_on_jaw if zones else None)
     foot = cfg["bottom_xy_compensation"]
     if foot > 0:
         for i in range(min(int(cfg["bottom_layers"]), len(layers))):

@@ -205,9 +205,17 @@ def auto_support_points(mesh: Mesh, cfg: Config, report: dict | None = None) -> 
         denser = _support_points_at(mesh, cfg, spacing, report)
         if len(denser) > len(pts):
             pts = denser
+    marked = np.zeros((0, 3))
+    zone = float(cfg.get("sla_support_zone", 0.0) or 0.0)
+    if zone > 0 and len(pts):
+        # automatic supports only up to ``zone`` above the part's bottom; higher points are handed back to be
+        # marked (red, blinking) for the user to decide - not supported
+        high = pts[:, 2] - float(mesh.bounds[0][2]) > zone + 1e-6
+        marked, pts = pts[high], pts[~high]
     if report is not None:
         report["spacing_used"] = spacing
         report["min_points"] = need
+        report["marked"] = marked
     return pts
 
 
