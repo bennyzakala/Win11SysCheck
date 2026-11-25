@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>הברזה במכונות BSM</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  body { font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #111; background: #fff; }
+  h1 { font-size: 18pt; margin: 0 0 4px; }
+  .sub { color: #555; margin-bottom: 14px; }
+  h2 { font-size: 13.5pt; border-bottom: 1.5px solid #333; padding-bottom: 2px; margin: 18px 0 6px; page-break-after: avoid; }
+  ul, ol { margin: 4px 0; padding-right: 22px; }
+  li { margin: 2px 0; }
+  .note { border: 1px solid #999; background: #f3f3f3; padding: 6px 10px; margin: 8px 0; }
+  .warn { border-right: 4px solid #b00; background: #fbeeee; padding: 6px 10px; margin: 8px 0; }
+  table { border-collapse: collapse; margin: 6px 0; }
+  th, td { border: 1px solid #777; padding: 3px 12px; text-align: center; }
+  th { background: #e6e6e6; }
+  code, .ltr { direction: ltr; unicode-bidi: embed; font-family: "Liberation Mono", monospace; }
+  .sources li { direction: ltr; text-align: left; font-size: 8.5pt; word-break: break-all; }
+  .sources { direction: ltr; text-align: left; padding-left: 20px; padding-right: 0; }
+  section { page-break-inside: auto; }
+</style>
+</head>
+<body>
+
+<h1>הברזה במכונות BSM‑420W ו‑BSM‑520W</h1>
+<div class="sub">סיכום מחקר · 25.11.2026</div>
+
+<div class="note"><b>מגבלות המחקר:</b> לא הצלחתי לקרוא את המדריך הרשמי של הדגם. יש עותק של מדריך ה‑BM‑420W ב‑ManualsLib, אבל הסביבה שלי לא הצליחה להגיע לאתר. גם לא נמצא ברשת מפרט טכני מלא של הדגמים. לכן הפרטים הספציפיים למכונות מבוססים על התמונות, והחלק הכללי מבוסס על הדרך שבה עובדות מכונות כרסום דנטליות מהסוג הזה.</div>
+
+<h2>1. מה המכונות האלה</h2>
+<ul>
+  <li>שתיהן של Besmile (BSM) מסין. ה‑520W היא מכונת 5 צירים לכרסום רטוב של מתכות: טיטניום, קובלט‑כרום, וגם זירקוניה, PMMA ו‑PEEK.</li>
+  <li>בשתי המכונות יש מערכות בקרה שונות:
+    <ul>
+      <li>ב‑<b>420W</b> רואים במסך כפתורי MDI, Single stage, RTCP mode, Tool magazine ו‑3D Probing.</li>
+      <li>ב‑<b>520W</b> רואים BreakPoint Resume, NCCLOUD Assistant, Line Selection, Fixed Calibration ו‑Tool No. 16. נראה שזה בקר של Weihong (NcStudio), אך זה לא אומת.</li>
+    </ul>
+  </li>
+</ul>
+
+<h2>2. נקודה חשובה: ברוב המקרים לא מבריזים עם מברז</h2>
+<p>לציר במכונה דנטלית יש מהירות גבוהה ומומנט נמוך, בדרך כלל עשרות אלפי סל"ד. בדרך כלל אין בו סנכרון להברזה קשיחה (Rigid Tapping, ‏G84). מברז M1.6 או M2 בטיטניום צריך מאות סל"ד בודדות ומומנט גבוה, ולכן יש סכנה ממשית לשבור אותו בתוך החלק. במעבדות עושים בדרך כלל אחת משתי הדרכים:</p>
+<ol>
+  <li><b>כרסום הברגה (Thread Milling).</b> זו הדרך המקובלת. משתמשים בכלי Thread Mill קטן, למשל של ISCAR או OSG, שיש להם קווים ייעודיים לדנטל. ה‑CAM מייצר תנועה הליקלית (<span class="ltr">G2/G3</span> עם Z) על חור קדח מוכן מראש.</li>
+  <li><b>קידוח במכונה והברזה ידנית אחר כך</b> עם מברז ידני.</li>
+</ol>
+<p>כדאי גם לבדוק אם בכלל צריך הברגה. בבר או גשר שמוברג על שתלים, תעלת הבורג היא בדרך כלל חור מעבר עם מושב לראש הבורג. ההברגה נמצאת בשתל או ב‑Multi‑Unit, וה‑CAM מייצר את המושב מספריית החיבור. הברגה בתוך החלק נדרשת רק בעבודות מיוחדות, כמו בורג משני (Double Screw), אטצ'מנטים או סופר‑סטרקצ'ר.</p>
+
+<h2>3. איך המכונה יודעת לקחת את הכלי הנכון</h2>
+<p>זה נקבע ב‑<b>CAM</b>, לא במכונה. התוכנה יכולה להיות hyperDENT, MillBox, WorkNC, SUM3D או כל תוכנה אחרת שהוגדרה עם המכונה.</p>
+<ol>
+  <li><b>ספריית כלים ב‑CAM:</b> לכל כלי יש מספר T (קוטר, אורך, מספר חודים, סוג). כאן מוסיפים את כלי ה‑Thread Mill ואת המקדח המקדים.</li>
+  <li><b>מחסנית הכלים במכונה:</b> במסך Tool magazine מקצים כל כלי לתא עם אותו מספר. T5 ב‑CAM חייב להיות בתא 5 במכונה.</li>
+  <li><b>מדידת אורך הכלי:</b> אחרי שמכניסים כלי חדש מודדים אותו בחיישן הכלים. ב‑520W זה כנראה Fixed Calibration, וב‑420W יש גם Tool calibration או 3D Probing. בלי המדידה הזו העומק לא יהיה נכון.</li>
+  <li><b>קובץ ה‑NC:</b> ה‑Post Processor כותב לקובץ פקודות כמו <code>T5 M6</code>, והמכונה מחליפה כלי אוטומטית.</li>
+</ol>
+<div class="warn"><b>אזהרה:</b> אם מספר הכלי ב‑CAM לא מתאים לכלי שיושב בתא המקביל במכונה, התוצאה היא התנגשות או כלי שבור. זו התקלה הנפוצה ביותר.</div>
+
+<h2>4. מהירות ההברזה (או הכרסום)</h2>
+<ul>
+  <li><b>S (סל"ד) ו‑F (הזנה) נקבעים בספריית הכלים או באסטרטגיה ב‑CAM.</b> הם נכתבים לקובץ ה‑NC.</li>
+  <li><b>במכונה יש רק Override באחוזים</b>, להזנה ולפעמים גם לציר. משתמשים בו לכוונון עדין בזמן ריצה ראשונה, לא כשיטת עבודה קבועה.</li>
+</ul>
+<p>נקודת פתיחה כללית לכרסום הברגה בטיטניום Grade 5 בקירור רטוב. אלה לא נתונים של BSM, ותמיד עדיפה הטבלה של יצרן הכלי:</p>
+<table>
+  <tr><th>הברגה</th><th>פסיעה (מ"מ)</th><th>מקדח מקדים</th></tr>
+  <tr><td>M1.4</td><td>0.30</td><td>~1.1 מ"מ</td></tr>
+  <tr><td>M1.6</td><td>0.35</td><td>~1.25 מ"מ</td></tr>
+  <tr><td>M2</td><td>0.40</td><td>~1.6 מ"מ</td></tr>
+</table>
+<ul>
+  <li>מהירות חיתוך בערך 30–50 מ'/דקה. בכלי בקוטר 1.2 מ"מ זה בערך 8,000–13,000 סל"ד. יש לבדוק שזה בטווח המינימלי של הציר במכונה.</li>
+  <li>הזנה לשן: בערך 0.003–0.008 מ"מ. בהברגה פנימית ה‑CAM צריך לפצות על הפרש הרדיוסים.</li>
+  <li>לרוב ההברגות (הברגה ימנית) עובדים בכרסום Climb מלמטה למעלה, עם 2–3 מעברים רדיאליים.</li>
+  <li>כדאי לנסות קודם על בלוק טיטניום לבדיקה ולוודא את ההברגה עם בורג אמיתי.</li>
+</ul>
+
+<h2>5. מה לבקש מהמפיץ</h2>
+<p>נראה מהתמונה שהמפיץ הוא BioWhite Dental Solutions. כדאי לשאול:</p>
+<ol>
+  <li>מה הסל"ד המינימלי של הציר בכל אחת מהמכונות, והאם יש תמיכה ב‑Rigid Tapping (G84).</li>
+  <li>באיזו תוכנת CAM ובאיזה Post Processor המכונות הוגדרו, והאם יש תבנית או אסטרטגיה מוכנה ל‑Thread Milling.</li>
+  <li>כמה תאים יש במחסנית, ומה קוטר השאנק (ציר הכלי) שנתמך. בדרך כלל זה 4 או 6 מ"מ.</li>
+  <li>את המדריכים המלאים (Operation Manual) לשתי המכונות.</li>
+</ol>
+
+<h2>מקורות</h2>
+<ul class="sources">
+  <li>BSM BM-420W Operation Manual (ManualsLib) – https://www.manualslib.com/manual/3716765/Bsm-Bm-420w.html</li>
+  <li>BSM-520W – IDS Cologne – https://www.english.ids-cologne.de/product/457309</li>
+  <li>BSM-520W 5-Axis Milling System – https://casadental.com.sg/bsm-520w-5-axis-milling-system/</li>
+  <li>Thread milling in dental Ti/Cr-Co alloys – Procedia CIRP 2017 – https://sam.ensam.eu/bitstream/10985/14616/1/LABOMAP_PROCEDIA%20CIRP_2017_Fromentin.pdf</li>
+  <li>Modeling Thread Milling Forces in Mini-hole in Dental Metallic Materials – https://hal.archives-ouvertes.fr/hal-02060646</li>
+  <li>ISCAR – dental screw tooling – https://www.iscar.com/en-ch/industry/medical/dental-screw</li>
+  <li>OSG – Dental Implants flyer – https://res.cloudinary.com/osg-usa-inc/image/upload/v1717092388/Literature/02%20-%20Flyers/08%20-%20Material%20and%20Industry/OSG_-_Product_Flyer_-_Industry_-_Dental_Implants_-_Vol_1-2_-_IA.pdf</li>
+  <li>hyperDENT (Henry Schein) – https://www.henryschein.com/us-en/zahn/digitaldentistry/hyperdent.aspx</li>
+  <li>MillBox (CIMsystem) – https://www.cimsystem.com/dental/products/millbox/</li>
+  <li>Weihong NcStudio V8 manual – https://www.weihong.com.cn/en/uploads/soft/160816/1-160Q6111540.pdf</li>
+  <li>NcStudio Programming Manual – https://www.weihong.com.cn/en/uploads/soft/160816/1-160Q6112433.pdf</li>
+</ul>
+
+</body>
+</html>
