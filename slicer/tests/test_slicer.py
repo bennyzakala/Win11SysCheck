@@ -5807,6 +5807,29 @@ def test_a_hand_set_support_value_wins_key_by_key_and_each_type_keeps_its_rules(
         assert len(sla_supports.build_supports(w, oc, pts)[1]) == len(pts), extra
 
 
+def test_every_support_foot_stands_on_the_raft():
+    """Raft audit: feet standing at the raft's height with nothing under them (they print in the air): a tiny
+    raft with feet outside the tooth outline (or no outline found), Raft area under 100%, a shallow raft slope
+    whose top is set back past the margin, and a base wider than the margin. Every foot stands on the raft."""
+    from unislicer import profiles, primitives, sla_supports
+    from unislicer.slicing import slice_mesh
+    from shapely.geometry import Point
+    part = primitives.box(30, 20, 6).translated([-15, -10, 0])
+    cases = [{"sla_raft_type": "tiny"}, {"sla_raft_area_ratio": 55.0}, {"sla_raft_slope": 10.0},
+             {"sla_base_diameter": 7.8}, {"sla_raft_type": "grid", "sla_raft_area_ratio": 60.0}]
+    for extra in cases:
+        cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None,
+                                    {"support_enable": True, "sla_head_style": "upright", "sla_head_tilt": 0.0, **extra})
+        raft = cfg["sla_raft_thickness"]
+        w = part.translated([0, 0, cfg["sla_elevation"] + raft])
+        sup, used = sla_supports.build_supports(w, cfg, sla_supports.auto_support_points(w, cfg))[:2]
+        assert len(used)
+        cut = slice_mesh(sup, [raft * 0.5])[0].buffer(0.35)
+        feet = sup.vertices[(sup.vertices[:, 2] > raft - 0.08) & (sup.vertices[:, 2] < raft + 0.02)]
+        loose = [q for q in feet if not cut.contains(Point(q[0], q[1]))]
+        assert not loose, (extra, len(loose))
+
+
 def test_phrozen_printers_start_on_the_labs_support_settings():
     """The lab's support settings are what a Phrozen printer starts with; anything else is a change by hand."""
     from unislicer import profiles

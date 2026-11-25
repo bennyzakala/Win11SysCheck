@@ -1248,17 +1248,36 @@ def _raft_plan(feet: list, cfg: Config, pad: float, radii: list | None = None, o
         shape = _solid_lite(feet, cfg, pad, radii, outline_shape)
         return (shape, shape, None) if not shape.is_empty else None
     if kind == "tiny":
-        # the tooth's own outline, a little smaller; feet outside it stand on the plate as they are
-        if outline_shape is None or outline_shape.is_empty:
-            return None
-        return outline_shape, outline_shape, None
+        # the tooth's own outline, a little smaller - and a pad under every foot outside it: the feet stand
+        # at the raft's height, so outside the outline (or with no outline found) they hung 1 mm in the air
+        default_r = max(cfg["sla_base_diameter"] / 2, pad / 2)
+        pads = [MultiPoint([tuple(np.asarray(q)[:2])]).buffer(
+            max(radii[k] if radii is not None and k < len(radii) else default_r, 0.3) + 0.2, quad_segs=8)
+            for k, q in enumerate(feet)]
+        pieces = pads + ([outline_shape] if outline_shape is not None and not outline_shape.is_empty else [])
+        shape = unary_union(pieces).buffer(0)
+        return (shape, shape, None) if not shape.is_empty else None
     pts = np.array(feet)
     margin = pad + cfg["sla_raft_margin"]
     scale = math.sqrt(max(cfg["sla_raft_area_ratio"], 1.0) / 100.0)
 
+    # the solid raft's top is set back from its edge by its slope: the feet stand on the top, so the edge
+    # reaches past them by that much too (a 12 deg slope set the top back 4.8 mm, past the 2 mm margin, and
+    # the outer feet stood over the slope with a gap under them)
+    slope = cfg["sla_raft_slope"]
+    setback = raft / math.tan(math.radians(slope)) if kind == "solid" and 0 < slope < 89.9 else 0.0
+
     def outline(group):
         hull = MultiPoint([tuple(q) for q in group]).convex_hull.buffer(margin, quad_segs=6)  # hull first: buffering thousands of points was ~1 s
-        return shapely_scale(hull, scale, scale, origin="centroid") if scale != 1 else hull
+        if scale != 1:
+            hull = shapely_scale(hull, scale, scale, origin="centroid")
+        # never smaller than the feet (Raft area under 100% left the outer ones standing beside it, in the
+        # air) plus the top's set-back
+        widest = max([float(r) for r in (radii or [])] + [pad * 0.5])        # a wide base (7.8 mm) too
+        feet_hull = MultiPoint([tuple(q) for q in group]).convex_hull.buffer(widest + 0.4 + setback, quad_segs=6)
+        if not feet_hull.within(hull):
+            hull = hull.union(feet_hull).convex_hull
+        return hull
 
     if kind == "mini":
         # a small pad under every support foot (as PreForm's mini rafts); overlapping pads join, so the raft
