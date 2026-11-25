@@ -2397,6 +2397,7 @@ class MainWindow(QMainWindow):
         self._invalidate()
         self.__dict__.pop("_last_result", None)        # nothing of the old plate can be exported any more
         self._refresh_objects(select=None)
+        self._restore_last_raft()
         self.status.setText(tr("new_project_done"))
 
     def delete_selected(self):
@@ -5609,6 +5610,7 @@ class MainWindow(QMainWindow):
 
         def changed(key, value):
             self._ensure_supports_enabled()
+            self._remember_raft(key, value)          # picked here too, it is the next plate's raft
             if group and key not in self.PLATE_RAFT_KEYS:
                 self._push_undo()
                 for o in group:
@@ -5998,6 +6000,13 @@ class MainWindow(QMainWindow):
             self.slice()
         else:
             self.status.setText(tr("applied_saved").format(name))
+
+    def _restore_last_raft(self):
+        """A new plate starts on the raft the user last chose (Solid lite, say) - it was only put back on the
+        next start, so New project fell back to the plate's old raft (Solid)."""
+        rt = str(self.store.value("last_raft_type", "") or "")
+        if rt and self.settings.overrides.get("sla_raft_type") != rt:
+            self.settings.set_value("sla_raft_type", rt)
 
     def _remember_raft(self, key, value):
         """The raft type the user picks is kept as the default for the next plate, until they change it."""

@@ -5545,6 +5545,47 @@ def test_the_last_raft_type_is_remembered_as_the_default():
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_new_project_keeps_the_raft_last_chosen_for_a_model():
+    """The lab picks Solid lite in a model's raft menu; after New project the plate was back on Solid - the
+    choice was kept only on that model (gone with it) and never remembered. Now the raft picked there is
+    remembered, and New project starts the empty plate on it."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui.settings_panel import SettingRow
+        w = MainWindow(); app.processEvents()
+        w.store.setValue("preslice", "false")
+        w.settings.printer_id = "phrozen_sonic_ls_plus"; w.settings.rebuild()
+        w.settings.set_value("sla_raft_type", "solid"); app.processEvents()
+        o = w.add_mesh(primitives.box(10, 10, 5)); app.processEvents()
+        w._refresh_objects(select=o.uid); app.processEvents()
+        assert w.selected_objects() == [o]
+        w.raft_menu(); app.processEvents()
+        row = [r for r in w._raft_dialog.findChildren(SettingRow) if r.setting.key == "sla_raft_type"][0]
+        row.editor.setCurrentIndex(row.editor.findData("solid_lite")); app.processEvents()
+        row.apply_btn.click(); app.processEvents()            # the row's own Apply, as the lab does
+        assert o.settings.get("sla_raft_type") == "solid_lite", o.settings
+        assert w.store.value("last_raft_type", "") == "solid_lite", "the model menu's raft was not remembered"
+        w._raft_dialog.close()
+        w.new_project(); app.processEvents()
+        assert w.settings.overrides.get("sla_raft_type") == "solid_lite", w.settings.overrides
+        o2 = w.add_mesh(primitives.box(10, 10, 5)); app.processEvents()
+        assert o2.config(w.settings.config())["sla_raft_type"] == "solid_lite"
+        w._stop_preslice()
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_the_printer_picker_shows_each_printers_picture(tmp_path):
     """A lab sliced for the Phrozen Sonic XL 4K (2020) - 50 um pixels - and printed on its XL 4K Plus (52 um):
     every part came out 4% too large. The printer menu and its button now show each printer's picture (a photo
