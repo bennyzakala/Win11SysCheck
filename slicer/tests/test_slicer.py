@@ -5725,6 +5725,34 @@ def test_red_marks_blink_and_a_click_adds_the_support():
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
+def test_a_close_without_any_error_is_recorded_and_an_update_404_is_quiet(tmp_path, monkeypatch):
+    """Lab: the program closed without a message and nothing was in the crash log. A run that ends with no
+    clean exit and no error (closed from outside, out of memory, frozen and closed) left an empty crash file,
+    which was thrown away; it is now recorded and shown next time. And the update check meeting a release
+    that is being published (404) is no error."""
+    import os as _os, time as _time
+    from unislicer import diagnose, updater
+    log = diagnose.CrashLog(str(tmp_path))
+    empty = tmp_path / diagnose.FAULT_NAME.format(999999)       # a run that is gone
+    empty.write_text("", encoding="utf-8")
+    old = _time.time() - 60
+    _os.utime(empty, (old, old))
+    d = log.arm()
+    log.disarm()
+    assert d is not None and d.kind == "silent_exit" and not empty.exists()
+    assert log.entries()[-1]["kind"] == "silent_exit"
+    # a clean exit leaves no file: nothing is reported
+    log2 = diagnose.CrashLog(str(tmp_path / "b"))
+    assert log2.arm() is None
+    log2.disarm()
+    assert diagnose.CrashLog(str(tmp_path / "b")).arm() is None
+    import urllib.error, urllib.request
+    def fail(*a, **k):
+        raise urllib.error.HTTPError(updater.API, 404, "Not Found", None, None)
+    monkeypatch.setattr(urllib.request, "urlopen", fail)
+    assert updater.latest() is None
+
+
 def test_phrozen_printers_start_on_the_labs_support_settings():
     """The lab's support settings are what a Phrozen printer starts with; anything else is a change by hand."""
     from unislicer import profiles

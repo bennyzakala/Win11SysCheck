@@ -117,18 +117,31 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # GitHub's release API sometimes answers 5xx or still lists a just-deleted release: retry both
-          # steps, so a passing build always ends with the download link in place
+          # The new build goes up first as a DRAFT under its own tag (uploading is the slow part, where GitHub's
+          # API has answered 5xx); only once it is fully up is the old "unislicer-latest" removed and the draft
+          # moved onto that tag and published. A failure before that leaves the old download (and the
+          # program's update check) as it was - it once deleted the old release, then could not create the new.
           $notes = "Windows build of UniSlicer from commit $env:GITHUB_SHA.`n`n- UniSlicer-Setup.exe: installer`n- UniSlicer-portable-win64.zip: unzip and run UniSlicer.exe"
+          $draft = "unislicer-build-$env:GITHUB_RUN_ID"
           $ok = $false
           for ($i = 1; $i -le 6 -and -not $ok; $i++) {
+            gh release delete $draft --yes 2>$null
+            gh release create $draft dist/UniSlicer-Setup.exe dist/UniSlicer-portable-win64.zip --draft --target $env:GITHUB_SHA --prerelease --title "UniSlicer (Windows) - latest build" --notes $notes
+            if ($LASTEXITCODE -eq 0) { $ok = $true } else { Write-Host "draft attempt $i failed; retrying"; Start-Sleep -Seconds (10 * $i) }
+          }
+          if (-not $ok) { exit 1 }
+          $ok = $false
+          for ($i = 1; $i -le 8 -and -not $ok; $i++) {
+            # an earlier attempt may have gone through although GitHub answered with an error: then it is done
+            $now = gh release view unislicer-latest --json targetCommitish,isDraft -q "select(.isDraft == false) | .targetCommitish" 2>$null
+            if ($LASTEXITCODE -eq 0 -and "$now".Trim() -eq $env:GITHUB_SHA) { $ok = $true; break }
             for ($j = 1; $j -le 5; $j++) {
               gh release delete unislicer-latest --cleanup-tag --yes 2>$null
               Start-Sleep -Seconds 3
               gh release view unislicer-latest 2>$null | Out-Null
               if ($LASTEXITCODE -ne 0) { break }
             }
-            gh release create unislicer-latest dist/UniSlicer-Setup.exe dist/UniSlicer-portable-win64.zip --target $env:GITHUB_SHA --prerelease --title "UniSlicer (Windows) - latest build" --notes $notes
+            gh release edit $draft --tag unislicer-latest --draft=false --prerelease
             if ($LASTEXITCODE -eq 0) { $ok = $true } else { Write-Host "publish attempt $i failed; retrying"; Start-Sleep -Seconds (10 * $i) }
           }
           if (-not $ok) { exit 1 }

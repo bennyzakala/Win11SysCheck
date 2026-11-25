@@ -27,9 +27,15 @@ def build_commit() -> str:
 
 def latest(timeout: float = 10.0) -> dict | None:
     """The published build: {"commit", "date", "url", "size"}, or None when it cannot be read."""
+    import urllib.error
     req = urllib.request.Request(API, headers={"Accept": "application/vnd.github+json", "User-Agent": "UniSlicer-updater"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code in (404, 500, 502, 503):
+            return None            # the build is being published right now (or GitHub is busy): no update, no error
+        raise
     asset = next((a for a in data.get("assets", []) if a.get("name") == ASSET), None)
     if asset is None:
         return None

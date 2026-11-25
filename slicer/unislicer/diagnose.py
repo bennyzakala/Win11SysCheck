@@ -310,6 +310,49 @@ def diagnose_hard_crash(text: str) -> Diagnosis | None:
     return Diagnosis(sig, kind, title, cause, fixes, area, where, "Fatal error (native crash)", text, time.time())
 
 
+def _same_process_alive(path: str) -> bool:
+    """Is the program that wrote this crash file still running (another copy open at the same time)?"""
+    m = re.search(r"_(\d+)\.txt$", os.path.basename(path))
+    if not m:
+        return False
+    pid = int(m.group(1))
+    if pid == os.getpid():
+        return False
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)       # PROCESS_QUERY_LIMITED_INFORMATION
+            if not h:
+                return False
+            code = ctypes.c_ulong()
+            ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+            ctypes.windll.kernel32.CloseHandle(h)
+            return code.value == 259                                          # STILL_ACTIVE
+        os.kill(pid, 0)
+        return True
+    except (OSError, AttributeError, ValueError):
+        return False
+
+
+def diagnose_silent_exit(started: float) -> Diagnosis:
+    """The previous run ended without a clean exit and without any error to show - its crash file was left
+    empty: the program was closed from outside (Windows, the Task Manager, a power cut), ran out of memory,
+    or froze and was closed. It left nothing in the log before; now it is recorded, so it is seen."""
+    when = time.strftime("%Y-%m-%d %H:%M", time.localtime(started)) if started else ""
+    title = ("התוכנה נסגרה בפעם הקודמת בלי הודעה", "The program closed last time without a message")
+    cause = ("UniSlicer לא נסגר כרגיל ולא נמצאה שגיאה: ייתכן שהוא נסגר מבחוץ (Windows / מנהל המשימות / כיבוי), "
+             "שנגמר הזיכרון, או שהוא נתקע ונסגר.",
+             "UniSlicer did not close normally and no error was found: it may have been closed from outside "
+             "(Windows / Task Manager / shutdown), run out of memory, or frozen and been closed.")
+    fixes = [("אם זה קרה באמצע פעולה מסוימת (חיתוך, תמיכות, פתיחת קבצים) - כתוב לתמיכה מה עשית ומתי.",
+              "If it happened during a certain action (slicing, supports, opening files) - tell support what you did and when."),
+             ("אם המחשב היה עמוס: סגור תוכנות אחרות וחתוך פחות מודלים בבת אחת.",
+              "If the computer was busy: close other programs and slice fewer models at once."), UPDATE]
+    sig = hashlib.sha1(b"silent_exit").hexdigest()[:12]
+    return Diagnosis(sig, "silent_exit", title, cause, fixes, ("סגירה ללא הודעה", "Closed without a message"),
+                     "", "Closed without a clean exit (no error)", f"run started {when}", time.time())
+
+
 # ------------------------------------------------------------------ log
 _ENTRIES: dict = {}            # path -> ((path, mtime, size, limit), entries)
 _TAIL_BYTES = 2 << 20         # the newest entries are at the end: no more than this is read
@@ -377,8 +420,12 @@ class CrashLog:
             try:
                 if time.time() - os.path.getmtime(path) < 5:      # another copy that is running now
                     continue
+                started = os.path.getmtime(path)
                 with open(path, "r", encoding="utf-8", errors="replace") as fh:
-                    d = diagnose_hard_crash(fh.read())
+                    text = fh.read()
+                d = diagnose_hard_crash(text)
+                if d is None and not text.strip() and not _same_process_alive(path):
+                    d = diagnose_silent_exit(started)     # closed with no clean exit and no error: say so
                 os.remove(path)
             except OSError:
                 continue
