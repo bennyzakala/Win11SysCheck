@@ -1537,8 +1537,10 @@ class SettingsPanel(QWidget):
             self.overrides.pop(key, None)
         else:
             self.overrides[key] = value
-            if not getattr(self, "_programmatic", False):
-                self.valueEdited.emit(key, value)
+        # a pick by hand is told either way: Solid lite picked where the printer's default is Solid lite too
+        # was not remembered as the last raft, and New project brought back the Solid picked before it
+        if not getattr(self, "_programmatic", False):
+            self.valueEdited.emit(key, value)
         if key == "sla_process":
             QTimer.singleShot(0, self.rebuild)       # the process decides which settings apply
         if key == "sla_head_style":

@@ -75,7 +75,9 @@ def _merge_saved(data: dict, saved) -> None:
                 if k == "orient":
                     for tech, row in v.items():
                         if (tech in base and isinstance(row, dict) and isinstance(row.get("weights"), list)
-                                and len(row["weights"]) == len(base[tech]["weights"])):
+                                and len(row["weights"]) == len(base[tech]["weights"])
+                                and all(isinstance(x, (int, float)) and math.isfinite(x) and x >= 0
+                                        for x in row["weights"])):
                             base[tech].update(row)
                 else:
                     base.update(v)
@@ -167,13 +169,18 @@ class Assistant:
         if not isinstance(saved, dict) or "orient" not in saved or "layout" not in saved:
             return False
         enabled = self.data.get("enabled", True)
+        auto_repair = bool(self.data.get("repair", {}).get("auto", False))
         data = _default_data()
-        for k, v in saved.items():
-            if isinstance(v, dict) and isinstance(data.get(k), dict):
-                data[k].update(v)
-            elif k in data or k in ("seed",):
-                data[k] = v
+        try:
+            _merge_saved(data, saved)           # each part checked for its kind; weights of another length left out
+        except ValueError:
+            return False
+        if "seed" in saved:
+            data["seed"] = saved["seed"]
         data["enabled"] = enabled
+        # this computer's own switch: a file from a computer with auto repair on turned it on here, and every
+        # later file was repaired without a click
+        data.setdefault("repair", {})["auto"] = auto_repair
         data["epoch"] = time.time()                # replaces the shared learning too
         self.data = data
         self.save()
@@ -359,8 +366,9 @@ class Assistant:
                 out.append(Suggestion(f"print_heavier_{time.time():.0f}", "improve", "sg_heavier_supports", (),
                                       "set", {"sla_support_preset": heavier}, False))
         elif outcome == "fail_suction":
-            w = self.data["orient"]["sla"]["weights"]
-            w[1], w[2] = w[1] * 1.2, w[2] * 1.2       # care more about peel area and faces parallel to the screen
+            if self.enabled:                          # learning off learns nothing (it came back when on again)
+                w = self.data["orient"]["sla"]["weights"]
+                w[1], w[2] = w[1] * 1.2, w[2] * 1.2   # care more about peel area and faces parallel to the screen
             if cfg.get("sla_hole_advice", False):
                 out.append(Suggestion(f"print_suction_{time.time():.0f}", "improve", "sg_after_suction", (),
                                       "set", {"hollow_enable": True, "drain_holes": 2}, False))

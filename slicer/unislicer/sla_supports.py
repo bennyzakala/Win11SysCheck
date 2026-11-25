@@ -1276,6 +1276,9 @@ def _raft_plan(feet: list, cfg: Config, pad: float, radii: list | None = None, o
             for k, q in enumerate(feet)]
         pieces = pads + ([outline_shape] if outline_shape is not None and not outline_shape.is_empty else [])
         shape = unary_union(pieces).buffer(0)
+        # slivers of the outline with no area (a zero-width wall 1 mm high stood beside a die's raft)
+        parts = [g for g in getattr(shape, "geoms", [shape]) if g.area >= 0.01]
+        shape = unary_union(parts) if parts else ShapelyPolygon()
         return (shape, shape, None) if not shape.is_empty else None
     pts = np.array(feet)
     margin = pad + cfg["sla_raft_margin"]
@@ -1560,12 +1563,20 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
                     return dd, tip, q[0], q[1], tp, lo, bed, tp - lo, arm
         return None
 
+    set_depth = depth
     for index, p in enumerate(points):
         contact = underside_contact(caster, p)
         if contact is None:
             continue                     # nothing to hold from below here (e.g. a point on top of the part)
         p = contact
         own([index])
+        # never deeper than 40% of the wall above the contact: 2 mm into a crown's 1 mm wall came out through
+        # its fitting surface (the head stood inside the crown)
+        depth = set_depth
+        zs, _faces = caster.hits(p[0], p[1])
+        above = zs[zs > p[2] + 1e-3] if len(zs) else zs
+        if len(above):
+            depth = min(set_depth, max(0.05, 0.4 * float(above.min() - p[2])))
         d = head_direction(p)
         tip = None
         if d is not None:
@@ -1750,6 +1761,25 @@ def build_part(world: Mesh, cfg: Config, points, label: str, label_frame, to_loc
     return local, owners          # owners["_structure"]: the structure, for the window to keep
 
 
+def _footprint_raft(mesh: Mesh, cfg: Config) -> list[Mesh]:
+    """A part standing on its raft (support height 0: no room for supports under it) gets the raft under its
+    own footprint as well: only the supports' feet had one, and with none (or one for an overhang inside) the
+    part was lifted by the raft's thickness over nothing - its first layers printed in the air."""
+    raft = cfg["sla_raft_thickness"]
+    if cfg["sla_raft_type"] == "none" or raft <= 0 or len(mesh.faces) == 0:
+        return []
+    z0 = float(mesh.bounds[0][2])
+    if z0 - raft > 0.3:
+        return []
+    from .slicing import slice_mesh
+    from .mesh_tools import extrude
+    foot = slice_mesh(mesh, [z0 + 0.06], 0.05)[0]
+    if foot.is_empty or foot.area < 0.05:
+        return []
+    shape = foot.buffer(max(cfg["sla_raft_margin"] * 0.5, 0.5), quad_segs=6).buffer(0)
+    return [extrude(shape, 0.0, raft + 0.05, "Raft")] if not shape.is_empty else []
+
+
 def _finish(mesh: Mesh, cfg: Config, built, owners, label, label_frame):
     """The raft under a built support structure, and the two merged."""
     structure, face_owner, groups, feet, foot_radii, used, pillar_r = built
@@ -1758,6 +1788,7 @@ def _finish(mesh: Mesh, cfg: Config, built, owners, label, label_frame):
         tiny = tooth_outline(mesh, cfg["sla_raft_tiny_inset"] if cfg["sla_raft_type"] == "tiny" else 0.0)
     # the caller chooses the text (the model's name, or a tooth's SOD case code); "" = no label
     rafts = _rafts(feet, cfg, pillar_r * 4, foot_radii, tiny, label, label_frame)
+    rafts += _footprint_raft(mesh, cfg)
     pieces = ([structure] if structure is not None else []) + list(rafts)
     merged = Mesh.merge(pieces, "Supports")
     if owners is not None:

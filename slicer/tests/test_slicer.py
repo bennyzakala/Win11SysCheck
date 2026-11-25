@@ -11686,3 +11686,128 @@ def test_the_assistants_islands_suggestion_adds_supports_under_the_islands_and_k
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_assistant_audit_hand_choices_win_and_nothing_changes_by_itself(tmp_path):
+    """Audit of the assistant against the lab's rules:
+    - a raft picked by hand that equals the printer's default is still remembered (Solid lite over Solid);
+    - a layout gap / border set by hand wins over a learned or taught one;
+    - importing a learning file keeps this computer's auto-repair switch, and drops bad weights;
+    - an island on a jaw model above its 3 mm zone becomes a red mark, not a support climbing the model;
+    - a crown picked as one in Add parts is turned as a crown (opening up)."""
+    import json, subprocess, sys, textwrap
+    from unislicer.assistant import Assistant
+    src = Assistant(str(tmp_path / "src"))
+    src.data["repair"]["auto"] = True
+    src.data["orient"]["sla"]["weights"] = [-1.0] * len(src.data["orient"]["sla"]["weights"])
+    src.export_to(str(tmp_path / "learning.json"))
+    dst = Assistant(str(tmp_path / "dst"))
+    good = list(dst.data["orient"]["sla"]["weights"])
+    assert dst.import_from(str(tmp_path / "learning.json"))
+    assert dst.data["repair"]["auto"] is False
+    assert dst.data["orient"]["sla"]["weights"] == good            # negative weights are not taken
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        import numpy as np
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); app.processEvents()
+        w.settings.printer_id = "phrozen_sonic_ls_plus"; w.settings.overrides.pop("sla_raft_type", None)
+        w.settings.rebuild()
+        default = w.settings.config()["sla_raft_type"]
+        w.store.setValue("last_raft_type", "grid" if default != "grid" else "solid")
+        w.settings._on_changed("sla_raft_type", default)          # picked by hand, equal to the default
+        assert w.store.value("last_raft_type", "") == default, w.store.value("last_raft_type", "")
+        # the layout gap typed by hand wins over the learned one
+        w.assistant.data["layout"]["taught"] = {"spacing": 1.27, "margin": 0.89, "anchor": "center",
+                                                "count": 99, "slots": []}
+        w.settings._on_changed("arrange_spacing", 4.0)
+        w.settings._on_changed("arrange_margin", 5.0)
+        opts = w._layout_defaults()
+        assert opts["spacing"] == 4.0 and opts["margin"] == 5.0, opts
+        # a crown picked in Add parts, with a name that says nothing: Auto orient treats it as a crown
+        o = w.add_mesh(primitives.crown_cap(10.0, 8.0)); o.name = "part"
+        o.__dict__["part_kind"] = "crown"
+        assert w._is_crown(o, w.settings.config())
+        o.__dict__["part_kind"] = "other"
+        assert not w._is_crown(o, w.settings.config())
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_an_island_high_on_a_jaw_model_is_marked_red_not_supported(tmp_path):
+    """Audit: "Support all islands" (the Fix button, and the assistant's islands suggestion) put a support
+    under every island - on a jaw model 12 mm up its wall too, past the 3 mm zone where the lab wants only
+    red marks and its own "Support all marks". Such an island now becomes a red mark."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        import numpy as np
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives, sla_supports
+        from unislicer.mesh import Mesh
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); app.processEvents()
+        w.settings.printer_id = "phrozen_sonic_ls_plus"; w.settings.rebuild()
+        stem = primitives.box(4, 4, 12)
+        cap = primitives.box(16, 16, 2); cap = Mesh(cap.vertices + [-6, -6, 12], cap.faces)
+        jaw = Mesh.merge([stem, cap], "jaw")
+        for kind, expect_support in (("model", False), ("cb", True)):
+            for o in list(w.objects):
+                w.objects.remove(o)
+            o = w.add_mesh(jaw); o.settings["sla_model_type"] = kind; app.processEvents()
+            o.support_points = None
+            cfg = w.settings.config(); lift = w._lift(cfg)
+            world = o.world_mesh().translated([0, 0, lift])
+            b = world.bounds
+            p = np.array([(b[0][0] + b[1][0]) / 2 + 5.0, (b[0][1] + b[1][1]) / 2 + 5.0, b[0][2] + 12.0])
+            class Job: islands = [(0, None)]; layers = []; layer_z = []
+            w.result = ("sla", Job())
+            sla_supports.island_points = lambda *a, p=p: np.array([p])
+            o.support_points = np.zeros((0, 3))
+            w.support_all_islands()
+            pts = o.world_support_points(lift)
+            supported = pts is not None and len(pts) and np.min(np.abs(pts[:, 2] - p[2])) < 1.0
+            marks = w._marks_world(o, lift)
+            if expect_support:
+                assert supported, (kind, pts)
+            else:
+                assert not supported, (kind, pts)
+                assert marks is not None and len(marks) == 1, marks
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_a_part_at_support_height_0_stands_on_a_raft_and_a_deep_contact_stays_inside_a_thin_wall():
+    """Audit: support height 0 with a raft - the part was lifted by the raft's thickness over nothing (only
+    the supports' feet got a raft, and there were none): its first layers printed in the air. And a 2 mm
+    contact depth under a 1 mm wall came out through the wall's other side."""
+    from unislicer import primitives, profiles, sla, sla_supports
+    from unislicer.mesh import Mesh
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {
+        "support_enable": True, "sla_elevation": 0.0, "sla_raft_type": "solid_lite", "sla_raft_thickness": 1.0})
+    job = sla.prepare([primitives.box(10, 10, 5).translated([50, 50, 0])], cfg, None, lambda: False)
+    assert job.layers[0].area > 99.0 and not job.islands
+    # a 1 mm plate 6 mm up: the support's tip stays inside it
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {
+        "support_enable": True, "sla_contact_depth": 2.0, "sla_head_style": "upright", "sla_head_tilt": 0.0})
+    wall = primitives.box(10, 10, 1.0)
+    wall = Mesh(wall.vertices + [0, 0, 6.0], wall.faces)
+    sup, used = sla_supports.build_supports(wall, cfg, np.array([[5.0, 5.0, 6.0]]))[:2]
+    assert len(used) == 1
+    assert float(sup.vertices[:, 2].max()) < 7.0 - 0.3, sup.vertices[:, 2].max()

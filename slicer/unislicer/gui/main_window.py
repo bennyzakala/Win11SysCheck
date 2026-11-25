@@ -1540,7 +1540,7 @@ class MainWindow(QMainWindow):
         cfg = self.settings.config()
         lift = self._lift(cfg)
         self._push_undo()
-        added = 0
+        added = marked = 0
         for p in pts:
             for o in self.objects:
                 if o.role == "cutter" or o.direct:
@@ -1554,6 +1554,19 @@ class MainWindow(QMainWindow):
                 contact = sla_supports.underside_contact(geo["caster"], p + [0, 0, 0.3])
                 if contact is None or abs(float(contact[2]) - float(p[2])) > 1.0:
                     continue        # not the island's own underside (a surface further down): its pillar holds it
+                oc = o.config(cfg)
+                zone = float(oc.get("sla_support_zone", 0.0) or 0.0)
+                if zone > 0 and float(contact[2]) - float(world.bounds[0][2]) > zone + 1e-6:
+                    inner = sla_supports._under_base(world)
+                    from shapely.geometry import Point
+                    if inner is None or not inner.contains(Point(float(contact[0]), float(contact[1]))):
+                        # a jaw model above its support zone: a red mark for the user to decide (Support all
+                        # marks), never a support climbing the model's wall by itself
+                        old = self._marks_world(o, lift)
+                        if old is None or not len(old) or np.min(np.linalg.norm(old - contact, axis=1)) > 0.5:
+                            self._set_marks(o, contact[None, :] if old is None else np.vstack([old, contact]), lift)
+                            marked += 1
+                        break
                 if o.support_points is None:
                     o.set_world_support_points(sla_supports.drop_keepout(sla_supports.auto_support_points(world, o.config(cfg)),
                                                                          o.world_keepout(lift)), lift)
@@ -1561,7 +1574,11 @@ class MainWindow(QMainWindow):
                 added += 1
                 break
         self._objects_changed(refresh_list=False)
-        self.status.setText(tr("islands_supported").format(added))
+        msg = tr("islands_supported").format(added)
+        if marked:
+            self._show_marks()
+            msg += " · " + tr("islands_marked").format(marked)
+        self.status.setText(msg)
 
     def set_panel_visible(self, side: str, visible: bool, save: bool = True):
         panel = self.left_panel if side == "left" else self.right_panel
@@ -1694,6 +1711,8 @@ class MainWindow(QMainWindow):
             preset = self.DENTAL.get("model" if kind == "model_hollow" else kind)
             for o in group:                  # only a crown / bridge is turned (opening up), below
                 kinds[o.uid] = kind if kind in ("crown", "gingiva") else "other"
+                if kind != "asis":
+                    o.__dict__["part_kind"] = kinds[o.uid]     # Auto orient knows a crown picked here
                 if preset is not None:
                     o.direct = preset[1]         # a model prints straight on the plate, a crown on supports
                 if kind == "model_hollow":
@@ -2532,6 +2551,11 @@ class MainWindow(QMainWindow):
         for k in base:
             if k in last:
                 out[k] = last[k]
+        # a gap or border set by hand in the settings is the user's: it wins over the learned and remembered
+        # ones (4 mm typed and applied, and Arrange still laid the parts 1.3 mm apart from a taught layout)
+        for key, opt in (("arrange_spacing", "spacing"), ("arrange_margin", "margin")):
+            if key in self.settings.overrides:
+                out[opt] = cfg[key]
         return out
 
     def _migrate_layout_defaults(self):
@@ -2693,6 +2717,27 @@ class MainWindow(QMainWindow):
                 self._drop_supports(obj)
             self._objects_changed()
 
+    def _is_crown(self, o, cfg, by_name: str | None = None) -> bool:
+        """Is this part a crown / bridge for Auto orient (opening up, at most 60 deg; implants straight)? As
+        _open_up knows it: the part's own type, the type picked in Add parts, its name, the plate's type,
+        else its shape - a crown picked in Add parts with a name that said nothing went to the general scorer
+        and could land opening-down, an implant bridge tilted."""
+        if cfg["technology"] != "sla":
+            return False
+        from .. import dental_cad
+        own = o.settings.get("sla_model_type")
+        if own not in (None, "auto"):
+            return own == "cb"
+        picked = o.__dict__.get("part_kind")
+        if picked is not None:
+            return picked == "crown"
+        t = dental_cad.model_type_of(o.name, o.mesh) if by_name is None else by_name
+        if t:
+            return t == "cb"
+        if cfg.get("sla_model_type") == "cb":
+            return True
+        return dental_cad.kind_of(o.name, o.mesh) == "crown"
+
     def auto_orient_selected(self):
         targets = self._support_targets()
         if not targets:
@@ -2710,7 +2755,8 @@ class MainWindow(QMainWindow):
             dies = [t == "die" for t in types]
             # a crown / bridge keeps its opening (the fitting side) facing up: the general scorer once put a
             # bridge's opening on the plate, supports inside the fitting surface
-            crowns = [t == "cb" or o.settings.get("sla_model_type") == "cb" for t, o in zip(types, targets)]
+            # - known as _open_up knows it (see _is_crown)
+            crowns = [self._is_crown(o, cfg, t) for t, o in zip(types, targets)]
             jobs = [(Mesh(o.mesh.vertices, o.mesh.faces, o.mesh.name), o.matrix().copy(), tech, cfg["support_angle"],
                      weights) for o in targets]
             meshes = [o.mesh for o in targets]
@@ -7355,6 +7401,13 @@ class MainWindow(QMainWindow):
             return
         o = todo[0]
         key = self._orient_key(o)
+        from .. import dental_cad
+        if tech == "sla" and (self._is_crown(o, cfg) or dental_cad.model_type_of(o.name, o.mesh) == "die"):
+            # turned by their own rules (opening up / standing on the base): measured against the free best,
+            # a crown was offered "auto orient" again and again, and Auto orient could never take it
+            self._orient_gain[o.uid] = (key, 0.0)
+            QTimer.singleShot(0, self._analyse_orientations)
+            return
         weights = self.assistant.orient_weights(tech)
         source, placed_at = o.mesh, o.matrix().copy()
         uid = o.uid
