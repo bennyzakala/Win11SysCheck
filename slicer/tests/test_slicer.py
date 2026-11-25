@@ -10731,17 +10731,23 @@ def test_plate_work_stays_off_the_window_thread(tmp_path):
         for t in twins:
             t.auto_orient("sla", w.settings.config()["support_angle"], w.assistant.orient_weights("sla"))
         seen = []
-        real_job = orient.rotation_job
+        real_job, real_crown = orient.rotation_job, orient.crown_rotation_job
         import threading
         def job(*a, **k):
             seen.append((threading.current_thread() is threading.main_thread(), w._long_job))
             return real_job(*a, **k)
-        orient.rotation_job = job
+        def crown_job(*a, **k):
+            seen.append((threading.current_thread() is threading.main_thread(), w._long_job))
+            return real_crown(*a, **k)
+        orient.rotation_job, orient.crown_rotation_job = job, crown_job
         w._select_uid(None); w.auto_orient_selected()
-        orient.rotation_job = real_job
-        assert seen and all(not on_main and held > 0 for on_main, held in seen), seen
-        for o, t in zip(parts, twins):                   # the same turn
-            assert np.allclose(o.matrix()[:3, :3], t.matrix()[:3, :3], atol=1e-9)
+        orient.rotation_job, orient.crown_rotation_job = real_job, real_crown
+        assert len(seen) == 2 and all(not on_main and held > 0 for on_main, held in seen), seen
+        # the box: the same turn as the old way; the crown has its own rule - its opening kept up
+        assert np.allclose(parts[1].matrix()[:3, :3], twins[1].matrix()[:3, :3], atol=1e-9)
+        from unislicer import dental_cad
+        d = dental_cad.opening_direction(parts[0].mesh)
+        assert (parts[0].matrix()[:3, :3] @ d)[2] >= np.cos(np.radians(orient.CROWN_MAX_TILT)) - 1e-6
         # the overlap check: outlines in the background, the right count once they are in
         a, b = parts
         b.x, b.y = a.x, a.y                              # on top of each other
