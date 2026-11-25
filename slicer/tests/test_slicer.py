@@ -5830,6 +5830,42 @@ def test_every_support_foot_stands_on_the_raft():
         assert not loose, (extra, len(loose))
 
 
+def test_settings_panel_keeps_what_was_set_by_hand():
+    """Audit of the panel's own rules: a value set by hand that equals the bare profile's (no supports on the
+    fitting surface turned off) was dropped, and the plate's model type put its own back; a preset picked by
+    hand lost its tip / pillar to the plate's model type; Reset on the head style left a 0 deg tilt (Adaptive
+    that leans nowhere)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.store.setValue("preslice", "false")
+        s = w.settings
+        s.select_printer("phrozen_sonic_xl_4k_plus"); app.processEvents()
+        s._on_changed("sla_model_type", "cb"); app.processEvents()
+        assert s.config()["sla_avoid_fit"] is True
+        s._on_changed("sla_avoid_fit", False); app.processEvents()
+        assert s.config()["sla_avoid_fit"] is False, s.overrides          # kept, though the profile says False
+        s._on_changed("sla_support_preset", "light"); app.processEvents()
+        c = s.config()
+        assert (c["sla_tip_diameter"], c["sla_pillar_diameter"]) == (0.3, 0.8), (c["sla_tip_diameter"], c["sla_pillar_diameter"])
+        s._on_changed("sla_head_style", "upright"); app.processEvents()
+        assert s.config()["sla_head_tilt"] == 0.0
+        s._on_reset("sla_head_style"); app.processEvents()
+        c = s.config()
+        assert (c["sla_head_style"], c["sla_head_tilt"]) == ("adaptive", 45.0), (c["sla_head_style"], c["sla_head_tilt"])
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_phrozen_printers_start_on_the_labs_support_settings():
     """The lab's support settings are what a Phrozen printer starts with; anything else is a change by hand."""
     from unislicer import profiles

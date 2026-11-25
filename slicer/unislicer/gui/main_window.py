@@ -1513,8 +1513,8 @@ class MainWindow(QMainWindow):
             if o.support_points is not None:
                 pts = o.world_support_points(lift)
             elif cfg["support_enable"]:
-                if "auto_points" not in geo:
-                    geo["auto_points"] = sla_supports.drop_keepout(sla_supports.auto_support_points(world, cfg),
+                if "auto_points" not in geo:      # with the model's own settings (its type's spacing, zone...)
+                    geo["auto_points"] = sla_supports.drop_keepout(sla_supports.auto_support_points(world, o.config(cfg)),
                                                                    o.world_keepout(lift))
                 pts = geo["auto_points"]
             else:
@@ -1555,7 +1555,7 @@ class MainWindow(QMainWindow):
                 if contact is None or abs(float(contact[2]) - float(p[2])) > 1.0:
                     continue        # not the island's own underside (a surface further down): its pillar holds it
                 if o.support_points is None:
-                    o.set_world_support_points(sla_supports.drop_keepout(sla_supports.auto_support_points(world, cfg),
+                    o.set_world_support_points(sla_supports.drop_keepout(sla_supports.auto_support_points(world, o.config(cfg)),
                                                                          o.world_keepout(lift)), lift)
                 o.set_world_support_points(np.vstack([o.world_support_points(lift), contact[None, :]]), lift)
                 added += 1
@@ -4722,6 +4722,9 @@ class MainWindow(QMainWindow):
         self._push_undo()
         for o in group:
             o.settings.pop(key, None)
+            if key in ("sla_head_style", "sla_head_tilt"):    # the two go together, as on the plate
+                o.settings.pop("sla_head_style", None)
+                o.settings.pop("sla_head_tilt", None)
         self._refresh_objects(select=[o.uid for o in self.selected_objects()])
 
     # what the automatic support points are worked out from (sla_supports.auto_support_points, the presets
@@ -7732,7 +7735,8 @@ class MainWindow(QMainWindow):
                 if mode == "none" and cfg["technology"] == "sla" and cfg["support_enable"] and not o.direct:
                     lift = self._lift(cfg)
                     m = m.translated([0, 0, lift])
-                    sup, _ = sla_supports.build_supports(m, cfg, o.world_support_points(lift), label=self._raft_label_text(o, cfg), label_frame=o.plate_frame())
+                    ocfg = o.config(cfg)       # each model's own supports (its type, its own settings), as shown
+                    sup, _ = sla_supports.build_supports(m, ocfg, o.world_support_points(lift), label=self._raft_label_text(o, ocfg), label_frame=o.plate_frame())
                     m = Mesh.merge([m, sup], o.name)
                 out.append((o.name or "model", m))
             return out
@@ -7761,7 +7765,8 @@ class MainWindow(QMainWindow):
             parts = []
             for o, m in zip(models, meshes):
                 lifted = m.translated([0, 0, lift])
-                sup, _ = sla_supports.build_supports(lifted, cfg, o.world_support_points(lift), label=self._raft_label_text(o, cfg), label_frame=o.plate_frame())
+                ocfg = o.config(cfg)           # each model's own supports (its type, its own settings), as shown
+                sup, _ = sla_supports.build_supports(lifted, ocfg, o.world_support_points(lift), label=self._raft_label_text(o, ocfg), label_frame=o.plate_frame())
                 parts += [lifted, sup]
             meshes = parts
         try:

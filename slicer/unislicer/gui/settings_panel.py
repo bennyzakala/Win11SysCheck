@@ -1528,7 +1528,11 @@ class SettingsPanel(QWidget):
             self._set_linked("hollow_enable", True)
         elif key == "hollow_enable" and not value and self.config()["hollow_infill"] != "none":
             self._set_linked("hollow_infill", "none")
-        base = self.base_config()[key]
+        # dropped only when the plate gives that value anyway without it - compared with the plate's settings
+        # less this key, not with the bare profile: a value set by hand equal to the profile's default (no
+        # supports on the fitting surface turned off) was dropped and the plate's model type put its own back
+        rest = {k: v for k, v in self.overrides.items() if k != key}
+        base = profiles.build_config(self.printer_id, self.material_id, self.quality_id, rest)[key]
         if value == base or (isinstance(base, float) and abs(float(value) - base) < 1e-9):
             self.overrides.pop(key, None)
         else:
@@ -1571,6 +1575,9 @@ class SettingsPanel(QWidget):
             self.show_scope()
             return
         self.overrides.pop(key, None)
+        if key in ("sla_head_style", "sla_head_tilt"):        # the two go together: back to the default pair
+            self.overrides.pop("sla_head_style", None)
+            self.overrides.pop("sla_head_tilt", None)
         self.rebuild()
         self.changed.emit()
 

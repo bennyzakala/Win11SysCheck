@@ -1274,7 +1274,8 @@ def _raft_plan(feet: list, cfg: Config, pad: float, radii: list | None = None, o
         # never smaller than the feet (Raft area under 100% left the outer ones standing beside it, in the
         # air) plus the top's set-back
         widest = max([float(r) for r in (radii or [])] + [pad * 0.5])        # a wide base (7.8 mm) too
-        feet_hull = MultiPoint([tuple(q) for q in group]).convex_hull.buffer(widest + 0.4 + setback, quad_segs=6)
+        # x1.45: a square (cube) base reaches its corners at ~1.42x its half-width
+        feet_hull = MultiPoint([tuple(q) for q in group]).convex_hull.buffer(widest * 1.45 + 0.5 + setback, quad_segs=6)
         if not feet_hull.within(hull):
             hull = hull.union(feet_hull).convex_hull
         return hull

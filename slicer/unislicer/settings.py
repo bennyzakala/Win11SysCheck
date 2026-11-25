@@ -652,7 +652,7 @@ class Config:
             # changing the tip on the plate dropped every crown's no-supports-on-the-fitting-surface and
             # 2 mm spacing, and every die's 5.5 mm spacing.) A support preset picked by hand gives its tip
             # and pillar the same way.
-            user = set(self.values.get("_user_keys") or ())
+            user = set(self.values.get("_user_keys") or ()) | set(overrides)
             if "sla_support_preset" in user and self.values.get("sla_support_preset") in SUPPORT_PRESETS:
                 user |= set(SUPPORT_PRESETS[self.values["sla_support_preset"]])
             for k, v in typed.items():
