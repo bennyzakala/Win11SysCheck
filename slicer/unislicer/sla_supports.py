@@ -1277,6 +1277,15 @@ def _raft_plan(feet: list, cfg: Config, pad: float, radii: list | None = None, o
     return hull, hull, hull
 
 
+def head_style(values: dict) -> str:
+    """The support head style. Upright with a head tilt set is Adaptive: settings saved before there was a
+    style leaned their heads with the tilt alone (picking Upright sets the tilt to 0)."""
+    style = values.get("sla_head_style", "upright")
+    if style == "upright" and float(values.get("sla_head_tilt") or 0) > 0:
+        return "adaptive"
+    return style
+
+
 def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, owners: dict | None = None,
                    cache: dict | None = None, label: str = "", label_frame=None, hand_back: bool = False):
     """Support geometry for a model that already sits at its elevated height.
@@ -1311,7 +1320,11 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     base_shape = cfg["sla_base_shape"]
     sphere_tip = cfg["sla_tip_shape"] == "sphere"
     tree = cfg["sla_support_type"] == "tree"
-    max_tilt = math.radians(cfg["sla_head_tilt"])
+    style = head_style(cfg.values)
+    # upright: never leaning; adaptive / vertical (a curved head): leaning to the surface, 45 deg unless set
+    tilt_deg = 0.0 if style == "upright" else (cfg["sla_head_tilt"] or 45.0)
+    max_tilt = math.radians(tilt_deg)
+    curved = style == "vertical"
     widen = cfg["sla_pillar_widening"] / 100.0 / 10.0      # extra radius fraction per mm of height
     parts, feet, used, tree_tips, pillars = [], [], [], [], []
     foot_radii = []                    # footprint radius of each foot's base (pads under it on patterned rafts)
@@ -1373,11 +1386,32 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
         if tip is None:
             parts.append(frustum(r_body, tip_r, h, segs, top - h, (x, y)))
             tip = np.array([x, y, top])
+        elif curved:   # a curved head: up out of the pillar, bending into the surface's normal at the tip
+            pts = head_curve(np.array([x, y, top - h]), tip)
+            k = len(pts) - 1
+            for i in range(k):
+                ra = r_body + (tip_r - r_body) * i / k
+                rb = r_body + (tip_r - r_body) * (i + 1) / k
+                parts.append(tube(pts[i], pts[i + 1], ra, rb, segs))
+                if i:
+                    parts.append(ball(pts[i], ra, 3, segs))      # smooth joints along the bend
+            parts.append(ball(pts[0], r_body, 3, segs))
         else:      # leaning head from the top of the pillar to the contact point
             parts.append(tube([x, y, top - h], tip, r_body, tip_r, segs))
             parts.append(ball([x, y, top - h], r_body, 3, segs))
         if sphere_tip:
             parts.append(ball(tip - [0, 0, tip_r * 0.3], tip_r * 1.25, 4, 10))
+
+    def head_curve(a, tip, n: int = 6):
+        """Points of a curved head from the pillar's top ``a`` to ``tip``: it leaves the pillar straight up and
+        meets the surface along the head's own lean (a cubic Bezier), so the arc is smooth at both ends."""
+        span = float(np.linalg.norm(tip - a))
+        lean = tip - a
+        lean = lean / (np.linalg.norm(lean) or 1.0)
+        c1 = a + np.array([0.0, 0.0, 0.5 * span])
+        c2 = tip - lean * (0.35 * span)
+        t = np.linspace(0.0, 1.0, n + 1)[:, None]
+        return ((1 - t) ** 3) * a + 3 * ((1 - t) ** 2) * t * c1 + 3 * (1 - t) * (t ** 2) * c2 + (t ** 3) * tip
 
     def blocked(x, y, top, h_len, bottom, contact, tip):
         """Would this support run through the model anywhere but its own tip? (its column, the wide part
@@ -1393,6 +1427,8 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
                 return True
             return caster.column_blocked(x, y, 0.0, top - h_len / 2, contact[2] - 0.05)
         a = np.array([x, y, top - h_len])
+        if curved:
+            return any(caster.inside(q) for q in head_curve(a, tip)[:-1])
         return any(caster.inside(a + (tip - a) * t) for t in (0.0, 0.2, 0.4, 0.6, 0.8))
 
     arm = head_len

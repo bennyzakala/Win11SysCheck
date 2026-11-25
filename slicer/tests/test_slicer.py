@@ -5613,6 +5613,80 @@ def test_an_implant_crown_with_screw_channels_prints_straight():
     assert (np.asarray(turn) @ M[:3, :3] @ d)[2] > 0.999                 # channel straight up
 
 
+def test_support_head_styles_adaptive_vertical_upright():
+    """The three head styles (as other slicers offer them): Adaptive leans in a straight arm toward the
+    surface, Vertical leaves the surface square-on and curves in an arc into an upright pillar, Upright goes
+    straight down with no lean at all. Under a 40 deg slope all three hold the same contacts."""
+    from unislicer import primitives, profiles, sla_supports
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None)
+    b = primitives.box(20, 14, 3).translated([-10, -7, 0])
+    a = np.radians(40)
+    M = np.eye(4); M[:3, :3] = [[1, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]]
+    m = b.transform(M)
+    m = m.translated([0, 0, 12 - m.bounds[0][2]])
+    out = {}
+    for style, tilt in (("adaptive", 45.0), ("vertical", 0.0), ("upright", 0.0), ("upright", 45.0)):
+        c = cfg.copy()
+        c.values.update(sla_head_style=style, sla_head_tilt=tilt, sla_support_type="pillar", sla_raft_type="none",
+                        sla_support_spacing=5.0)
+        sup, used = sla_supports.build_supports(m, c)[:2]
+        out[(style, tilt)] = (sup, len(used))
+    n = out[("adaptive", 45.0)][1]
+    assert n > 0 and all(v[1] == n for v in out.values())              # the same supports, only shaped apart
+    used = sla_supports.build_supports(m, c)[1]
+
+    def lean(sup):
+        """How far the pillars stand to the side of the contacts: the mean distance from each pillar's
+        vertices (well below the heads) to the nearest contact, seen from above (mm)."""
+        v = sup.vertices[sup.vertices[:, 2] < 1.5][:, :2]                # the feet on the plate
+        d = np.linalg.norm(v[:, None, :] - np.asarray(used)[None, :, :2], axis=2).min(axis=1)
+        return float(d.mean())
+    # an old setting with only a tilt (Upright + tilt) still leans, as before there were styles
+    assert sla_supports.head_style({"sla_head_style": "upright", "sla_head_tilt": 45.0}) == "adaptive"
+    assert lean(out[("adaptive", 45.0)][0]) > lean(out[("upright", 0.0)][0]) + 0.5
+    assert lean(out[("vertical", 0.0)][0]) > lean(out[("upright", 0.0)][0]) + 0.5
+    # the curved head is built from several pieces along its arc
+    assert len(out[("vertical", 0.0)][0].faces) > 2 * len(out[("adaptive", 45.0)][0].faces)
+
+
+def test_the_support_head_style_is_picked_from_three_pictures():
+    """Supports > Head style is three picture buttons, not a drop-down; the default (no tilt) shows Upright,
+    and picking Adaptive gives the head a tilt so it really leans."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        from unislicer.gui.support_pictures import StylePicker
+        w = MainWindow(); app.processEvents()
+        w.settings.printer_id = "phrozen_sonic_xl_4k_plus"; w.settings.rebuild(); app.processEvents()
+        pickers = w.settings.findChildren(StylePicker)
+        assert len(pickers) == 1, len(pickers)
+        p = pickers[0]
+        assert [b.icon().isNull() for b in p.buttons] == [False, False, False]
+        assert p.currentData() == "upright", p.currentData()
+        def apply(p):                                                # the row's Apply, as for any setting
+            row = p.parentWidget()
+            if getattr(row, "apply_btn", None) is not None:
+                row.apply_btn.click()
+            app.processEvents()
+        p.buttons[0].click(); app.processEvents(); apply(p)          # Adaptive
+        cfg = w.settings.config()
+        assert cfg["sla_head_style"] == "adaptive" and cfg["sla_head_tilt"] == 45.0, (cfg["sla_head_style"], cfg["sla_head_tilt"])
+        p = w.settings.findChildren(StylePicker)[0]
+        p.buttons[1].click(); app.processEvents(); apply(p)          # Vertical (the curved head)
+        assert w.settings.config()["sla_head_style"] == "vertical"
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
 def test_new_project_keeps_the_raft_last_chosen_for_a_model():
     """The lab picks Solid lite in a model's raft menu; after New project the plate was back on Solid - the
     choice was kept only on that model (gone with it) and never remembered. Now the raft picked there is

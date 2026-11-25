@@ -252,6 +252,15 @@ SCHEMA: list[Setting] = [
     S("sla_density", "float", 100.0, "support", "sla", "צפיפות תמיכות", "Support density", "%", 25, 400, 5,
       tip_he="מכפיל את מספר נקודות התמיכה (100% = לפי המרווח). חומר חלש או מודל כבד: יותר; חומר חזק: פחות",
       tip_en="Scales the number of support points (100% = as spaced). Weak resin or heavy part: more; strong resin: fewer"),
+    S("sla_head_style", "enum", "upright", "support", "sla", "סגנון ראש התמיכה", "Support head style",
+      options=(("adaptive", "מותאמת (נוטה לפני השטח)", "Adaptive (leans to the surface)"),
+               ("vertical", "אנכית (ראש מעוגל)", "Vertical (curved head)"),
+               ("upright", "זקופה (ישרה לגמרי)", "Upright (fully straight)")),
+      tip_he="מותאמת: הראש נוטה בקו ישר לכיוון פני השטח עד זווית ההטיה. אנכית: הראש יוצא ניצב לפני השטח ומתעקל בקשת אל עמוד אנכי - "
+             "מגע נקי במדרונות בלי זרוע ישרה ארוכה. זקופה: הכל ישר למטה, בלי הטיה",
+      tip_en="Adaptive: the head leans in a straight line toward the surface, up to the head tilt. Vertical: the head leaves the "
+             "surface square-on and curves in an arc into an upright pillar - a clean contact on slopes without a long straight arm. "
+             "Upright: everything straight down, no tilt"),
     S("sla_head_tilt", "float", 0.0, "support", "sla", "הטיית ראש לכיוון פני השטח", "Head tilt toward the surface", "°", 0, 60, 5,
       advanced=True, tip_he="ראש התמיכה נוטה בניצב לפני השטח עד הזווית הזו: מגע נקי יותר ופחות סימנים במדרונות (0 = אנכי)",
       tip_en="The support head leans to meet the surface square-on, up to this angle: cleaner contact and fewer marks on slopes (0 = vertical)"),
@@ -594,7 +603,7 @@ def coerce(key: str, value: Any) -> Any:
 # Settings panel > Simple: what is changed day to day (printer, material and quality stay at the top of the
 # panel): the supports and the raft
 SIMPLE_KEYS = {
-    "support": ("support_enable", "sla_model_type", "sla_support_type", "sla_support_preset", "sla_density",
+    "support": ("support_enable", "sla_model_type", "sla_support_type", "sla_head_style", "sla_support_preset", "sla_density",
                 "sla_elevation", "sla_supports_on_model", "support_type", "support_angle", "support_density"),
     "raft": ("sla_raft_type", "sla_raft_thickness", "sla_raft_margin", "sla_raft_tiny_inset",
              "sla_raft_label_teeth", "sla_raft_label_side", "sla_raft_join", "sla_raft_join_mode", "sla_raft_join_width"),

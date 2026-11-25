@@ -182,7 +182,7 @@ class SettingRow(QWidget):
         self.staged = staged and s.kind != "bool"
         self._pending = None
         self._has_pending = False
-        tall = s.kind == "text" and s.key.endswith("gcode")
+        tall = (s.kind == "text" and s.key.endswith("gcode")) or s.key == "sla_head_style"
         outer = QVBoxLayout(self) if tall else QHBoxLayout(self)
         outer.setContentsMargins(0, 2, 0, 2)
         outer.setSpacing(8)
@@ -295,6 +295,13 @@ class SettingRow(QWidget):
             w.setChecked(bool(value))
             w.setCursor(Qt.PointingHandCursor)
             w.toggled.connect(self._edited)
+            return w
+        if s.kind == "enum" and s.key == "sla_head_style":     # three pictures, as in other slicers
+            from .support_pictures import StylePicker
+            from ..sla_supports import head_style
+            value = head_style({**cfg.values, "sla_head_style": value})
+            w = StylePicker(s.options, value, theme.ACCENT, "#8a8f98")
+            w.currentIndexChanged.connect(lambda i: self._edited(w.itemData(i)))
             return w
         if s.kind == "enum":
             w = NoWheelCombo()
@@ -1473,6 +1480,12 @@ class SettingsPanel(QWidget):
                 self.valueEdited.emit(key, value)
         if key == "sla_process":
             QTimer.singleShot(0, self.rebuild)       # the process decides which settings apply
+        if key == "sla_head_style":
+            # the head tilt goes with the style: upright never leans, adaptive needs a tilt to lean at all
+            if value == "upright" and self.config()["sla_head_tilt"]:
+                self._set_linked("sla_head_tilt", 0.0)
+            elif value == "adaptive" and not self.config()["sla_head_tilt"]:
+                self._set_linked("sla_head_tilt", 45.0)
         if key == "sla_support_preset":
             # the preset supplies tip/pillar/spacing: drop manual values and refresh the editors
             for k in SUPPORT_PRESETS["medium"]:
