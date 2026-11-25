@@ -5683,6 +5683,18 @@ def test_a_jaw_models_automatic_supports_stay_in_its_bottom_3mm():
     assert added == 0 and left
     _l, added, left = sla.island_pillars(layers)
     assert added >= 1
+    # on a jaw model (bottom at z 0, 3 mm zone): an island 8 mm up whose pillar would reach the plate is
+    # blocked; one with the model right under it (a sliver of a gap) keeps its pillar - the lab's "Fix" did
+    # nothing for three islands like that
+    planes = [0.5 * k for k in range(20)]
+    hull = sbox(-50, -50, 50, 50)
+    free = [as_multipolygon(sbox(0, 0, 10, 10)) for _ in range(20)]
+    over_model = [as_multipolygon(sbox(0, 0, 10, 10).union(sbox(20, 0, 22, 2)) if k < 15 else sbox(0, 0, 10, 10))
+                  for k in range(20)]
+    pt = Point(21, 1)
+    assert sla.jaw_pillar_blocked(free, planes, 16, pt, [(hull, 0.0, 3.0)])
+    assert not sla.jaw_pillar_blocked(over_model, planes, 16, pt, [(hull, 0.0, 3.0)])
+    assert not sla.jaw_pillar_blocked(free, planes, 4, pt, [(hull, 0.0, 3.0)])     # low: always a pillar
 
 
 def test_red_marks_blink_and_a_click_adds_the_support():

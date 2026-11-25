@@ -1549,8 +1549,8 @@ class MainWindow(QMainWindow):
                 if "caster" not in geo:
                     geo["caster"] = sla_supports.caster_for(world)
                 contact = sla_supports.underside_contact(geo["caster"], p + [0, 0, 0.3])
-                if contact is None:
-                    continue
+                if contact is None or abs(float(contact[2]) - float(p[2])) > 1.0:
+                    continue        # not the island's own underside (a surface further down): its pillar holds it
                 if o.support_points is None:
                     o.set_world_support_points(sla_supports.drop_keepout(sla_supports.auto_support_points(world, cfg),
                                                                          o.world_keepout(lift)), lift)

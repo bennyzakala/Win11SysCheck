@@ -757,6 +757,22 @@ def _add_disk(layer, disk):
     return MultiPolygon(rest + polygons_of(shapely.union_all(touch + [disk])))
 
 
+def jaw_pillar_blocked(layers: list, planes: list, i: int, pt, zones) -> bool:
+    """No island pillar for an island high on a jaw model (``zones``: (outline, bottom z, zone mm) of each)
+    whose pillar would come down outside the model to the raft - climbing its outer wall. One that lands on
+    the model itself (a sliver of a gap, an island inside the model) is hidden and still gets its pillar."""
+    z = planes[i] if i < len(planes) else 0.0
+    for hull, bottom, zone in zones:
+        if not (z - bottom > zone and hull.contains(pt)):
+            continue
+        j = i - 1
+        while j >= 0 and not layers[j].contains(pt):
+            j -= 1
+        if j < 0 or planes[j] <= bottom + 0.05:
+            return True                     # down to the raft / plate: an outer overhang - left to the user
+    return False
+
+
 def island_pillars(layers: list, radius: float = PILLAR_RADIUS, rounds: int = 3, skip=None) -> tuple[list, int, list]:
     """A thin round pillar under every island, from the island down to the first layer that is solid at that
     spot (or the plate). Returns the new layers, how many pillars were added and any island still left.
@@ -1665,11 +1681,8 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
                 step = max(1, len(m.vertices) // 4000)
                 zones.append((MultiPoint(m.vertices[::step, :2]).convex_hull, float(m.bounds[0][2]), zone))
 
-        def high_on_jaw(i, pt):
-            z = planes[i] if i < len(planes) else 0.0
-            return any(z - bottom > zone and hull.contains(pt) for hull, bottom, zone in zones)
-
-        layers, pillars, left = island_pillars(layers, skip=high_on_jaw if zones else None)
+        layers, pillars, left = island_pillars(
+            layers, skip=(lambda i, pt, L=layers: jaw_pillar_blocked(L, planes, i, pt, zones)) if zones else None)
     foot = cfg["bottom_xy_compensation"]
     if foot > 0:
         for i in range(min(int(cfg["bottom_layers"]), len(layers))):
