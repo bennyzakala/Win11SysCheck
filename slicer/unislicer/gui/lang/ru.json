@@ -1044,7 +1044,6 @@
  "{} triangles with wrong vertex numbers - left out": "{} треугольников с неверными номерами вершин — отброшены",
  "{} triangles · {} open edges (holes) · {} non-manifold edges · {} degenerate · {} duplicates · {} shells · watertight: {}": "{} треугольников · {} открытых рёбер (дыры) · {} неманифолдных рёбер · {} вырожденных · {} дубликатов · {} оболочек · замкнута: {}",
  "{} unsupported islands, at layers {}. Add supports there.": "{} неподдержанных островов на слоях {}. Добавьте там поддержки.",
- "{} unsupported islands. Generate denser supports?": "{} неподдержанных островов. Создать более плотные поддержки?",
  "{} vent holes added - slicing again to check": "Добавлено вентиляционных отверстий: {} — повторная нарезка для проверки",
  "{} was recovered and loaded": "{} восстановлен и загружен",
  "{} was sent to {}": "{} отправлен на {}",
@@ -1529,5 +1528,7 @@
  "Support all marks ({})": "Поддержать все отметки ({})",
  "Every red mark gets a support at once (only the selected models', if any). Ctrl+Z undoes it.": "Все красные отметки получают поддержку сразу (только у выбранных моделей, если они есть). Ctrl+Z отменяет.",
  "{} supports added at the marks.": "Добавлено поддержек на отметках: {}.",
- "Support height is 0: there is no room for supports under the models - raise 'Support height' (4 mm, say).": "Высота поддержек 0: под моделями нет места для поддержек - увеличьте «Высоту поддержек» (например, 4 мм)."
+ "Support height is 0: there is no room for supports under the models - raise 'Support height' (4 mm, say).": "Высота поддержек 0: под моделями нет места для поддержек - увеличьте «Высоту поддержек» (например, 4 мм).",
+ "{} unsupported islands. Add a support under each one?": "{} неподдержанных островков. Добавить поддержку под каждым?",
+ "{} islands above a jaw model's support zone were marked red (Support all marks)": "{} островков выше зоны поддержек модели челюсти отмечены красным (Поддержать все метки)"
 }

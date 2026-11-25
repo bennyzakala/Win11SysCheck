@@ -1044,7 +1044,6 @@
  "{} triangles with wrong vertex numbers - left out": "{} مثلثات بأرقام رؤوس خاطئة - استُبعدت",
  "{} triangles · {} open edges (holes) · {} non-manifold edges · {} degenerate · {} duplicates · {} shells · watertight: {}": "{} مثلث · {} حافة مفتوحة (ثقوب) · {} حافة غير متشعّبة · {} متدهور · {} مكرر · {} غلاف · مغلق: {}",
  "{} unsupported islands, at layers {}. Add supports there.": "{} جزر غير مدعومة في الطبقات {}. أضف دعامات هناك.",
- "{} unsupported islands. Generate denser supports?": "{} جزر غير مدعومة. إنشاء دعامات أكثف؟",
  "{} vent holes added - slicing again to check": "أُضيفت {} ثقوب تهوية - جارٍ إعادة التقطيع للتحقق",
  "{} was recovered and loaded": "استُعيد {} وحُمِّل",
  "{} was sent to {}": "أُرسل {} إلى {}",
@@ -1529,5 +1528,7 @@
  "Support all marks ({})": "ادعم كل العلامات ({})",
  "Every red mark gets a support at once (only the selected models', if any). Ctrl+Z undoes it.": "تحصل كل العلامات الحمراء على دعامة دفعة واحدة (للنماذج المحددة فقط إن وجدت). Ctrl+Z للتراجع.",
  "{} supports added at the marks.": "أضيفت {} دعامات عند العلامات.",
- "Support height is 0: there is no room for supports under the models - raise 'Support height' (4 mm, say).": "ارتفاع الدعامات 0: لا مكان للدعامات تحت النماذج - ارفع \"ارتفاع الدعامات\" (4 مم مثلًا)."
+ "Support height is 0: there is no room for supports under the models - raise 'Support height' (4 mm, say).": "ارتفاع الدعامات 0: لا مكان للدعامات تحت النماذج - ارفع \"ارتفاع الدعامات\" (4 مم مثلًا).",
+ "{} unsupported islands. Add a support under each one?": "{} جزر غير مدعومة. إضافة دعامة تحت كل واحدة؟",
+ "{} islands above a jaw model's support zone were marked red (Support all marks)": "تم تمييز {} جزر فوق منطقة الدعامات لنموذج الفك باللون الأحمر (دعم كل العلامات)"
 }
