@@ -5597,6 +5597,22 @@ def test_a_full_arch_bridge_prints_straight_teeth_on_the_plate():
     assert not dental_cad.implant_arch(primitives.crown_cap())
 
 
+def test_an_implant_crown_with_screw_channels_prints_straight():
+    """Implant (screw-retained / Ti-base) crowns and bridges have small round screw channels in a solid body,
+    not a crown's wide hollow; tilted, the channels seal in the print. On the lab's 44 crowns and bridges the
+    rule picked out exactly the 9 implant ones. Such a part is turned straight, teeth on the plate; an
+    ordinary crown keeps its tilt."""
+    from unislicer import primitives, orient, dental_cad
+    crown = primitives.crown_cap(width=9.0, height=10.0, wall=0.8)       # a crown's wide hollow
+    implant = primitives.crown_cap(width=9.0, height=10.0, wall=3.0)     # a narrow channel in a solid body
+    assert not dental_cad.screw_retained(crown)
+    d = dental_cad.opening_direction(implant)
+    assert d is not None and dental_cad.screw_retained(implant)
+    M = np.eye(4); M[:3, :3] = np.diag([1.0, -1.0, -1.0])               # came upside down
+    turn = orient.crown_rotation_job(implant, M, d, "sla", 45.0, straight=True)
+    assert (np.asarray(turn) @ M[:3, :3] @ d)[2] > 0.999                 # channel straight up
+
+
 def test_new_project_keeps_the_raft_last_chosen_for_a_model():
     """The lab picks Solid lite in a model's raft menu; after New project the plate was back on Solid - the
     choice was kept only on that model (gone with it) and never remembered. Now the raft picked there is

@@ -339,6 +339,46 @@ def implant_arch(mesh) -> bool:
     return _memo(mesh, "_implant_arch", compute)
 
 
+SCREW_HOLE_MAX_AREA = 22.0     # mm2: a screw channel / Ti-base seat deep in the part (~5 mm across at most)
+SCREW_HOLE_MAX_SHARE = 0.2     # of the cut's outline: a crown's own hollow takes far more
+
+
+def screw_retained(mesh, opening=None) -> bool:
+    """An implant (screw-retained / Ti-base) crown or bridge: deep inside, away from the opening's edge
+    where the seat flares, its holes are small round screw channels in a solid body - not a crown's wide
+    hollow shaped like the prepared tooth. These print straight, teeth on the plate (tilted, the channels
+    seal in the print). ``opening``: the fitting side's direction (found when not given). Cached per mesh."""
+    def compute():
+        import numpy as np
+        from shapely.geometry import Polygon
+        from .mesh import rotation_between
+        from .slicing import slice_mesh
+        try:
+            d = opening if opening is not None else opening_direction(mesh)
+            if d is None:
+                return False
+            M = np.eye(4)
+            M[:3, :3] = rotation_between(np.asarray(d, dtype=float), np.array([0.0, 0.0, 1.0]))
+            t = mesh.decimated(40000).transform(M)
+            lo, hi = float(t.bounds[0][2]), float(t.bounds[1][2])
+            fracs = (0.7, 0.6, 0.5)                       # the opening at the top: these are deep inside
+            rows = 0
+            for g in slice_mesh(t, [lo + (hi - lo) * f for f in fracs]):
+                polys = [p for p in getattr(g, "geoms", [g]) if p.geom_type == "Polygon" and not p.is_empty]
+                holes = [h for h in (Polygon(i) for p in polys for i in p.interiors) if h.area > 1.0]
+                if not holes:
+                    continue
+                filled = sum(Polygon(p.exterior).area for p in polys)
+                if max(h.area for h in holes) > SCREW_HOLE_MAX_AREA or \
+                        sum(h.area for h in holes) > SCREW_HOLE_MAX_SHARE * max(filled, 1e-9):
+                    return False                          # a crown's hollow somewhere: not screw-retained
+                rows += 1
+            return rows >= 2
+        except Exception:
+            return False
+    return _memo(mesh, "_screw_retained", compute)
+
+
 def _arch_opening(mesh):
     """The fitting side of a full-arch bridge (where its abutment / screw holes open), as a unit vector, or
     None. It has no single hollow for the crown test: the side is told by its teeth - cuts across the arch
