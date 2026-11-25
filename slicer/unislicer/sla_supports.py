@@ -1506,9 +1506,29 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
         # the arm up to the surface (the contact): past it the tip is meant to be inside the model - checked
         # to the tip, a deep contact (2 mm) took every leaning support for one running through the model
         c = np.asarray(contact, dtype=float)
-        if curved:
-            return any(caster.inside(q) for q in head_curve(a, c)[:-1])
-        return any(caster.inside(a + (c - a) * t) for t in (0.0, 0.2, 0.4, 0.6, 0.8, 0.9))
+        line = head_curve(a, c)[:-1] if curved else [a + (c - a) * t for t in (0.0, 0.2, 0.4, 0.6, 0.8, 0.9)]
+        if any(caster.inside(q) for q in line):
+            return True
+        # and its thickness: a thick arm, or one squeezed into a narrow gap, went into a wall beside it
+        # though its centre line stayed clear
+        axis = c - a
+        n = float(np.linalg.norm(axis))
+        if n < 1e-9:
+            return False
+        axis /= n
+        side = np.cross(axis, [0.0, 0.0, 1.0])
+        if np.linalg.norm(side) < 1e-6:
+            side = np.array([1.0, 0.0, 0.0])
+        side /= np.linalg.norm(side)
+        other = np.cross(axis, side)
+        r = 0.7 * pillar_r
+        for i, q in enumerate(line):
+            if i == len(line) - 1 and not curved:
+                continue                                 # next to the contact the head is meant to touch
+            for off in (side, -side, other, -other):
+                if caster.inside(np.asarray(q) + off * r):
+                    return True
+        return False
 
     arm = head_len
 
