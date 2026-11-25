@@ -647,16 +647,25 @@ class Config:
                     self.values[k] = v
         typed = MODEL_TYPE_PRESETS.get(self.values.get("sla_model_type"))
         if typed and "sla_model_type" in overrides:       # a model type brings its supports (after the preset)
+            # what the user set by hand on the plate wins over the type, key by key - and the type keeps all
+            # its other values. (A hand edit used to switch the whole plate to "As the support settings":
+            # changing the tip on the plate dropped every crown's no-supports-on-the-fitting-surface and
+            # 2 mm spacing, and every die's 5.5 mm spacing.) A support preset picked by hand gives its tip
+            # and pillar the same way.
+            user = set(self.values.get("_user_keys") or ())
+            if "sla_support_preset" in user and self.values.get("sla_support_preset") in SUPPORT_PRESETS:
+                user |= set(SUPPORT_PRESETS[self.values["sla_support_preset"]])
             for k, v in typed.items():
-                if k not in overrides:
+                if k not in overrides and k not in user:
                     self.values[k] = v
             # models and dies: the printer's own spacing when it has one (the lab: 7 mm on Phrozen printers)
             raft = TYPE_RAFT.get(self.values.get("sla_model_type"))
             if raft and "sla_raft_type" not in overrides and not self.values.get("_raft_chosen"):
                 self.values["sla_raft_type"] = raft
             own = float(self.values.get("sla_model_spacing") or 0.0)
+            own = max(own, SCHEMA_BY_KEY["sla_support_spacing"].minimum) if own > 0 else 0.0   # 0.01 mm: not a spacing
             if own > 0 and self.values.get("sla_model_type") in MODEL_SPACING_TYPES \
-                    and "sla_support_spacing" not in overrides:
+                    and "sla_support_spacing" not in overrides and "sla_support_spacing" not in user:
                 self.values["sla_support_spacing"] = own
         return self
 

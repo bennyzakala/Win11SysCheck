@@ -170,8 +170,9 @@ def underside_contact(caster: "_Caster", p: np.ndarray) -> np.ndarray | None:
 
 
 def effective_spacing(cfg: Config) -> float:
-    """Grid spacing of support points: the set spacing, tightened or loosened by the density percentage."""
-    return cfg["sla_support_spacing"] / math.sqrt(max(cfg["sla_density"], 1.0) / 100.0)
+    """Grid spacing of support points: the set spacing, tightened or loosened by the density percentage
+    (never under the setting's own minimum, 0.5 mm - a 0.01 mm spacing asked for millions of points)."""
+    return max(0.5, float(cfg["sla_support_spacing"])) / math.sqrt(max(cfg["sla_density"], 1.0) / 100.0)
 
 
 MIN_PART_POINTS = 3      # a small part never stands on fewer supports than this
@@ -1353,6 +1354,10 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
     depth = cfg["sla_contact_depth"]
     on_model = cfg["sla_supports_on_model"]
     head_len = cfg["sla_head_length"] or max(1.0, pillar_r * 3)
+    # the head must reach past the depth it sinks into the model: shorter (a 0.03 mm head, or a 2 mm contact
+    # depth with the 1.8 mm default head) the pillar's top was inside the model, every support was taken
+    # for one running through it and none was built
+    head_len = max(head_len, 2.0 * depth + 0.4)      # its wide half stays out of the model (see blocked)
     segs = SHAPE_SEGMENTS.get(cfg["sla_pillar_shape"], SEGMENTS)
     base_shape = cfg["sla_base_shape"]
     sphere_tip = cfg["sla_tip_shape"] == "sphere"
@@ -1521,6 +1526,13 @@ def build_supports(mesh: Mesh, cfg: Config, points: np.ndarray | None = None, ow
         if height < 0.5:
             continue
         h_len = head_len if d is not None else min(head_len, height * 0.5)
+        if d is None and h_len < 2.0 * depth + 0.4:
+            # a short support with a deep contact: its head cannot reach past the depth - it sinks in less
+            # (dropped as one running through the model before: a 2 mm depth under 4 mm supports built none)
+            sink = max(0.05, (h_len - 0.4) / 2.0)
+            top -= depth - sink
+            height = top - bottom
+            h_len = min(head_len, height * 0.5)
         if d is not None and (height - h_len < 0.5 or blocked(x, y, top, h_len, bottom, p, tip)):
             # too close to the plate to lean, or the leaning arm / its pillar would cut through the
             # model: a vertical head instead

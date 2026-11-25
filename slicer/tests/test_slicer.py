@@ -5770,6 +5770,43 @@ def test_a_close_without_any_error_is_recorded_and_an_update_404_is_quiet(tmp_pa
     assert updater.latest() is None
 
 
+def test_a_hand_set_support_value_wins_key_by_key_and_each_type_keeps_its_rules():
+    """Audit: setting the tip on the plate switched the whole plate to "As the support settings" - every
+    crown lost its no-supports-on-the-fitting-surface and 2 mm spacing, every die its 5.5 mm spacing. A value
+    set by hand now wins for that key only; each type keeps its other values. A preset picked by hand gives
+    its tip / pillar the same way. Old settings that were switched are set back to Automatic once."""
+    from unislicer import profiles, primitives
+    from unislicer.scene import SceneObject
+    from unislicer.gui.settings_panel import SettingsPanel
+    crown = SceneObject(primitives.crown_cap(), name="ABC-SOD26-044-P-14-14-1-00-")
+    die = SceneObject(primitives.box(8, 8, 14), name="NAX-SOD26-044-E-15-16-1-A3-_Tooth_16")
+    jaw = SceneObject(primitives.box(40, 30, 15), name="SOD26-11-modelbase")
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"sla_tip_diameter": 0.4})
+    c, d, j = (o.config(cfg) for o in (crown, die, jaw))
+    assert (c["sla_model_type"], c["sla_avoid_fit"], c["sla_support_spacing"], c["sla_tip_diameter"]) == ("cb", True, 2.0, 0.4)
+    assert (d["sla_model_type"], d["sla_support_spacing"], d["sla_support_base"], d["sla_tip_diameter"]) == ("die", 5.5, 35.0, 0.4)
+    assert (j["sla_model_type"], j["sla_support_spacing"], j["sla_support_zone"], j["sla_tip_diameter"]) == ("model", 7.0, 3.0, 0.4)
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"sla_support_preset": "heavy"})
+    c = crown.config(cfg)
+    assert (c["sla_tip_diameter"], c["sla_pillar_diameter"], c["sla_avoid_fit"]) == (0.8, 1.8, True)
+    # the old forced switch is undone once; a later deliberate choice of "plate" is kept
+    assert "sla_model_type" not in SettingsPanel.migrate_overrides({"sla_model_type": "plate", "sla_tip_diameter": 0.4}, 0)
+    assert SettingsPanel.migrate_overrides({"sla_model_type": "plate"}, 2)["sla_model_type"] == "plate"
+    # a model spacing of a few hundredths is no spacing; a short head or a deep contact still builds supports
+    from unislicer import sla_supports
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"sla_model_spacing": 0.01})
+    assert jaw.config(cfg)["sla_support_spacing"] >= 0.5
+    assert sla_supports.effective_spacing(profiles.build_config(None, None, None, {"sla_support_spacing": 0.5})) >= 0.5
+    box = primitives.box(10, 10, 6)
+    for extra in ({"sla_head_length": 0.03}, {"sla_contact_depth": 2.0}, {"sla_head_length": 0.25}):
+        cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None,
+                                    {"support_enable": True, "sla_head_style": "upright", "sla_head_tilt": 0.0, **extra})
+        oc = SceneObject(box, name="x").config(cfg)
+        w = box.translated([0, 0, cfg["sla_elevation"] + cfg["sla_raft_thickness"]])
+        pts = sla_supports.auto_support_points(w, oc)
+        assert len(sla_supports.build_supports(w, oc, pts)[1]) == len(pts), extra
+
+
 def test_phrozen_printers_start_on_the_labs_support_settings():
     """The lab's support settings are what a Phrozen printer starts with; anything else is a change by hand."""
     from unislicer import profiles
@@ -5857,6 +5894,14 @@ def test_the_support_head_style_is_picked_from_three_pictures():
         p = w.settings.findChildren(StylePicker)[0]
         p.buttons[1].click(); app.processEvents()                    # Vertical (the curved head)
         assert w.settings.config()["sla_head_style"] == "vertical"
+        # with models selected the style is theirs - and Adaptive gets its tilt there too (it stayed at 0:
+        # Adaptive on the selected models leaned nowhere)
+        from unislicer import primitives
+        o = w.add_mesh(primitives.box(10, 10, 5)); app.processEvents()
+        w._refresh_objects(select=o.uid); app.processEvents()
+        w._scope_edit("sla_head_style", "adaptive")
+        c = o.config(w.settings.config())
+        assert c["sla_head_style"] == "adaptive" and c["sla_head_tilt"] == 45.0, (c["sla_head_style"], c["sla_head_tilt"])
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -1381,9 +1381,26 @@ class SettingsPanel(QWidget):
                     self.changed.emit()
                 return
 
+    SETTINGS_REV = 2        # 2: a hand-set support value no longer switches the model type to "plate"
+
+    @staticmethod
+    def migrate_overrides(overrides: dict, rev) -> dict:
+        """Settings saved before rev 2 had their model type switched to "As the support settings" ("plate")
+        by any hand edit of a support value - not chosen by the user, and it turned every part's own type
+        rules off (a crown's no-supports-on-the-fitting-surface among them). Back to Automatic; the values
+        set by hand stay and still win, key by key."""
+        out = dict(overrides or {})
+        try:
+            old = int(rev or 0) < SettingsPanel.SETTINGS_REV
+        except (TypeError, ValueError):
+            old = True
+        if old and out.get("sla_model_type") == "plate":
+            out.pop("sla_model_type")
+        return out
+
     def state(self) -> dict:
         return {"printer": self.printer_id, "material": self.material_id, "quality": self.quality_id,
-                "overrides": dict(self.overrides)}
+                "overrides": dict(self.overrides), "settings_rev": self.SETTINGS_REV}
 
     def load_state(self, state: dict):
         printers = profiles.load("printers")
@@ -1392,7 +1409,8 @@ class SettingsPanel(QWidget):
             self.printer_id = state["printer"]
         self.material_id = state.get("material")
         self.quality_id = state.get("quality")
-        self.overrides = {k: v for k, v in (state.get("overrides") or {}).items() if k in SCHEMA_BY_KEY}
+        self.overrides = {k: v for k, v in self.migrate_overrides(state.get("overrides"), state.get("settings_rev")).items()
+                          if k in SCHEMA_BY_KEY}
         self._fill_printers()
         self._fill_dependent()
         self.rebuild()
@@ -1416,6 +1434,7 @@ class SettingsPanel(QWidget):
             # a raft type chosen for the plate goes for every part; else the dental types get their own
             # (settings.TYPE_RAFT: Solid lite for gingiva, models and dies)
             cfg.values["_raft_chosen"] = "sla_raft_type" in self.overrides
+            cfg.values["_user_keys"] = tuple(sorted(self.overrides))    # set by hand: win over a model type
             if self.technology == "sla":
                 profiles.apply_layer_table(cfg, self.printer_id, self.material_id, self.overrides)
             hit = self._cfg_cache = (key, cfg)
@@ -1537,9 +1556,8 @@ class SettingsPanel(QWidget):
             for k in MODEL_TYPE_KEYS:
                 self.overrides.pop(k, None)
             QTimer.singleShot(0, self.rebuild)
-        elif key in MODEL_TYPE_KEYS and self.config()["sla_model_type"] != "plate":
-            self.overrides["sla_model_type"] = "plate"         # a value set by hand: it is not overridden
-            QTimer.singleShot(0, self.rebuild)
+        # a value set by hand wins over the model types key by key (settings.Config.update): the plate's type
+        # is no longer switched to "As the support settings", which dropped every type's other values
         row = self._rows.get(key)
         if row is not None:
             modified = key in self.overrides

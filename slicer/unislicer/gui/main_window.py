@@ -1237,6 +1237,9 @@ class MainWindow(QMainWindow):
             pass
         if not isinstance(overrides, dict):
             overrides = {}
+        from .settings_panel import SettingsPanel
+        overrides = SettingsPanel.migrate_overrides(overrides, s.value("settings_rev", 0))
+        s.setValue("settings_rev", SettingsPanel.SETTINGS_REV)
         rt = s.value("last_raft_type", "")             # the raft type the user last chose stays the default -
         if rt:                                         # it wins even over a stale saved plate raft (e.g. a
             overrides["sla_raft_type"] = rt            # raft&label chosen once and kept in the saved overrides)
@@ -4700,8 +4703,14 @@ class MainWindow(QMainWindow):
             if key == "sla_model_type":              # the model type supplies its supports
                 for k in MODEL_TYPE_KEYS:
                     o.settings.pop(k, None)
-            elif key in MODEL_TYPE_KEYS and o.config(cfg)["sla_model_type"] != "plate":
-                o.settings["sla_model_type"] = "plate"
+            # a model's own value wins over its type key by key; the type keeps its other values (switching
+            # the model to "As the support settings" dropped a crown's fitting-surface rule and spacing)
+            if key == "sla_head_style":              # as on the plate: the tilt goes with the style
+                tilt = o.config(cfg)["sla_head_tilt"]
+                if value == "upright" and tilt:
+                    o.settings["sla_head_tilt"] = 0.0
+                elif value in ("adaptive", "vertical") and not tilt:
+                    o.settings["sla_head_tilt"] = 45.0
         self._refresh_objects(select=[o.uid for o in self.selected_objects()])   # the list marks them ⚙
         self.status.setText(tr("scope_selected").format(len(group)))
 
@@ -4719,7 +4728,8 @@ class MainWindow(QMainWindow):
     # and the learned density / angle): any other support setting only changes the structure on them
     POINT_KEYS = frozenset(("support_angle", "sla_support_spacing", "sla_density", "sla_support_overhangs",
                             "sla_support_minima", "sla_skip_ledges", "sla_avoid_fit", "sla_model_type",
-                            "sla_support_preset", "support_enable"))
+                            "sla_support_preset", "support_enable", "sla_support_base", "sla_jaw_zone",
+                            "sla_model_spacing"))
 
     def _keeps_points(self, key: str, group=None) -> bool:
         """A change of ``key`` leaves the support points as they are: not a setting the points come from, and
