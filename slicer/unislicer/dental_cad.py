@@ -361,7 +361,7 @@ def screw_retained(mesh, opening=None) -> bool:
             M[:3, :3] = rotation_between(np.asarray(d, dtype=float), np.array([0.0, 0.0, 1.0]))
             t = mesh.decimated(40000).transform(M)
             lo, hi = float(t.bounds[0][2]), float(t.bounds[1][2])
-            fracs = (0.7, 0.6, 0.5)                       # the opening at the top: these are deep inside
+            fracs = (0.6, 0.5, 0.4)                       # the opening at the top: these are deep inside
             rows = 0
             for g in slice_mesh(t, [lo + (hi - lo) * f for f in fracs]):
                 polys = [p for p in getattr(g, "geoms", [g]) if p.geom_type == "Polygon" and not p.is_empty]
