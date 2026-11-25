@@ -427,7 +427,11 @@
    "sla_support_spacing": 8.0,
    "sla_support_type": "pillar",
    "sla_internal_spacing": 8.0,
-   "sla_model_spacing": 7.0
+   "sla_model_spacing": 7.0,
+   "support_enable": true,
+   "sla_elevation": 4.0,
+   "sla_head_style": "adaptive",
+   "sla_head_tilt": 45.0
   }
  },
  "phrozen_sonic_mini_8k_s": {
@@ -445,7 +449,11 @@
    "sla_support_spacing": 8.0,
    "sla_support_type": "pillar",
    "sla_internal_spacing": 8.0,
-   "sla_model_spacing": 7.0
+   "sla_model_spacing": 7.0,
+   "support_enable": true,
+   "sla_elevation": 4.0,
+   "sla_head_style": "adaptive",
+   "sla_head_tilt": 45.0
   }
  },
  "phrozen_sonic_mighty_8k": {
@@ -463,7 +471,11 @@
    "sla_support_spacing": 8.0,
    "sla_support_type": "pillar",
    "sla_internal_spacing": 8.0,
-   "sla_model_spacing": 7.0
+   "sla_model_spacing": 7.0,
+   "support_enable": true,
+   "sla_elevation": 4.0,
+   "sla_head_style": "adaptive",
+   "sla_head_tilt": 45.0
   }
  },
  "phrozen_sonic_mega_8k": {
@@ -481,7 +493,11 @@
    "sla_support_spacing": 8.0,
    "sla_support_type": "pillar",
    "sla_internal_spacing": 8.0,
-   "sla_model_spacing": 7.0
+   "sla_model_spacing": 7.0,
+   "support_enable": true,
+   "sla_elevation": 4.0,
+   "sla_head_style": "adaptive",
+   "sla_head_tilt": 45.0
   }
  },
  "creality_ender3_s1": {
@@ -600,7 +616,11 @@
    "sla_support_spacing": 8.0,
    "sla_support_type": "pillar",
    "sla_internal_spacing": 8.0,
-   "sla_model_spacing": 7.0
+   "sla_model_spacing": 7.0,
+   "support_enable": true,
+   "sla_elevation": 4.0,
+   "sla_head_style": "adaptive",
+   "sla_head_tilt": 45.0
   },
   "plates": [
    {
@@ -637,7 +657,11 @@
    "sla_support_spacing": 8.0,
    "sla_support_type": "pillar",
    "sla_internal_spacing": 8.0,
-   "sla_model_spacing": 7.0
+   "sla_model_spacing": 7.0,
+   "support_enable": true,
+   "sla_elevation": 4.0,
+   "sla_head_style": "adaptive",
+   "sla_head_tilt": 45.0
   },
   "plates": [
    {
@@ -978,7 +1002,11 @@
    "sla_support_spacing": 8.0,
    "sla_support_type": "pillar",
    "sla_internal_spacing": 8.0,
-   "sla_model_spacing": 7.0
+   "sla_model_spacing": 7.0,
+   "support_enable": true,
+   "sla_elevation": 4.0,
+   "sla_head_style": "adaptive",
+   "sla_head_tilt": 45.0
   },
   "plates": [
    {
@@ -1015,7 +1043,11 @@
    "sla_support_spacing": 8.0,
    "sla_support_type": "pillar",
    "sla_internal_spacing": 8.0,
-   "sla_model_spacing": 7.0
+   "sla_model_spacing": 7.0,
+   "support_enable": true,
+   "sla_elevation": 4.0,
+   "sla_head_style": "adaptive",
+   "sla_head_tilt": 45.0
   }
  },
  "phrozen_8k_2023": {
@@ -1036,7 +1068,11 @@
    "sla_support_spacing": 8.0,
    "sla_support_type": "pillar",
    "sla_internal_spacing": 8.0,
-   "sla_model_spacing": 7.0
+   "sla_model_spacing": 7.0,
+   "support_enable": true,
+   "sla_elevation": 4.0,
+   "sla_head_style": "adaptive",
+   "sla_head_tilt": 45.0
   },
   "hidden": true
  },
@@ -1058,7 +1094,11 @@
    "sla_support_spacing": 8.0,
    "sla_support_type": "pillar",
    "sla_internal_spacing": 8.0,
-   "sla_model_spacing": 7.0
+   "sla_model_spacing": 7.0,
+   "support_enable": true,
+   "sla_elevation": 4.0,
+   "sla_head_style": "adaptive",
+   "sla_head_tilt": 45.0
   }
  },
  "phrozen_sonic_xl_4k_2022": {
@@ -1079,7 +1119,11 @@
    "sla_support_spacing": 8.0,
    "sla_support_type": "pillar",
    "sla_internal_spacing": 8.0,
-   "sla_model_spacing": 7.0
+   "sla_model_spacing": 7.0,
+   "support_enable": true,
+   "sla_elevation": 4.0,
+   "sla_head_style": "adaptive",
+   "sla_head_tilt": 45.0
   }
  },
  "phrozen_sonic_xl_4k_plus": {
@@ -1101,7 +1145,11 @@
    "sla_support_spacing": 8.0,
    "sla_support_type": "pillar",
    "sla_internal_spacing": 8.0,
-   "sla_model_spacing": 7.0
+   "sla_model_spacing": 7.0,
+   "support_enable": true,
+   "sla_elevation": 4.0,
+   "sla_head_style": "adaptive",
+   "sla_head_tilt": 45.0
   }
  }
 }

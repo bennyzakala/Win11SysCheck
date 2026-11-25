@@ -204,7 +204,7 @@ class SettingRow(QWidget):
         self.reset_btn.setVisible(modified)
         head.addWidget(self.reset_btn)
         self.apply_btn = None
-        if self.staged:
+        if self.staged and s.key != "sla_head_style":      # the pictures act at once: no Apply for them
             self.apply_btn = QPushButton(tr("apply_settings"))
             self.apply_btn.setObjectName("RowApply")
             self.apply_btn.setCursor(Qt.PointingHandCursor)
@@ -221,6 +221,14 @@ class SettingRow(QWidget):
             outer.addWidget(self.editor)
         if modified:
             self.label.setStyleSheet(f"color: {theme.TEXT}; font-weight: 600;")
+
+    def _picked(self, value):
+        """A picture picked: applied at once (the row's Apply, without waiting for a click on it)."""
+        if not self.staged:
+            self.changed.emit(self.key, value)
+            return
+        self._pending, self._has_pending = value, True
+        self.apply()
 
     def _edited(self, value):
         if not self.staged:
@@ -301,7 +309,9 @@ class SettingRow(QWidget):
             from ..sla_supports import head_style
             value = head_style({**cfg.values, "sla_head_style": value})
             w = StylePicker(s.options, value, theme.ACCENT, "#8a8f98")
-            w.currentIndexChanged.connect(lambda i: self._edited(w.itemData(i)))
+            # a picture acts at once, as a switch does: picked, the supports are built that way (it waited
+            # for its row's Apply, and a picked picture seemed to do nothing)
+            w.currentIndexChanged.connect(lambda i: self._picked(w.itemData(i)))
             return w
         if s.kind == "enum":
             w = NoWheelCombo()

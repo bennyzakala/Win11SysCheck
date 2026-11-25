@@ -471,7 +471,7 @@ def test_support_presets():
 
 
 def test_support_spacing_and_height_come_from_the_printer_not_the_preset_resin_or_quality():
-    """A Phrozen dental plate keeps 8 mm point spacing and 5 mm support height whatever preset, resin or
+    """A Phrozen dental plate keeps 8 mm point spacing and 4 mm support height whatever preset, resin or
     quality is chosen - support geometry is the printer's, so the generic 'Medium' preset (and any value an
     old learned default wrongly saved into a resin or quality) can no longer pull it to a different number."""
     from unislicer import settings
@@ -479,7 +479,7 @@ def test_support_spacing_and_height_come_from_the_printer_not_the_preset_resin_o
     assert all("sla_support_spacing" not in p for p in settings.SUPPORT_PRESETS.values())
     for pid in ("phrozen_sonic_xl_4k_plus", "phrozen_sonic_cs_plus", "phrozen_sonic_ls_plus"):
         base = profiles.build_config(pid, None, None, {})
-        assert base["sla_support_spacing"] == 8.0 and base["sla_elevation"] == 5.0
+        assert base["sla_support_spacing"] == 8.0 and base["sla_elevation"] == 4.0     # the lab's own settings
         assert base["sla_support_type"] == "pillar"      # dental default: straight pillars, not tree
         # picking the Medium preset by hand must not drop the spacing
         picked = profiles.build_config(pid, None, None, {"sla_support_preset": "medium"})
@@ -491,7 +491,7 @@ def test_support_spacing_and_height_come_from_the_printer_not_the_preset_resin_o
     try:
         mats[stray]["values"] = {**orig, "sla_support_spacing": 2.0, "sla_elevation": 1.0}
         c = profiles.build_config("phrozen_sonic_xl_4k_plus", stray, None, {})
-        assert c["sla_support_spacing"] == 8.0 and c["sla_elevation"] == 5.0
+        assert c["sla_support_spacing"] == 8.0 and c["sla_elevation"] == 4.0
     finally:
         mats[stray]["values"] = orig
 
@@ -5615,6 +5615,22 @@ def test_an_implant_crown_with_screw_channels_prints_straight():
     assert (np.asarray(turn) @ M[:3, :3] @ d)[2] > 0.999                 # channel straight up
 
 
+def test_phrozen_printers_start_on_the_labs_support_settings():
+    """The lab's support settings are what a Phrozen printer starts with; anything else is a change by hand."""
+    from unislicer import profiles
+    for pid in ("phrozen_sonic_xl_4k_plus", "phrozen_sonic_ls_plus", "phrozen_sonic_cs_plus"):
+        c = profiles.build_config(pid, None, None)
+        got = {k: c[k] for k in ("support_enable", "support_angle", "sla_support_type", "sla_elevation",
+                                 "sla_support_spacing", "sla_tip_diameter", "sla_pillar_diameter", "sla_head_style",
+                                 "sla_head_tilt", "sla_base_thickness", "sla_contact_depth", "sla_internal_supports",
+                                 "sla_internal_spacing", "sla_model_spacing")}
+        assert got == {"support_enable": True, "support_angle": 50.0, "sla_support_type": "pillar", "sla_elevation": 4.0,
+                       "sla_support_spacing": 8.0, "sla_tip_diameter": 0.5, "sla_pillar_diameter": 1.2,
+                       "sla_head_style": "adaptive", "sla_head_tilt": 45.0, "sla_base_thickness": 1.0,
+                       "sla_contact_depth": 0.2, "sla_internal_supports": True, "sla_internal_spacing": 8.0,
+                       "sla_model_spacing": 7.0}, (pid, got)
+
+
 def test_support_head_styles_adaptive_vertical_upright():
     """The three head styles (as other slicers offer them): Adaptive leans in a straight arm toward the
     surface, Vertical leaves the surface square-on and curves in an arc into an upright pillar, Upright goes
@@ -5655,8 +5671,9 @@ def test_support_head_styles_adaptive_vertical_upright():
 
 
 def test_the_support_head_style_is_picked_from_three_pictures():
-    """Supports > Head style is three picture buttons, not a drop-down; the default (no tilt) shows Upright,
-    and picking Adaptive gives the head a tilt so it really leans."""
+    """Supports > Head style is three picture buttons, not a drop-down, and a picked picture takes effect at
+    once (it waited for an Apply nobody saw, and seemed to do nothing). The Phrozen printers start on the
+    lab's own support settings (Adaptive at 45 deg, 4 mm height, Solid lite, supports on)."""
     import subprocess, sys, textwrap
     code = textwrap.dedent('''
         import os
@@ -5671,17 +5688,19 @@ def test_the_support_head_style_is_picked_from_three_pictures():
         assert len(pickers) == 1, len(pickers)
         p = pickers[0]
         assert [b.icon().isNull() for b in p.buttons] == [False, False, False]
-        assert p.currentData() == "upright", p.currentData()
-        def apply(p):                                                # the row's Apply, as for any setting
-            row = p.parentWidget()
-            if getattr(row, "apply_btn", None) is not None:
-                row.apply_btn.click()
-            app.processEvents()
-        p.buttons[0].click(); app.processEvents(); apply(p)          # Adaptive
+        # the Phrozen printers start on the lab's settings: Adaptive at 45 deg
+        assert p.currentData() == "adaptive", p.currentData()
+        assert p.parentWidget().apply_btn is None                    # a picture acts at once: no Apply
+        p.buttons[2].click(); app.processEvents()                    # Upright - takes effect on the click
+        cfg = w.settings.config()
+        assert cfg["sla_head_style"] == "upright" and cfg["sla_head_tilt"] == 0.0, (cfg["sla_head_style"], cfg["sla_head_tilt"])
+        p = w.settings.findChildren(StylePicker)[0]
+        assert p.currentData() == "upright"
+        p.buttons[0].click(); app.processEvents()                    # Adaptive again: leaning 45 deg
         cfg = w.settings.config()
         assert cfg["sla_head_style"] == "adaptive" and cfg["sla_head_tilt"] == 45.0, (cfg["sla_head_style"], cfg["sla_head_tilt"])
         p = w.settings.findChildren(StylePicker)[0]
-        p.buttons[1].click(); app.processEvents(); apply(p)          # Vertical (the curved head)
+        p.buttons[1].click(); app.processEvents()                    # Vertical (the curved head)
         assert w.settings.config()["sla_head_style"] == "vertical"
         print("ok")
     ''')
@@ -6515,8 +6534,10 @@ def test_mini_tiny_raft_stays_inside_the_tooth():
     the inset, and never reaches past it."""
     from unislicer import sla_supports
     from shapely.geometry import Polygon
+    # upright heads: the pillars stand under the tooth (leaning heads would put feet past its outline)
     cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None,
-                                {"support_enable": True, "sla_raft_type": "tiny", "sla_raft_tiny_inset": 0.5})
+                                {"support_enable": True, "sla_raft_type": "tiny", "sla_raft_tiny_inset": 0.5,
+                                 "sla_head_style": "upright", "sla_head_tilt": 0.0})
     tooth = placed(primitives.sphere(5), 60, 40).world_mesh().translated([0, 0, 3])
     sup, pts = sla_supports.build_supports(tooth, cfg)
     raft_top = cfg["sla_raft_thickness"]
