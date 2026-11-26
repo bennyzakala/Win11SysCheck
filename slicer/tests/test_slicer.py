@@ -12089,7 +12089,8 @@ Contact=0.35
     factor = 2.0 / ref["layer_table"]["phrozen_sonic_ls_plus"]["0.050"]["stable"]["exposure_time"]
     xl = prof2["layer_table"]["phrozen_sonic_xl_4k_plus"]["0.050"]["stable"]["exposure_time"]
     assert abs(xl - round(ref["layer_table"]["phrozen_sonic_xl_4k_plus"]["0.050"]["stable"]["exposure_time"] * factor, 2)) < 1e-9
-    assert len([k for k in profiles.load("materials") if k.startswith("asiga_")]) == 1
+    builtin = profiles.builtin_ids("materials")       # the shipped Voxelprint resins aside: replaced, not added
+    assert len([k for k in profiles.load("materials") if k.startswith("asiga_") and k not in builtin]) == 1
     # a Composer print (Build Wizard) file is no material: recognised, not imported as one
     build = tmp_path / "build.ini"
     build.write_text('Type="BuildWizard"\nVersion=6\n[Parameters/2/Curing]\nExposure Time=1.857\n', encoding="utf-8")
@@ -12272,3 +12273,32 @@ def test_part_name_with_a_dot_is_not_read_as_a_crown():
     assert dental_cad.stem("a/b/Part.STL") == "Part"
     assert dental_cad.stem("X-M-16.14-2") == "X-M-16.14-2"
     assert dental_cad.detect_indication("DAA-SOD260046614-044-P-25-27-3-00-R003_2.stl") == "crown"
+
+
+def test_shipped_asiga_resins_have_stable_and_fast_on_each_printer():
+    """The lab's Voxelprint Ceramic resins (Asiga Composer files) ship with UniSlicer - no import needed - and
+    each printer has both modes: Stable, and Fast with the same exposure and the printer's faster motion. The
+    shipped file is what the converter makes from the sources (tools/build_asiga_materials.py)."""
+    import importlib.util
+    import json
+    import os
+    from unislicer import profiles
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    spec = importlib.util.spec_from_file_location("bam", os.path.join(root, "tools", "build_asiga_materials.py"))
+    bam = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bam)
+    with open(os.path.join(root, "unislicer", "profiles", "materials-asiga.json"), encoding="utf-8") as fh:
+        shipped = json.load(fh)
+    assert json.loads(json.dumps(bam.build())) == shipped
+    ids = {"asiga_voxelprint_ceramic_a1_lt_003", "asiga_voxelprint_ceramic_b1_ht_003"}
+    assert ids <= profiles.builtin_ids("materials")
+    for pid in ids:
+        assert pid in profiles.load("materials")
+        for printer in ("phrozen_sonic_xl_4k_plus", "phrozen_sonic_ls_plus", "phrozen_sonic_cs_plus"):
+            got = {}
+            for mode in ("stable", "fast"):
+                cfg = profiles.build_config(printer, pid, None, {"exposure_mode": mode, "sla_layer_height": 0.05})
+                got[mode] = cfg
+            s, f = got["stable"], got["fast"]
+            assert s["exposure_time"] == f["exposure_time"] > 0
+            assert f["lift_speed"] > s["lift_speed"] and f["retract_speed"] > s["retract_speed"], (pid, printer)

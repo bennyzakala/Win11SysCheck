@@ -273,10 +273,10 @@ def import_phrozen_ds(path: str) -> dict:
             "same": same, "other_printers": sorted(n for n in names if n and n not in phrozen_ds.PRINTERS)}
 
 
-def import_asiga(path: str, printers=None, exposure_005: float | None = None,
-                 calibrated_on: str | None = None) -> tuple[str, dict]:
-    """An Asiga Composer material file as a resin for these Phrozen printers (see asiga_import). Importing the
-    same material again (say with the exposure an exposure test found) replaces it. Returns (id, profile)."""
+def asiga_entry(path: str, printers=None, exposure_005: float | None = None,
+                calibrated_on: str | None = None) -> tuple[str, dict, dict]:
+    """An Asiga Composer material file converted for these Phrozen printers (see asiga_import), not saved:
+    (id, library entry, the converter's profile with its report)."""
     from . import asiga_import
     asiga = asiga_import.parse(path)
     mats = load("materials")
@@ -284,12 +284,20 @@ def import_asiga(path: str, printers=None, exposure_005: float | None = None,
     have = set(reference.get("layer_table", {}))
     printers = [p for p in (printers or asiga_import.DEFAULT_PRINTERS) if p in have]
     prof = asiga_import.to_material(asiga, printers, reference, exposure_005, calibrated_on)
-    os.makedirs(USER_DIR, exist_ok=True)
-    data = _load(_user_path("materials"))
     pid = "asiga_" + (re.sub(r"[^a-z0-9]+", "_", asiga["name"].lower()).strip("_") or "material")
     entry = {k: v for k, v in prof.items() if k not in ("report", "calibrated")}
     entry["values"] = {k: v for k, v in prof["values"].items() if k in SCHEMA_BY_KEY}
     entry["values"]["technology"] = "sla"
+    return pid, entry, prof
+
+
+def import_asiga(path: str, printers=None, exposure_005: float | None = None,
+                 calibrated_on: str | None = None) -> tuple[str, dict]:
+    """An Asiga Composer material file as a resin for these Phrozen printers (see asiga_import). Importing the
+    same material again (say with the exposure an exposure test found) replaces it. Returns (id, profile)."""
+    pid, entry, prof = asiga_entry(path, printers, exposure_005, calibrated_on)
+    os.makedirs(USER_DIR, exist_ok=True)
+    data = _load(_user_path("materials"))
     data[pid] = entry
     _save_json(_user_path("materials"), data)
     return pid, prof
