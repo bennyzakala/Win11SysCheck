@@ -1553,5 +1553,9 @@
  "post-curing (oven)": "дополимеризация (печь)",
  "heater": "подогрев",
  "support settings": "настройки поддержек",
- "Z compensation (UniSlicer compensates the bottom itself)": "компенсация Z (UniSlicer компенсирует низ сам)"
+ "Z compensation (UniSlicer compensates the bottom itself)": "компенсация Z (UniSlicer компенсирует низ сам)",
+ "Phrozen DS Slicer {}: {} resins in the file - {} added, {} updated, {} the same as here": "Phrozen DS Slicer {}: {} смол в файле - добавлено {}, обновлено {}, без изменений {}",
+ "Added: ": "Добавлены: ",
+ "Updated: ": "Обновлены: ",
+ "Printers in the file that UniSlicer does not have (skipped): ": "Принтеры в файле, которых нет в UniSlicer (пропущены): "
 }

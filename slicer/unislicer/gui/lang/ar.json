@@ -1553,5 +1553,9 @@
  "post-curing (oven)": "المعالجة اللاحقة (الفرن)",
  "heater": "التسخين",
  "support settings": "إعدادات الدعامات",
- "Z compensation (UniSlicer compensates the bottom itself)": "تعويض Z (يعوّض UniSlicer القاع تلقائيًا)"
+ "Z compensation (UniSlicer compensates the bottom itself)": "تعويض Z (يعوّض UniSlicer القاع تلقائيًا)",
+ "Phrozen DS Slicer {}: {} resins in the file - {} added, {} updated, {} the same as here": "Phrozen DS Slicer {}: {} راتنج في الملف - أُضيف {}، حُدّث {}، مطابق {}",
+ "Added: ": "أُضيفت: ",
+ "Updated: ": "حُدّثت: ",
+ "Printers in the file that UniSlicer does not have (skipped): ": "طابعات في الملف غير موجودة في UniSlicer (تم تخطيها): "
 }

@@ -287,13 +287,17 @@ class ProfileManager(QDialog):
     def _import(self):
         filters = "UniSlicer profiles (*.json)"
         if self.kind == "materials":
-            filters = "UniSlicer / Asiga Composer (*.json *.ini);;UniSlicer profiles (*.json);;Asiga Composer (*.ini)"
+            filters = ("UniSlicer / Asiga Composer / Phrozen DS Slicer (*.json *.ini *.xml);;UniSlicer profiles (*.json);;"
+                       "Asiga Composer (*.ini);;Phrozen DS Slicer (*.xml)")
         path, _ = QFileDialog.getOpenFileName(self, tr("pm_import"), "", filters)
         if not path:
             return
-        from .. import asiga_import
+        from .. import asiga_import, phrozen_ds
         if self.kind == "materials" and asiga_import.is_asiga(path):
             self._import_asiga(path)
+            return
+        if self.kind == "materials" and phrozen_ds.is_ds_export(path):
+            self._import_phrozen_ds(path)
             return
         try:
             added = profiles.import_profiles(self.kind, path)
@@ -303,6 +307,28 @@ class ProfileManager(QDialog):
         self._fill_tree()
         if added:
             self._select(added[0])
+
+    def _import_phrozen_ds(self, path: str):
+        """A Phrozen DS Slicer export (*.xml): its resins with their per-printer tables - new ones added,
+        changed ones updated, the same left alone."""
+        from PySide6.QtWidgets import QApplication
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            rep = profiles.import_phrozen_ds(path)
+        except Exception as exc:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, tr("pm_import"), str(exc))
+            return
+        QApplication.restoreOverrideCursor()
+        lines = [tr("ds_done").format(rep["version"] or "?", rep["resins"], len(rep["added"]), len(rep["updated"]),
+                                      rep["same"])]
+        for title, names in ((tr("ds_added"), rep["added"]), (tr("ds_updated"), rep["updated"])):
+            if names:
+                lines.append(title + ", ".join(names[:12]) + (" …" if len(names) > 12 else ""))
+        if rep["other_printers"]:
+            lines.append(tr("ds_other_printers") + ", ".join(rep["other_printers"]))
+        QMessageBox.information(self, tr("pm_import"), "\n".join(lines))
+        self._fill_tree()
 
     def _import_asiga(self, path: str):
         """An Asiga Composer resin for our Phrozen printers: which printers, and (after an exposure test) the

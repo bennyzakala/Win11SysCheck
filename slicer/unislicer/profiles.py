@@ -248,6 +248,31 @@ def import_profiles(kind: str, path: str) -> list[str]:
     return added
 
 
+def import_phrozen_ds(path: str) -> dict:
+    """A Phrozen DS Slicer export (*.xml - all resins, or one) into the resin library: resins not here yet are
+    added, ones whose values differ are updated (an update over a built-in one is kept as the user's copy),
+    the same ones are left alone. Returns counts and names for the report."""
+    import xml.etree.ElementTree as ET
+    from . import phrozen_ds
+    _geometry, materials, info = phrozen_ds.convert(path)
+    have = load("materials")
+    data = _load(_user_path("materials"))
+    added, updated, same = [], [], 0
+    for rid, prof in materials.items():
+        old = have.get(rid)
+        if old is not None and json.dumps({k: old.get(k) for k in prof}, sort_keys=True) == json.dumps(prof, sort_keys=True):
+            same += 1
+            continue
+        data[rid] = prof
+        (updated if old is not None else added).append(f"{prof['vendor']} {prof['name']}")
+    if added or updated:
+        os.makedirs(USER_DIR, exist_ok=True)
+        _save_json(_user_path("materials"), data)
+    names = {(e.findtext("PrinterName") or "").strip() for e in ET.parse(path).getroot().iter("ResinConfig")}
+    return {"version": info.get("version", ""), "resins": len(materials), "added": added, "updated": updated,
+            "same": same, "other_printers": sorted(n for n in names if n and n not in phrozen_ds.PRINTERS)}
+
+
 def import_asiga(path: str, printers=None, exposure_005: float | None = None,
                  calibrated_on: str | None = None) -> tuple[str, dict]:
     """An Asiga Composer material file as a resin for these Phrozen printers (see asiga_import). Importing the

@@ -12086,3 +12086,43 @@ Contact=0.35
     other = tmp_path / "x.ini"
     other.write_text("[foo]\nbar=1\n", encoding="utf-8")
     assert not asiga_import.is_asiga(str(other))
+
+
+def test_a_phrozen_ds_slicer_xml_export_imports_into_the_resin_library(tmp_path, monkeypatch):
+    """Profiles > Import takes the lab's Phrozen DS Slicer exports (*.xml, as all_PHROZEN_machine_profile.xml -
+    a UTF-8 byte-order mark first): resins not here are added with their per-printer tables, changed ones
+    updated, the same left alone; printers UniSlicer does not have are named, not imported."""
+    from unislicer import phrozen_ds
+    monkeypatch.setattr(profiles, "USER_DIR", str(tmp_path / "user"))
+
+    def resin(printer, brand, name, exposure):
+        return f"""<ResinConfig><PrinterName>{printer}</PrinterName><DimensionX>195.84</DimensionX>
+<DimensionY>122.4</DimensionY><DimensionZ>165</DimensionZ><ResolutionX>5760</ResolutionX><ResolutionY>3600</ResolutionY>
+<BrandName>{brand}</BrandName><ResinName>{name}</ResinName><ResinColorR>230</ResinColorR><ResinColorG>220</ResinColorG>
+<ResinColorB>200</ResinColorB><ThicknessConfig><Thickness>0.05</Thickness><ExposureData><ThicknessName>Stable</ThicknessName>
+<NormalCuringTime>{exposure}</NormalCuringTime><BaseCuringTime>30</BaseCuringTime><NumBaseLayer>5</NumBaseLayer>
+<BufferLayerNumber>4</BufferLayerNumber><NormalLiftHeight>6</NormalLiftHeight><BaseLiftHeight>8</BaseLiftHeight>
+<NormalPeelSpeed>60</NormalPeelSpeed><BasePeelSpeed>50</BasePeelSpeed><NormalReturnSpeed>120</NormalReturnSpeed>
+<BaseReturnSpeed>100</BaseReturnSpeed></ExposureData></ThicknessConfig></ResinConfig>"""
+    xml = tmp_path / "export.xml"
+    xml.write_bytes(("﻿<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<PrintingInformation><SoftwareInfo><VersionInfo>"
+                     "<Version>4.5.0</Version></VersionInfo></SoftwareInfo>"
+                     + resin("Sonic LS+ Large Plate", "Lab Brand", "New Ceramic", 2.2)
+                     + resin("Sonic Future 99K", "Lab Brand", "Other", 1.0)
+                     + "</PrintingInformation>").encode("utf-8"))
+    assert phrozen_ds.is_ds_export(str(xml))
+    rep = profiles.import_phrozen_ds(str(xml))
+    assert rep["version"] == "4.5.0" and rep["added"] == ["Lab Brand New Ceramic"] and not rep["updated"]
+    assert rep["other_printers"] == ["Sonic Future 99K"]
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", "phrozen_ds_lab_brand_new_ceramic", "sla_normal", {})
+    assert cfg["exposure_time"] == 2.2 and cfg["bottom_exposure_time"] == 30 and cfg["bottom_layers"] == 5
+    again = profiles.import_phrozen_ds(str(xml))                     # the same file again: nothing changes
+    assert again["same"] == 1 and not again["added"] and not again["updated"]
+    xml.write_bytes(xml.read_bytes().replace(b"<NormalCuringTime>2.2<", b"<NormalCuringTime>2.6<"))
+    changed = profiles.import_phrozen_ds(str(xml))                   # a newer export: updated
+    assert changed["updated"] == ["Lab Brand New Ceramic"]
+    assert profiles.build_config("phrozen_sonic_ls_plus", "phrozen_ds_lab_brand_new_ceramic", "sla_normal",
+                                 {})["exposure_time"] == 2.6
+    plain = tmp_path / "other.xml"
+    plain.write_text("<root><a/></root>", encoding="utf-8")
+    assert not phrozen_ds.is_ds_export(str(plain))
