@@ -1529,5 +1529,9 @@
  "Every red mark gets a support at once (only the selected models', if any). Ctrl+Z undoes it.": "Все красные отметки получают поддержку сразу (только у выбранных моделей, если они есть). Ctrl+Z отменяет.",
  "{} supports added at the marks.": "Добавлено поддержек на отметках: {}.",
  "Support height is 0: there is no room for supports under the models - raise 'Support height' (4 mm, say).": "Высота поддержек 0: под моделями нет места для поддержек - увеличьте «Высоту поддержек» (например, 4 мм).",
- "{} unsupported islands. Add a support under each one?": "{} неподдержанных островков. Добавить поддержку под каждым?"
+ "{} unsupported islands. Add a support under each one?": "{} неподдержанных островков. Добавить поддержку под каждым?",
+ "Then support the marks and islands too": "Затем поддержать также метки и островки",
+ "After Auto-generate: every red mark gets its support, and the plate is checked in the background for islands - a support under each": "После автогенерации: каждая красная метка получает поддержку, а платформа проверяется в фоне на островки - поддержка под каждым",
+ "{} marks supported · checking for islands…": "{} меток поддержано · проверка островков…",
+ "{} marks and {} islands supported automatically": "{} меток и {} островков поддержано автоматически"
 }

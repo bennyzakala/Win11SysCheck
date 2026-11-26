@@ -211,10 +211,11 @@ def auto_support_points(mesh: Mesh, cfg: Config, report: dict | None = None) -> 
             pts = denser
     marked = np.zeros((0, 3))
     zone = float(cfg.get("sla_support_zone", 0.0) or 0.0)
-    if zone > 0 and len(pts):
+    if zone > 0:
         # automatic supports only up to ``zone`` above the part's bottom; higher points are handed back to be
-        # marked (red, blinking) for the user to decide - not supported
-        high = pts[:, 2] - float(mesh.bounds[0][2]) > zone + 1e-6
+        # marked (red, blinking) for the user to decide - not supported. (Also with no grid point at all: the
+        # band is still filled, and never the whole height - a jaw with none got supports 10 mm up.)
+        high = pts[:, 2] - float(mesh.bounds[0][2]) > zone + 1e-6 if len(pts) else np.zeros(0, dtype=bool)
         if high.any():
             # inside the hollow under the base (within its outline seen from below) a support stands straight
             # up from the raft into the hollow - it does not climb the model's walls: those stay supported
@@ -224,7 +225,18 @@ def auto_support_points(mesh: Mesh, cfg: Config, report: dict | None = None) -> 
                 high &= ~np.array([inner.contains(Point(float(p[0]), float(p[1]))) for p in pts])
         marked, pts = pts[high], pts[~high]
         if cfg.get("sla_support_overhangs", True):
-            pts = _fill_band(mesh, cfg, pts, zone, spacing)
+            pts = _fill_band(mesh, cfg, pts, zone, spacing, avoid_fit=bool(cfg["sla_avoid_fit"]))
+    elif cfg.get("sla_support_overhangs", True):          # also when the grid found nothing at all
+        lo, hi = mesh.bounds
+        big_jaw = cfg["sla_skip_ledges"] and float(np.max(hi[:2] - lo[:2])) > 40.0   # its ledges hold themselves
+        base = float(cfg.get("sla_support_base", 0.0) or 0.0)
+        if not big_jaw:
+            # the whole part (a die: its base band only) - no strip it stands on is left between grid lines
+            top = (base / 100.0) * float(hi[2] - lo[2]) if 0.0 < base < 100.0 else float(hi[2] - lo[2])
+            before = len(pts)
+            pts = _fill_band(mesh, cfg, pts, top, spacing, avoid_fit=bool(cfg["sla_avoid_fit"]))
+            if report is not None:
+                report["filled"] = len(pts) - before
     if report is not None:
         report["spacing_used"] = spacing
         report["min_points"] = need
@@ -233,11 +245,12 @@ def auto_support_points(mesh: Mesh, cfg: Config, report: dict | None = None) -> 
 
 
 def _fill_band(mesh: Mesh, cfg: Config, pts: np.ndarray, zone: float, spacing: float,
-               limit: int = 400) -> np.ndarray:
-    """A jaw model is held only by its bottom ``zone`` mm: every overhang there, seen from below, gets a
-    support within 3/4 of the spacing. The grid alone missed most of a 3-4 mm wide base rim (a 7 mm grid
-    seldom lands on it): stretches of 20-25 mm of the rim had none - before, the supports higher up held
-    them, and those are red marks now. Points are added where the rim is furthest from any support."""
+               limit: int = 400, avoid_fit: bool = False) -> np.ndarray:
+    """Every overhang seen from below up to ``zone`` mm over the part's bottom gets a support within 3/4 of
+    the spacing; points are added where it is furthest from any support. The grid alone misses narrow
+    strips: a jaw model's 3-4 mm base rim (a 7 mm grid seldom lands on it: 20-25 mm of the rim had none),
+    and a bridge's incisal edges, the 1 mm strip it stands on (a 2 mm grid left a lateral's edge with none,
+    and the tooth printed crooked). ``avoid_fit``: never on a crown's / guide's inside (fitting surface)."""
     caster = caster_for(mesh)
     tris = caster.tris
     z0 = float(mesh.bounds[0][2])
@@ -262,10 +275,25 @@ def _fill_band(mesh: Mesh, cfg: Config, pts: np.ndarray, zone: float, spacing: f
     if not seen:
         return pts
     seen = np.array(seen)
-    # the centre and near each corner of every face: a large flat face's edge was further from the supports
-    # than its centre showed
-    corners = 0.85 * tris[seen] + 0.15 * cen[seen][:, None, :]
-    spots = np.vstack([cen[seen], corners.reshape(-1, 3)])
+    # spots all over every face, ~0.5 mm apart: a large face's edges were further from the supports than its
+    # centre showed (a long strip of two triangles got 4 supports over 20 mm). ``owner``: the face of each.
+    spots, owner = [cen[seen]], [np.arange(len(seen))]
+    t = tris[seen]
+    edge = np.max(np.linalg.norm(t - np.roll(t, 1, axis=1), axis=2), axis=1)
+    steps = np.clip(np.ceil(edge / 0.5).astype(int), 1, 60)
+    for n in np.unique(steps):
+        idx = np.flatnonzero(steps == n)
+        i, j = np.meshgrid(np.arange(n + 1), np.arange(n + 1), indexing="ij")
+        keep = (i + j) <= n
+        a, b = i[keep] / n, j[keep] / n
+        w = np.stack([1 - a - b, a, b], axis=1)                 # barycentric weights of a triangular grid
+        spots.append(np.einsum("kw,fwc->fkc", w, t[idx]).reshape(-1, 3))
+        owner.append(np.repeat(idx, len(w)))
+    spots, owner = np.vstack(spots), np.concatenate(owner)
+    inside = spots[:, 2] <= z0 + zone + 1e-6            # a large face can reach past the zone: not that part of it
+    spots, owner = spots[inside], owner[inside]
+    if not len(spots):
+        return pts
     reach = 0.75 * spacing
     have = np.asarray(pts, dtype=np.float64).reshape(-1, 3)
     if len(have):
@@ -273,12 +301,30 @@ def _fill_band(mesh: Mesh, cfg: Config, pts: np.ndarray, zone: float, spacing: f
     else:
         d = np.full(len(spots), np.inf)
     added = []
+    fit_checked = {}
     while len(added) < limit:
         k = int(np.argmax(d))
         if d[k] <= reach:
             break
-        added.append(spots[k])
-        d = np.minimum(d, np.hypot(spots[:, 0] - spots[k, 0], spots[:, 1] - spots[k, 1]))
+        if avoid_fit:
+            # asked only for the spots picked (asking for every face took seconds on a long bridge)
+            f = int(owner[k])
+            if f not in fit_checked:
+                fit_checked[f] = bool(fitting_surface(mesh, cen[seen[f]][None, :])[0])
+            if fit_checked[f]:
+                d[owner == f] = -1.0                        # the crown's inside: never a support there
+                continue
+        # up to 1 mm in from the face's edge, towards its middle (at most half way: a 1 mm incisal strip keeps
+        # its point on it) - a support right on a part's edge held a sharp corner, and its foot's pad stood
+        # out past the part's outline that the layout keeps free
+        c = cen[seen[int(owner[k])]]
+        step = c - spots[k]
+        dist = float(np.linalg.norm(step))
+        q = spots[k] + (step * min(0.5, 1.0 / dist) if dist > 1e-9 else 0.0)
+        if q[2] > z0 + zone + 1e-6:
+            q = spots[k]                                  # moved in, it would climb past the zone
+        added.append(q)
+        d = np.minimum(d, np.hypot(spots[:, 0] - q[0], spots[:, 1] - q[1]))
     if not added:
         return pts
     return np.vstack([have, np.array(added)])

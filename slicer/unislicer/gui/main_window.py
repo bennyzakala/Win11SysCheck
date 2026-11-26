@@ -843,6 +843,12 @@ class MainWindow(QMainWindow):
         self.sup_marks_btn.setVisible(False)
         row.addWidget(self.sup_marks_btn, 3, 0, 1, 2)
         sl.addLayout(row)
+        self.auto_complete_box = QCheckBox(tr("sup_auto_complete"))
+        self.auto_complete_box.setToolTip(tr("sup_auto_complete_tip"))
+        self.auto_complete_box.setChecked(self.store.value("auto_complete_supports", "true") != "false")
+        self.auto_complete_box.toggled.connect(
+            lambda on: self.store.setValue("auto_complete_supports", "true" if on else "false"))
+        sl.addWidget(self.auto_complete_box)
         self.sup_info = QLabel(tr("sup_none"))
         self.sup_info.setObjectName("Faint")
         self.sup_info.setWordWrap(True)
@@ -1547,17 +1553,22 @@ class MainWindow(QMainWindow):
         self.viewer.set_warning_mesh(Mesh.merge(parts) if parts else None)
         self.status.setText(tr("unsupported_found").format(count) if parts else tr("unsupported_none"))
 
-    def support_all_islands(self):
-        """Add one support at every island found by the last slice (PreForm's "support all minima")."""
-        res = self.result or getattr(self, "_fix_result", None)
-        if res is None or res[0] != "sla" or not res[1].islands:
-            self.status.setText(tr("islands_none"))
-            return
-        job = res[1]
+    def support_all_islands(self, job=None, undo: bool = True) -> int:
+        """Add one support at every island found by the last slice (PreForm's "support all minima"), or by
+        ``job`` (the check after Auto-generate). Returns how many were added."""
+        if job is None:
+            res = self.result or getattr(self, "_fix_result", None)
+            if res is None or res[0] != "sla" or not res[1].islands:
+                self.status.setText(tr("islands_none"))
+                return 0
+            job = res[1]
+        if not job.islands:
+            return 0
         pts = sla_supports.island_points(job.layers, job.layer_z, job.islands)
         cfg = self.settings.config()
         lift = self._lift(cfg)
-        self._push_undo()
+        if undo:
+            self._push_undo()
         added = 0
         for p in pts:
             for o in self.objects:
@@ -1582,6 +1593,7 @@ class MainWindow(QMainWindow):
                 break
         self._objects_changed(refresh_list=False)
         self.status.setText(tr("islands_supported").format(added))
+        return added
 
     def set_panel_visible(self, side: str, visible: bool, save: bool = True):
         panel = self.left_panel if side == "left" else self.right_panel
@@ -5548,13 +5560,15 @@ class MainWindow(QMainWindow):
             btn.setText(tr("sup_all_marks").format(n))
             btn.setVisible(n > 0)
 
-    def support_all_marks(self):
-        """Every red mark gets its support at once (selected models' only, when some are selected) - one Ctrl+Z."""
+    def support_all_marks(self, undo: bool = True) -> int:
+        """Every red mark gets its support at once (selected models' only, when some are selected) - one Ctrl+Z.
+        Returns how many were added."""
         targets = [o for o in (self.selected_objects() or self.objects)
                    if o.role != "cutter" and len(o.__dict__.get("marked_points", ()))]
         if not targets:
-            return
-        self._push_undo()
+            return 0
+        if undo:
+            self._push_undo()
         self._ensure_supports_enabled()
         lift = self._lift(self.settings.config())
         added = 0
@@ -5568,6 +5582,7 @@ class MainWindow(QMainWindow):
         self._objects_changed(refresh_list=False)
         self._show_marks()
         self.status.setText(tr("sup_all_marks_done").format(added))
+        return added
 
     def _on_mark_picked(self, uid, index: int):
         """A red mark clicked: a support goes there (the user decided this overhang needs one)."""
@@ -5663,6 +5678,50 @@ class MainWindow(QMainWindow):
             msg = "⚠ " + tr("sup_no_height") + " " + msg
         self.status.setText(msg)
         self._show_marks()
+        if jobs and self.auto_complete_box.isChecked():
+            # the lab: after Auto-generate, the red marks and the islands get their supports by themselves too
+            # (two clicks they made every time) - in the same Ctrl+Z as the generation
+            n_marks = self.support_all_marks(undo=False) if marked_total else 0
+            self._auto_islands(n_marks, rounds=2)
+
+    def _auto_islands(self, n_marks: int, rounds: int, added_before: int = 0):
+        """After Auto-generate: slice the plate in the background, put a support under every island it finds,
+        and check once more (a new support can leave a smaller island of its own)."""
+        try:
+            cfg = self.settings.config()
+            models = [o for o in self.objects if o.role != "cutter"]
+            if cfg["technology"] != "sla" or cfg["sla_process"] == "polyjet" or not models:
+                return
+            meshes, kw = self._sla_inputs(models)
+        except Exception:
+            return
+        self.status.setText(tr("auto_islands_checking").format(n_marks))
+        self._auto_islands_running = True
+        # the plate as checked: an undo or any edit meanwhile, and the islands found belong to another plate
+        token = (len(self._undo), id(self._undo[-1]) if self._undo else None)
+
+        def work(progress, cancelled):
+            return sla.prepare(meshes, cfg, None, cancelled, defer_thin=True, **kw)
+
+        def done(job):
+            self._auto_islands_running = False
+            if token != (len(self._undo), id(self._undo[-1]) if self._undo else None):
+                return                       # the plate changed meanwhile: Fix in the print check still works
+            added = self.support_all_islands(job=job, undo=False) if job.islands else 0
+            total = added_before + added
+            if added and rounds > 1:
+                self._auto_islands(n_marks, rounds - 1, total)
+                return
+            self.status.setText(tr("auto_islands_done").format(n_marks, total))
+
+        def failed(*_a):
+            self._auto_islands_running = False
+
+        task = Task(work, self)
+        task.succeeded.connect(done)
+        task.failed.connect(failed)
+        self._auto_island_task = task
+        task.start(QThread.LowPriority)
 
     RAFT_KEYS = ("sla_raft_type", "sla_raft_thickness", "sla_raft_margin", "sla_raft_area_ratio", "sla_raft_slope",
                  "sla_raft_bar_spacing", "sla_raft_bar_width", "sla_raft_group_reach", "sla_elevation",

@@ -21,8 +21,12 @@ def _cap_triangles(poly: Polygon) -> np.ndarray:
 def extrude(polygons, z0: float, z1: float, name: str = "Extrusion") -> Mesh:
     """Closed prism(s) from 2D polygons (holes allowed) between heights z0 < z1. Whole arrays at a time (a
     triangle at a time it was most of a raft change's time once the rest was kept)."""
+    from .mesh import WELD_TOLERANCE
     parts = []
-    for poly in polygons_of(as_multipolygon(polygons)):
+    # snapped to the grid the vertices are welded on: two outline points 0.001 mm apart fell in one weld
+    # cell, and the prism came out with an open seam (a raft joint was not watertight)
+    snapped = shapely.set_precision(as_multipolygon(polygons), WELD_TOLERANCE)
+    for poly in polygons_of(as_multipolygon(snapped)):
         poly = shapely.geometry.polygon.orient(poly, 1.0)          # exterior CCW, holes CW
         cap = _cap_triangles(poly)
         if len(cap):

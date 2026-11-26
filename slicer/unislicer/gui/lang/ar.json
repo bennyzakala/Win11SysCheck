@@ -1529,5 +1529,9 @@
  "Every red mark gets a support at once (only the selected models', if any). Ctrl+Z undoes it.": "تحصل كل العلامات الحمراء على دعامة دفعة واحدة (للنماذج المحددة فقط إن وجدت). Ctrl+Z للتراجع.",
  "{} supports added at the marks.": "أضيفت {} دعامات عند العلامات.",
  "Support height is 0: there is no room for supports under the models - raise 'Support height' (4 mm, say).": "ارتفاع الدعامات 0: لا مكان للدعامات تحت النماذج - ارفع \"ارتفاع الدعامات\" (4 مم مثلًا).",
- "{} unsupported islands. Add a support under each one?": "{} جزر غير مدعومة. إضافة دعامة تحت كل واحدة؟"
+ "{} unsupported islands. Add a support under each one?": "{} جزر غير مدعومة. إضافة دعامة تحت كل واحدة؟",
+ "Then support the marks and islands too": "ثم دعم العلامات والجزر أيضًا",
+ "After Auto-generate: every red mark gets its support, and the plate is checked in the background for islands - a support under each": "بعد الإنشاء التلقائي: كل علامة حمراء تحصل على دعامة، ويتم فحص اللوحة في الخلفية بحثًا عن الجزر - دعامة تحت كل جزيرة",
+ "{} marks supported · checking for islands…": "تم دعم {} علامات · جارٍ فحص الجزر…",
+ "{} marks and {} islands supported automatically": "تم دعم {} علامات و{} جزر تلقائيًا"
 }

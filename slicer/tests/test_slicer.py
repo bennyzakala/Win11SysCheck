@@ -747,9 +747,10 @@ def test_tree_supports_merge_and_use_less_resin():
         planes = [0.05 + 0.1 * i for i in range(int(job.supports.bounds[1, 2] / 0.1))]
         volumes[kind] = sum(g.area for g in slice_meshes([job.supports], planes)) * 0.1
         if kind == "tree":
-            # fewer feet on the raft than contact points: branches merged into shared trunks
+            # fewer feet on the raft than contact points: branches merged into shared trunks (the contacts
+            # that fill the edges a grid misses stand apart more often: 21 trunks for 41 contacts)
             first = slice_meshes([job.supports], [cfg["sla_raft_thickness"] + 0.5])[0]
-            assert len(first.geoms) < len(job.support_points) / 2
+            assert len(first.geoms) < len(job.support_points) * 0.6
     assert volumes["tree"] < volumes["pillar"]
 
 
@@ -5710,7 +5711,7 @@ def test_red_marks_blink_and_a_click_adds_the_support():
         from unislicer import primitives
         from unislicer.mesh import Mesh
         from unislicer.gui.main_window import MainWindow
-        w = MainWindow(); w.store.setValue("preslice", "false")
+        w = MainWindow(); w.store.setValue("preslice", "false"); w.auto_complete_box.setChecked(False)   # the marks themselves are checked here
         w.settings.select_printer("phrozen_sonic_xl_4k_plus")
         base = primitives.box(30, 20, 12).translated([-15, -10, 0])
         shelf = primitives.box(10, 20, 2).translated([15, -10, 8])
@@ -7216,8 +7217,9 @@ def test_tooth_raft_code_engraved_mirrored_under_the_raft():
     sup, _ = sla_supports.build_supports(tooth, cfg, label="45198-N183-E")
     low, high = slice_mesh(sup, [0.25, 0.75], 0.05)
     outline = sla_supports.tooth_outline(tooth, cfg["sla_raft_tiny_inset"])
-    assert low.area < outline.area - 1.0                          # the code is cut into the bottom layers
-    assert high.area >= outline.area - 0.5                        # solid above the engraving
+    # (inside the outline: the pads under feet near the edge reach a little past it)
+    assert low.intersection(outline).area < outline.area - 1.0    # the code is cut into the bottom layers
+    assert high.intersection(outline).area >= outline.area - 0.5  # solid above the engraving
     assert sup.vertices[:, 2].min() >= -1e-6
     # the engraving is the mirror image of the text: it matches the mirrored code, not the plain one
     from unislicer.mesh_tools import text_polygons
@@ -7231,11 +7233,14 @@ def test_tooth_raft_code_engraved_mirrored_under_the_raft():
     top, _ = sla_supports.build_supports(tooth, cfg, label="45198-N183-E")
     above = slice_mesh(top, [1.2], 0.05)[0].area - slice_mesh(sup, [1.2], 0.05)[0].area
     assert above > 1.0                                             # text stands above the 1 mm raft
-    assert abs(slice_mesh(top, [0.25], 0.05)[0].area - outline.area) < 0.5
+    low_top = slice_mesh(top, [0.25], 0.05)[0]
+    assert abs(low_top.intersection(outline).area - outline.area) < 0.5     # nothing cut out underneath
+    assert outline.buffer(2.0).contains(low_top)          # only the feet's pads reach a little past it
     # too thin a raft for a 0.5 mm engraving: the code goes on top
     cfg.update({"sla_raft_label_side": "bottom", "sla_raft_thickness": 0.6})
     thin, _ = sla_supports.build_supports(tooth, cfg, label="45198-N183-E")
-    assert abs(slice_mesh(thin, [0.25], 0.05)[0].area - sla_supports.tooth_outline(tooth, 0.5).area) < 0.5
+    thin_outline = sla_supports.tooth_outline(tooth, 0.5)
+    assert abs(slice_mesh(thin, [0.25], 0.05)[0].intersection(thin_outline).area - thin_outline.area) < 0.5
 
 
 def test_raft_code_bends_along_an_arch_raft():
@@ -7386,7 +7391,11 @@ def test_raft_code_goes_on_the_parts_own_raft():
             outline = raft.convex_hull.buffer(0.5)       # (the engraved bottom has no bevel)
             assert outline.contains(got), (kind, side)                  # nothing beside the raft
             if side == "bottom" and kind == "solid":
-                assert got.area < raft.area - 1.0                       # cut into its underside
+                # cut into its underside (measured inside the engraving: at 0.25 mm, its very edge, a raft
+                # widened by its edge supports left under 1 mm2 of the letters' rounded bottom)
+                low_raft = slice_mesh(plain, [0.1], 0.05)[0]
+                low_got = slice_mesh(coded, [0.1], 0.05)[0]
+                assert low_got.area < low_raft.area - 5.0
             if side == "top":
                 above = slice_mesh(coded, [cfg["sla_raft_thickness"] + 0.2], 0.05)[0].area - \
                     slice_mesh(plain, [cfg["sla_raft_thickness"] + 0.2], 0.05)[0].area
@@ -7661,7 +7670,7 @@ def test_supports_are_built_in_the_background():
         from unislicer import primitives
         from unislicer.mesh import Mesh
         from unislicer.gui.main_window import MainWindow
-        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents(); w.auto_complete_box.setChecked(False)
         w.store.setValue("preslice", "false")
         w.settings.select_printer("phrozen_sonic_ls_plus"); app.processEvents()
         assert w.async_supports
@@ -9777,7 +9786,7 @@ def test_support_builds_never_lock_up_and_step_aside_for_a_slice(tmp_path):
             from unislicer import parallel, primitives
             from unislicer.gui.main_window import MainWindow
             import unislicer.gui.main_window as MW
-            w = MainWindow(); w.show(); app.processEvents()
+            w = MainWindow(); w.show(); app.processEvents(); w.auto_complete_box.setChecked(False)
             w.store.setValue("preslice", "false")
             w.settings.select_printer("phrozen_sonic_xl_4k_plus")
             # its own spacing (Phrozen printers default to 7 mm: a crown cap got a point or two, and on Windows
@@ -11902,3 +11911,90 @@ def test_the_supports_card_stays_put_while_objects_and_transform_scroll(tmp_path
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_auto_generate_then_supports_the_marks_and_islands_by_itself(tmp_path):
+    """The lab: after Auto-generate, "Support all marks" and the islands' Fix by themselves (on by default,
+    a box under the support buttons) - one Ctrl+Z for all of it. Off: the marks stay for the user."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        import numpy as np
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.mesh import Mesh
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); app.processEvents()
+        w.settings.printer_id = "phrozen_sonic_xl_4k_plus"; w.settings.rebuild(); app.processEvents()
+        stem = primitives.box(6, 6, 12)
+        cap = primitives.box(16, 16, 2); cap = Mesh(cap.vertices + [-5, -5, 12], cap.faces)
+        jaw = Mesh.merge([stem, cap], "jaw")
+
+        def run(on):
+            for o in list(w.objects):
+                w.objects.remove(o)
+            o = w.add_mesh(jaw); o.settings["sla_model_type"] = "model"; o.support_points = None
+            app.processEvents()
+            w.auto_complete_box.setChecked(on)
+            w._auto_islands_running = False
+            before = len(w._undo)
+            w.generate_supports(); app.processEvents()
+            t0 = time.time()
+            while getattr(w, "_auto_islands_running", False) and time.time() - t0 < 200:
+                app.processEvents(); time.sleep(0.05)
+            app.processEvents()
+            return o, len(o.__dict__.get("marked_points", ())), len(o.support_points), len(w._undo) - before
+
+        o, marks, n_on, steps = run(True)
+        assert marks == 0, marks
+        assert steps == 1, steps                                       # one Ctrl+Z for all of it
+        assert "\\u05e1\\u05d9\\u05de\\u05d5\\u05e0\\u05d9\\u05dd" in w.status.text() or "marks" in w.status.text(), w.status.text()
+        o, marks_off, n_off, _ = run(False)
+        assert marks_off > 0 and n_off < n_on, (marks_off, n_off, n_on)
+        assert w.store.value("auto_complete_supports") == "false"
+        w.auto_complete_box.setChecked(True)
+        # an undo while the plate is checked: what the check finds is not put on the plate it no longer is
+        class Job: islands = [(0, None)]; layers = []; layer_z = []
+        import unislicer.gui.main_window as mw
+        w._undo.append(w._snapshot())
+        token_before = len(w._undo)
+        real = w.support_all_islands
+        called = []
+        w.support_all_islands = lambda job=None, undo=True: called.append(1) or 0
+        w._auto_islands(0, rounds=1)
+        w.undo()
+        t0 = time.time()
+        while getattr(w, "_auto_islands_running", False) and time.time() - t0 < 200:
+            app.processEvents(); time.sleep(0.05)
+        app.processEvents()
+        assert called == [], called
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=400, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_a_bridges_narrow_incisal_edge_is_supported_all_along():
+    """The lab printed an anterior bridge standing on its incisal edges (opening up): the edges are 1 mm wide
+    strips, the crowns' 2 mm grid landed on them only here and there - a lateral had 3 supports at one end and
+    printed crooked. Every spot that needs support is now within 3/4 of the spacing of one."""
+    from shapely.geometry import box
+    from unislicer import profiles, sla_supports
+    from unislicer.mesh import Mesh
+    from unislicer.mesh_tools import extrude
+    # a 20 mm long wedge standing on a 0.8 mm wide strip (an incisal edge), 8 mm up
+    wedge = Mesh(np.array([[0, -0.4, 0], [20, -0.4, 0], [20, 0.4, 0], [0, 0.4, 0],
+                           [0, -4, 6], [20, -4, 6], [20, 4, 6], [0, 4, 6]], float) + [0, 0, 5.0],
+                 np.array([[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [3, 7, 6], [3, 6, 2],
+                           [0, 4, 7], [0, 7, 3], [1, 2, 6], [1, 6, 5]]), "bridge")
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": True, "sla_model_type": "cb",
+                                                                      "sla_avoid_fit": False})
+    pts = sla_supports.auto_support_points(wedge, cfg)
+    reach = 0.75 * sla_supports.effective_spacing(cfg) + 0.3
+    for x in np.linspace(0.2, 19.8, 50):
+        assert np.min(np.hypot(pts[:, 0] - x, pts[:, 1])) <= reach, x
