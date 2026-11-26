@@ -144,3 +144,5 @@ sunlu_water_washable: https://store.sunlu.com/products/classic-formula-resin-col
 phrozen_ds_id_print_duranite: ID PRINT 3D product photo (sent by the lab)
 phrozen_ds_id_print_duranite_a1: ID PRINT 3D product photo (sent by the lab)
 phrozen_ds_id_print_phrozen_sonic_cs_duranite_a1: ID PRINT 3D product photo (sent by the lab)
+phrozen_ds_id3dprint_flex: the ID PRINT 3D DuraNite bottle, its label reading FLEX (made at the lab's request)
+phrozen_ds_id3dprint_flex_direct: the same, reading FLEX DIRECT
