@@ -5699,8 +5699,22 @@ class MainWindow(QMainWindow):
         # the plate as checked: an undo or any edit meanwhile, and the islands found belong to another plate
         token = (len(self._undo), id(self._undo[-1]) if self._undo else None)
 
+        # the parts' raised meshes here (cheap); their ray casters are built in the background with the check,
+        # only for parts an island is over - built on the window's thread they held it 1.2-1.9 s
+        lift = self._lift(cfg)
+        parts = [(o.world_bounds(), *self._support_geometry(o, lift)) for o in models
+                 if o.role != "cutter" and not o.direct]
+
         def work(progress, cancelled):
-            return sla.prepare(meshes, cfg, None, cancelled, defer_thin=True, **kw)
+            job = sla.prepare(meshes, cfg, None, cancelled, defer_thin=True, **kw)
+            if job.islands:
+                pts = sla_supports.island_points(job.layers, job.layer_z, job.islands)
+                for b, world, geo in parts:
+                    near = any(b[0, 0] - 0.5 <= p[0] <= b[1, 0] + 0.5 and b[0, 1] - 0.5 <= p[1] <= b[1, 1] + 0.5
+                               for p in pts)
+                    if near and "caster" not in geo:
+                        geo["caster"] = sla_supports.caster_for(world)
+            return job
 
         def done(job):
             self._auto_islands_running = False
