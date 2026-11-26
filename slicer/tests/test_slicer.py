@@ -7227,7 +7227,11 @@ def test_tooth_raft_code_engraved_mirrored_under_the_raft():
     plain = sla_supports.fit_text(text_polygons("45198-N183-E", 2.0), outline.buffer(-0.4), min_height=1.0)
     mirrored = sla_supports.fit_text(affinity.scale(text_polygons("45198-N183-E", 2.0), -1, 1, origin=(0, 0)),
                                      outline.buffer(-0.4), min_height=1.0)
-    assert cut.symmetric_difference(mirrored).area < cut.symmetric_difference(plain).area
+    # compared by shape, each laid on the engraving's middle (where on the raft it sits depends on the room
+    # the pads under the feet give it, and on the font: Windows' is wider)
+    def on_cut(g):
+        return affinity.translate(g, cut.centroid.x - g.centroid.x, cut.centroid.y - g.centroid.y)
+    assert cut.symmetric_difference(on_cut(mirrored)).area < cut.symmetric_difference(on_cut(plain)).area
     # top: embossed above the raft as before
     cfg.update({"sla_raft_label_side": "top"})
     top, _ = sla_supports.build_supports(tooth, cfg, label="45198-N183-E")
