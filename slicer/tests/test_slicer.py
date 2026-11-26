@@ -7231,7 +7231,11 @@ def test_tooth_raft_code_engraved_mirrored_under_the_raft():
     # the pads under the feet give it, and on the font: Windows' is wider)
     def on_cut(g):
         return affinity.translate(g, cut.centroid.x - g.centroid.x, cut.centroid.y - g.centroid.y)
-    assert cut.symmetric_difference(on_cut(mirrored)).area < cut.symmetric_difference(on_cut(plain)).area
+    if on_cut(mirrored).symmetric_difference(on_cut(plain)).area > 0.05:
+        assert cut.symmetric_difference(on_cut(mirrored)).area < cut.symmetric_difference(on_cut(plain)).area
+    # (with no font installed - the Windows build machine - every letter is a plain box, the same mirrored:
+    # then the engraving matching the code is what can be checked)
+    assert cut.symmetric_difference(on_cut(mirrored)).area < 0.5 * max(mirrored.area, 1e-9)
     # top: embossed above the raft as before
     cfg.update({"sla_raft_label_side": "top"})
     top, _ = sla_supports.build_supports(tooth, cfg, label="45198-N183-E")
