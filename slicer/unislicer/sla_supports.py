@@ -1180,6 +1180,13 @@ def _rafts(feet: list, cfg: Config, pad: float, radii: list | None = None, outli
             room_top = hull.buffer(-raft / math.tan(math.radians(cfg["sla_raft_slope"])))
         else:
             room_top = room
+        if outline_shape is not None and not outline_shape.is_empty:
+            # a raft that follows the part's outline: the code under the part itself, never out on the pads
+            # under the feet near its edge (they made the room wider there, and the code slid out onto them)
+            inner = room.intersection(outline_shape)
+            if not inner.is_empty and inner.area > 1.0:
+                room = inner
+                room_top = room_top.intersection(outline_shape) if not room_top.is_empty else room_top
         try:
             code = _code_on_raft(label, room if engrave else room_top, raft, engrave, feet_zone)
             if code is not None and code[0] == "top" and engrave:
