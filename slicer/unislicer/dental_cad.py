@@ -43,6 +43,17 @@ LABEL = {"model": ("מודל", "Model"), "die": ("מודל גדם (Die)", "Die")
          "denture": ("תותבת", "Denture"), "unknown": ("לא זוהה", "Not recognised")}
 
 
+_EXT = re.compile(r"\.[A-Za-z][A-Za-z0-9]{1,9}$")
+
+
+def stem(name: str) -> str:
+    """A file or part name without its extension - only a real one (".stl", ".3mf"): a part's name has none,
+    and a lab name with a dot in it ("...-044-M-16.14-2-00-P158_Antag") lost everything after the dot, read
+    as "...-M-16" - a crown on tooth 16, a jaw model turned over and supported as a crown."""
+    base = os.path.basename(name or "")
+    return _EXT.sub("", base)
+
+
 def _words(text: str) -> str:
     text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)            # UpperJaw -> Upper Jaw
     return " " + re.sub(r"[^a-z0-9]+", " ", text.lower()) + " "
@@ -50,7 +61,7 @@ def _words(text: str) -> str:
 
 def detect_indication(path: str, order_text: str = "") -> str:
     """The dental indication of a design file: from its name first, then the CAD order file."""
-    for source in (os.path.splitext(os.path.basename(path))[0], order_text):
+    for source in (stem(path), order_text):
         w = _words(source)
         squashed = w.replace(" ", "")
         for kind, keys in INDICATIONS:
@@ -91,14 +102,14 @@ def order_text_for(path: str) -> str:
         names = sorted(n for n in os.listdir(folder) if n.lower().endswith((".xml", ".dentalproject", ".constructioninfo")))
     except OSError:
         return ""
-    stem = os.path.splitext(os.path.basename(path))[0].lower()
-    case = re.split(r"[_\-\s.]", stem)[0]
+    stem_ = stem(path).lower()
+    case = re.split(r"[_\-\s.]", stem_)[0]
 
     def belongs(n: str) -> bool:
-        order = os.path.splitext(n)[0].lower()
+        order = stem(n).lower()
         if len(names) == 1:
             return True                          # a case folder with its one order file (as 3Shape exports)
-        return bool(order) and (stem.startswith(order) or (len(case) >= 4 and case in order))
+        return bool(order) and (stem_.startswith(order) or (len(case) >= 4 and case in order))
     keep = []
     for n in [n for n in names if belongs(n)][:5]:
         try:

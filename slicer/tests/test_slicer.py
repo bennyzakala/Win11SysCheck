@@ -12257,3 +12257,18 @@ def test_a_new_project_lets_the_old_plates_work_go(tmp_path):
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_part_name_with_a_dot_is_not_read_as_a_crown():
+    """A lab name with a dot ("...-044-M-16.14-2-00-P158_Antag") lost everything after the dot as its
+    "extension" once the part was loaded (its name has no .stl): read as "...-M-16", a crown on tooth 16 -
+    the jaw model and its antagonist were turned over and given crown supports."""
+    from unislicer import dental_cad
+    for n in ("YUY-SOD260050881-044-M-16.14-2-00-P158_Antag_fixed",
+              "YUY-SOD260050881-044-M-16.14-2-00-P158_UnsectionedModel_UpperJaw_fixed",
+              "YUY-SOD260050881-044-M-16.14-2-00-P158_Antag_fixed.stl"):
+        assert dental_cad.detect_indication(n) == "model", n
+        assert dental_cad.model_type_of(n, None) == "model", n
+    assert dental_cad.stem("a/b/Part.STL") == "Part"
+    assert dental_cad.stem("X-M-16.14-2") == "X-M-16.14-2"
+    assert dental_cad.detect_indication("DAA-SOD260046614-044-P-25-27-3-00-R003_2.stl") == "crown"

@@ -38,6 +38,11 @@ ENGINE_TEXT = {
 }
 
 
+def _stem(name: str) -> str:
+    from ..dental_cad import stem
+    return stem(name)
+
+
 def _card(parent=None) -> QFrame:
     f = QFrame(parent)
     f.setObjectName("Card")
@@ -3010,7 +3015,7 @@ class MainWindow(QMainWindow):
         import os as _os
         from .. import dental_cad
         prefs = self._label_prefs()
-        name = _os.path.splitext(o.name or "model")[0]
+        name = _stem(o.name or "model")
         code = dental_cad.case_code(name) or name           # no SOD number: the file name
         try:
             text = prefs["template"].format(name=name, code=code, n=number,
@@ -5175,7 +5180,7 @@ class MainWindow(QMainWindow):
         e.g. 46614-R003; otherwise the model's name when "Model name on the raft" is on."""
         from .. import dental_cad
         if cfg["sla_raft_type"] == "raft_label":         # this raft is there to carry the code: always one
-            return dental_cad.case_code(o.name) or os.path.splitext(o.name or "")[0]
+            return dental_cad.case_code(o.name) or dental_cad.stem(o.name or "")
         if cfg["sla_raft_label_teeth"] and dental_cad.kind_of(o.name, o.mesh) == "crown":
             code = dental_cad.case_code(o.name)
             if code:
@@ -7912,7 +7917,7 @@ class MainWindow(QMainWindow):
                 out.append((o.name or "model", m))
             return out
 
-        name = os.path.splitext(self.objects[0].name or "UniSlicer")[0]
+        name = _stem(self.objects[0].name or "UniSlicer")
         resin = ""
         mat = profiles.load("materials").get(self.settings.material_id or "", {})
         if mat.get("vendor") == "Formlabs":
