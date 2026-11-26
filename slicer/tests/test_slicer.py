@@ -12228,3 +12228,32 @@ def test_export_waits_for_the_slice_after_a_fix(tmp_path):
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_a_new_project_lets_the_old_plates_work_go(tmp_path):
+    """The lab saw 3.8 GB in Task Manager; a cleared plate still held ~1.9 GB here: the old plate's ray
+    casters, support structures and slices stayed, and freed memory stayed with the C heap. New project (and
+    Open project) let them go and hand the memory back (1885 -> 403 MB on the lab's 11-part plate)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives, sla, sla_supports, memory
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); app.processEvents()
+        o = w.add_mesh(primitives.box(10, 10, 5)); app.processEvents()
+        sla_supports.caster_for(primitives.box(5, 5, 5))
+        sla._cache_put(("x",), [1])
+        assert sla_supports._CASTERS and sla._cache
+        w.new_project(); app.processEvents()
+        assert not sla_supports._CASTERS and not sla._cache and not sla_supports._STRUCTURES
+        memory.give_back()                                   # never fails, on any system
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

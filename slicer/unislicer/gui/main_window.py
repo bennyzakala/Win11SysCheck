@@ -2427,6 +2427,17 @@ class MainWindow(QMainWindow):
             self._arrange(cfg)
             self._refresh_objects(select=[d.uid for d in dups])
 
+    def _release_old_plate(self):
+        """A plate that is gone: its ray casters, support structures and slices are let go, and the memory
+        freed is handed back to the system (a cleared plate still showed ~1.9 GB in Task Manager, ~1.0 GB of
+        it nothing held). Not while a slice or a support build still uses them."""
+        from .. import memory
+        busy = (self.task is not None and self.task.isRunning()) or \
+            (getattr(self, "_sup_task", None) is not None and self._sup_task.isRunning())
+        if not busy:
+            memory.forget_plate_caches()
+        self._later(300, memory.give_back)
+
     def new_project(self):
         """File > New project (Ctrl+N): an empty plate - every model goes; the printer, the material and the
         settings stay. One Ctrl+Z brings the whole plate back."""
@@ -2448,6 +2459,7 @@ class MainWindow(QMainWindow):
         self._refresh_objects(select=None)
         self._restore_last_raft()
         self._new_model_raft = ""                      # the empty plate is on the last raft now
+        self._release_old_plate()
         self.status.setText(tr("new_project_done"))
 
     def delete_selected(self):
@@ -6736,6 +6748,8 @@ class MainWindow(QMainWindow):
         self.layer_slider.blockSignals(False)
         self._fixing = False                     # the slice after a Fix is here: export what it made
         self._update_export()
+        from .. import memory
+        self._later(1500, memory.give_back)      # what slicing used and freed goes back to the system
         self.status.setText(f"{tr('stat_layers')}: {n} · {tr('estimate_note')}")
         self.set_mode("preview", slice_if_needed=False)
         self._on_layer(n - 1)
@@ -7857,6 +7871,7 @@ class MainWindow(QMainWindow):
             # the project's models keep their rafts; one added to it takes the raft picked last
             self._new_model_raft = last if "sla_raft_type" not in (state.get("overrides") or {}) else ""
         self.objects = objects
+        self._release_old_plate()
         self._apply_printer()
         self._refresh_objects(select=objects[0].uid if objects else None)
         self.viewer.fit_objects()
