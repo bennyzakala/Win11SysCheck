@@ -223,11 +223,65 @@ def auto_support_points(mesh: Mesh, cfg: Config, report: dict | None = None) -> 
                 from shapely.geometry import Point
                 high &= ~np.array([inner.contains(Point(float(p[0]), float(p[1]))) for p in pts])
         marked, pts = pts[high], pts[~high]
+        if cfg.get("sla_support_overhangs", True):
+            pts = _fill_band(mesh, cfg, pts, zone, spacing)
     if report is not None:
         report["spacing_used"] = spacing
         report["min_points"] = need
         report["marked"] = marked
     return pts
+
+
+def _fill_band(mesh: Mesh, cfg: Config, pts: np.ndarray, zone: float, spacing: float,
+               limit: int = 400) -> np.ndarray:
+    """A jaw model is held only by its bottom ``zone`` mm: every overhang there, seen from below, gets a
+    support within 3/4 of the spacing. The grid alone missed most of a 3-4 mm wide base rim (a 7 mm grid
+    seldom lands on it): stretches of 20-25 mm of the rim had none - before, the supports higher up held
+    them, and those are red marks now. Points are added where the rim is furthest from any support."""
+    caster = caster_for(mesh)
+    tris = caster.tris
+    z0 = float(mesh.bounds[0][2])
+    threshold = -math.sin(math.radians(cfg["support_angle"]))
+    cen = tris.mean(axis=1)
+    cand = np.flatnonzero((caster.normals[:, 2] < threshold) & (cen[:, 2] - z0 <= zone))
+    if not len(cand):
+        return pts
+    # one face per 0.5 mm cell (the lowest), then only those nothing of the model hides from below
+    cell = np.floor(cen[cand, :2] / 0.5).astype(np.int64)
+    order = np.lexsort((cen[cand, 2], cell[:, 1], cell[:, 0]))
+    cell, cand = cell[order], cand[order]
+    first = np.ones(len(cand), dtype=bool)
+    first[1:] = np.any(cell[1:] != cell[:-1], axis=1)
+    cand = cand[first]
+    seen = []
+    for i in cand:
+        c = cen[i]
+        zs, _faces = caster.hits(c[0], c[1])
+        if not len(zs) or float(zs.min()) >= c[2] - 0.05:
+            seen.append(i)
+    if not seen:
+        return pts
+    seen = np.array(seen)
+    # the centre and near each corner of every face: a large flat face's edge was further from the supports
+    # than its centre showed
+    corners = 0.85 * tris[seen] + 0.15 * cen[seen][:, None, :]
+    spots = np.vstack([cen[seen], corners.reshape(-1, 3)])
+    reach = 0.75 * spacing
+    have = np.asarray(pts, dtype=np.float64).reshape(-1, 3)
+    if len(have):
+        d = np.min(np.hypot(spots[:, None, 0] - have[None, :, 0], spots[:, None, 1] - have[None, :, 1]), axis=1)
+    else:
+        d = np.full(len(spots), np.inf)
+    added = []
+    while len(added) < limit:
+        k = int(np.argmax(d))
+        if d[k] <= reach:
+            break
+        added.append(spots[k])
+        d = np.minimum(d, np.hypot(spots[:, 0] - spots[k, 0], spots[:, 1] - spots[k, 1]))
+    if not added:
+        return pts
+    return np.vstack([have, np.array(added)])
 
 
 def _under_base(mesh: Mesh):

@@ -11849,3 +11849,24 @@ def test_a_layers_simplify_never_drops_a_whole_piece(monkeypatch):
     b = Mesh(a.vertices + [20, 0, 0], a.faces)
     layer = slicing.slice_mesh(Mesh.merge([a, b], "two"), [1.0], 0.01)[0]
     assert abs(layer.area - 200.0) < 0.5, layer.area
+
+
+def test_a_jaw_models_narrow_base_rim_is_supported_all_along():
+    """The lab: "the program leaves out supports in places". A jaw model is supported only in its bottom
+    3 mm, and its base rim there is 3-4 mm wide: the 7 mm grid seldom landed on it, and 20-25 mm of the rim
+    stood with no support (before, supports higher up held it - those are red marks now). Every spot of the
+    rim is now within 3/4 of the spacing of a support, and nothing is added above the zone."""
+    from shapely.geometry import Point
+    from unislicer import profiles, sla_supports
+    from unislicer.mesh_tools import extrude
+    ring = Point(0, 0).buffer(25.0, quad_segs=32).difference(Point(0, 0).buffer(21.5, quad_segs=32))
+    jaw = extrude(ring, 5.0, 15.0, "jaw")                 # 10 mm high, standing 5 mm up (support height)
+    cfg = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {
+        "support_enable": True, "sla_support_spacing": 7.0, "sla_support_zone": 3.0})
+    pts = sla_supports.auto_support_points(jaw, cfg)
+    assert len(pts) and float(pts[:, 2].max()) <= 5.0 + 3.0 + 1e-6
+    reach = 0.75 * sla_supports.effective_spacing(cfg) + 0.3
+    for a in np.linspace(0, 2 * np.pi, 180, endpoint=False):
+        for r in (21.8, 23.25, 24.7):
+            q = np.array([r * np.cos(a), r * np.sin(a)])
+            assert np.min(np.hypot(*(pts[:, :2] - q).T)) <= reach, (np.degrees(a), r)
