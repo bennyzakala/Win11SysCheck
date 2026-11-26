@@ -12047,6 +12047,7 @@ Z=[	3.8	,	0.05	,	7.08	]
 Z=[	5.0	,	0.11	,	7.08	]
 Burn-In Layers=1
 Burn-In Exposure=0.67
+Offset=0.160 ; M=0.11; B=0.44;
 XY Scale=1.001     ;shrinkage compensation
 Z Compensation=0.05
 [:/PRO-Platform/Delays]
@@ -12059,6 +12060,9 @@ Contact=0.35
     a = asiga_import.parse(str(ini))
     assert a["name"] == "Test Ceramic A1" and len(a["table"]) == 3 and a["light_intensity"] == 4.2
     assert abs(asiga_import.energy_at(a, 0.08) - 4.4) < 1e-6           # along the curve
+    # a 0.05 mm layer is cured 0.16 mm deeper (Offset): 0.21 mm on the curve, as Composer's own print file
+    # does (A1-LT: 7.8 mJ/cm2 / 4.2 mW/cm2 = 1.857 s)
+    assert a["offset"] == 0.16 and abs(asiga_import.layer_energy(a, 0.05) - asiga_import.energy_at(a, 0.21)) < 1e-9
     pid, prof = profiles.import_asiga(str(ini), ["phrozen_sonic_ls_plus", "phrozen_sonic_xl_4k_plus"])
     assert "estimate" in prof["name"] and "ESTIMATE" in prof["note"]
     ref = profiles.load("materials")[asiga_import.REFERENCE_RESIN]
@@ -12066,8 +12070,12 @@ Contact=0.35
         rows = prof["layer_table"][p]
         level = ref["layer_table"][p]["0.050"]["stable"]["exposure_time"]
         assert rows["0.050"]["stable"]["exposure_time"] == level            # Crowntec's level on this printer
-        e100 = asiga_import.energy_at(a, 0.1)
-        assert abs(rows["0.100"]["stable"]["exposure_time"] - round(level * e100 / 3.8, 2)) < 1e-9   # the curve
+        ratio = asiga_import.layer_energy(a, 0.1) / asiga_import.layer_energy(a, 0.05)
+        assert abs(rows["0.100"]["stable"]["exposure_time"] - round(level * ratio, 2)) < 1e-9   # the curve
+        # Fast: the same exposure with the printer's own faster lift and retract (Phrozen's Fast row)
+        fast, stable = rows["0.050"]["fast"], rows["0.050"]["stable"]
+        assert fast["exposure_time"] == stable["exposure_time"]
+        assert fast["lift_speed"] == ref["layer_table"][p]["0.050"]["fast"]["lift_speed"] > stable["lift_speed"]
         assert rows["0.050"]["stable"]["shrink_xy"] == 0.1
         assert rows["0.050"]["stable"]["rest_after_retract"] >= 1.0
     # in use: the LS+ with this resin gets its row
@@ -12082,6 +12090,10 @@ Contact=0.35
     xl = prof2["layer_table"]["phrozen_sonic_xl_4k_plus"]["0.050"]["stable"]["exposure_time"]
     assert abs(xl - round(ref["layer_table"]["phrozen_sonic_xl_4k_plus"]["0.050"]["stable"]["exposure_time"] * factor, 2)) < 1e-9
     assert len([k for k in profiles.load("materials") if k.startswith("asiga_")]) == 1
+    # a Composer print (Build Wizard) file is no material: recognised, not imported as one
+    build = tmp_path / "build.ini"
+    build.write_text('Type="BuildWizard"\nVersion=6\n[Parameters/2/Curing]\nExposure Time=1.857\n', encoding="utf-8")
+    assert asiga_import.is_build_file(str(build)) and not asiga_import.is_asiga(str(build))
     # not an Asiga file: refused
     other = tmp_path / "x.ini"
     other.write_text("[foo]\nbar=1\n", encoding="utf-8")
@@ -12126,3 +12138,26 @@ def test_a_phrozen_ds_slicer_xml_export_imports_into_the_resin_library(tmp_path,
     plain = tmp_path / "other.xml"
     plain.write_text("<root><a/></root>", encoding="utf-8")
     assert not phrozen_ds.is_ds_export(str(plain))
+
+
+def test_fast_mode_works_for_a_resin_without_its_own_table(tmp_path, monkeypatch):
+    """The lab: Stable / Fast changed nothing for a resin made in UniSlicer (FGM VoxelPrint TEMP - no per-printer
+    table): the same 2 h 9 min. Fast now moves as the printer's maker speeds it up (learned from its own 171
+    resin tables: the same exposure and waits, lift x3 / retract x2.5 on the XL 4K Plus, x1.2 / x1.5 on the
+    LS+); the exposure is not touched, values set by hand stay, printers with no such data are left as they are."""
+    monkeypatch.setattr(profiles, "USER_DIR", str(tmp_path))
+    pid = profiles.save_user_profile("materials", "VoxelPrint TEMP", {"exposure_time": 3.0, "lift_speed": 60.0,
+                                                                      "retract_speed": 120.0}, "sla", vendor="FGM")
+    xl = {m: profiles.build_config("phrozen_sonic_xl_4k_plus", pid, "sla_normal", {"exposure_mode": m})
+          for m in ("stable", "fast")}
+    assert xl["fast"]["exposure_time"] == xl["stable"]["exposure_time"] == 3.0
+    assert xl["fast"]["lift_speed"] == 180.0 and xl["fast"]["retract_speed"] == 300.0
+    ls = profiles.build_config("phrozen_sonic_ls_plus", pid, "sla_normal", {"exposure_mode": "fast"})
+    assert ls["lift_speed"] == 72.0 and ls["retract_speed"] == 180.0
+    hand = profiles.build_config("phrozen_sonic_xl_4k_plus", pid, "sla_normal",
+                                 {"exposure_mode": "fast", "lift_speed": 70.0})
+    assert hand["lift_speed"] == 70.0 and hand["retract_speed"] == 300.0
+    other = profiles.build_config("elegoo_mars3", pid, None, {"exposure_mode": "fast"})
+    assert other["lift_speed"] == 60.0
+    from unislicer import sla_timing
+    assert hasattr(sla_timing, "__name__")

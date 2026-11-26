@@ -293,6 +293,9 @@ class ProfileManager(QDialog):
         if not path:
             return
         from .. import asiga_import, phrozen_ds
+        if self.kind == "materials" and asiga_import.is_build_file(path):
+            QMessageBox.information(self, tr("pm_import"), tr("asiga_build_file"))
+            return
         if self.kind == "materials" and asiga_import.is_asiga(path):
             self._import_asiga(path)
             return

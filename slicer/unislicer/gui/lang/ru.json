@@ -1557,5 +1557,6 @@
  "Phrozen DS Slicer {}: {} resins in the file - {} added, {} updated, {} the same as here": "Phrozen DS Slicer {}: {} смол в файле - добавлено {}, обновлено {}, без изменений {}",
  "Added: ": "Добавлены: ",
  "Updated: ": "Обновлены: ",
- "Printers in the file that UniSlicer does not have (skipped): ": "Принтеры в файле, которых нет в UniSlicer (пропущены): "
+ "Printers in the file that UniSlicer does not have (skipped): ": "Принтеры в файле, которых нет в UniSlicer (пропущены): ",
+ "This is a Composer print file (Build Wizard), not a material file. To import the resin, choose its material file (*.ini with a Z= table) from Composer's materials folder.": "Это файл печати Composer (Build Wizard), а не файл материала. Для импорта смолы выберите файл материала (*.ini с таблицей Z=) из папки материалов Composer."
 }

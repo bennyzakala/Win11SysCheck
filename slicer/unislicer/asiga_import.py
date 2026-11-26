@@ -72,6 +72,7 @@ def parse(path: str) -> dict:
         "burn_in_layers": _num(get("Burn-In Layers")),
         "burn_in_exposure": _num(get("Burn-In Exposure")),
         "xy_scale": _num(get("XY Scale")),
+        "offset": _num(get("Offset")) or 0.0,
         "z_compensation": _num(get("Z Compensation")),
         "wait_after_approach": _num(get("Normal Wait Time (After Approach)")),
         "viscosity": _num(get("Viscosity Range")),
@@ -80,6 +81,22 @@ def parse(path: str) -> dict:
     if not table:
         raise ValueError("The file has no curing table (Z= rows)")
     return out
+
+
+def is_build_file(path: str) -> bool:
+    """A Composer print's parameters (Build Wizard), not a material: it has no curing table to import."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            return 'Type="BuildWizard"' in fh.read(2000)
+    except OSError:
+        return False
+
+
+def layer_energy(asiga: dict, layer: float) -> float:
+    """mJ/cm2 a layer of this height needs: the table gives the energy per cure DEPTH, and a layer is cured
+    ``Offset`` deeper than its own height (into the one below) - 0.05 + 0.16 = 0.21 mm, 7.8 mJ/cm2, 1.857 s at
+    4.2 mW/cm2: what Composer's own build file for this resin uses."""
+    return energy_at(asiga, layer + float(asiga.get("offset") or 0.0))
 
 
 def energy_at(asiga: dict, thickness: float) -> float:
@@ -111,7 +128,7 @@ def to_material(asiga: dict, printers, reference: dict | None = None, exposure_0
     if not printers:
         raise ValueError("No printer chosen")
     reference = reference or {}
-    e005 = energy_at(asiga, 0.05)
+    e005 = layer_energy(asiga, 0.05)
     calibrated_on = calibrated_on or printers[0]
     scale = 1.0
     base_cal = float(_row(reference, calibrated_on, 0.05).get("exposure_time") or 0)
@@ -128,7 +145,7 @@ def to_material(asiga: dict, printers, reference: dict | None = None, exposure_0
         out = {}
         for h in heights:
             row = _row(reference, p, h)
-            exposure = round(level * energy_at(asiga, h) / e005 * scale, 2)     # the Asiga curve, this level
+            exposure = round(level * layer_energy(asiga, h) / e005 * scale, 2)  # the Asiga curve, this level
             ref_exp = float(row.get("exposure_time") or 0) or None
             ref_bottom = float(row.get("bottom_exposure_time") or 0) or None
             bottom = ref_bottom * exposure / ref_exp if ref_exp and ref_bottom else exposure * 10.0
@@ -143,14 +160,22 @@ def to_material(asiga: dict, printers, reference: dict | None = None, exposure_0
             wait = asiga.get("wait_after_approach")
             if wait:                         # a thick (filled) resin settles before the light: never less than Asiga
                 row["rest_after_retract"] = max(float(row.get("rest_after_retract", 0) or 0), float(wait))
-            out[f"{h:.3f}"] = {"stable": row, "fast": dict(row)}
+            # Fast: the same exposure (as in Composer's Fast Print Mode and in Phrozen's own tables) with the
+            # printer's faster lift and retract; Asiga's fast mode drops its waits, so no Asiga wait is added
+            rows_h = rows.get(min(rows, key=lambda k: abs(float(k) - h))) or {}
+            fast = dict(rows_h.get("fast") or rows_h.get("stable") or {})
+            for k in ("sla_layer_height", "exposure_time", "bottom_exposure_time", "shrink_xy", "bottom_layers"):
+                if k in row:
+                    fast[k] = row[k]
+            out[f"{h:.3f}"] = {"stable": row, "fast": fast}
         layer_table[p] = out
     first = layer_table[printers[0]]
     values = dict(first.get("0.050", next(iter(first.values())))["stable"])
     values["technology"] = "sla"
     calibrated = bool(exposure_005 and exposure_005 > 0)
     note = (f"Converted from Asiga Composer ({asiga['name']}): exposure per layer height follows the Asiga "
-            f"curve ({e005:.2f} mJ/cm2 at 0.05 mm). " +
+            f"curve by cure depth (layer + {float(asiga.get('offset') or 0):g} mm: {e005:.2f} mJ/cm2 at 0.05 mm). "
+            f"Fast mode: the same exposure, the printer's faster lift and retract. " +
             (f"Exposure set from a test: {exposure_005:g} s at 0.05 mm on {calibrated_on}."
              if calibrated else
              "EXPOSURE IS AN ESTIMATE (Asiga 385 nm -> Phrozen 405 nm; the level of Saremco Crowntec on each "

@@ -304,6 +304,43 @@ def _support_raft_key(key: str) -> bool:
     return bool(s and s.category in ("support", "raft"))
 
 
+FAST_KEYS = ("lift_speed", "bottom_lift_speed", "retract_speed", "bottom_retract_speed")
+_FAST_RATIOS: dict = {}
+
+
+def fast_ratios(printer: str) -> dict:
+    """How Fast differs from Stable on this printer, learned from the printer maker's own resin tables (Phrozen
+    DS Slicer, 171 resins): the same exposure, waits and lift height - only the motion is faster (lift x3,
+    retract x2.5 on the XL 4K Plus, CS+, Lumii; x1.2 / x1.5 on the LS+). {} for a printer with no such data."""
+    if printer in _FAST_RATIOS:
+        return _FAST_RATIOS[printer]
+    import statistics
+    got: dict = {k: [] for k in FAST_KEYS}
+    for prof in load("materials").values():
+        for row in ((prof.get("layer_table") or {}).get(printer) or {}).values():
+            st, fa = row.get("stable") or {}, row.get("fast") or {}
+            for k in FAST_KEYS:
+                if isinstance(st.get(k), (int, float)) and st.get(k) and isinstance(fa.get(k), (int, float)):
+                    got[k].append(fa[k] / st[k])
+    out = {k: statistics.median(v) for k, v in got.items() if len(v) >= 5}
+    _FAST_RATIOS[printer] = out
+    return out
+
+
+def _apply_fast(cfg: Config, printer: str, keep: set) -> None:
+    """Fast mode for a resin without its own Stable / Fast table (one made in UniSlicer, say): the motion as
+    the printer's maker speeds it up for Fast; the exposure is not changed. (The mode switch did nothing for
+    such a resin.) Values set by hand stay."""
+    for k, r in fast_ratios(printer).items():
+        if k in keep or k not in cfg.values:
+            continue
+        s = SCHEMA_BY_KEY.get(k)
+        v = float(cfg[k]) * r
+        if s is not None and s.maximum is not None:
+            v = min(v, float(s.maximum))
+        cfg.values[k] = round(v, 1)
+
+
 def apply_layer_table(cfg: Config, printer: str | None, material: str | None, overrides: dict | None = None) -> Config:
     """Resins with a per-printer table (e.g. Phrozen DS Slicer profiles): take the row for this printer, the
     layer height nearest to the chosen one and the Stable / Fast mode. Values the user set stay as they are."""
@@ -312,6 +349,8 @@ def apply_layer_table(cfg: Config, printer: str | None, material: str | None, ov
     prof = load("materials").get(material)
     table = (prof or {}).get("layer_table", {}).get(printer)
     if not table:
+        if cfg.get("exposure_mode") == "fast":
+            _apply_fast(cfg, printer, set(overrides or {}) | set((prof or {}).get("user_keys", [])))
         return cfg
     want = float(cfg["sla_layer_height"])
     key = min(table, key=lambda k: abs(float(k) - want))
