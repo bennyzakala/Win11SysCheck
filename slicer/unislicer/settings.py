@@ -649,6 +649,10 @@ def visible_settings(category: str, technology: str, show_advanced: bool) -> lis
             and (show_advanced or not s.advanced)]
 
 
+# keys a model type keeps over a value set by hand for the whole plate (only one set on the part itself wins)
+TYPE_OWN_KEYS = {"cb": ("sla_support_spacing",)}
+
+
 @dataclass
 class Config:
     """Effective settings: defaults <- printer <- material <- quality <- user overrides."""
@@ -679,8 +683,12 @@ class Config:
             user = set(self.values.get("_user_keys") or ()) | set(overrides)
             if "sla_support_preset" in user and self.values.get("sla_support_preset") in SUPPORT_PRESETS:
                 user |= set(SUPPORT_PRESETS[self.values["sla_support_preset"]])
+            # a crown's / bridge's own spacing is not taken over by a spacing set for the whole plate (7-8 mm
+            # meant for models left an anterior bridge 4-6 supports, and a tooth printed crooked) - set on the
+            # crown itself (its own settings, ``overrides`` here), it is
+            keep_own = TYPE_OWN_KEYS.get(self.values.get("sla_model_type"), ())
             for k, v in typed.items():
-                if k not in overrides and k not in user:
+                if k not in overrides and (k not in user or k in keep_own):
                     self.values[k] = v
             # models and dies: the printer's own spacing when it has one (the lab: 7 mm on Phrozen printers)
             raft = TYPE_RAFT.get(self.values.get("sla_model_type"))

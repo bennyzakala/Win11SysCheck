@@ -11998,3 +11998,23 @@ def test_a_bridges_narrow_incisal_edge_is_supported_all_along():
     reach = 0.75 * sla_supports.effective_spacing(cfg) + 0.3
     for x in np.linspace(0.2, 19.8, 50):
         assert np.min(np.hypot(pts[:, 0] - x, pts[:, 1])) <= reach, x
+
+
+def test_a_plate_spacing_set_by_hand_does_not_thin_out_a_crowns_supports():
+    """The lab: 7 mm set by hand for the plate (meant for the models) left an anterior bridge 4-6 supports, and
+    a tooth printed crooked. A crown / bridge keeps its own 2 mm; set on the crown itself, a spacing still
+    wins; dies and models take the plate's."""
+    from unislicer.scene import SceneObject
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"sla_support_spacing": 7.0})
+    cfg.values["_user_keys"] = ("sla_support_spacing",)
+    got = {}
+    for typ, own in (("cb", {}), ("cb", {"sla_support_spacing": 3.0}), ("die", {}), ("model", {})):
+        o = SceneObject(primitives.box(5, 5, 5), name="x")
+        o.settings["sla_model_type"] = typ
+        o.settings.update(own)
+        got[(typ, bool(own))] = o.config(cfg)["sla_support_spacing"]
+    assert got[("cb", False)] == 2.0 and got[("cb", True)] == 3.0
+    assert got[("die", False)] == 7.0 and got[("model", False)] == 7.0
+    # a crown known by its name only (the lab's file names) as well
+    o = SceneObject(primitives.box(5, 5, 5), name="SZY-SOD260049793-044-P-22-11-3-00-R526_2.stl")
+    assert o.config(cfg)["sla_support_spacing"] == 2.0
