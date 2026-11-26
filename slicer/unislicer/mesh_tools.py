@@ -1087,6 +1087,84 @@ def stitch_paired_rims(mesh: Mesh, gap: float = 0.1) -> tuple[Mesh, int]:
     return out, joined
 
 
+def _bad_edges(faces: np.ndarray) -> int:
+    """Edges not shared by exactly two faces (open or non-manifold)."""
+    if len(faces) == 0:
+        return 0
+    e = np.sort(np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]]), axis=1)
+    _u, c = np.unique(e, axis=0, return_counts=True)
+    return int((c != 2).sum())
+
+
+def defects_slice_clean(mesh: Mesh) -> bool:
+    """Are a mesh's open / non-manifold edges all in faces that are flat (horizontal)? Such faces give no
+    section to any layer, so the layers come out as for a closed part. (A gingiva mask whose outer and inner
+    bottoms touch in one plane: 10 bad edges, all flat - 153 clean layers, yet "not watertight".)"""
+    f = np.asarray(mesh.faces)
+    if len(f) == 0:
+        return True
+    e = np.sort(np.stack([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]], axis=1), axis=2)
+    flat = e.reshape(-1, 2)
+    _u, inv, cnt = np.unique(flat, axis=0, return_inverse=True, return_counts=True)
+    touched = np.any(cnt[inv].reshape(-1, 3) != 2, axis=1)
+    if not touched.any():
+        return True
+    z = np.asarray(mesh.vertices)[f[touched], 2]
+    return bool(np.all(z.max(axis=1) - z.min(axis=1) < 1e-3))     # flat to within a 1/50 layer (file rounding)
+
+
+def drop_stray_faces(mesh: Mesh, rounds: int = 6) -> tuple[Mesh, int]:
+    """Faces that only spoil a nearly closed surface: duplicates (the same three corners twice - both go when
+    they face opposite ways, a wall of no thickness), and slivers none of whose edges is shared properly (every
+    edge open or used three or more times). A gingiva mask's flat bottom had a few of these over its proper
+    triangles: 6 open and 4 non-manifold edges, and the full repair tore it open (958 open edges). Returns
+    (mesh, faces dropped); the mesh as it was when dropping does not make it better."""
+    f = np.asarray(mesh.faces)
+    if len(f) == 0:
+        return mesh, 0
+    start = _bad_edges(f)
+    if start == 0:
+        return mesh, 0
+    key = np.sort(f, axis=1)
+    _u, inv, cnt = np.unique(key, axis=0, return_inverse=True, return_counts=True)
+    keep = np.ones(len(f), dtype=bool)
+    for g in np.flatnonzero(cnt > 1):
+        idx = np.flatnonzero(inv == g)
+        ref = f[idx[0]]
+        same = [i for i in idx if _same_turn(f[i], ref)]
+        other = [i for i in idx if i not in same]
+        if same and other:                      # opposite pairs: a zero-thickness wall - none of them stays
+            pairs = min(len(same), len(other))
+            keep[same[:pairs]] = False
+            keep[other[:pairs]] = False
+            rest = same[pairs:] + other[pairs:]
+            keep[rest[1:]] = False
+        else:
+            keep[idx[1:]] = False
+    f2 = f[keep]
+    for _ in range(rounds):
+        e = np.sort(np.stack([f2[:, [0, 1]], f2[:, [1, 2]], f2[:, [2, 0]]], axis=1), axis=2)
+        flat = e.reshape(-1, 2)
+        _u, inv, cnt = np.unique(flat, axis=0, return_inverse=True, return_counts=True)
+        per_edge = cnt[inv].reshape(-1, 3)
+        stray = np.all(per_edge != 2, axis=1)
+        if not stray.any():
+            break
+        trial = f2[~stray]
+        if _bad_edges(trial) >= _bad_edges(f2):
+            break
+        f2 = trial
+    if _bad_edges(f2) >= start:
+        return mesh, 0
+    return Mesh(mesh.vertices, f2, mesh.name), int(len(f) - len(f2))
+
+
+def _same_turn(a, b) -> bool:
+    """The same three corners in the same turning order (one is a rotation of the other)."""
+    a, b = list(a), list(b)
+    return any(a == b[k:] + b[:k] for k in range(3))
+
+
 def make_watertight(mesh: Mesh) -> tuple[Mesh, dict, bool]:
     """Close a mesh as far as possible: the fast repair first (holes, winding); when that leaves it open, the
     advanced repair (weld near vertices, inner double walls, non-manifold edges, holes by triangulation), then
@@ -1094,6 +1172,15 @@ def make_watertight(mesh: Mesh) -> tuple[Mesh, dict, bool]:
     if mesh.is_watertight():
         return mesh, {"steps": []}, True
     steps = []
+    try:                                         # duplicate / stray faces over a nearly closed surface
+        cleaned, n = drop_stray_faces(mesh)
+        if n:
+            steps.append(("stray", {"faces": n}))
+            mesh = cleaned
+            if mesh.is_watertight():
+                return mesh, {"steps": steps}, True
+    except Exception:
+        pass
     try:                                         # rims a hair apart (a crown's margin): joined, not lidded
         stitched, n = stitch_paired_rims(mesh)
         if n:
@@ -1103,13 +1190,16 @@ def make_watertight(mesh: Mesh) -> tuple[Mesh, dict, bool]:
                 return mesh, {"steps": steps}, True
     except Exception:
         pass
-    best = mesh
+    # what is left open: the attempt with the fewest bad edges, never one worse than the mesh itself (the
+    # advanced repair once returned a mask with 958 open edges from one with 10)
+    best, best_bad = mesh, _bad_edges(np.asarray(mesh.faces))
     try:
         fixed, rep = repair(mesh)
         steps.append(("repair", rep))
-        best = fixed
         if fixed.is_watertight():
             return fixed, {"steps": steps}, True
+        if _bad_edges(np.asarray(fixed.faces)) < best_bad:
+            best, best_bad = fixed, _bad_edges(np.asarray(fixed.faces))
     except Exception:
         pass
     for weld, specks in ((1e-4, 0.0), (1e-3, 0.0005)):
@@ -1118,9 +1208,10 @@ def make_watertight(mesh: Mesh) -> tuple[Mesh, dict, bool]:
         except Exception:
             continue
         steps.append(("advanced", {k: v for k, v in rep.items() if k not in ("before", "after")}))
-        best = fixed
         if fixed.is_watertight():
             return fixed, {"steps": steps}, True
+        if _bad_edges(np.asarray(fixed.faces)) < best_bad:
+            best, best_bad = fixed, _bad_edges(np.asarray(fixed.faces))
     return best, {"steps": steps}, False
 
 

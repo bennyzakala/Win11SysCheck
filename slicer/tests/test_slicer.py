@@ -12161,3 +12161,70 @@ def test_fast_mode_works_for_a_resin_without_its_own_table(tmp_path, monkeypatch
     assert other["lift_speed"] == 60.0
     from unislicer import sla_timing
     assert hasattr(sla_timing, "__name__")
+
+
+def test_open_edges_only_in_flat_faces_are_no_watertight_warning_and_fix_closes_or_names(tmp_path):
+    """The lab: "'..._Tissue_1' is not watertight" and Fix did nothing. The gingiva mask's outer and inner
+    bottoms touch in one plane: 10 bad edges, all in flat faces - they cut no layer (153 clean layers), so
+    there is no warning now. A real hole (in a wall) still warns. Fix next to it runs the full closing repair
+    on the open parts only (it ran the quick repair on every part), and make_watertight never hands back a
+    mesh worse than it got (the mask came back with 958 open edges)."""
+    from unislicer import mesh_tools
+    from unislicer.mesh import Mesh
+    b = primitives.box(10, 10, 6)
+    n = b.face_normals()
+    # a flat bottom with a sliver doubled over it: open and non-manifold edges, all in the bottom plane
+    bottom = np.flatnonzero(n[:, 2] < -0.5)
+    v = np.vstack([b.vertices, [[2.0, 2.0, 0.0], [2.5, 2.0, 0.0]]])
+    k = len(b.vertices)
+    sliver = np.array([[b.faces[bottom[0]][0], k, k + 1]])
+    flat_bad = Mesh(v, np.vstack([b.faces, sliver]), "mask")
+    assert not flat_bad.is_watertight() and mesh_tools.defects_slice_clean(flat_bad)
+    side = np.flatnonzero(np.abs(n[:, 2]) < 0.5)[0]
+    holed = Mesh(b.vertices, np.delete(b.faces, side, axis=0), "holed")
+    assert not mesh_tools.defects_slice_clean(holed)
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", None, None, {"support_enable": False})
+    job = sla.prepare([flat_bad.translated([60, 40, 0])], cfg, None, lambda: False)
+    assert not [w for w in job.warnings if "watertight" in w]
+    fixed, _rep, _ok = mesh_tools.make_watertight(flat_bad)
+    assert mesh_tools._bad_edges(np.asarray(fixed.faces)) <= mesh_tools._bad_edges(np.asarray(flat_bad.faces))
+
+
+def test_export_waits_for_the_slice_after_a_fix(tmp_path):
+    """The lab: after Fix the plate is sliced again, and Export could be pressed meanwhile - the old file,
+    without the fix. Export and Send stay off from Fix until the new slice is in (or none starts)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication, QWidget
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); app.processEvents()
+        w.settings.printer_id = "phrozen_sonic_ls_plus"; w.settings.rebuild(); app.processEvents()
+        o = w.add_mesh(primitives.box(10, 10, 5)); o.direct = True; app.processEvents()
+        w._last_result = ("sla", object(), w.settings.config())        # an earlier slice to export
+        w.result = None
+        w._update_export()
+        assert w.export_btn.isEnabled()
+        fired = []
+        w.slice = lambda: fired.append(1)                                # the new slice, not started here
+        row = QWidget(); w._check_fixes = [(lambda: None, row)]          # a print check with one Fix
+        w._run_fix(lambda: None, row)
+        assert not w.export_btn.isEnabled() and not w.send_btn.isEnabled()
+        t0 = time.time()
+        while not fired and time.time() - t0 < 5:
+            app.processEvents(); time.sleep(0.05)
+        app.processEvents()
+        assert fired and w.export_btn.isEnabled()                       # no slice ran: back on
+        w._fixing = True; w._update_export(); assert not w.export_btn.isEnabled()
+        w._on_failed("")                                                 # a failed / cancelled slice: back on
+        assert w.export_btn.isEnabled()
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

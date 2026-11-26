@@ -1440,7 +1440,10 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
             closed.append(fixed)
         else:
             closed.append(m)
-            warnings.append(f"'{m.name}' is not watertight; check the layer preview.")
+            from .mesh_tools import defects_slice_clean
+            if not defects_slice_clean(m):
+                # (open edges only in flat faces - a mask's bottom touching itself - cut no layer: no warning)
+                warnings.append(f"'{m.name}' is not watertight; check the layer preview.")
     meshes = closed
     # each model may carry its own settings (supports, hollowing / infill) over the plate's
     cfgs = [cfg.copy().update(model_settings[i]) if model_settings and i < len(model_settings) and model_settings[i]

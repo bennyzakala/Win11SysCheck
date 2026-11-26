@@ -291,8 +291,7 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(carry["geometry"])
         if carry.get("result") is not None:            # building the window cleared it: the slice comes back
             self.result, self.result_cfg = carry["result"], carry.get("result_cfg")
-            self.export_btn.setEnabled(self._exportable() is not None)
-            self.send_btn.setEnabled(self._exportable() is not None)
+            self._update_export()
         cam = carry.get("camera")
         if cam is not None:
             c = self.viewer.camera
@@ -6281,8 +6280,7 @@ class MainWindow(QMainWindow):
         if self.result is not None:
             self._last_result = self.result      # still exportable: "export" works in any state
         self.result = None
-        self.export_btn.setEnabled(self._exportable() is not None)
-        self.send_btn.setEnabled(self._exportable() is not None)
+        self._update_export()
         self.viewer.set_toolpaths(None, 0.4)
         self.viewer.set_extra_meshes([])
         for tile in (self.stat_time, self.stat_material, self.stat_weight, self.stat_cost):
@@ -6369,6 +6367,13 @@ class MainWindow(QMainWindow):
             parallel.prewarm()
         except Exception:
             pass
+
+    def _update_export(self):
+        """Export / Send: on when there is a slice to send - and not while a Fix waits for its new slice (the old
+        file, without the fix, could be sent meanwhile)."""
+        ok = self._exportable() is not None and not getattr(self, "_fixing", False)
+        self.export_btn.setEnabled(ok)
+        self.send_btn.setEnabled(ok)
 
     def _exportable(self):
         """What Export / Send / Queue use: the current slice, else the last one (the plate changed since)."""
@@ -6588,8 +6593,7 @@ class MainWindow(QMainWindow):
         self.progress_label.show()
         self.slice_btn.setText("  " + tr("cancel"))
         self.slice_btn.setIcon(theme.icon("x", "#ffffff", 18))
-        self.export_btn.setEnabled(self._exportable() is not None)
-        self.send_btn.setEnabled(self._exportable() is not None)
+        self._update_export()
         self.task.start()
 
     # where each stage runs on the bar. Filament: slicing, then toolpaths and G-code. Resin: the supports are
@@ -6617,8 +6621,7 @@ class MainWindow(QMainWindow):
             self._hide_progress()
         self.slice_btn.setText(" " + tr("slice"))
         self.slice_btn.setIcon(theme.icon("layers", "#ffffff", 18))
-        self.export_btn.setEnabled(self._exportable() is not None)
-        self.send_btn.setEnabled(self._exportable() is not None)
+        self._update_export()
 
     def _hide_progress(self):
         if self.task is not None and self.task.isRunning():
@@ -6629,6 +6632,8 @@ class MainWindow(QMainWindow):
     def _on_failed(self, message):
         # a slice that failed or was cancelled sends nothing, and leaves no fix waiting for the next one
         self.__dict__.pop("_send_after_slice", None)
+        self._fixing = False
+        self._update_export()
         self.__dict__.pop("_cup_fix_pending", None)
         if message:
             QMessageBox.critical(self, tr("slice_error"), message)
@@ -6715,8 +6720,8 @@ class MainWindow(QMainWindow):
         self.layer_slider.setRange(0, max(0, n - 1))
         self.layer_slider.setValue(n - 1)
         self.layer_slider.blockSignals(False)
-        self.export_btn.setEnabled(True)
-        self.send_btn.setEnabled(True)
+        self._fixing = False                     # the slice after a Fix is here: export what it made
+        self._update_export()
         self.status.setText(f"{tr('stat_layers')}: {n} · {tr('estimate_note')}")
         self.set_mode("preview", slice_if_needed=False)
         self._on_layer(n - 1)
@@ -6884,6 +6889,8 @@ class MainWindow(QMainWindow):
         """One Fix button: the check list stays, that line goes, the others stay until the new slice."""
         self._keep_checks = True
         self._fix_result = self.result
+        self._fixing = True                      # no Export until the new slice shows the fix
+        self._update_export()
         row.hide()
         self._check_fixes = [(f, r) for f, r in self._check_fixes if r is not row]
         self.cup_fix_btn.setVisible(len(self._check_fixes) > 1)
@@ -6899,6 +6906,8 @@ class MainWindow(QMainWindow):
             return
         self._keep_checks = True
         self._fix_result = self.result
+        self._fixing = True
+        self._update_export()
         self._batch_fix = True
         try:
             for fix, row in fixes:
@@ -6924,6 +6933,9 @@ class MainWindow(QMainWindow):
             def go():
                 self._fix_slice_pending = False
                 self.slice()
+                if self.task is None or not self.task.isRunning():
+                    self._fixing = False         # no slice started (nothing to slice, a question declined)
+                    self._update_export()
             self._later(400, go)
 
     def fix_islands(self):
@@ -6965,8 +6977,27 @@ class MainWindow(QMainWindow):
         self._cup_fix_pending = len(owners)
 
     def _repair_all(self):
-        self.select_all()
-        self.repair_selected()
+        """Print check > Fix next to "not watertight": the full closing repair, on the open parts only (it
+        selected every part and ran the quick repair, which could not close what the slicer had already tried
+        to); a part it cannot close is named."""
+        from .. import mesh_tools
+        targets = [o for o in self.objects if o.role != "cutter" and not o.mesh.is_watertight()]
+        if not targets:
+            return
+        self._push_undo()
+        meshes = [o.mesh for o in targets]
+        results = self._in_background(lambda: [mesh_tools.make_watertight(m) for m in meshes])
+        failed = []
+        for o, (fixed, _rep, ok) in zip(targets, results):
+            if fixed is not o.mesh:
+                self._repair_offers.pop(o.uid, None)
+                o.mesh = fixed
+                o.regions = []
+            if not ok:
+                failed.append(o.name)
+        self._objects_changed()
+        self.status.setText(tr("repair_closed").format(len(targets) - len(failed)) +
+                            (" · " + tr("repair_still_open").format(", ".join(failed[:3])) if failed else ""))
 
     def _sla_warnings(self, job, cfg) -> list[str]:
         warnings = [tr(ENGINE_TEXT[w]) if w in ENGINE_TEXT else self._engine_text(w, cfg) for w in job.warnings]

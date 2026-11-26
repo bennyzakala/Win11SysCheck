@@ -547,6 +547,8 @@ STRINGS = {
     "ds_updated": ("עודכנו: ", "Updated: "),
     "ds_other_printers": ("מדפסות בקובץ שאין בתוכנה (דילגתי עליהן): ", "Printers in the file that UniSlicer does not have (skipped): "),
     "asiga_build_file": ("זה קובץ הדפסה של Composer (Build Wizard), לא קובץ חומר. לייבוא השרף בחר את קובץ החומר (*.ini עם טבלת Z=) - מתיקיית החומרים של Composer.", "This is a Composer print file (Build Wizard), not a material file. To import the resin, choose its material file (*.ini with a Z= table) from Composer's materials folder."),
+    "repair_closed": ("נסגרו {} מודלים", "{} models closed"),
+    "repair_still_open": ("לא ניתן לסגור: {} - בדוק את תצוגת השכבות", "could not be closed: {} - check the layer preview"),
     "asiga_title": ("ייבוא שרף מ-Asiga Composer", "Import a resin from Asiga Composer"),
     "asiga_info": ("{}: טבלת החשיפה לפי עובי שכבה עוברת מהקובץ. הרמה נלקחת מ-Saremco Crowntec (שרף קרמי דומה) בכל מדפסת - הערכה עד בדיקת חשיפה. לאילו מדפסות?",
                    "{}: the exposure curve per layer height comes from the file; its level from Saremco Crowntec (a similar ceramic resin) on each printer - an estimate until an exposure test. For which printers?"),

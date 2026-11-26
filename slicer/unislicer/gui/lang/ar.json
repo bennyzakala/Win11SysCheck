@@ -1558,5 +1558,7 @@
  "Added: ": "أُضيفت: ",
  "Updated: ": "حُدّثت: ",
  "Printers in the file that UniSlicer does not have (skipped): ": "طابعات في الملف غير موجودة في UniSlicer (تم تخطيها): ",
- "This is a Composer print file (Build Wizard), not a material file. To import the resin, choose its material file (*.ini with a Z= table) from Composer's materials folder.": "هذا ملف طباعة من Composer (Build Wizard) وليس ملف مادة. لاستيراد الراتنج اختر ملف المادة (*.ini مع جدول Z=) من مجلد المواد في Composer."
+ "This is a Composer print file (Build Wizard), not a material file. To import the resin, choose its material file (*.ini with a Z= table) from Composer's materials folder.": "هذا ملف طباعة من Composer (Build Wizard) وليس ملف مادة. لاستيراد الراتنج اختر ملف المادة (*.ini مع جدول Z=) من مجلد المواد في Composer.",
+ "{} models closed": "تم إغلاق {} نماذج",
+ "could not be closed: {} - check the layer preview": "تعذّر الإغلاق: {} - راجع معاينة الطبقات"
 }
