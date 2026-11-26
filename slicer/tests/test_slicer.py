@@ -11743,10 +11743,10 @@ def test_assistant_audit_hand_choices_win_and_nothing_changes_by_itself(tmp_path
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
 
 
-def test_an_island_high_on_a_jaw_model_is_marked_red_not_supported(tmp_path):
-    """Audit: "Support all islands" (the Fix button, and the assistant's islands suggestion) put a support
-    under every island - on a jaw model 12 mm up its wall too, past the 3 mm zone where the lab wants only
-    red marks and its own "Support all marks". Such an island now becomes a red mark."""
+def test_fix_islands_supports_an_island_high_on_a_jaw_model_too(tmp_path):
+    """Fix (and the assistant's "add a support under each island") is a click - the user's own decision.
+    For a while an island above a jaw model's 3 mm zone was only marked red: Fix added nothing, the print
+    check kept the islands, and the lab saw a Fix that did not fix. It gets its support, as on any part."""
     import subprocess, sys, textwrap
     code = textwrap.dedent('''
         import os
@@ -11762,7 +11762,7 @@ def test_an_island_high_on_a_jaw_model_is_marked_red_not_supported(tmp_path):
         stem = primitives.box(4, 4, 12)
         cap = primitives.box(16, 16, 2); cap = Mesh(cap.vertices + [-6, -6, 12], cap.faces)
         jaw = Mesh.merge([stem, cap], "jaw")
-        for kind, expect_support in (("model", False), ("cb", True)):
+        for kind, expect_support in (("model", True), ("cb", True)):
             for o in list(w.objects):
                 w.objects.remove(o)
             o = w.add_mesh(jaw); o.settings["sla_model_type"] = kind; app.processEvents()

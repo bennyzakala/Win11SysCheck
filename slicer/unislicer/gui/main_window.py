@@ -1540,7 +1540,7 @@ class MainWindow(QMainWindow):
         cfg = self.settings.config()
         lift = self._lift(cfg)
         self._push_undo()
-        added = marked = 0
+        added = 0
         for p in pts:
             for o in self.objects:
                 if o.role == "cutter" or o.direct:
@@ -1554,19 +1554,8 @@ class MainWindow(QMainWindow):
                 contact = sla_supports.underside_contact(geo["caster"], p + [0, 0, 0.3])
                 if contact is None or abs(float(contact[2]) - float(p[2])) > 1.0:
                     continue        # not the island's own underside (a surface further down): its pillar holds it
-                oc = o.config(cfg)
-                zone = float(oc.get("sla_support_zone", 0.0) or 0.0)
-                if zone > 0 and float(contact[2]) - float(world.bounds[0][2]) > zone + 1e-6:
-                    inner = sla_supports._under_base(world)
-                    from shapely.geometry import Point
-                    if inner is None or not inner.contains(Point(float(contact[0]), float(contact[1]))):
-                        # a jaw model above its support zone: a red mark for the user to decide (Support all
-                        # marks), never a support climbing the model's wall by itself
-                        old = self._marks_world(o, lift)
-                        if old is None or not len(old) or np.min(np.linalg.norm(old - contact, axis=1)) > 0.5:
-                            self._set_marks(o, contact[None, :] if old is None else np.vstack([old, contact]), lift)
-                            marked += 1
-                        break
+                # a jaw model too, above its 3 mm zone: Fix is a click - the user's own decision, as "Support all
+                # marks" is (turned into red marks instead, the islands stayed and Fix seemed to do nothing)
                 if o.support_points is None:
                     o.set_world_support_points(sla_supports.drop_keepout(sla_supports.auto_support_points(world, o.config(cfg)),
                                                                          o.world_keepout(lift)), lift)
@@ -1574,11 +1563,7 @@ class MainWindow(QMainWindow):
                 added += 1
                 break
         self._objects_changed(refresh_list=False)
-        msg = tr("islands_supported").format(added)
-        if marked:
-            self._show_marks()
-            msg += " · " + tr("islands_marked").format(marked)
-        self.status.setText(msg)
+        self.status.setText(tr("islands_supported").format(added))
 
     def set_panel_visible(self, side: str, visible: bool, save: bool = True):
         panel = self.left_panel if side == "left" else self.right_panel

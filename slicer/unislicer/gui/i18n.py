@@ -717,8 +717,6 @@ STRINGS = {
     "xray_view_tip": ("מבט רנטגן: הופך את המודלים לשקופים כדי לראות דרכם את התמיכות, החללים והתמיכות הפנימיות", "X-ray view: makes the models see-through so you can see the supports, cavities and internal supports through them"),
     "islands_support_all": ("הוסף תמיכה לכל האיים", "Support all islands"),
     "islands_supported": ("נוספו {} תמיכות לאיים. פרוס שוב כדי לבדוק", "Added {} supports at islands. Slice again to check"),
-    "islands_marked": ("{} איים מעל אזור התמיכות של מודל לסת סומנו באדום (תמוך בכל הסימונים)",
-                       "{} islands above a jaw model's support zone were marked red (Support all marks)"),
     "islands_none": ("אין איים מהפריסה האחרונה", "No islands from the last slice"),
     "hide_models": ("הסתר", "Hide"),
     "show_all_models": ("הצג את כל המודלים", "Show all models"),
