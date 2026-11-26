@@ -12275,34 +12275,44 @@ def test_part_name_with_a_dot_is_not_read_as_a_crown():
     assert dental_cad.detect_indication("DAA-SOD260046614-044-P-25-27-3-00-R003_2.stl") == "crown"
 
 
-def test_shipped_asiga_resins_have_stable_and_fast_on_each_printer():
-    """The lab's Voxelprint Ceramic resins (Asiga Composer files) ship with UniSlicer - no import needed - and
-    each printer has both modes: Stable, and Fast with the same exposure and the printer's faster motion. The
-    shipped file is what the converter makes from the sources (tools/build_asiga_materials.py)."""
+def test_shipped_fgm_voxelprint_resins_have_stable_and_fast_on_each_printer():
+    """The lab's FGM VoxelPrint resins ship with UniSlicer - Ceramic HT / MT / LT, TEMP, Splint Tough - on the
+    XL 4K Plus, CS+ and LS+, every layer height, Stable and Fast: the same exposure, faster lift and retract.
+    FGM's own Phrozen numbers stand at 0.1 mm on the XL; the bottom exposure is never under Phrozen's for
+    resins of the kind on that printer; the Asiga A1-LT / B1-HT profiles are not shipped beside them twice.
+    The shipped file is what tools/build_fgm_materials.py makes."""
     import importlib.util
     import json
     import os
     from unislicer import profiles
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    spec = importlib.util.spec_from_file_location("bam", os.path.join(root, "tools", "build_asiga_materials.py"))
-    bam = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(bam)
-    with open(os.path.join(root, "unislicer", "profiles", "materials-asiga.json"), encoding="utf-8") as fh:
+    spec = importlib.util.spec_from_file_location("bfm", os.path.join(root, "tools", "build_fgm_materials.py"))
+    bfm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bfm)
+    with open(os.path.join(root, "unislicer", "profiles", "materials-fgm.json"), encoding="utf-8") as fh:
         shipped = json.load(fh)
-    assert json.loads(json.dumps(bam.build())) == shipped
-    ids = {"asiga_voxelprint_ceramic_a1_lt_003", "asiga_voxelprint_ceramic_b1_ht_003"}
-    assert ids <= profiles.builtin_ids("materials")
-    for pid in ids:
-        assert pid in profiles.load("materials")
-        for printer in ("phrozen_sonic_xl_4k_plus", "phrozen_sonic_ls_plus", "phrozen_sonic_cs_plus"):
-            got = {}
-            for mode in ("stable", "fast"):
-                cfg = profiles.build_config(printer, pid, None, {"exposure_mode": mode, "sla_layer_height": 0.05})
-                got[mode] = cfg
-            s, f = got["stable"], got["fast"]
-            assert s["exposure_time"] == f["exposure_time"] > 0
-            assert f["lift_speed"] > s["lift_speed"] and f["retract_speed"] > s["retract_speed"], (pid, printer)
-
+    assert json.loads(json.dumps(bfm.build())) == shipped
+    builtin = profiles.builtin_ids("materials")
+    assert not [k for k in builtin if k.startswith("asiga_")]
+    fgm = {"fgm_voxelprint_ceramic_ht": 4.5, "fgm_voxelprint_ceramic_mt": 4.5, "fgm_voxelprint_ceramic_lt": 4.7,
+           "fgm_voxelprint_temp": 5.2, "fgm_voxelprint_splint_tough": 9.9}
+    assert set(fgm) <= builtin
+    mats = profiles.load("materials")
+    for pid, exp_xl in fgm.items():
+        assert mats[pid]["vendor"] == "FGM"
+        for printer in ("phrozen_sonic_xl_4k_plus", "phrozen_sonic_cs_plus", "phrozen_sonic_ls_plus"):
+            for h in (0.03, 0.05, 0.1):
+                s_ = profiles.build_config(printer, pid, None, {"exposure_mode": "stable", "sla_layer_height": h})
+                f_ = profiles.build_config(printer, pid, None, {"exposure_mode": "fast", "sla_layer_height": h})
+                assert s_["exposure_time"] == f_["exposure_time"] > 0
+                assert f_["lift_speed"] > s_["lift_speed"] and f_["retract_speed"] > s_["retract_speed"]
+                assert f_["bottom_exposure_time"] == s_["bottom_exposure_time"] >= 25
+        xl = profiles.build_config("phrozen_sonic_xl_4k_plus", pid, None, {"sla_layer_height": 0.1})
+        assert xl["exposure_time"] == exp_xl                                   # FGM's own number
+        cs = profiles.build_config("phrozen_sonic_cs_plus", pid, None, {"sla_layer_height": 0.1})
+        assert cs["exposure_time"] < exp_xl and cs["bottom_exposure_time"] >= 50  # the CS+ as Phrozen set it
+    assert mats["fgm_voxelprint_temp"]["values"]["shrink_z"] == 0.4
+    assert mats["fgm_voxelprint_splint_tough"]["values"]["shrink_xy"] == 0.5
 
 def test_the_window_never_needs_more_height_than_a_short_screen(tmp_path):
     """The lab: now and then the bottom bar (Update) went under the Windows taskbar. The right panel's top
