@@ -12309,7 +12309,7 @@ def test_the_window_never_needs_more_height_than_a_short_screen(tmp_path):
     (printer, resin, quality, the selection notice, the support progress) set the window's least height; on a
     short or scaled screen that was taller than the room above the taskbar, and Windows made the maximized
     window that tall. The settings scroll in a holder of their own now: the window's least height stays small,
-    and on a tall window nothing changes (the settings get the whole panel)."""
+    and on a tall window nothing changes (the settings get the whole panel, never wider than it)."""
     import subprocess, sys, textwrap
     code = textwrap.dedent('''
         import os
@@ -12324,8 +12324,14 @@ def test_the_window_never_needs_more_height_than_a_short_screen(tmp_path):
         assert w.settings_holder.widget() is w.settings
         assert not w.settings_holder.verticalScrollBar().isVisible()           # tall: no extra scrollbar
         assert w.settings.height() >= w.settings_holder.viewport().height() - 1
+        # the panel's width, whatever the settings ask (wider Windows fonts cut the panel's right side off)
+        from PySide6.QtWidgets import QWidget
+        wide = [c for c in w.settings.findChildren(QWidget) if c.isVisible()][3]
+        wide.setMinimumWidth(560); app.processEvents()
+        assert w.settings.width() == w.settings_holder.viewport().width(), (w.settings.width(),)
         w.resize(1600, 500); app.processEvents()
         assert w.height() <= 520
+        assert w.settings.width() == w.settings_holder.viewport().width()     # beside the scrollbar
         print("OK")
     ''')
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300,

@@ -6,7 +6,7 @@ import os
 import sys
 
 import numpy as np
-from PySide6.QtCore import QEventLoop, QItemSelectionModel, QSettings, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QEvent, QEventLoop, QObject, QItemSelectionModel, QSettings, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon, QImage, QKeySequence, QPixmap
 from PySide6.QtWidgets import (QApplication, QDialog, QCheckBox, QDoubleSpinBox, QFileDialog, QInputDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QListWidget, QListWidgetItem, QScrollArea, QMainWindow, QMenu, QMessageBox, QProgressBar,
@@ -41,6 +41,19 @@ ENGINE_TEXT = {
 def _stem(name: str) -> str:
     from ..dental_cad import stem
     return stem(name)
+
+
+class _OnResize(QObject):
+    """Calls ``fn`` when the watched widget is resized (owned by ``parent``: it goes with it)."""
+
+    def __init__(self, parent, fn):
+        super().__init__(parent)
+        self._fn = fn
+
+    def eventFilter(self, obj, ev):
+        if ev.type() == QEvent.Type.Resize:
+            self._fn()
+        return False
 
 
 def _card(parent=None) -> QFrame:
@@ -1250,6 +1263,14 @@ class MainWindow(QMainWindow):
         self.mask_wrap.hide()
         return holder
 
+    def _fit_settings_width(self):
+        try:
+            holder = self.settings.parentWidget() and self.settings.parentWidget().parentWidget()
+        except RuntimeError:                         # the window is going
+            return
+        if isinstance(holder, QScrollArea):
+            self.settings.setFixedWidth(max(100, holder.viewport().width()))
+
     def _build_right_panel(self):
         panel = QFrame()
         panel.setObjectName("SideBar")
@@ -1342,6 +1363,12 @@ class MainWindow(QMainWindow):
                              " { background: transparent; }")
         holder.setMinimumHeight(160)
         holder.setWidget(self.settings)
+        # only up and down: the settings always take the panel's own width (a scroll area otherwise gives them
+        # the width they ask for - wider with Windows fonts - and the panel's right side was cut off)
+        self.settings.setMinimumWidth(0)
+        self._width_watch = _OnResize(holder, self._fit_settings_width)
+        holder.viewport().installEventFilter(self._width_watch)
+        self._fit_settings_width()
         self.settings_holder = holder
         lay.addWidget(holder, 1)
 
