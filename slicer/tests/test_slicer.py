@@ -12347,3 +12347,23 @@ def test_the_window_never_needs_more_height_than_a_short_screen(tmp_path):
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300,
                          cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     assert "OK" in out.stdout, out.stdout + out.stderr
+
+
+def test_resin_bottle_photos_shipped_for_the_labs_resins():
+    """The resin list shows each resin's own bottle: the makers' photos ship for the FGM VoxelPrint resins and
+    Phrozen's (Phrozen Dental, Engineering, consumer lines); each named by an id the library has, 166x256 with
+    a transparent surround, so none hangs on a resin that is gone."""
+    import os
+    from PySide6.QtGui import QImage
+    from unislicer import profiles
+    from unislicer.gui import printer_images as pi
+    mats = profiles.load("materials")
+    names = [n for n in os.listdir(pi.MATERIAL_BUILTIN_DIR) if n.endswith(".png")]
+    assert len(names) >= 40
+    for n in names:
+        assert n[:-4] in mats, n
+        img = QImage(os.path.join(pi.MATERIAL_BUILTIN_DIR, n))
+        assert (img.width(), img.height()) == (166, 256) and img.hasAlphaChannel(), n
+    for pid in ("fgm_voxelprint_ceramic_lt", "fgm_voxelprint_temp", "fgm_voxelprint_splint_tough",
+                "phrozen_ds_phrozen_dental_gingiva_mask", "phrozen_ds_phrozen_engineering_castable_w40_orange"):
+        assert (pi.photo_path(pid, "materials") or "").startswith(pi.MATERIAL_BUILTIN_DIR), pid
