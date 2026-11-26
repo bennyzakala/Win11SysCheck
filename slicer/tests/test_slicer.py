@@ -11870,3 +11870,30 @@ def test_a_jaw_models_narrow_base_rim_is_supported_all_along():
         for r in (21.8, 23.25, 24.7):
             q = np.array([r * np.cos(a), r * np.sin(a)])
             assert np.min(np.hypot(*(pts[:, :2] - q).T)) <= reach, (np.degrees(a), r)
+
+
+def test_the_supports_card_stays_put_while_objects_and_transform_scroll(tmp_path):
+    """The lab: Objects and Transform scroll; the Supports card stays fixed under them, always in reach."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1600, 700); w.show(); app.processEvents()
+        w.settings.printer_id = "phrozen_sonic_xl_4k_plus"; w.settings.rebuild(); app.processEvents()
+        inner = w.left_scroll.widget()
+        assert not inner.isAncestorOf(w.supports_card)                  # not in the scrolling part
+        assert inner.isAncestorOf(w.object_list) and inner.isAncestorOf(w.transform_card)
+        y0 = w.supports_card.mapTo(w, w.supports_card.rect().topLeft()).y()
+        w.left_scroll.verticalScrollBar().setValue(10000); app.processEvents()
+        assert w.supports_card.mapTo(w, w.supports_card.rect().topLeft()).y() == y0
+        assert w.supports_card.isVisible() and w.supports_card.height() > 100
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=240, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

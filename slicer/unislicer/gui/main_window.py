@@ -847,8 +847,7 @@ class MainWindow(QMainWindow):
         self.sup_info.setObjectName("Faint")
         self.sup_info.setWordWrap(True)
         sl.addWidget(self.sup_info)
-        self.supports_card = sup
-        lay.addWidget(sup)
+        self.supports_card = sup          # pinned under the scrolling part (see below)
 
         self.pos_x.valueChanged.connect(lambda v: self._edit("x", v))
         self.pos_y.valueChanged.connect(lambda v: self._edit("y", v))
@@ -858,15 +857,29 @@ class MainWindow(QMainWindow):
             self.rot[i].valueChanged.connect(lambda v, i=i: self._edit("rot", v, i))
             self.scale[i].valueChanged.connect(lambda v, i=i: self._edit("scale", v, i))
             self.size_spins[i].valueChanged.connect(lambda v, i=i: self._edit("size", v, i))
-        # short screens: scroll instead of squashing the buttons
+        # short screens: Objects and Transform scroll; the Supports card stays put under them, always in
+        # reach (the lab: it scrolled away with the rest)
         scroll = QScrollArea()
         scroll.setObjectName("SideBar")
         scroll.setWidget(panel)
         scroll.setWidgetResizable(True)
-        scroll.setFixedWidth(330)
+        scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         panel.setFixedWidth(320)
-        return scroll
+        side = QFrame()
+        side.setObjectName("SideBar")
+        side.setFixedWidth(330)
+        outer = QVBoxLayout(side)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        outer.addWidget(scroll, 1)
+        pinned = QWidget()
+        pl = QVBoxLayout(pinned)
+        pl.setContentsMargins(12, 0, 12 + 10, 12)
+        pl.addWidget(sup)
+        outer.addWidget(pinned)
+        self.left_scroll = scroll
+        return side
 
     def _build_viewport(self):
         holder = QWidget()
