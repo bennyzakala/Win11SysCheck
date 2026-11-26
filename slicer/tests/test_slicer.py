@@ -12302,3 +12302,32 @@ def test_shipped_asiga_resins_have_stable_and_fast_on_each_printer():
             s, f = got["stable"], got["fast"]
             assert s["exposure_time"] == f["exposure_time"] > 0
             assert f["lift_speed"] > s["lift_speed"] and f["retract_speed"] > s["retract_speed"], (pid, printer)
+
+
+def test_the_window_never_needs_more_height_than_a_short_screen(tmp_path):
+    """The lab: now and then the bottom bar (Update) went under the Windows taskbar. The right panel's top
+    (printer, resin, quality, the selection notice, the support progress) set the window's least height; on a
+    short or scaled screen that was taller than the room above the taskbar, and Windows made the maximized
+    window that tall. The settings scroll in a holder of their own now: the window's least height stays small,
+    and on a tall window nothing changes (the settings get the whole panel)."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.resize(1600, 1000); w.show(); app.processEvents()
+        w.settings.printer_id = "phrozen_sonic_xl_4k_plus"; w.settings.rebuild(); app.processEvents()
+        w.supports_card.setVisible(True); app.processEvents()
+        assert w.minimumSizeHint().height() < 560, w.minimumSizeHint().height()
+        assert w.settings_holder.widget() is w.settings
+        assert not w.settings_holder.verticalScrollBar().isVisible()           # tall: no extra scrollbar
+        assert w.settings.height() >= w.settings_holder.viewport().height() - 1
+        w.resize(1600, 500); app.processEvents()
+        assert w.height() <= 520
+        print("OK")
+    ''')
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300,
+                         cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    assert "OK" in out.stdout, out.stdout + out.stderr

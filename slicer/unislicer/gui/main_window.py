@@ -1328,7 +1328,22 @@ class MainWindow(QMainWindow):
         self.settings.scope = lambda: self.selected_objects() if self.settings.technology == "sla" else []
         self.settings.scopeEdited.connect(self._scope_edit)
         self.settings.scopeReset.connect(self._scope_reset)
-        lay.addWidget(self.settings, 1)
+        # the panel's top (printer, resin, quality, the selection notice) sits outside the settings' own scroll:
+        # its height is the window's least height. On a short screen (Windows scaling, the support progress
+        # shown) that was taller than the room above the taskbar, and Windows made the maximized window that
+        # tall - the bottom bar with Update went under the taskbar. In a scroll area of its own it scrolls
+        # there instead, and the window always fits.
+        holder = QScrollArea()
+        holder.setObjectName("SettingsHolder")
+        holder.setWidgetResizable(True)
+        holder.setFrameShape(QFrame.NoFrame)
+        holder.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        holder.setStyleSheet("QScrollArea#SettingsHolder, QScrollArea#SettingsHolder > QWidget > QWidget"
+                             " { background: transparent; }")
+        holder.setMinimumHeight(160)
+        holder.setWidget(self.settings)
+        self.settings_holder = holder
+        lay.addWidget(holder, 1)
 
         action = _card()
         al = QVBoxLayout(action)
