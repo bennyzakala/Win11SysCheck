@@ -9,6 +9,13 @@ import re
 import xml.etree.ElementTree as ET
 
 
+
+# how a maker / resin is shown in the resin list (its id keeps the name in the export): ID Print's resins come
+# under two spellings in DS Slicer ("ID print", "ID3DPRINT") - one maker, ID PRINT 3D
+SHOWN_BRANDS = {"ID print": "ID PRINT 3D", "ID3DPRINT": "ID PRINT 3D"}
+SHOWN_NAMES = {"Phrozen Sonic CS+ \u00b7 Duranite A1": "DuraNite A1", "DURANITE A1": "DuraNite A1",
+               "DuraNite": "DuraNite"}
+
 def is_ds_export(path: str) -> bool:
     """A DS Slicer export: an XML file with ResinConfig entries."""
     try:
@@ -114,7 +121,7 @@ def convert(xml_path: str) -> tuple[dict, dict, dict]:
             brand, name = "Phrozen", f"DS Slicer default ({pname})"
         if not name:
             continue
-        brand = {"ID Print": "ID print", "ID3DPRINT": "ID3DPRINT"}.get(brand, brand)
+        brand = {"ID Print": "ID print", "ID3DPRINT": "ID3DPRINT"}.get(brand, brand)    # (the ids keep these)
         rid = "phrozen_ds_" + slug(f"{brand} {name}")
         entry = resins.setdefault(rid, {"brand": brand, "name": name, "tables": {}, "prio": {},
                                         "colour": [int(_f(rc, "ResinColorR", 200)), int(_f(rc, "ResinColorG", 200)),
@@ -146,7 +153,7 @@ def convert(xml_path: str) -> tuple[dict, dict, dict]:
         values = dict(first[default_th].get("stable") or next(iter(first[default_th].values())))
         values["material_name"] = f"{e['brand']} {e['name']}"
         materials[rid] = {
-            "name": e["name"], "vendor": e["brand"], "technology": "sla", "family": "dental",
+            "name": SHOWN_NAMES.get(e["name"], e["name"]), "vendor": SHOWN_BRANDS.get(e["brand"], e["brand"]), "technology": "sla", "family": "dental",
             "processes": ["lcd", "dlp"], "printers": printers, "printers_only": True,
             "color": [round(c / 255, 3) for c in e["colour"]],
             "note": (f"Phrozen DS Slicer {version} factory profile. Exposure, lift, speeds and shrink compensation follow "

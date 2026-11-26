@@ -141,3 +141,6 @@ siraya_build: https://siraya.tech/products/build-resin-drillable-precision-print
 sunlu_abs_like: https://store.sunlu.com/products/moq-6-bottles-abs-like-resin-2000g
 sunlu_standard: https://store.sunlu.com/products/classic-formula-resin-collection
 sunlu_water_washable: https://store.sunlu.com/products/classic-formula-resin-collection
+phrozen_ds_id_print_duranite: ID PRINT 3D product photo (sent by the lab)
+phrozen_ds_id_print_duranite_a1: ID PRINT 3D product photo (sent by the lab)
+phrozen_ds_id_print_phrozen_sonic_cs_duranite_a1: ID PRINT 3D product photo (sent by the lab)
