@@ -916,7 +916,7 @@
  },
  "phrozen_dental_lumii": {
   "name": "Dental resin – Lumii starting values",
-  "vendor": "Phrozen Dental",
+  "vendor": "Generic",
   "technology": "sla",
   "family": "dental",
   "note": "Phrozen's Lumii dental profile: 0.05 mm, bottom 25–35 s x 6 layers, normal 2.0–2.5 s (midpoints used).",
@@ -942,7 +942,7 @@
  },
  "dental_model": {
   "name": "Dental model resin",
-  "vendor": "Phrozen Dental",
+  "vendor": "Generic",
   "technology": "sla",
   "family": "dental",
   "note": "Generic starting point; use the resin maker's validated parameters.",
@@ -971,7 +971,7 @@
  },
  "dental_crown_bridge": {
   "name": "Crown & bridge (temporary)",
-  "vendor": "Phrozen Dental",
+  "vendor": "Generic",
   "technology": "sla",
   "family": "dental",
   "note": "Generic starting point; use the resin maker's validated parameters.",
@@ -1000,7 +1000,7 @@
  },
  "dental_surgical_guide": {
   "name": "Surgical guide resin",
-  "vendor": "Phrozen Dental",
+  "vendor": "Generic",
   "technology": "sla",
   "family": "dental",
   "note": "Generic starting point; use the resin maker's validated parameters.",
@@ -1029,7 +1029,7 @@
  },
  "dental_splint": {
   "name": "Splint / night guard (clear)",
-  "vendor": "Phrozen Dental",
+  "vendor": "Generic",
   "technology": "sla",
   "family": "dental",
   "note": "Generic starting point; use the resin maker's validated parameters.",
@@ -1058,7 +1058,7 @@
  },
  "dental_denture_base": {
   "name": "Denture base resin",
-  "vendor": "Phrozen Dental",
+  "vendor": "Generic",
   "technology": "sla",
   "family": "dental",
   "note": "Generic starting point; use the resin maker's validated parameters.",
@@ -1087,7 +1087,7 @@
  },
  "dental_gingiva": {
   "name": "Gingiva mask (flexible)",
-  "vendor": "Phrozen Dental",
+  "vendor": "Generic",
   "technology": "sla",
   "family": "dental",
   "note": "Generic starting point; use the resin maker's validated parameters.",

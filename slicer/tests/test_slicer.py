@@ -6180,8 +6180,12 @@ def test_the_resin_menu_is_grouped_by_company_and_kind():
         assert "Phrozen Dental" in subs[0].title()                    # the chosen resin's company first
         acts = subs[0].actions()
         heads = [a.text() for a in acts if not a.isEnabled() and not a.isSeparator()]
-        assert heads[0] == tr("mtype_model") and tr("mtype_crown") in heads
-        names = [a.text().strip() for a in acts if a.isEnabled()]
+        assert heads[0] == tr("mtype_model") and tr("mtype_castable") in heads, heads
+        # the generic dental starting points (crown & bridge...) sit under Generic, by kind, "&" kept
+        gen = [m for m in subs if "Generic" in m.title()][0]
+        gheads = [a.text() for a in gen.actions() if not a.isEnabled() and not a.isSeparator()]
+        assert tr("mtype_crown") in gheads, gheads
+        names = [a.text().strip() for a in gen.actions() if a.isEnabled()]
         assert any("Crown & bridge" in a.replace("&&", "&") and "&&" in a for a in names), names
         pick = [a for a in acts if a.isEnabled() and "Dental Study Model" in a.text()][0]
         pick.trigger(); app.processEvents()
@@ -12374,7 +12378,8 @@ def test_resin_bottle_photos_shipped_for_the_labs_resins():
 
 def test_phrozen_dental_printer_offers_no_phrozen_consumer_resins():
     """The lab: on a Phrozen dental printer only Phrozen Dental's library (and the dental makers') - not Phrozen's
-    consumer and engineering resins. A Phrozen printer that is not a dental one keeps them; the lab's own
+    consumer and engineering resins, nor any resin not made for the printer; Phrozen Dental holds only its real
+    products (the generic dental starting points are "Generic"). A Phrozen printer that is not a dental one keeps them; the lab's own
     resins are always shown."""
     import subprocess, sys, textwrap
     code = textwrap.dedent('''
@@ -12391,7 +12396,13 @@ def test_phrozen_dental_printer_offers_no_phrozen_consumer_resins():
         p = SettingsPanel("phrozen_sonic_xl_4k_plus", "phrozen_ds_phrozen_washable_dental_model", None, {}, False)
         v = vendors(p)
         assert "Phrozen Dental" in v and "JamgHe x Phrozen" in v, v
-        assert not v & {"Phrozen", "Phrozen Engineering"}, v
+        assert not v & {"Phrozen", "Phrozen Engineering", "Elegoo", "Anycubic", "Siraya Tech", "Sunlu"}, v
+        c = p.material_combo
+        ids = [c.itemData(i) for i in range(c.count()) if c.itemData(i)]
+        assert all("phrozen_sonic_xl_4k_plus" in mats[i].get("printers", []) for i in ids)   # only resins made for it
+        pd = [i for i in ids if mats[i]["vendor"] == "Phrozen Dental"]
+        assert pd and all(mats[i].get("layer_table", {}).get("phrozen_sonic_xl_4k_plus") for i in pd), pd
+        assert "dental_model" in ids and mats["dental_model"]["vendor"] == "Generic"   # a starting point, not Phrozen's
         assert mats[p.material_id]["vendor"] == "Phrozen Dental", p.material_id   # the same resin, Phrozen Dental's
         assert profiles.hidden_on("phrozen_sonic_xl_4k_plus", {"vendor": "Phrozen"})
         assert not profiles.hidden_on("phrozen_sonic_xl_4k_plus", {"vendor": "Phrozen", "user": True})

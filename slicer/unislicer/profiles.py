@@ -124,12 +124,17 @@ def is_dental_printer(printer: dict | None) -> bool:
 
 
 def hidden_on(printer_id: str | None, material: dict) -> bool:
-    """A resin left out of the list on this printer: a Phrozen consumer / engineering resin on a Phrozen dental
-    printer (the lab's own resins are always shown)."""
-    if material.get("user") or material.get("vendor") not in NON_DENTAL_VENDORS:
+    """A resin left out of the list on this printer. On a Phrozen dental printer the list holds only resins made
+    for it - each with its own values for this printer (the dental makers', Phrozen Dental's) or a dental
+    starting point linked to it: Phrozen's consumer / engineering resins and any resin not made for this
+    printer (consumer makers', generic ones, with general values) are left out. The lab's own resins are always
+    shown."""
+    if material.get("user"):
         return False
     printer = load("printers").get(printer_id or "")
-    return is_dental_printer(printer) and str(printer.get("vendor") or "").lower().startswith("phrozen")
+    if not (is_dental_printer(printer) and str(printer.get("vendor") or "").lower().startswith("phrozen")):
+        return False
+    return material.get("vendor") in NON_DENTAL_VENDORS or printer_id not in material.get("printers", [])
 
 
 def display_name(profile: dict, lang: str = "en") -> str:
