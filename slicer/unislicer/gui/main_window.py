@@ -877,6 +877,11 @@ class MainWindow(QMainWindow):
         pl = QVBoxLayout(pinned)
         pl.setContentsMargins(12, 0, 12 + 10, 12)
         pl.addWidget(sup)
+        # its full height always: on a short window the scrolling part gives way, never the card (it was
+        # squashed on a short screen)
+        sup.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        pinned.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        scroll.setMinimumHeight(60)
         outer.addWidget(pinned)
         self.left_scroll = scroll
         return side

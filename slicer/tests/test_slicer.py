@@ -11883,13 +11883,18 @@ def test_the_supports_card_stays_put_while_objects_and_transform_scroll(tmp_path
         from unislicer.gui.main_window import MainWindow
         w = MainWindow(); w.resize(1600, 700); w.show(); app.processEvents()
         w.settings.printer_id = "phrozen_sonic_xl_4k_plus"; w.settings.rebuild(); app.processEvents()
+        w.supports_card.setVisible(True); app.processEvents()   # shown for resin printers (updated a moment later)
+        w.resize(1600, 1100); app.processEvents()
+        tall = w.supports_card.height()
+        w.resize(1600, 400); app.processEvents()                       # a short screen: the card keeps its height
         inner = w.left_scroll.widget()
         assert not inner.isAncestorOf(w.supports_card)                  # not in the scrolling part
         assert inner.isAncestorOf(w.object_list) and inner.isAncestorOf(w.transform_card)
         y0 = w.supports_card.mapTo(w, w.supports_card.rect().topLeft()).y()
         w.left_scroll.verticalScrollBar().setValue(10000); app.processEvents()
         assert w.supports_card.mapTo(w, w.supports_card.rect().topLeft()).y() == y0
-        assert w.supports_card.isVisible() and w.supports_card.height() > 100
+        card = w.supports_card
+        assert card.isVisible() and card.height() == tall and tall > 100, (card.isVisible(), card.height(), tall, w.height())
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
