@@ -285,8 +285,15 @@ class ProfileManager(QDialog):
                 self._select(g.child(0).data(0, Qt.UserRole))
 
     def _import(self):
-        path, _ = QFileDialog.getOpenFileName(self, tr("pm_import"), "", "UniSlicer profiles (*.json)")
+        filters = "UniSlicer profiles (*.json)"
+        if self.kind == "materials":
+            filters = "UniSlicer / Asiga Composer (*.json *.ini);;UniSlicer profiles (*.json);;Asiga Composer (*.ini)"
+        path, _ = QFileDialog.getOpenFileName(self, tr("pm_import"), "", filters)
         if not path:
+            return
+        from .. import asiga_import
+        if self.kind == "materials" and asiga_import.is_asiga(path):
+            self._import_asiga(path)
             return
         try:
             added = profiles.import_profiles(self.kind, path)
@@ -296,6 +303,74 @@ class ProfileManager(QDialog):
         self._fill_tree()
         if added:
             self._select(added[0])
+
+    def _import_asiga(self, path: str):
+        """An Asiga Composer resin for our Phrozen printers: which printers, and (after an exposure test) the
+        exposure found at 0.05 mm - without it the times are an estimate, and the profile says so."""
+        from PySide6.QtWidgets import QCheckBox, QComboBox, QDialogButtonBox, QDoubleSpinBox, QVBoxLayout
+        from .. import asiga_import
+        try:
+            asiga = asiga_import.parse(path)
+        except Exception as exc:
+            QMessageBox.warning(self, tr("pm_import"), str(exc))
+            return
+        mats = profiles.load("materials")
+        ref = mats.get(asiga_import.REFERENCE_RESIN) or mats.get(asiga_import.FALLBACK_RESIN) or {}
+        printers = profiles.load("printers")
+        choices = [p for p in ref.get("layer_table", {}) if p in printers]
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("asiga_title"))
+        lay = QVBoxLayout(dlg)
+        info = QLabel(tr("asiga_info").format(asiga["name"]))
+        info.setWordWrap(True)
+        lay.addWidget(info)
+        boxes = {}
+        for p in choices:
+            b = QCheckBox(profiles.display_name(printers[p]))
+            b.setChecked(p in asiga_import.DEFAULT_PRINTERS)
+            lay.addWidget(b)
+            boxes[p] = b
+        lay.addWidget(QLabel(tr("asiga_calibrated")))
+        row = QHBoxLayout()
+        spin = QDoubleSpinBox()
+        spin.setRange(0.0, 60.0)
+        spin.setDecimals(2)
+        spin.setSingleStep(0.1)
+        spin.setSpecialValueText(tr("asiga_estimate"))
+        on = QComboBox()
+        for p in choices:
+            on.addItem(profiles.display_name(printers[p]), p)
+        row.addWidget(spin)
+        row.addWidget(on, 1)
+        lay.addLayout(row)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        chosen = [p for p, b in boxes.items() if b.isChecked()]
+        if not chosen:
+            return
+        try:
+            pid, prof = profiles.import_asiga(path, chosen, spin.value() or None, on.currentData())
+        except Exception as exc:
+            QMessageBox.warning(self, tr("pm_import"), str(exc))
+            return
+        rep = prof["report"]
+        lines = [tr("asiga_done").format(prof["name"], len(chosen))]
+        for p in chosen:
+            row005 = prof["layer_table"][p].get("0.050", {}).get("stable", {})
+            lines.append(f"  {profiles.display_name(printers[p])}: {row005.get('exposure_time')} s @ 0.05 mm, "
+                         f"{row005.get('bottom_exposure_time')} s × {row005.get('bottom_layers')}")
+        lines.append(tr("asiga_imported") + ", ".join(tr(k) for k in rep["imported"]))
+        if rep["estimated"]:
+            lines.append("⚠ " + tr("asiga_estimated") + ", ".join(tr(k) for k in rep["estimated"]))
+        lines.append(tr("asiga_from_printer") + ", ".join(tr(k) for k in rep["from_printer"]))
+        lines.append(tr("asiga_left_out") + ", ".join(tr(k) for k in rep["left_out"]))
+        QMessageBox.information(self, tr("asiga_title"), "\n".join(lines))
+        self._fill_tree()
+        self._select(pid)
 
     def _export(self):
         if not self._pid:

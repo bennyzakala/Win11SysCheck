@@ -12022,3 +12022,63 @@ def test_a_plate_spacing_set_by_hand_does_not_thin_out_a_crowns_supports():
     # a crown known by its name only (the lab's file names) as well
     o = SceneObject(primitives.box(5, 5, 5), name="SZY-SOD260049793-044-P-22-11-3-00-R526_2.stl")
     assert o.config(cfg)["sla_support_spacing"] == 2.0
+
+
+def test_an_asiga_composer_resin_imports_for_the_phrozen_printers(tmp_path, monkeypatch):
+    """The lab's Voxelprint Ceramic resins come as Asiga Composer material files (*.ini). Imported for the
+    Phrozen printers: the exposure curve per layer height comes from the file, its level from Saremco
+    Crowntec (a ceramic crown resin) on each printer - an estimate, said so in the name and note - and an
+    exposure found by a test at 0.05 mm sets every height and printer. Shrinkage compensation comes along;
+    lift and speeds stay the printer's."""
+    from unislicer import asiga_import
+    monkeypatch.setattr(profiles, "USER_DIR", str(tmp_path / "user"))
+    ini = tmp_path / "Ceramic_A1.ini"
+    ini.write_text("""Version=5
+[General]
+Name="Test Ceramic A1"
+[:/Gen-2UV/Curing]
+Light Intensity=4.2 ;maximum light intensity
+Z=[	3.5	,	0.03	,	7.08	]
+Z=[	3.8	,	0.05	,	7.08	]
+Z=[	5.0	,	0.11	,	7.08	]
+Burn-In Layers=1
+Burn-In Exposure=0.67
+XY Scale=1.001     ;shrinkage compensation
+Z Compensation=0.05
+[:/PRO-Platform/Delays]
+Normal Wait Time (After Approach)=1
+[Support]
+Spacing=2
+Contact=0.35
+""", encoding="utf-8")
+    assert asiga_import.is_asiga(str(ini))
+    a = asiga_import.parse(str(ini))
+    assert a["name"] == "Test Ceramic A1" and len(a["table"]) == 3 and a["light_intensity"] == 4.2
+    assert abs(asiga_import.energy_at(a, 0.08) - 4.4) < 1e-6           # along the curve
+    pid, prof = profiles.import_asiga(str(ini), ["phrozen_sonic_ls_plus", "phrozen_sonic_xl_4k_plus"])
+    assert "estimate" in prof["name"] and "ESTIMATE" in prof["note"]
+    ref = profiles.load("materials")[asiga_import.REFERENCE_RESIN]
+    for p in ("phrozen_sonic_ls_plus", "phrozen_sonic_xl_4k_plus"):
+        rows = prof["layer_table"][p]
+        level = ref["layer_table"][p]["0.050"]["stable"]["exposure_time"]
+        assert rows["0.050"]["stable"]["exposure_time"] == level            # Crowntec's level on this printer
+        e100 = asiga_import.energy_at(a, 0.1)
+        assert abs(rows["0.100"]["stable"]["exposure_time"] - round(level * e100 / 3.8, 2)) < 1e-9   # the curve
+        assert rows["0.050"]["stable"]["shrink_xy"] == 0.1
+        assert rows["0.050"]["stable"]["rest_after_retract"] >= 1.0
+    # in use: the LS+ with this resin gets its row
+    cfg = profiles.build_config("phrozen_sonic_ls_plus", pid, "sla_normal", {})
+    assert cfg["exposure_time"] == prof["layer_table"]["phrozen_sonic_ls_plus"]["0.050"]["stable"]["exposure_time"]
+    # after an exposure test: 2.0 s at 0.05 mm on the LS+ - every height and printer follow, same profile
+    pid2, prof2 = profiles.import_asiga(str(ini), ["phrozen_sonic_ls_plus", "phrozen_sonic_xl_4k_plus"],
+                                        exposure_005=2.0, calibrated_on="phrozen_sonic_ls_plus")
+    assert pid2 == pid and "estimate" not in prof2["name"]
+    assert prof2["layer_table"]["phrozen_sonic_ls_plus"]["0.050"]["stable"]["exposure_time"] == 2.0
+    factor = 2.0 / ref["layer_table"]["phrozen_sonic_ls_plus"]["0.050"]["stable"]["exposure_time"]
+    xl = prof2["layer_table"]["phrozen_sonic_xl_4k_plus"]["0.050"]["stable"]["exposure_time"]
+    assert abs(xl - round(ref["layer_table"]["phrozen_sonic_xl_4k_plus"]["0.050"]["stable"]["exposure_time"] * factor, 2)) < 1e-9
+    assert len([k for k in profiles.load("materials") if k.startswith("asiga_")]) == 1
+    # not an Asiga file: refused
+    other = tmp_path / "x.ini"
+    other.write_text("[foo]\nbar=1\n", encoding="utf-8")
+    assert not asiga_import.is_asiga(str(other))

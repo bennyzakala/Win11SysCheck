@@ -248,6 +248,28 @@ def import_profiles(kind: str, path: str) -> list[str]:
     return added
 
 
+def import_asiga(path: str, printers=None, exposure_005: float | None = None,
+                 calibrated_on: str | None = None) -> tuple[str, dict]:
+    """An Asiga Composer material file as a resin for these Phrozen printers (see asiga_import). Importing the
+    same material again (say with the exposure an exposure test found) replaces it. Returns (id, profile)."""
+    from . import asiga_import
+    asiga = asiga_import.parse(path)
+    mats = load("materials")
+    reference = mats.get(asiga_import.REFERENCE_RESIN) or mats.get(asiga_import.FALLBACK_RESIN) or {}
+    have = set(reference.get("layer_table", {}))
+    printers = [p for p in (printers or asiga_import.DEFAULT_PRINTERS) if p in have]
+    prof = asiga_import.to_material(asiga, printers, reference, exposure_005, calibrated_on)
+    os.makedirs(USER_DIR, exist_ok=True)
+    data = _load(_user_path("materials"))
+    pid = "asiga_" + (re.sub(r"[^a-z0-9]+", "_", asiga["name"].lower()).strip("_") or "material")
+    entry = {k: v for k, v in prof.items() if k not in ("report", "calibrated")}
+    entry["values"] = {k: v for k, v in prof["values"].items() if k in SCHEMA_BY_KEY}
+    entry["values"]["technology"] = "sla"
+    data[pid] = entry
+    _save_json(_user_path("materials"), data)
+    return pid, prof
+
+
 def _support_raft_key(key: str) -> bool:
     """Support / raft geometry belongs to the printer profile - not to a resin or a layer-height quality. A
     value wrongly saved into a material or quality (e.g. an old learned default) is ignored, so the printer's
