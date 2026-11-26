@@ -645,6 +645,7 @@
   "note": "405 nm 2K DLP. Build area 130 x 73 x 160 mm, 2560 x 1440 px (Phrozen DS Slicer 4.4 factory profile); a mini plate exists (add its size from the plate menu). .prz as for the Sonic CS+.",
   "values": {
    "technology": "sla",
+   "sla_process": "dlp",
    "bed_x": 130.0,
    "bed_y": 73.0,
    "max_z": 160.0,

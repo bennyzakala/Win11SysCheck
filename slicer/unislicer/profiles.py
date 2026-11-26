@@ -114,6 +114,24 @@ def for_technology(kind: str, technology: str, process: str | None = None) -> di
             and (process is None or technology != "sla" or process in v.get("processes", [process]))}
 
 
+# Phrozen's libraries that are not for dental work: not offered on Phrozen's dental printers, where Phrozen
+# Dental's own resins (and the dental makers') are the ones to print with
+NON_DENTAL_VENDORS = {"Phrozen", "Phrozen Engineering"}
+
+
+def is_dental_printer(printer: dict | None) -> bool:
+    return bool(printer) and "(dental)" in str(printer.get("name") or "").lower()
+
+
+def hidden_on(printer_id: str | None, material: dict) -> bool:
+    """A resin left out of the list on this printer: a Phrozen consumer / engineering resin on a Phrozen dental
+    printer (the lab's own resins are always shown)."""
+    if material.get("user") or material.get("vendor") not in NON_DENTAL_VENDORS:
+        return False
+    printer = load("printers").get(printer_id or "")
+    return is_dental_printer(printer) and str(printer.get("vendor") or "").lower().startswith("phrozen")
+
+
 def display_name(profile: dict, lang: str = "en") -> str:
     return (profile.get(f"name_{lang}") or profile.get("name") or profile.get("name_en")
             or profile.get("name_he") or "?")

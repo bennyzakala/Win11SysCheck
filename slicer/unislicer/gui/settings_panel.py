@@ -1134,6 +1134,8 @@ class SettingsPanel(QWidget):
             for pid, p in ordered:
                 if p.get("printers_only") and not linked(p):     # e.g. Phrozen DS resins: only on their printers
                     continue
+                if kind == "materials" and profiles.hidden_on(self.printer_id, p):
+                    continue                     # Phrozen's non-dental resins on a Phrozen dental printer
                 vendor = p.get("vendor", "")
                 group = (linked(p), vendor)
                 if kind == "materials" and last_group is not None and group != last_group:
@@ -1247,7 +1249,7 @@ class SettingsPanel(QWidget):
         # printers with their own validated resins start on one of them
         printer = profiles.load("printers")[pid]
         mats = profiles.for_technology("materials", profiles.technology_of(printer), profiles.process_of(printer))
-        linked = [m for m, prof in mats.items() if pid in prof.get("printers", [])]
+        linked = [m for m, prof in mats.items() if pid in prof.get("printers", []) and not profiles.hidden_on(pid, prof)]
         if linked and self.material_id not in linked:
             # the same resin made for this printer when there is one (Phrozen · Washable Dental Model on the XL ->
             # Phrozen Dental · Washable Dental Model on the LS+), not just the first in the list

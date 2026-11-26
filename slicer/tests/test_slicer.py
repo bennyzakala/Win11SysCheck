@@ -6215,8 +6215,11 @@ def test_a_resin_for_other_printers_is_not_kept_hidden_in_use():
         assert p.material_id == dental, p.material_id
         assert p.material_combo.itemData(p.material_combo.currentIndex()) == dental
         assert p.config()["exposure_time"] == 1.0, p.config()["exposure_time"]
-        # chosen on the XL (where it belongs), then the printer is switched to the LS+
-        q = SettingsPanel("phrozen_sonic_xl_4k_plus", xl_only, None, {}, False)
+        # on the XL 4K Plus (dental) Phrozen's non-dental library is not offered: Phrozen Dental's at once
+        z = SettingsPanel("phrozen_sonic_xl_4k_plus", xl_only, None, {}, False)
+        assert z.material_id == dental, z.material_id
+        # chosen on an XL where it belongs (the 2022, not a dental printer), then switched to the LS+
+        q = SettingsPanel("phrozen_sonic_xl_4k_2022", xl_only, None, {}, False)
         assert q.material_id == xl_only
         q._on_printer(q.printer_combo.findData("phrozen_sonic_ls_plus"))
         assert q.material_id == dental, q.material_id
@@ -12367,3 +12370,45 @@ def test_resin_bottle_photos_shipped_for_the_labs_resins():
     for pid in ("fgm_voxelprint_ceramic_lt", "fgm_voxelprint_temp", "fgm_voxelprint_splint_tough",
                 "phrozen_ds_phrozen_dental_gingiva_mask", "phrozen_ds_phrozen_engineering_castable_w40_orange"):
         assert (pi.photo_path(pid, "materials") or "").startswith(pi.MATERIAL_BUILTIN_DIR), pid
+
+
+def test_phrozen_dental_printer_offers_no_phrozen_consumer_resins():
+    """The lab: on a Phrozen dental printer only Phrozen Dental's library (and the dental makers') - not Phrozen's
+    consumer and engineering resins. A Phrozen printer that is not a dental one keeps them; the lab's own
+    resins are always shown."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import profiles
+        from unislicer.gui.settings_panel import SettingsPanel
+        mats = profiles.load("materials")
+        def vendors(panel):
+            c = panel.material_combo
+            return {mats[c.itemData(i)].get("vendor") for i in range(c.count()) if c.itemData(i) in mats}
+        p = SettingsPanel("phrozen_sonic_xl_4k_plus", "phrozen_ds_phrozen_washable_dental_model", None, {}, False)
+        v = vendors(p)
+        assert "Phrozen Dental" in v and "JamgHe x Phrozen" in v, v
+        assert not v & {"Phrozen", "Phrozen Engineering"}, v
+        assert mats[p.material_id]["vendor"] == "Phrozen Dental", p.material_id   # the same resin, Phrozen Dental's
+        assert profiles.hidden_on("phrozen_sonic_xl_4k_plus", {"vendor": "Phrozen"})
+        assert not profiles.hidden_on("phrozen_sonic_xl_4k_plus", {"vendor": "Phrozen", "user": True})
+        assert not profiles.hidden_on("phrozen_sonic_mighty_8k", {"vendor": "Phrozen"})
+        p.select_printer("phrozen_sonic_mighty_8k"); app.processEvents()
+        assert "Phrozen" in vendors(p)
+        # the Lumii: a DLP printer (it read "LCD"), with its own photo
+        from unislicer.gui import printer_images as pi
+        lumii = profiles.load("printers")["phrozen_lumii_2k"]
+        assert profiles.process_of(lumii) == "dlp"
+        assert (pi.photo_path("phrozen_lumii_2k") or "").startswith(pi.BUILTIN_DIR)
+        p.select_printer("phrozen_lumii_2k"); app.processEvents()
+        assert "Phrozen Dental" in vendors(p) and not vendors(p) & {"Phrozen", "Phrozen Engineering"}
+        print("OK")
+    ''')
+    _home = str(__import__("tempfile").mkdtemp())
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300, env=env,
+                         cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    assert "OK" in out.stdout, out.stdout + out.stderr[-3000:]
