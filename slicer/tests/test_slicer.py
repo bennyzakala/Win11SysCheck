@@ -12678,3 +12678,55 @@ def test_gingiva_and_tissue_get_5_mm_support_spacing():
                                                              "_user_keys": ["sla_support_spacing"]})
             c.update({"sla_model_type": t})
             assert c["sla_support_spacing"] == 5.0, printer
+
+
+def test_cache_keeps_plate_results_on_a_plate_of_many_parts():
+    """A 20-part plate wrote one support entry per part on every slice: in a shared room of 12 they pushed
+    out the plate's contours and layers (and, used in turn, never hit themselves), so slicing the same plate
+    again took as long as the first time (~30 s instead of ~3 s on a lab's plate)."""
+    from unislicer import sla
+    sla.clear_cache()
+    try:
+        for r in range(2):
+            for i in range(20):
+                if r:
+                    assert sla._cache_get(("supports-build", f"part{i}")) == i
+                else:
+                    sla._cache_put(("supports-build", f"part{i}"), i)
+            if r:
+                assert sla._cache_get(("slice", "plate")) == "layers"
+            else:
+                sla._cache_put(("slice", "plate"), "layers")
+        for i in range(sla._CACHE_SIZE + 3):                    # plate-level entries keep their own limit
+            sla._cache_put(("post", i), i)
+        assert sum(1 for k in sla._cache if not sla._per_part(k)) == sla._CACHE_SIZE
+        assert sum(1 for k in sla._cache if sla._per_part(k)) == 20
+        for i in range(sla._PER_PART_SIZE + 5):
+            sla._cache_put(("closed", i), i)
+        assert sum(1 for k in sla._cache if sla._per_part(k)) == sla._PER_PART_SIZE
+    finally:
+        sla.clear_cache()
+
+
+def test_island_pillars_merge_each_layer_once_with_the_same_result():
+    """Many pillars through one layer of many pieces: every layer is merged once with all its disks - the same
+    layers as adding the disks one at a time."""
+    from shapely.geometry import box as sbox
+    from unislicer import sla
+    from unislicer.slicing import as_multipolygon
+    pieces = [sbox(x * 3 + 2, y * 3 + 2, x * 3 + 3, y * 3 + 3) for x in range(12) for y in range(12)]
+    base = as_multipolygon(sbox(-1, -1, 40, 40).difference(sbox(0, 0, 39, 39)).union(sbox(100, 0, 101, 1)))
+    from shapely.geometry import MultiPolygon
+    roof = as_multipolygon(base.union(MultiPolygon(pieces)))
+    layers = [base] * 6 + [roof] * 3
+    out, added, left = sla.island_pillars(layers)
+    assert added == len(pieces) and not left
+    ref = list(layers)
+    for poly in pieces:                                     # the old way: one disk at a time
+        p = poly.representative_point()
+        disk = p.buffer(sla.PILLAR_RADIUS, quad_segs=8)
+        j = 5
+        while j >= 0 and not ref[j].contains(p):
+            ref[j] = sla._add_disk(ref[j], disk)
+            j -= 1
+    assert all(a.equals(b) and a.is_valid for a, b in zip(out, ref))

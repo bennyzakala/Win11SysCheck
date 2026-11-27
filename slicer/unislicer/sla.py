@@ -749,12 +749,22 @@ PILLAR_RADIUS = 0.4
 
 def _add_disk(layer, disk):
     """``layer`` ∪ ``disk``, merging only with the parts the disk touches (much cheaper on a big layer)."""
-    parts = polygons_of(layer)
-    touch = [p for p in parts if p.intersects(disk)]
-    if not touch:
-        return MultiPolygon(parts + [disk])
-    rest = [p for p in parts if not any(p is t for t in touch)]
-    return MultiPolygon(rest + polygons_of(shapely.union_all(touch + [disk])))
+    return _add_disks(layer, [disk])
+
+
+def _add_disks(layer, disks: list):
+    """``layer`` ∪ every disk of ``disks`` in one merge, joining only the parts of the layer they touch. A jaw
+    layer has hundreds of pieces: a pillar per island used to split and rebuild it once for every disk."""
+    parts = np.asarray(polygons_of(layer), dtype=object)
+    if not len(parts):
+        return as_multipolygon(shapely.union_all(disks)) if len(disks) > 1 else MultiPolygon(list(disks))
+    hit = np.zeros(len(parts), dtype=bool)
+    for d in disks:
+        hit |= shapely.intersects(parts, d)
+    if not hit.any() and len(disks) == 1:
+        return MultiPolygon(list(parts) + list(disks))
+    merged = polygons_of(shapely.union_all(list(parts[hit]) + list(disks)))
+    return MultiPolygon(list(parts[~hit]) + merged)
 
 
 def jaw_pillar_blocked(layers: list, planes: list, i: int, pt, zones) -> bool:
@@ -786,6 +796,7 @@ def island_pillars(layers: list, radius: float = PILLAR_RADIUS, rounds: int = 3,
         if not islands:
             break
         check = set()
+        pending: dict = {}                   # layer -> the disks of this round's pillars that pass through it
         for i, poly in islands:
             p = poly.representative_point()
             if skip is not None and skip(i, p):
@@ -794,11 +805,13 @@ def island_pillars(layers: list, radius: float = PILLAR_RADIUS, rounds: int = 3,
             disk = p.buffer(radius, quad_segs=8)
             j = i - 1
             check.update((i, i + 1))
-            while j >= 0 and not layers[j].contains(p):
-                layers[j] = _add_disk(layers[j], disk)
+            while j >= 0 and not layers[j].contains(p) and not any(d.contains(p) for d in pending.get(j, ())):
+                pending.setdefault(j, []).append(disk)
                 check.update((j, j + 1))
                 j -= 1
             added += 1
+        for j, disks in pending.items():     # each layer merged once, with all the disks it got
+            layers[j] = _add_disks(layers[j], disks)
     else:
         islands = find_islands(layers, only=check)
     if skipped:
@@ -1199,6 +1212,11 @@ def _lasting_thin(thin: list, min_area: float = 0.05, layer_height: float = 0.05
 # layers and the per-layer checks are then taken from here instead of being computed again. Keys are content
 # hashes of the meshes plus every setting a step depends on, so a changed model or setting never hits.
 _CACHE_SIZE = 12
+# Entries kept one per model (each model's supports, its closed copy) have their own, larger room: a plate of
+# 20 parts wrote 20 of them on every slice, which pushed the plate's contours and post-processed layers out of
+# a shared room of 12 - and, used in turn, never hit themselves either - so slicing again recomputed it all.
+_PER_PART_KINDS = frozenset({"supports-build", "closed"})
+_PER_PART_SIZE = 64
 _cache: "dict" = {}
 
 
@@ -1209,10 +1227,17 @@ def _cache_get(key):
     return hit
 
 
+def _per_part(key) -> bool:
+    return isinstance(key, tuple) and bool(key) and key[0] in _PER_PART_KINDS
+
+
 def _cache_put(key, value):
+    _cache.pop(key, None)
     _cache[key] = value
-    while len(_cache) > _CACHE_SIZE:
-        _cache.pop(next(iter(_cache)))
+    part = _per_part(key)
+    mine = [k for k in _cache if _per_part(k) == part]          # oldest first
+    for k in mine[:max(0, len(mine) - (_PER_PART_SIZE if part else _CACHE_SIZE))]:
+        del _cache[k]
 
 
 def clear_cache():
