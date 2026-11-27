@@ -12632,7 +12632,9 @@ def test_islands_left_after_a_slice_are_fixed_without_pressing_fix(tmp_path):
         import numpy as np
         pts = o.world_support_points(w._lift(w.settings.config()))
         b = o.world_bounds()
-        keep = pts[:, 0] < b[0, 0] + 11.0                 # only the base's supports: the cube is left islanded
+        # only the base's supports (on its underside, 4 mm below the cube's): the cube is left islanded. By
+        # height, not by x - the layout may turn the part on the plate
+        keep = pts[:, 2] < pts[:, 2].min() + 2.0
         o.set_world_support_points(pts[keep], w._lift(w.settings.config()))
         w._objects_changed(); app.processEvents()
         for auto in (False, True):
