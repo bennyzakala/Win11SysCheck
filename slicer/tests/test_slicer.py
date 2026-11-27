@@ -312,7 +312,9 @@ def test_the_export_button_snake_overlay_starts_and_restores(tmp_path):
         from PySide6.QtWidgets import QApplication, QPushButton
         app = QApplication([])
         from unislicer.gui import busy_button, i18n
-        assert len(busy_button.FIGURES) >= 50             # at least 50 different figures
+        # the lab chose one figure: a snake with a winking, grinning molar for a head on a gum-pink body
+        assert busy_button.FIGURES == [busy_button.fig_tooth_snake]
+        assert busy_button.SnakeBusy.PHRASE_TICKS * 60 >= 2000        # a phrase stays ~2.3 s (1.5 s was too fast)
         # the phrases follow the chosen language - every supported language has its own pool
         assert set(busy_button._PHRASES) >= {"he", "en", "ru", "ar"}
         for lang, (verbs, nouns) in busy_button._PHRASES.items():

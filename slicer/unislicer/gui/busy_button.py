@@ -1,7 +1,7 @@
-"""A playful 'busy' overlay for a button: while a long action runs, a little figure (a snake, a comet, a
-Pac-Man, a rocket, a caterpillar, a train...) runs around the button's edge and a new nonsense two-word phrase
-shows every so often ("baking clouds", "frying toast"...). A different figure is picked each time the phrase
-changes. It draws on the GUI thread with a light timer, so it never touches the speed of the work itself.
+"""A playful 'busy' overlay for a button: while a long action runs, a snake with a tooth for a head - a molar
+with a winking, grinning face and blushing cheeks on a gum-pink body - slithers round the button's edge, and a
+new nonsense two-word phrase shows every so often ("baking clouds", "polishing crowns"...). It draws on the GUI
+thread with a light timer, so it never touches the speed of the work itself.
 """
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import math
 import random
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
 from . import i18n
@@ -53,12 +53,6 @@ def random_phrase(avoid: str = "") -> str:
 
 
 # ---------------------------------------------------------------- figure drawing helpers
-def _dot(p: QPainter, x: float, y: float, r: float, col: QColor) -> None:
-    p.setPen(Qt.NoPen)
-    p.setBrush(col)
-    p.drawEllipse(QPointF(x, y), r, r)
-
-
 def _dir(path: QPainterPath, t: float, eps: float = 0.004):
     """Unit travel direction at fraction ``t`` (robust - from two near points, not angleAtPercent)."""
     a = path.pointAtPercent((t - eps) % 1.0)
@@ -68,205 +62,99 @@ def _dir(path: QPainterPath, t: float, eps: float = 0.004):
     return dx / L, dy / L
 
 
-def _star(p: QPainter, x: float, y: float, r: float, col: QColor) -> None:
+def _molar(s: float) -> QPainterPath:
+    """A molar - a crown with two cusps on top, two roots below - about 2s wide, 2.4s tall, centred at 0."""
+    path = QPainterPath()
+    path.moveTo(-s, -0.35 * s)
+    path.cubicTo(-s, -1.25 * s, -0.25 * s, -1.25 * s, 0, -0.85 * s)
+    path.cubicTo(0.25 * s, -1.25 * s, s, -1.25 * s, s, -0.35 * s)
+    path.cubicTo(s, 0.35 * s, 0.85 * s, 0.75 * s, 0.7 * s, 1.15 * s)
+    path.cubicTo(0.6 * s, 1.4 * s, 0.3 * s, 1.35 * s, 0.25 * s, 1.0 * s)
+    path.cubicTo(0.15 * s, 0.75 * s, -0.15 * s, 0.75 * s, -0.25 * s, 1.0 * s)
+    path.cubicTo(-0.3 * s, 1.35 * s, -0.6 * s, 1.4 * s, -0.7 * s, 1.15 * s)
+    path.cubicTo(-0.85 * s, 0.75 * s, -s, 0.35 * s, -s, -0.35 * s)
+    path.closeSubpath()
+    return path
+
+
+def _eye(p: QPainter, x: float, y: float, r: float, look, shut: bool = False) -> None:
+    if shut:                                   # a wink
+        p.setPen(QPen(QColor(30, 30, 40), r * 0.45, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(QPointF(x - r, y), QPointF(x + r, y))
+        return
+    p.setPen(QPen(QColor(30, 30, 40), r * 0.22))
+    p.setBrush(QColor(255, 255, 255))
+    p.drawEllipse(QPointF(x, y), r, r)
+    cx, cy = x + look[0] * r * 0.4, y + look[1] * r * 0.4
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(25, 25, 35))
+    p.drawEllipse(QPointF(cx, cy), r * 0.5, r * 0.5)
+    p.setBrush(QColor(255, 255, 255))
+    p.drawEllipse(QPointF(cx - r * 0.15, cy - r * 0.18), r * 0.15, r * 0.15)
+
+
+BODY_COLOURS = ("#ff8fab", "#f06b8f", "#ffb3c6", "#f06b8f")     # gum pink
+
+
+def fig_tooth_snake(p, path, pos, tick):
+    """The snake: a wiggling gum-pink body, and a molar head with a winking, grinning, blushing face. The head
+    stays upright (the face always reads) and looks the way it travels."""
+    # sized to the room the path leaves to the button's edge (a low button: a smaller snake, never cut off)
+    s = max(3.5, min(7.5, (path.boundingRect().top() - 0.6) / 1.3))
+    k = s / 7.5
+    n, gap, r0, r1 = 18, 0.0115, 4.4 * k, 1.6 * k
     pts = []
-    for k in range(10):
-        rr = r if k % 2 == 0 else r * 0.45
-        a = math.pi / 2 + k * math.pi / 5
-        pts.append(QPointF(x + rr * math.cos(a), y - rr * math.sin(a)))
-    p.setPen(Qt.NoPen)
-    p.setBrush(col)
-    p.drawPolygon(QPolygonF(pts))
-
-
-def _heart(p: QPainter, x: float, y: float, s: float, col: QColor) -> None:
-    p.setPen(Qt.NoPen)
-    p.setBrush(col)
-    p.drawEllipse(QPointF(x - s * 0.5, y - s * 0.3), s * 0.6, s * 0.6)
-    p.drawEllipse(QPointF(x + s * 0.5, y - s * 0.3), s * 0.6, s * 0.6)
-    p.drawPolygon(QPolygonF([QPointF(x - s, y - s * 0.1), QPointF(x + s, y - s * 0.1), QPointF(x, y + s)]))
-
-
-def fig_snake(p, path, pos, tick):
-    for i in range(16):
-        pt = path.pointAtPercent((pos - i * 0.012) % 1.0)
-        frac = 1 - i / 16
-        col = QColor(255, 240, 150) if i == 0 else QColor(235, 255, 235)
-        col.setAlphaF(0.25 + 0.65 * frac)
-        _dot(p, pt.x(), pt.y(), 1.6 + 3.2 * frac, col)
-
-
-def fig_comet(p, path, pos, tick):
-    for i in range(15):
-        pt = path.pointAtPercent((pos - i * 0.01) % 1.0)
-        frac = 1 - i / 15
-        col = QColor(130, 205, 255)
-        col.setAlphaF(0.12 + 0.6 * frac)
-        _dot(p, pt.x(), pt.y(), 1.0 + 3.6 * frac, col)
-    head = path.pointAtPercent(pos)
-    _dot(p, head.x(), head.y(), 4.3, QColor(255, 255, 255))
-    for _ in range(2):
-        a, d = random.uniform(0, 6.28), random.uniform(3, 7)
-        _dot(p, head.x() + d * math.cos(a), head.y() + d * math.sin(a), 1.0, QColor(210, 240, 255, 180))
-
-
-def fig_caterpillar(p, path, pos, tick):
-    for i in range(11):
-        t = (pos - i * 0.017) % 1.0
+    for i in range(n):
+        t = (pos - (i + 1.2) * gap) % 1.0
         pt = path.pointAtPercent(t)
         dx, dy = _dir(path, t)
-        off = 2.1 * math.sin(tick * 0.3 + i * 0.9)
-        x, y = pt.x() - dy * off, pt.y() + dx * off          # wiggle along the normal
-        _dot(p, x, y, 4.0 if i == 0 else 3.2, QColor(175, 230, 95) if i % 2 == 0 else QColor(120, 195, 60))
+        off = 1.8 * k * math.sin(tick * 0.45 - i * 0.8) * (0.3 + 0.7 * i / n)
+        pts.append((pt.x() - dy * off, pt.y() + dx * off, r0 + (r1 - r0) * i / (n - 1)))
+    p.setPen(Qt.NoPen)
+    for i in reversed(range(n)):
+        x, y, r = pts[i]
+        c = QColor(BODY_COLOURS[i % len(BODY_COLOURS)])
+        p.setBrush(c.darker(130))
+        p.drawEllipse(QPointF(x + 0.4, y + 0.6), r, r)
+        p.setBrush(c)
+        p.drawEllipse(QPointF(x, y), r, r)
     head = path.pointAtPercent(pos)
-    _dot(p, head.x() - 1.3, head.y() - 1.0, 0.9, QColor(20, 20, 20))
-    _dot(p, head.x() + 1.3, head.y() - 1.0, 0.9, QColor(20, 20, 20))
-
-
-def _oriented(p, path, pos, draw):
-    pt = path.pointAtPercent(pos)
     dx, dy = _dir(path, pos)
+    look = (1.0, 0.0) if abs(dx) > 0.2 else (0.0, dy)
     p.save()
-    p.translate(pt.x(), pt.y())
-    p.rotate(math.degrees(math.atan2(dy, dx)))               # local +x points the way it travels
-    draw(p)
+    p.translate(head.x(), head.y() - k + 0.8 * k * math.sin(tick * 0.5))
+    if dx < -0.2:
+        p.scale(-1, 1)
+    g = QLinearGradient(QPointF(-s, -s), QPointF(s, s))
+    g.setColorAt(0, QColor(255, 255, 255))
+    g.setColorAt(1, QColor(222, 228, 236))
+    p.setPen(QPen(QColor(70, 80, 100), max(0.7, s * 0.11)))
+    p.setBrush(QBrush(g))
+    p.drawPath(_molar(s))
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(255, 255, 255, 230))                  # a shine
+    p.drawEllipse(QPointF(-0.5 * s, -0.75 * s), 0.18 * s, 0.11 * s)
+    _eye(p, -0.38 * s, -0.5 * s, 0.32 * s, look, shut=(tick // 9) % 3 == 0)
+    _eye(p, 0.38 * s, -0.5 * s, 0.32 * s, look)
+    p.setPen(QPen(QColor(40, 40, 50), 0.8 * k))             # an open grin with two little teeth
+    p.setBrush(QColor(120, 20, 40))
+    mouth = QPainterPath()
+    mouth.moveTo(-0.45 * s, -0.05 * s)
+    mouth.cubicTo(-0.4 * s, 0.5 * s, 0.4 * s, 0.5 * s, 0.45 * s, -0.05 * s)
+    mouth.closeSubpath()
+    p.drawPath(mouth)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(255, 255, 255))
+    p.drawRect(QRectF(-0.18 * s, -0.05 * s, 0.16 * s, 0.16 * s))
+    p.drawRect(QRectF(0.02 * s, -0.05 * s, 0.16 * s, 0.16 * s))
+    p.setBrush(QColor(255, 120, 150, 150))                  # blush
+    p.drawEllipse(QPointF(-0.68 * s, -0.12 * s), 0.17 * s, 0.1 * s)
+    p.drawEllipse(QPointF(0.68 * s, -0.12 * s), 0.17 * s, 0.1 * s)
     p.restore()
 
 
-def fig_car(p, path, pos, tick):
-    def draw(q):
-        q.setPen(Qt.NoPen)
-        q.setBrush(QColor(255, 95, 120))
-        q.drawRoundedRect(QRectF(-8, -4, 16, 7), 2.5, 2.5)
-        q.setBrush(QColor(255, 150, 170))
-        q.drawRoundedRect(QRectF(-3.5, -7.5, 8, 4.5), 2.0, 2.0)   # cabin
-        q.setBrush(QColor(30, 30, 40))
-        for wx in (-4.5, 4.5):
-            q.drawEllipse(QPointF(wx, 3.5), 2.4, 2.4)
-        q.setBrush(QColor(220, 230, 240))
-        for wx in (-4.5, 4.5):
-            q.drawEllipse(QPointF(wx, 3.5), 0.9, 0.9)
-    _oriented(p, path, pos, draw)
-
-
-def fig_rocket(p, path, pos, tick):
-    def draw(q):
-        q.setPen(Qt.NoPen)
-        flame = QColor(255, 200, 70) if tick % 2 else QColor(255, 140, 40)
-        q.setBrush(flame)
-        q.drawPolygon(QPolygonF([QPointF(-6, -2.5), QPointF(-6, 2.5), QPointF(-11 - random.uniform(0, 3), 0)]))
-        q.setBrush(QColor(240, 245, 255))
-        q.drawPolygon(QPolygonF([QPointF(9, 0), QPointF(-6, -4.5), QPointF(-6, 4.5)]))   # body, nose at +x
-        q.setBrush(QColor(255, 95, 120))
-        q.drawPolygon(QPolygonF([QPointF(-6, -4.5), QPointF(-9, -6), QPointF(-6, -1)]))  # fins
-        q.drawPolygon(QPolygonF([QPointF(-6, 4.5), QPointF(-9, 6), QPointF(-6, 1)]))
-        q.setBrush(QColor(90, 170, 240))
-        q.drawEllipse(QPointF(1.5, 0), 2.0, 2.0)                                         # window
-    _oriented(p, path, pos, draw)
-
-
-def fig_pacman(p, path, pos, tick):
-    # dots ahead, being eaten
-    for i in range(1, 5):
-        pt = path.pointAtPercent((pos + i * 0.025) % 1.0)
-        _dot(p, pt.x(), pt.y(), 1.6, QColor(255, 255, 255, 200))
-    mouth = 8 + 30 * abs(math.sin(tick * 0.4))               # chomp
-
-    def draw(q):
-        q.setPen(Qt.NoPen)
-        q.setBrush(QColor(255, 224, 70))
-        rect = QRectF(-7, -7, 14, 14)
-        q.drawPie(rect, int((mouth) * 16), int((360 - 2 * mouth) * 16))
-        q.setBrush(QColor(40, 40, 50))
-        q.drawEllipse(QPointF(-1, -3.5), 1.2, 1.2)           # eye
-    _oriented(p, path, pos, draw)
-
-
-def fig_ladybug(p, path, pos, tick):
-    def draw(q):
-        q.setPen(Qt.NoPen)
-        q.setBrush(QColor(30, 30, 35))
-        q.drawEllipse(QPointF(5.5, 0), 3.0, 3.0)             # head at front
-        q.setBrush(QColor(230, 60, 60))
-        q.drawEllipse(QRectF(-7, -5.5, 13, 11))              # shell
-        q.setBrush(QColor(30, 30, 35))
-        q.drawRect(QRectF(-0.5, -5.5, 1.0, 11))              # middle line
-        for sx, sy in ((-3, -2.5), (-3, 2.5), (1.5, -3), (1.5, 3), (-0.5, 0)):
-            q.drawEllipse(QPointF(sx, sy), 1.1, 1.1)
-    _oriented(p, path, pos, draw)
-
-
-def fig_train(p, path, pos, tick):
-    cols = [QColor(90, 170, 240), QColor(255, 95, 120), QColor(255, 200, 70), QColor(130, 215, 130)]
-    for i, c in enumerate(cols):
-        t = (pos - i * 0.03) % 1.0
-        pt = path.pointAtPercent(t)
-        dx, dy = _dir(path, t)
-
-        def draw(q, c=c, first=(i == 0)):
-            q.setPen(Qt.NoPen)
-            q.setBrush(c)
-            q.drawRoundedRect(QRectF(-4.5, -4, 9, 7), 1.8, 1.8)
-            if first:
-                q.setBrush(QColor(255, 255, 255))
-                q.drawRoundedRect(QRectF(-2, -6.5, 4.5, 3.5), 1.2, 1.2)   # chimney/cab
-            q.setBrush(QColor(30, 30, 40))
-            q.drawEllipse(QPointF(-2.5, 3), 1.6, 1.6)
-            q.drawEllipse(QPointF(2.5, 3), 1.6, 1.6)
-        p.save()
-        p.translate(pt.x(), pt.y())
-        p.rotate(math.degrees(math.atan2(dy, dx)))
-        draw(p)
-        p.restore()
-
-
-def fig_stars(p, path, pos, tick):
-    for i in range(9):
-        pt = path.pointAtPercent((pos - i * 0.016) % 1.0)
-        frac = 1 - i / 9
-        col = QColor(255, 240, 150)
-        col.setAlphaF((0.3 + 0.6 * frac) * (0.6 + 0.4 * math.sin(tick * 0.4 + i)))
-        _star(p, pt.x(), pt.y(), 2.2 + 2.5 * frac, col)
-
-
-def fig_hearts(p, path, pos, tick):
-    for i in range(8):
-        pt = path.pointAtPercent((pos - i * 0.017) % 1.0)
-        frac = 1 - i / 8
-        col = QColor(255, 105, 140)
-        col.setAlphaF(0.3 + 0.6 * frac)
-        _heart(p, pt.x(), pt.y(), 2.0 + 1.8 * frac, col)
-
-
-# emoji runners: a colourful little picture bobs along the border. One figure per emoji, so the list alone is
-# dozens of figures (on Windows they render in colour via Segoe UI Emoji).
-_EMOJI = [
-    "🐌", "🦄", "🐙", "🐧", "🐢", "🦋", "🐝", "🐳", "🦈", "🐬", "🦖", "🐊", "🦎", "🦀", "🐇", "🦔",
-    "🦦", "🦩", "🦜", "🐸", "🐥", "🐞", "🦕", "🐿", "🦭", "🐛", "🦥", "🦧",
-    "🍕", "🍰", "🎂", "🍩", "🍔", "🍟", "🧁", "🍪", "🍉", "🍓", "🍄", "🌮", "🥐", "🍦", "🍿", "🥨",
-    "🚗", "🚂", "🚀", "🛸", "🚁", "⛵", "🛼", "🛹", "🎈", "🎉", "🎁", "🪄", "🧲", "🔧", "🔨", "🧪",
-    "🔭", "🎨", "🧵", "⭐", "🌈", "🔥", "❄", "💧", "🫧", "🎃", "👻", "🤖", "👾", "🦷",
-]
-
-
-def make_emoji_figure(ch):
-    def draw(p, path, pos, tick):
-        pt = path.pointAtPercent(pos)
-        bob = 1.6 * math.sin(tick * 0.35)
-        f = QFont(p.font())
-        f.setPointSizeF(15.0)
-        p.setFont(f)
-        p.setPen(QColor(0, 0, 0, 70))                        # faint shadow for legibility on the button
-        p.drawText(QRectF(pt.x() - 13 + 1, pt.y() - 13 + bob + 1, 26, 26), Qt.AlignCenter, ch)
-        p.setPen(QColor(255, 255, 255))
-        p.drawText(QRectF(pt.x() - 13, pt.y() - 13 + bob, 26, 26), Qt.AlignCenter, ch)
-    draw.__name__ = "fig_emoji_" + ch
-    return draw
-
-
-_DRAWN = [fig_snake, fig_comet, fig_caterpillar, fig_car, fig_rocket,
-          fig_pacman, fig_ladybug, fig_train, fig_stars, fig_hearts]
-FIGURES = _DRAWN + [make_emoji_figure(ch) for ch in _EMOJI]
+# the lab chose one figure: the tooth snake (it replaced ~80 others - snakes, comets, emoji...)
+FIGURES = [fig_tooth_snake]
 
 
 class SnakeBusy(QWidget):
@@ -275,7 +163,7 @@ class SnakeBusy(QWidget):
     stopping puts the button back as it was."""
 
     STEP = 0.013             # how far the figure's head moves each tick (fraction of the perimeter)
-    PHRASE_TICKS = 26       # ticks between phrase + figure changes (~1.5 s at 60 ms)
+    PHRASE_TICKS = 38       # ticks between phrases (~2.3 s at 60 ms; ~1.5 s read too fast)
 
     def __init__(self, button: QWidget):
         super().__init__(button)
@@ -331,9 +219,10 @@ class SnakeBusy(QWidget):
         self.update()
 
     def _perimeter(self) -> QPainterPath:
-        inset, radius = 5.0, 9.0
-        path = QPainterPath()
         w, h = self.width(), self.height()
+        inset = min(11.0, max(5.0, h * 0.32))   # room for the tooth head inside the button's edge
+        radius = 8.0
+        path = QPainterPath()
         path.addRoundedRect(QRectF(inset, inset, max(1.0, w - 2 * inset), max(1.0, h - 2 * inset)), radius, radius)
         return path
 
@@ -351,7 +240,7 @@ class SnakeBusy(QWidget):
         try:
             self._figure(p, self._perimeter(), self._pos, self._tick_n)
         except Exception:
-            fig_snake(p, self._perimeter(), self._pos, self._tick_n)
+            pass
         p.end()
 
 
