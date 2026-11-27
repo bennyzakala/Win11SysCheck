@@ -6540,12 +6540,11 @@ class MainWindow(QMainWindow):
                     and self.auto_complete_box.isChecked())
         lift = self._lift(cfg) if auto_isl else 0.0
         isl_parts = []
-        if auto_isl:
-            for mi, o in enumerate(models):
+        if auto_isl:                             # the raised meshes are made in the slice's thread, and only
+            for mi, o in enumerate(models):      # if there are islands (made here they held the window ~0.1 s)
                 if o.direct or o.support_points is None:
                     continue
-                world, geo = self._support_geometry(o, lift)
-                isl_parts.append((mi, o.uid, o.world_bounds(), world, geo))
+                isl_parts.append((mi, o.uid, o.world_bounds(), o.mesh, o.world_matrix().copy(), {}))
 
         def work(progress, cancelled):
             if cfg["technology"] == "sla":
@@ -6605,11 +6604,11 @@ class MainWindow(QMainWindow):
             unreached = 0
             for p in pts:
                 placed = False
-                for mi, uid, b, world, geo in parts:
+                for mi, uid, b, mesh, matrix, geo in parts:
                     if not (b[0, 0] - 0.5 <= p[0] <= b[1, 0] + 0.5 and b[0, 1] - 0.5 <= p[1] <= b[1, 1] + 0.5):
                         continue
                     if "caster" not in geo:
-                        geo["caster"] = sla_supports.caster_for(world)
+                        geo["caster"] = sla_supports.caster_for(mesh.transform(matrix).translated([0, 0, lift]))
                     contact = sla_supports.underside_contact(geo["caster"], p + [0, 0, 0.3])
                     if contact is None or abs(float(contact[2]) - float(p[2])) > 1.0:
                         continue
