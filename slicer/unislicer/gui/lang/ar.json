@@ -1563,5 +1563,8 @@
  "could not be closed: {} - check the layer preview": "تعذّر الإغلاق: {} - راجع معاينة الطبقات",
  "Click the bottle to enlarge it (to read its label). Click the name to choose a resin. Right-click: a photo of your own.": "انقر على الزجاجة لتكبيرها (لقراءة الملصق). انقر على الاسم لاختيار الراتنج. النقر بزر الماوس الأيمن: صورة خاصة بك.",
  "Click anywhere or press Esc to close": "انقر في أي مكان أو اضغط Esc للإغلاق",
- "Checking for islands after Auto-generate - slicing starts by itself as soon as it is done…": "جارٍ التحقق من الجزر بعد التوليد التلقائي — سيبدأ التقطيع تلقائيًا فور انتهائه…"
+ "Checking for islands after Auto-generate - slicing starts by itself as soon as it is done…": "جارٍ التحقق من الجزر بعد التوليد التلقائي — سيبدأ التقطيع تلقائيًا فور انتهائه…",
+ "✓ {} supports added under islands while slicing": "✓ أضيفت {} دعامات تحت الجزر أثناء التقطيع",
+ "thin pillars under the islands no support reaches": "أعمدة رفيعة تحت الجزر التي لا تصلها دعامة",
+ "Closing holes in the model just opened - slicing starts as soon as it is done…": "إغلاق الثقوب في النموذج المفتوح — يبدأ التقطيع فور الانتهاء…"
 }

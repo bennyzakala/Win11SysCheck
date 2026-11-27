@@ -2092,6 +2092,7 @@ class MainWindow(QMainWindow):
         task = Task(work, self)
         task._uid = o.uid
         task.succeeded.connect(lambda res, o=o, mesh=mesh: self._on_closed(o, mesh, res))
+        task.finished.connect(self._slice_if_waiting_for_close)
         if not hasattr(self, "_close_tasks"):
             self._close_tasks = []
         self._close_tasks.append(task)
@@ -2122,6 +2123,16 @@ class MainWindow(QMainWindow):
         o.filament_parts = []
         self._objects_changed()
         self.status.setText(tr("holes_closed" if ok else "holes_partly_closed").format(o.name or "model"))
+
+    def _slice_if_waiting_for_close(self):
+        """A Slice pressed while holes were being closed: now that the last one is done."""
+        def go():
+            if self._closing_holes() or not self.__dict__.get("_slice_after_close"):
+                return
+            self._slice_after_close = False
+            self.progress.setRange(0, 1000)
+            self.slice()
+        self._later(0, go)
 
     def _closing_holes(self) -> bool:
         return any(t.isRunning() for t in getattr(self, "_close_tasks", []))
@@ -6438,11 +6449,11 @@ class MainWindow(QMainWindow):
 
     # ================================================================ slicing
     def _invalidate(self):
+        if self.__dict__.get("_keep_result"):
+            return                               # a slice's own island supports, taken over: the slice holds
         # the plate changed: a slice of the old plate that is done but not yet handed over must not come back
         # as the current one (its result was queued while the window was busy: Export wrote the old plate)
         self._plate_gen = self.__dict__.get("_plate_gen", 0) + 1
-        if not self.__dict__.get("_auto_fixing"):
-            self._auto_fix_rounds = 0            # a change of the lab's own: automatic Fix may run again
         if self.task is not None and self.task.isRunning():
             self.task.cancel()
             self.__dict__.pop("_send_after_slice", None)      # that slice will not finish: nothing to send
@@ -6480,14 +6491,24 @@ class MainWindow(QMainWindow):
         if self._settings_timer.isActive():
             self._settings_timer.stop()
             self._on_settings_changed()
-        # the island check after Auto-generate still running: it adds supports when done, and that change
-        # cancelled a slice started meanwhile (the lab pressed Slice twice). This slice waits for it instead
+        # the island check after Auto-generate still running: stopped - this slice supports the islands itself
+        # (it waited for the check, with no progress shown: the lab saw a pause, then a bar jumping to 100%)
         running = self.__dict__.get("_auto_island_task")
-        if getattr(self, "_auto_islands_running", False) and running is not None and running.isRunning():
-            self._slice_after_islands = True
-            self.status.setText(tr("slice_after_islands"))
+        if running is not None and running.isRunning():
+            running.cancel()
+            self._auto_islands_running = False
+        self.__dict__.pop("_slice_after_islands", None)
+        if self._closing_holes():
+            # holes of a model just opened still being closed: the closed model replaces it when done, which
+            # cancelled a slice started meanwhile (it showed "Ready", nothing sliced). Sliced as soon as it is
+            # done, the bar showing what is happening meanwhile
+            self._slice_after_close = True
+            self.progress.setRange(0, 0)
+            self.progress.show()
+            self.progress_label.setText(tr("slice_after_close"))
+            self.progress_label.show()
             return
-        self._slice_after_islands = False
+        self._slice_after_close = False
         cfg = self.settings.config()
         outside = out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg), region=plate_region(cfg))
         if outside:
@@ -6512,6 +6533,19 @@ class MainWindow(QMainWindow):
         cutters = kw["cutters"]
         name = self.objects[0].name or "print"
         pre = self._pre_task if self._pre_task is not None and self._pre_task.isRunning() else None
+        # "Then support the marks and islands too": islands this slice finds get their supports (thin pillars
+        # where none reaches) and the supports are sliced again - in this one slice, on this one bar (the
+        # islands were left for Fix, or a second slice ran after this one)
+        auto_isl = (cfg["technology"] == "sla" and cfg["support_enable"] and cfg["sla_process"] != "polyjet"
+                    and self.auto_complete_box.isChecked())
+        lift = self._lift(cfg) if auto_isl else 0.0
+        isl_parts = []
+        if auto_isl:
+            for mi, o in enumerate(models):
+                if o.direct or o.support_points is None:
+                    continue
+                world, geo = self._support_geometry(o, lift)
+                isl_parts.append((mi, o.uid, o.world_bounds(), world, geo))
 
         def work(progress, cancelled):
             if cfg["technology"] == "sla":
@@ -6522,8 +6556,10 @@ class MainWindow(QMainWindow):
                         if cancelled():
                             raise InterruptedError
                         progress(state.get("stage", "slice"), state.get("f", 0.0))
-                job = sla.prepare(meshes, cfg, progress, cancelled, defer_thin=True, **kw)
-                return ("sla", job, cfg)
+                if not auto_isl:
+                    job = sla.prepare(meshes, cfg, progress, cancelled, defer_thin=True, **kw)
+                    return ("sla", job, cfg)
+                return ("sla", *self._slice_with_islands(meshes, cfg, kw, isl_parts, lift, progress, cancelled))
             parts = [mt for o in models for mt in o.print_meshes()]
             fdm_meshes, tools = [m for m, _t in parts], [t for _m, t in parts]
             plan = fdm.plan(fdm_meshes, cfg, progress, cancelled, cutters=cutters, tools=tools)
@@ -6534,6 +6570,71 @@ class MainWindow(QMainWindow):
             return ("fdm", plan, text, stats, verts, cfg)
 
         self._start_task(work, self._on_sliced, tr("slicing"))
+
+    # one slice that also supports its islands: the first pass fills most of the bar, the passes for the
+    # islands the rest (with no island the bar runs on to the end)
+    ISLAND_PASS_SHARE = 0.93
+
+    def _slice_with_islands(self, meshes, cfg, kw, parts, lift, progress, cancelled):
+        """(job, cfg) - sliced, and each island found supported: a support under it where its underside is the
+        model's own and a support from the plate reaches; else the thin pillars under islands. At most three
+        passes. What was added is kept on ``job.auto_islands`` for the window to take over."""
+        table = self.SLA_STAGES
+
+        def bar(lo, hi):
+            def report(stage, f):
+                span = table.get(stage)
+                if span is None:
+                    return
+                inner = span[0] + (span[1] - span[0]) * max(0.0, min(1.0, f))
+                progress("@" + stage, lo + (hi - lo) * inner)
+            return report
+        kw = dict(kw)
+        kw["support_points"] = list(kw["support_points"])
+        kw["prebuilt_supports"] = list(kw["prebuilt_supports"])
+        share = self.ISLAND_PASS_SHARE
+        job = sla.prepare(meshes, cfg, bar(0.0, share), cancelled, defer_thin=True, **kw)
+        added: dict = {}
+        pillars = False
+        spans = ((share, share + (1 - share) / 2), (share + (1 - share) / 2, 1.0), (0.97, 1.0))
+        for rnd in range(3):
+            if not job.islands or cancelled():
+                break
+            pts = sla_supports.island_points(job.layers, job.layer_z, job.islands)
+            new: dict = {}
+            unreached = 0
+            for p in pts:
+                placed = False
+                for mi, uid, b, world, geo in parts:
+                    if not (b[0, 0] - 0.5 <= p[0] <= b[1, 0] + 0.5 and b[0, 1] - 0.5 <= p[1] <= b[1, 1] + 0.5):
+                        continue
+                    if "caster" not in geo:
+                        geo["caster"] = sla_supports.caster_for(world)
+                    contact = sla_supports.underside_contact(geo["caster"], p + [0, 0, 0.3])
+                    if contact is None or abs(float(contact[2]) - float(p[2])) > 1.0:
+                        continue
+                    new.setdefault(mi, (uid, []))[1].append(contact)
+                    placed = True
+                    break
+                unreached += not placed
+            for mi, (uid, cs) in new.items():
+                cs = np.asarray(cs, dtype=np.float64)
+                base = kw["support_points"][mi]
+                base = np.zeros((0, 3)) if base is None else np.asarray(base, dtype=np.float64).reshape(-1, 3)
+                kw["support_points"][mi] = np.vstack([base, cs - [0, 0, lift]])
+                kw["prebuilt_supports"][mi] = None
+                added.setdefault(uid, []).extend(cs)
+            if (unreached or rnd >= 1 or not new) and not cfg["sla_island_pillars"]:
+                cfg = cfg.copy().update({"sla_island_pillars": True})     # where no support reaches
+                pillars = True
+            elif not new:
+                break                                # nothing more this slice can do: the check shows it
+            lo, hi = spans[rnd]
+            job = sla.prepare(meshes, cfg, bar(lo, hi), cancelled, defer_thin=True, **kw)
+        progress("@preview", 1.0)
+        job.auto_islands = {"added": {u: np.asarray(v) for u, v in added.items()}, "pillars": pillars,
+                            "lift": lift}
+        return job, cfg
 
     def _later(self, ms: int, fn) -> None:
         """Run ``fn`` on the window thread after ``ms`` - unless the window has closed by then: a slice, an
@@ -6764,13 +6865,18 @@ class MainWindow(QMainWindow):
         def done(result):
             # only the current task's result, and only for the plate as it was sliced
             if task is self.task and self.__dict__.get("_plate_gen", 0) == gen:
-                self.progress.setValue(self.progress.maximum())      # done: the bar ends full
+                self._bar_to(self.progress.maximum())                 # done: the bar fills to the end
                 self.progress_label.setText(self.progress_label.text().rsplit("·", 1)[0].strip() + " · 100%")
                 on_done(result)
         self.task.progress.connect(self._on_progress)
         self.task.succeeded.connect(done)
         self.task.failed.connect(self._on_failed)
         self.task.finished.connect(self._on_task_finished)
+        anim = self.__dict__.get("_bar_anim")
+        if anim is not None:
+            anim.stop()
+        self._bar_target = 0
+        self.progress.setRange(0, 1000)
         self.progress.setValue(0)
         self.progress.show()
         self.progress_label.setText(busy_text)
@@ -6789,18 +6895,40 @@ class MainWindow(QMainWindow):
                   "export": (0.0, 0.5), "upload": (0.5, 1.0)}
 
     def _on_progress(self, stage, fraction):
+        if stage.startswith("@"):                # a fraction of the whole bar (a slice in several passes)
+            stage = stage[1:]
+            value = int(max(0.0, min(1.0, fraction)) * 1000)
+            self._bar_to(value)
+            self.progress_label.setText(f"{tr('stage_' + stage)} · {int(value / 10)}%")
+            return
         table = self.SLA_STAGES if self.settings.technology == "sla" else self.FDM_STAGES
         span = table.get(stage, (0.0, 1.0))
         if span is not None:
             lo, hi = span
             value = int((lo + (hi - lo) * max(0.0, min(1.0, fraction))) * 1000)
-            self.progress.setValue(max(value, self.progress.value()))     # never back
+            self._bar_to(value)
         self.progress_label.setText(f"{tr('stage_' + stage)} · {int(fraction * 100)}%")
 
+    def _bar_to(self, value: int) -> None:
+        """The bar moves to ``value`` smoothly (never back): a fast or cached slice jumped from 0 to 100%."""
+        from PySide6.QtCore import QPropertyAnimation
+        anim = self.__dict__.get("_bar_anim")
+        target = max(value, self.progress.value(), getattr(self, "_bar_target", 0))
+        if target <= self.progress.value():
+            return
+        self._bar_target = target
+        if anim is None:
+            anim = self._bar_anim = QPropertyAnimation(self.progress, b"value", self)
+        anim.stop()
+        anim.setStartValue(self.progress.value())
+        anim.setEndValue(target)
+        anim.setDuration(int(min(450, 120 + (target - self.progress.value()) * 0.6)))
+        anim.start()
+
     def _on_task_finished(self):
-        if self.progress.value() >= self.progress.maximum():
+        if getattr(self, "_bar_target", 0) >= self.progress.maximum() or self.progress.value() >= self.progress.maximum():
             # finished: the full bar stays a moment, then goes (unless a new job started meanwhile)
-            self._later(600, self._hide_progress)
+            self._later(900, self._hide_progress)    # the fill (up to 0.45 s) seen to its end
         else:
             self._hide_progress()
         self.slice_btn.setText(" " + tr("slice"))
@@ -6828,38 +6956,43 @@ class MainWindow(QMainWindow):
 
     def _on_sliced(self, result):
         self.__dict__.pop("_auto_fixing", None)
+        self._take_slice_islands(result)
         self._on_sliced_body(result)
-        self._maybe_auto_fix(result)
+        note = self.__dict__.pop("_slice_islands_note", None)
+        if note:
+            self.status.setText(tr("islands_in_slice").format(note[0]) +
+                                (" · " + tr("islands_pillars_note") if note[1] else ""))
 
-    AUTO_FIX_ROUNDS = 2
-
-    def _maybe_auto_fix(self, result):
-        """"Then support the marks and islands too" on: islands left in a slice are fixed as the Fix button
-        does - supports under them, thin pillars where none reaches - and the plate sliced again, at most twice
-        a plate (the lab still had to press Fix by hand)."""
+    def _take_slice_islands(self, result):
+        """The supports (and island pillars) a slice added under its islands become the plate's own - without
+        undoing the slice they were made for."""
         try:
-            if result[0] != "sla" or not result[1].islands:
-                self._auto_fix_rounds = 0
-                return
-            if not self.auto_complete_box.isChecked() or not result[2]["support_enable"]:
-                return
+            extra = getattr(result[1], "auto_islands", None) if result[0] == "sla" else None
         except Exception:
+            extra = None
+        if not extra or (not extra["added"] and not extra["pillars"]):
             return
-        rounds = self.__dict__.get("_auto_fix_rounds", 0)
-        if rounds >= self.AUTO_FIX_ROUNDS:
-            return                               # what is left stays in the print check, with its Fix button
-        row = next((r for f, r in getattr(self, "_check_fixes", []) if f == self.fix_islands), None)
-        if row is None:
-            return
-        self._auto_fix_rounds = rounds + 1
-        self._auto_fixing = True                 # the plate changes by this fix: not a new plate (no reset)
-
-        def go():
-            if self.result is result:            # nothing changed meanwhile
-                self._run_fix(self.fix_islands, row)
-            else:
-                self._auto_fixing = False
-        self._later(0, go)
+        self._keep_result = True
+        try:
+            self._push_undo()                        # Ctrl+Z gives back the plate without them
+            by_uid = {o.uid: o for o in self.objects}
+            lift = extra["lift"]
+            for uid, pts in extra["added"].items():
+                o = by_uid.get(uid)
+                if o is None or o.support_points is None or not len(pts):
+                    continue
+                o.set_world_support_points(np.vstack([o.world_support_points(lift), pts]), lift)
+            if extra["pillars"] and not self.settings.config()["sla_island_pillars"]:
+                self.settings.set_value("sla_island_pillars", True)
+                if self._settings_timer.isActive():
+                    self._settings_timer.stop()
+                    self._on_settings_changed()
+            self._objects_changed(refresh_list=False)
+        finally:
+            self._keep_result = False
+        n = sum(len(v) for v in extra["added"].values())
+        if n or extra["pillars"]:
+            self._slice_islands_note = (n, extra["pillars"])
 
     def _on_sliced_body(self, result):
         self.result = result

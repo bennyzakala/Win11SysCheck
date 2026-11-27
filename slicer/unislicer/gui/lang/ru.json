@@ -1563,5 +1563,8 @@
  "could not be closed: {} - check the layer preview": "не удалось закрыть: {} - проверьте просмотр слоёв",
  "Click the bottle to enlarge it (to read its label). Click the name to choose a resin. Right-click: a photo of your own.": "Нажмите на флакон, чтобы увеличить его (прочитать этикетку). Нажмите на название, чтобы выбрать смолу. Правая кнопка: своё фото.",
  "Click anywhere or press Esc to close": "Нажмите в любом месте или Esc, чтобы закрыть",
- "Checking for islands after Auto-generate - slicing starts by itself as soon as it is done…": "Проверка островов после автогенерации — нарезка начнётся сама сразу по её окончании…"
+ "Checking for islands after Auto-generate - slicing starts by itself as soon as it is done…": "Проверка островов после автогенерации — нарезка начнётся сама сразу по её окончании…",
+ "✓ {} supports added under islands while slicing": "✓ Добавлено опор под островами при нарезке: {}",
+ "thin pillars under the islands no support reaches": "тонкие колонны под островами, до которых не доходит опора",
+ "Closing holes in the model just opened - slicing starts as soon as it is done…": "Закрытие отверстий в открытой модели — нарезка начнётся сразу после…"
 }

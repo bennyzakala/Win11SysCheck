@@ -849,7 +849,7 @@ def repair_advanced(mesh: Mesh, weld: float = 1e-4, remove_shells_below: float =
         except Exception:
             pass
     tris = mesh.triangles
-    m = Mesh.from_triangles(tris, mesh.name, tolerance=max(weld, 1e-9))
+    m = Mesh.from_triangles(tris, mesh.name, tolerance=max(weld, 1e-9), robust=True)
     f = m.faces
     v = m.vertices
     report = {"before": before}
@@ -1087,6 +1087,15 @@ def stitch_paired_rims(mesh: Mesh, gap: float = 0.1) -> tuple[Mesh, int]:
     return out, joined
 
 
+def _open_edges(faces: np.ndarray) -> int:
+    """Edges of one face only (the rim of a hole)."""
+    if len(faces) == 0:
+        return 0
+    e = np.sort(np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]]), axis=1)
+    _u, c = np.unique(e, axis=0, return_counts=True)
+    return int((c == 1).sum())
+
+
 def _bad_edges(faces: np.ndarray) -> int:
     """Edges not shared by exactly two faces (open or non-manifold)."""
     if len(faces) == 0:
@@ -1193,20 +1202,23 @@ def make_watertight(mesh: Mesh) -> tuple[Mesh, dict, bool]:
     # what is left open: the attempt with the fewest bad edges, never one worse than the mesh itself (the
     # advanced repair once returned a mask with 958 open edges from one with 10)
     best, best_bad = mesh, _bad_edges(np.asarray(mesh.faces))
-    try:
-        fixed, rep = repair(mesh)
-        steps.append(("repair", rep))
-        if fixed.is_watertight():
-            return fixed, {"steps": steps}, True
-        if _bad_edges(np.asarray(fixed.faces)) < best_bad:
-            best, best_bad = fixed, _bad_edges(np.asarray(fixed.faces))
-    except Exception:
-        pass
+    if _open_edges(np.asarray(mesh.faces)):      # the fast repair closes holes: none open, nothing for it
+        try:                                     # (a mesh with only non-manifold edges: 3.5 s for nothing)
+            fixed, rep = repair(mesh)
+            steps.append(("repair", rep))
+            if fixed.is_watertight():
+                return fixed, {"steps": steps}, True
+            if _bad_edges(np.asarray(fixed.faces)) < best_bad:
+                best, best_bad = fixed, _bad_edges(np.asarray(fixed.faces))
+        except Exception:
+            pass
     # the weld joins points by rounding them to a grid of the weld's size: two points a hair apart can fall
     # either side of a grid line, so whether a repair closes a mesh hung on where the mesh sat (a model closed
     # as read from its file, not once centred on the plate). Each weld is tried on the grid shifted too - the
     # mesh moved by a fraction of the weld and moved back exactly after
-    for weld, specks in ((1e-4, 0.0), (1e-3, 0.0005)):
+    # the 1 micron weld first (no part of a print is that fine): it closed model.stl in 3 s where the 0.1 micron
+    # one spent 7 s and left it open; the finer weld after it, then the coarse one without scanner specks
+    for weld, specks in ((1e-3, 0.0), (1e-4, 0.0), (1e-3, 0.0005)):
         for shift in (None, (0.37, 0.61, 0.23), (0.71, 0.13, 0.52)):
             try:
                 if shift is None:

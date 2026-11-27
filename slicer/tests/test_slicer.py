@@ -10016,8 +10016,8 @@ def test_the_progress_bar_fills_to_the_end_of_a_resin_slice(tmp_path):
         o = w.add_mesh(primitives.box(10, 10, 4)); o.direct = True
         seen = []
         orig = w._on_progress
-        def spy(stage, f):
-            orig(stage, f); seen.append((stage, f, w.progress.value()))
+        def spy(stage, f):                  # what the bar is moving to (it moves there smoothly)
+            orig(stage, f); seen.append((stage, f, max(w.progress.value(), getattr(w, "_bar_target", 0))))
         w._on_progress = spy
         w.slice()
         w.task.progress.disconnect(); w.task.progress.connect(spy)
@@ -10027,8 +10027,14 @@ def test_the_progress_bar_fills_to_the_end_of_a_resin_slice(tmp_path):
         app.processEvents()
         values = [v for _s, _f, v in seen]
         assert values == sorted(values), seen                       # never back
-        late = [v for st, f, v in seen if st == "slice" and f >= 0.85]
-        assert late and min(late) >= 800, seen                       # 88% of the layers: most of the bar
+        # late in slicing the layers, most of the bar ("@slice": a fraction of the whole bar, when the slice
+        # also supports its islands - the first pass then fills 93% of it)
+        late = [v for st, f, v in seen if (st == "slice" and f >= 0.85) or (st == "@slice" and f >= 0.78)]
+        assert late and min(late) >= 780, seen
+        assert max(v for st, f, v in seen if st != "@preview") >= 880, seen    # no jump from 70% to the end
+        end = time.time() + 0.6                                      # the fill to the end, seen
+        while time.time() < end:
+            app.processEvents(); time.sleep(0.01)
         assert w.progress.value() == w.progress.maximum(), w.progress.value()
         assert w.progress.isVisible()                                # the full bar stays a moment
         end = time.time() + 2.0
@@ -12592,9 +12598,9 @@ def test_auto_generate_turns_island_pillars_on_for_an_island_no_support_reaches(
 
 
 def test_islands_left_after_a_slice_are_fixed_without_pressing_fix(tmp_path):
-    """The lab still had to press Fix by hand. With "Then support the marks and islands too" on, islands left
-    in a slice are fixed as the Fix button does and the plate sliced again (at most twice a plate); off, they
-    wait for the button."""
+    """The lab still had to press Fix by hand, then waited for a second slice. With "Then support the marks and
+    islands too" on, the slice itself supports the islands it finds (thin pillars where no support reaches) and
+    slices them in the same run, on one bar that fills to the end; off, they wait for the Fix button."""
     import subprocess, sys, textwrap
     code = textwrap.dedent('''
         import os, time
@@ -12627,19 +12633,25 @@ def test_islands_left_after_a_slice_are_fixed_without_pressing_fix(tmp_path):
         w._objects_changed(); app.processEvents()
         for auto in (False, True):
             w.auto_complete_box.setChecked(auto)
+            before = len(o.support_points)
             w.result = None
+            seen = []
             w.slice()
-            assert wait(lambda: w.result is not None and not w.task.isRunning())
-            first = w.result[1]
-            assert first.islands, "no island to fix"
+            t0 = time.time()
+            while not (w.result is not None and not w.task.isRunning()) and time.time() - t0 < 240:
+                app.processEvents(); seen.append(w.progress.value()); time.sleep(0.01)
+            job = w.result[1]
             if not auto:
-                t0 = time.time()
-                while time.time() - t0 < 2:
-                    app.processEvents(); time.sleep(0.02)
-                assert w.result[1] is first                     # off: Fix waits for the button
+                assert job.islands, "no island to fix"
+                assert len(o.support_points) == before
                 continue
-            assert wait(lambda: w.result is not None and w.result[1] is not first and not w.task.isRunning()
-                        and not w.result[1].islands), "islands were left for a manual Fix"
+            assert not job.islands, [i[0] for i in job.islands]          # supported in this one slice
+            assert len(o.support_points) > before                       # the plate keeps them
+            assert w.result is not None and w.export_btn.isEnabled()      # the slice stays, ready to export
+            t0 = time.time()
+            while time.time() - t0 < 1.0:
+                app.processEvents(); seen.append(w.progress.value()); time.sleep(0.01)
+            assert max(seen) == 1000 and len(set(seen)) > 5, sorted(set(seen))    # the bar filled, not jumped
         print("ok")
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

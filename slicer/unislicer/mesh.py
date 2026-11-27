@@ -26,6 +26,38 @@ def _group_rows(keys: np.ndarray):
     return inverse, counts
 
 
+def _grid_groups(keys: np.ndarray) -> np.ndarray:
+    order = np.lexsort((keys[:, 2], keys[:, 1], keys[:, 0]))
+    k = keys[order]
+    new = np.ones(len(k), dtype=bool)
+    new[1:] = np.any(k[1:] != k[:-1], axis=1)
+    out = np.empty(len(k), dtype=np.int64)
+    out[order] = np.cumsum(new) - 1
+    return out
+
+
+def _weld_groups(points: np.ndarray, tolerance: float) -> tuple[np.ndarray, np.ndarray]:
+    """(group of each point, one point of each group): points welded when they share a cell of the
+    tolerance's grid OR of the same grid shifted by half a cell. One grid alone splits two points a hair apart
+    that sit either side of a grid line - whether a repair closed a mesh depended on where the mesh sat."""
+    p = np.asarray(points, dtype=np.float64) / tolerance
+    g1 = _grid_groups(np.round(p).astype(np.int64))
+    g2 = _grid_groups(np.round(p + 0.5).astype(np.int64))
+    lab = g1.copy()
+    big = np.iinfo(np.int64).max
+    for _ in range(16):                       # labels spread through both grids until they settle
+        m2 = np.full(int(g2.max()) + 1, big, dtype=np.int64)
+        np.minimum.at(m2, g2, lab)
+        m1 = np.full(int(g1.max()) + 1, big, dtype=np.int64)
+        np.minimum.at(m1, g1, m2[g2])
+        new = m1[g1]
+        if np.array_equal(new, lab):
+            break
+        lab = new
+    uniq, first, inverse = np.unique(lab, return_index=True, return_inverse=True)
+    return inverse.reshape(-1), first
+
+
 class Mesh:
     """Indexed triangle mesh. ``vertices`` is (V, 3) float64, ``faces`` is (F, 3) int64."""
 
@@ -38,8 +70,10 @@ class Mesh:
 
     # ------------------------------------------------------------------ build
     @classmethod
-    def from_triangles(cls, triangles, name: str = "", tolerance: float = WELD_TOLERANCE) -> "Mesh":
-        """Build an indexed mesh from a (F, 3, 3) triangle soup, welding coincident vertices."""
+    def from_triangles(cls, triangles, name: str = "", tolerance: float = WELD_TOLERANCE,
+                       robust: bool = False) -> "Mesh":
+        """Build an indexed mesh from a (F, 3, 3) triangle soup, welding coincident vertices. ``robust``: two
+        points closer than the tolerance are welded wherever they sit (see ``_weld_groups``)."""
         tris = np.asarray(triangles, dtype=np.float64).reshape(-1, 3, 3)
         finite = np.isfinite(tris).all(axis=(1, 2))
         if not finite.all():                  # a damaged file: a NaN corner made every bound and slice NaN
@@ -47,6 +81,11 @@ class Mesh:
         if len(tris) == 0:
             return cls(np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64), name)
         points = tris.reshape(-1, 3)
+        if robust:
+            inverse, first = _weld_groups(points, tolerance)
+            mesh = cls(points[first], inverse.reshape(-1, 3), name)
+            mesh.remove_degenerate()
+            return mesh
         keys = np.round(points / tolerance).astype(np.int64)
         # rows sorted by (x, y, z) with lexsort and split where they change: the same result as
         # np.unique(axis=0) at a fraction of the time (that one sorts whole rows as opaque bytes)

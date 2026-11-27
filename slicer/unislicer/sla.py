@@ -1672,6 +1672,7 @@ def prepare(meshes: list[Mesh], cfg: Config, progress: Callable[[str, float], No
                                      planes, cfg["resolution"],
                                      progress=lambda f: report("slice", split + f * (1 - split)), cancelled=cancelled)
         layers = _per_layer(_union_chunk, list(zip(layers, sup_layers)))
+    report("slice", 1.0)                         # every layer sliced: the bar there before the last checks
     pillars, left = 0, None
     if cfg["sla_island_pillars"] and not jetting:
         # a jaw model: no island pillar higher than its support zone above its bottom (the lab's rule - a high
