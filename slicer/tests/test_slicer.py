@@ -12572,13 +12572,9 @@ def test_auto_generate_turns_island_pillars_on_for_an_island_no_support_reaches(
         w = MainWindow(); w.show(); app.processEvents()
         w.settings.select_printer("phrozen_sonic_cs_plus"); app.processEvents()
         o = w.add_mesh(primitives.box(10, 10, 5)); app.processEvents()
-        class Job:
-            islands = [(10, None)]; layers = []; layer_z = []
-        sla.prepare = lambda *a, **k: Job()
         import numpy as np
-        from unislicer import sla_supports
-        sla_supports.island_points = lambda *a: np.array([[0.0, 0.0, 9.0]])
-        w.support_all_islands = lambda job=None, undo=True: 0       # no support reaches it
+        sla.island_check = lambda meshes, cfg, kw: (1, np.array([[0.0, 0.0, 9.0]]))   # one island
+        w.support_all_islands = lambda job=None, undo=True, points=None: 0       # no support reaches it
         assert not w.settings.config()["sla_island_pillars"]
         w._auto_islands(0, 2)
         t0 = time.time()
@@ -12590,6 +12586,64 @@ def test_auto_generate_turns_island_pillars_on_for_an_island_no_support_reaches(
     ''')
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     _home = str(tmp_path / "home")
-    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home, UNISLICER_WORKERS="1")   # the check in-process
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_islands_left_after_a_slice_are_fixed_without_pressing_fix(tmp_path):
+    """The lab still had to press Fix by hand. With "Then support the marks and islands too" on, islands left
+    in a slice are fixed as the Fix button does and the plate sliced again (at most twice a plate); off, they
+    wait for the button."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.mesh import Mesh
+        from unislicer.gui.main_window import MainWindow
+        def wait(cond, t=240):
+            t0 = time.time()
+            while not cond() and time.time() - t0 < t:
+                app.processEvents(); time.sleep(0.03)
+            return cond()
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        w.settings.select_printer("phrozen_sonic_cs_plus"); app.processEvents()
+        # a base and, beside it, a cube floating 4 mm up: an island once its supports are taken away
+        base = primitives.box(10, 10, 3)
+        cube = primitives.box(6, 6, 6); cube = Mesh(cube.vertices + [16, 2, 4], cube.faces)
+        o = w.add_mesh(Mesh.merge([base, cube], "t")); w._refresh_objects(select=[o.uid]); app.processEvents()
+        w.settings.set_value("support_enable", True)
+        o.support_points = None
+        w._auto_islands = lambda *a, **k: None          # the check after Auto-generate kept out of it
+        w._generate_supports(); app.processEvents()
+        import numpy as np
+        pts = o.world_support_points(w._lift(w.settings.config()))
+        b = o.world_bounds()
+        keep = pts[:, 0] < b[0, 0] + 11.0                 # only the base's supports: the cube is left islanded
+        o.set_world_support_points(pts[keep], w._lift(w.settings.config()))
+        w._objects_changed(); app.processEvents()
+        for auto in (False, True):
+            w.auto_complete_box.setChecked(auto)
+            w.result = None
+            w.slice()
+            assert wait(lambda: w.result is not None and not w.task.isRunning())
+            first = w.result[1]
+            assert first.islands, "no island to fix"
+            if not auto:
+                t0 = time.time()
+                while time.time() - t0 < 2:
+                    app.processEvents(); time.sleep(0.02)
+                assert w.result[1] is first                     # off: Fix waits for the button
+                continue
+            assert wait(lambda: w.result is not None and w.result[1] is not first and not w.task.isRunning()
+                        and not w.result[1].islands), "islands were left for a manual Fix"
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=600, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

@@ -2095,3 +2095,15 @@ def _sl1_printer_ini(job: SlaJob, cfg: Config) -> str:
         "printer_technology": "SLA",
     }
     return "".join(f"{k} = {v}\n" for k, v in lines.items())
+
+
+def island_check(meshes, cfg, kw):
+    """The island check after Auto-generate, as a worker-process job: (island count, a point under each
+    island). Run in the window's process it held the window: orbiting the plate stuttered (frames of 55 ms,
+    some over 100 ms, against 23 ms) for as long as it ran."""
+    from . import sla_supports
+    job = prepare(meshes, cfg, None, lambda: False, defer_thin=True, **kw)
+    if not job.islands:
+        return 0, np.zeros((0, 3))
+    return len(job.islands), np.asarray(sla_supports.island_points(job.layers, job.layer_z, job.islands))
+

@@ -292,6 +292,9 @@ class MainWindow(QMainWindow):
         for t in self.findChildren(QTimer):            # its timers must not fire on a window that is going
             t.stop()
         from PySide6.QtCore import QThread
+        isl = self.__dict__.get("_auto_island_task")
+        if isl is not None and isl.isRunning():        # the island check: stopped, not waited for
+            isl.cancel()
         for t in self.findChildren(QThread):           # nor its background work outlive it (a thread deleted
             if t.isRunning():                          # while running takes the program down)
                 t.wait(15000)
@@ -1599,18 +1602,24 @@ class MainWindow(QMainWindow):
         self.viewer.set_warning_mesh(Mesh.merge(parts) if parts else None)
         self.status.setText(tr("unsupported_found").format(count) if parts else tr("unsupported_none"))
 
-    def support_all_islands(self, job=None, undo: bool = True) -> int:
+    def support_all_islands(self, job=None, undo: bool = True, points=None) -> int:
         """Add one support at every island found by the last slice (PreForm's "support all minima"), or by
-        ``job`` (the check after Auto-generate). Returns how many were added."""
-        if job is None:
-            res = self.result or getattr(self, "_fix_result", None)
-            if res is None or res[0] != "sla" or not res[1].islands:
-                self.status.setText(tr("islands_none"))
+        ``job`` (the check after Auto-generate), or at ``points`` (a point under each island, worked out in a
+        worker process). Returns how many were added."""
+        if points is not None:
+            pts = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+            if not len(pts):
                 return 0
-            job = res[1]
-        if not job.islands:
-            return 0
-        pts = sla_supports.island_points(job.layers, job.layer_z, job.islands)
+        else:
+            if job is None:
+                res = self.result or getattr(self, "_fix_result", None)
+                if res is None or res[0] != "sla" or not res[1].islands:
+                    self.status.setText(tr("islands_none"))
+                    return 0
+                job = res[1]
+            if not job.islands:
+                return 0
+            pts = sla_supports.island_points(job.layers, job.layer_z, job.islands)
         cfg = self.settings.config()
         lift = self._lift(cfg)
         if undo:
@@ -2063,6 +2072,8 @@ class MainWindow(QMainWindow):
             self.status.setText(tr("holes_not_closed").format(o.name or "model"))
             return
         self._push_undo()
+        if getattr(self, "_auto_islands_running", False):
+            self._closed_during_check = True      # the island check under way restarts on the closed mesh
         o.mesh = Mesh(v, f, original.name)
         # what was found about the open file holds for the closed one (closing holes leaves its outline from
         # above and its type as they were): worked out again it took ~0.4 s an arch, on the window's thread
@@ -5755,6 +5766,7 @@ class MainWindow(QMainWindow):
             return
         self.status.setText(tr("auto_islands_checking").format(n_marks))
         self._auto_islands_running = True
+        self._closed_during_check = False
         # the plate as checked: an undo or any edit meanwhile, and the islands found belong to another plate
         token = (len(self._undo), id(self._undo[-1]) if self._undo else None)
 
@@ -5765,29 +5777,59 @@ class MainWindow(QMainWindow):
                  if o.role != "cutter" and not o.direct]
 
         def work(progress, cancelled):
-            job = sla.prepare(meshes, cfg, None, cancelled, defer_thin=True, **kw)
-            if job.islands:
-                pts = sla_supports.island_points(job.layers, job.layer_z, job.islands)
+            # in a worker process: here, in the window's process, it held the window (orbiting stuttered)
+            from .. import parallel
+            ex = parallel.pool()
+            res = None
+            if ex is not None:
+                from concurrent.futures import TimeoutError as _Wait
+                try:
+                    fut = ex.submit(sla.island_check, meshes, cfg, kw)
+                    while res is None:
+                        try:
+                            res = fut.result(timeout=0.1)
+                        except _Wait:
+                            if cancelled():          # the program closing: it stops waiting at once
+                                fut.cancel()
+                                raise InterruptedError
+                except InterruptedError:
+                    raise
+                except Exception:
+                    res = None
+            if res is None:
+                if cancelled():
+                    raise InterruptedError
+                res = sla.island_check(meshes, cfg, kw)
+            n, pts = res
+            if n:
                 for b, world, geo in parts:
                     near = any(b[0, 0] - 0.5 <= p[0] <= b[1, 0] + 0.5 and b[0, 1] - 0.5 <= p[1] <= b[1, 1] + 0.5
                                for p in pts)
                     if near and "caster" not in geo:
                         geo["caster"] = sla_supports.caster_for(world)
-            return job
+            return n, pts
 
         def finished():
             """The check is over: a Slice pressed meanwhile starts now."""
             if self.__dict__.pop("_slice_after_islands", False):
                 self._later(0, self.slice)
 
-        def done(job):
+        def done(res):
             self._auto_islands_running = False
+            n_islands, island_pts = res
             if token != (len(self._undo), id(self._undo[-1]) if self._undo else None):
+                if self.__dict__.pop("_closed_during_check", False):
+                    # the hole closing after loading ended meanwhile (Auto-generate pressed right after opening
+                    # the file): the islands found were on the open mesh - checked again on the closed one
+                    # (they were dropped, and the lab had to press Fix)
+                    self._auto_islands(n_marks, rounds, added_before)
+                    if getattr(self, "_auto_islands_running", False):
+                        return
                 finished()
                 return                       # the plate changed meanwhile: Fix in the print check still works
-            added = self.support_all_islands(job=job, undo=False) if job.islands else 0
+            added = self.support_all_islands(undo=False, points=island_pts) if n_islands else 0
             total = added_before + added
-            if job.islands and (not added or rounds <= 1) and not self.settings.config()["sla_island_pillars"]:
+            if n_islands and (not added or rounds <= 1) and not self.settings.config()["sla_island_pillars"]:
                 # islands left that no support from the plate reaches (part of the model under them): the thin
                 # pillars under islands take them, as Fix does - Auto-generate left one for the lab to Fix
                 self.settings.set_value("sla_island_pillars", True)
@@ -6359,6 +6401,8 @@ class MainWindow(QMainWindow):
         # the plate changed: a slice of the old plate that is done but not yet handed over must not come back
         # as the current one (its result was queued while the window was busy: Export wrote the old plate)
         self._plate_gen = self.__dict__.get("_plate_gen", 0) + 1
+        if not self.__dict__.get("_auto_fixing"):
+            self._auto_fix_rounds = 0            # a change of the lab's own: automatic Fix may run again
         if self.task is not None and self.task.isRunning():
             self.task.cancel()
             self.__dict__.pop("_send_after_slice", None)      # that slice will not finish: nothing to send
@@ -6732,6 +6776,7 @@ class MainWindow(QMainWindow):
     def _on_failed(self, message):
         # a slice that failed or was cancelled sends nothing, and leaves no fix waiting for the next one
         self.__dict__.pop("_send_after_slice", None)
+        self.__dict__.pop("_auto_fixing", None)
         self._fixing = False
         self._update_export()
         self.__dict__.pop("_cup_fix_pending", None)
@@ -6742,6 +6787,41 @@ class MainWindow(QMainWindow):
             self.status.setText(tr("ready"))
 
     def _on_sliced(self, result):
+        self.__dict__.pop("_auto_fixing", None)
+        self._on_sliced_body(result)
+        self._maybe_auto_fix(result)
+
+    AUTO_FIX_ROUNDS = 2
+
+    def _maybe_auto_fix(self, result):
+        """"Then support the marks and islands too" on: islands left in a slice are fixed as the Fix button
+        does - supports under them, thin pillars where none reaches - and the plate sliced again, at most twice
+        a plate (the lab still had to press Fix by hand)."""
+        try:
+            if result[0] != "sla" or not result[1].islands:
+                self._auto_fix_rounds = 0
+                return
+            if not self.auto_complete_box.isChecked() or not result[2]["support_enable"]:
+                return
+        except Exception:
+            return
+        rounds = self.__dict__.get("_auto_fix_rounds", 0)
+        if rounds >= self.AUTO_FIX_ROUNDS:
+            return                               # what is left stays in the print check, with its Fix button
+        row = next((r for f, r in getattr(self, "_check_fixes", []) if f == self.fix_islands), None)
+        if row is None:
+            return
+        self._auto_fix_rounds = rounds + 1
+        self._auto_fixing = True                 # the plate changes by this fix: not a new plate (no reset)
+
+        def go():
+            if self.result is result:            # nothing changed meanwhile
+                self._run_fix(self.fix_islands, row)
+            else:
+                self._auto_fixing = False
+        self._later(0, go)
+
+    def _on_sliced_body(self, result):
         self.result = result
         if self.__dict__.pop("_send_after_slice", False):
             self._later(300, self.send_to_printer)       # One-click plate > Slice & send
@@ -8451,8 +8531,8 @@ class MainWindow(QMainWindow):
         for t in list(getattr(self, "_export_tasks", []) or []):
             if t is not None and t.isRunning():
                 t.wait(60000)
-        for t in [self.task, getattr(self, "_sup_task", None), getattr(self, "_pre_task", None)] + \
-                list(getattr(self, "_close_tasks", []) or []):
+        for t in [self.task, getattr(self, "_sup_task", None), getattr(self, "_pre_task", None),
+                  getattr(self, "_auto_island_task", None)] + list(getattr(self, "_close_tasks", []) or []):
             if t is not None and hasattr(t, "cancel") and t.isRunning():
                 try:
                     t.cancel()
@@ -8478,6 +8558,7 @@ class MainWindow(QMainWindow):
         self._sup_pending.clear()                    # no new support builds; let a running one finish
         for t in (getattr(self, "_autosave_task", None), getattr(self, "_orient_task", None),
                   getattr(self, "_sup_task", None), getattr(self, "_colmap_task", None),
+                  getattr(self, "_auto_island_task", None),
                   getattr(self, "_joints_task", None), getattr(self, "_thin_task", None)):
             if t is not None and t.isRunning():
                 t.wait(5000)
