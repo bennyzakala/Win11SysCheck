@@ -56,6 +56,42 @@ class _OnResize(QObject):
         return False
 
 
+_ISLAND_TASKS: list = []
+
+
+def _stop_island_checks_at_exit(task) -> None:
+    """An island check still running when Python shuts down (the program ended without closing its window)
+    is stopped and waited for first - before the worker pool is ended under it: its thread went on into the
+    shutdown and crashed the program (Windows, 0xC0000409)."""
+    _ISLAND_TASKS[:] = [t for t in _ISLAND_TASKS if t is not None and _alive(t)]
+    _ISLAND_TASKS.append(task)
+    if getattr(_stop_island_checks_at_exit, "_registered", False):
+        return
+    _stop_island_checks_at_exit._registered = True
+    import threading
+
+    def stop():
+        for t in list(_ISLAND_TASKS):
+            try:
+                if t.isRunning():
+                    t.cancel()
+                    t.wait(10000)
+            except Exception:
+                pass
+    try:      # run with the threading shutdown, before the process pool's own exit handler ends its workers
+        threading._register_atexit(stop)
+    except Exception:
+        import atexit
+        atexit.register(stop)
+
+
+def _alive(t) -> bool:
+    try:
+        return t.isRunning()
+    except Exception:            # its C++ object is gone
+        return False
+
+
 def _card(parent=None) -> QFrame:
     f = QFrame(parent)
     f.setObjectName("Card")
@@ -5795,9 +5831,12 @@ class MainWindow(QMainWindow):
                 except InterruptedError:
                     raise
                 except Exception:
-                    res = None
-            if res is None:
-                if cancelled():
+                    # the pool ended (the program closing, or a worker lost): no check here in its place - run
+                    # in this thread while the program shut down it crashed it (Windows, 0xC0000409); the print
+                    # check after the next slice still finds any island
+                    raise InterruptedError
+            if res is None:                      # single-process mode: the check in this thread, as before
+                if cancelled() or parallel._final or sys.is_finalizing():
                     raise InterruptedError
                 res = sla.island_check(meshes, cfg, kw)
             n, pts = res
@@ -5849,6 +5888,7 @@ class MainWindow(QMainWindow):
         task.succeeded.connect(done)
         task.failed.connect(failed)
         self._auto_island_task = task
+        _stop_island_checks_at_exit(task)
         task.start(QThread.LowPriority)
 
     RAFT_KEYS = ("sla_raft_type", "sla_raft_thickness", "sla_raft_margin", "sla_raft_area_ratio", "sla_raft_slope",
