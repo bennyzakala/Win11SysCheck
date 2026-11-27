@@ -990,7 +990,7 @@ class Viewer(QOpenGLWidget):
         # gradient background
         GL.glDisable(GL.GL_DEPTH_TEST)
         GL.glUseProgram(self._bg)
-        if self.xray and self.mode != self.MODE_PREVIEW:      # x-ray: a dark room so the glowing models stand out
+        if self.xray:                                         # x-ray: a dark room so the glowing models stand out
             GL.glUniform3f(self._u(self._bg, "uTop"), 0.015, 0.02, 0.035)
             GL.glUniform3f(self._u(self._bg, "uBottom"), 0.0, 0.0, 0.0)
         else:
@@ -1166,13 +1166,30 @@ class Viewer(QOpenGLWidget):
             self._joints_buffer.draw(GL.GL_TRIANGLES)
             GL.glUniform1i(self._u(p, "uRaftCut"), 0)
         if preview or self.technology == "sla":
-            for buf, color in self._extra_buffers:
+            # x-ray after Slice too (it did nothing there: the sliced copies were always drawn solid) - the
+            # supports solid first, then the models see-through over them, as before slicing
+            see_through = self.xray and preview
+            model_rgb = tuple(theme.MODEL_COLOR)
+            ordered = sorted(self._extra_buffers, key=lambda bc: see_through and tuple(bc[1]) == model_rgb)
+            for buf, color in ordered:
+                body = see_through and tuple(color) == model_rgb
                 GL.glUniform3f(self._u(p, "uColor"), *color)
                 is_support = see_raft and tuple(color) == tuple(theme.SUPPORT_COLOR)
                 if is_support:
                     GL.glUniform1i(self._u(p, "uRaftCut"), 1)
                     rafts.append((np.eye(4), buf))
+                if body:                               # transparent, and it does not hide what is behind it
+                    GL.glUniform1f(self._u(p, "uAlpha"), 0.32)
+                    GL.glUniform1i(self._u(p, "uXray"), 1)
+                    GL.glEnable(GL.GL_BLEND)
+                    GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+                    GL.glDepthMask(GL.GL_FALSE)
                 buf.draw(GL.GL_TRIANGLES)
+                if body:
+                    GL.glDepthMask(GL.GL_TRUE)
+                    GL.glDisable(GL.GL_BLEND)
+                    GL.glUniform1f(self._u(p, "uAlpha"), 1.0)
+                    GL.glUniform1i(self._u(p, "uXray"), 0)
                 GL.glUniform1i(self._u(p, "uRaftCut"), 0)
         if rafts:                                     # seen from below: the raft see-through over the supports
             GL.glEnable(GL.GL_BLEND)
