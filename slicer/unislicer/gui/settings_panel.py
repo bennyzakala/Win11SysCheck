@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog,
                                QLabel, QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QProxyStyle, QScrollArea,
@@ -546,6 +546,9 @@ class SettingsPanel(QWidget):
                 self.material_button.setContextMenuPolicy(Qt.CustomContextMenu)
                 self.material_button.customContextMenuRequested.connect(
                     lambda pos: self._material_photo_menu(pos, self.material_button))
+                # a click on the bottle shows it large (its label can be read); on the name, the resin menu
+                self.material_button.installEventFilter(self)
+                self.material_button.setToolTip(tr("bottle_click_tip"))
                 cl.addWidget(self.material_button)
                 combo.currentIndexChanged.connect(self._sync_material_button)
             if key == "quality":
@@ -888,6 +891,36 @@ class SettingsPanel(QWidget):
         if printer_images.has_own_photo(mid, "materials"):
             m.addAction(tr("material_photo_clear"), lambda: QTimer.singleShot(0, lambda: self._clear_material_photo(mid)))
         m.exec(widget.mapToGlobal(pos))
+
+    def _on_bottle(self, btn, x: float) -> bool:
+        """Is this x (in the button) on its bottle? The bottle sits at the start of the text's side: the left,
+        or the right in a right-to-left language."""
+        room = btn.iconSize().width() + 14
+        return x >= btn.width() - room if btn.layoutDirection() == Qt.RightToLeft else x <= room
+
+    def eventFilter(self, obj, ev):
+        btn = getattr(self, "material_button", None)
+        if obj is btn and btn is not None and ev.type() == QEvent.Type.MouseButtonPress \
+                and ev.button() == Qt.LeftButton and self._on_bottle(btn, ev.position().x()):
+            if self.show_bottle():
+                return True                      # the menu stays closed
+        return super().eventFilter(obj, ev)
+
+    def show_bottle(self) -> bool:
+        """The chosen resin's bottle, large. False when it has no photo (a drawn bottle: the menu opens)."""
+        from . import printer_images
+        from .bottle_view import BottleView
+        mid = self.material_id
+        path = printer_images.large_photo_path(mid) if mid else None
+        if not path:
+            return False
+        prof = profiles.load("materials").get(mid, {})
+        vendor = prof.get("vendor") or ""
+        name = profiles.display_name(prof, i18n.LANG)
+        title = f"{vendor} · {name}" if vendor and vendor != "Generic" else name
+        self._bottle_view = BottleView(title, path, self.window())
+        self._bottle_view.open()
+        return True
 
     def _sync_material_button(self, *_):
         """Show the chosen resin (its bottle and name) on the button, and rebuild the company / type menu."""

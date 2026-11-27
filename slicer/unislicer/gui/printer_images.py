@@ -18,6 +18,7 @@ PHOTO_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 BRAND = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brand")
 BUILTIN_DIR = os.path.join(BRAND, "printers")
 MATERIAL_BUILTIN_DIR = os.path.join(BRAND, "materials")
+MATERIAL_LARGE_DIR = os.path.join(BRAND, "materials_large")     # the same bottles large enough to read the label
 
 # the cover / accent colour of each maker's machines (Phrozen and Formlabs: amber and orange UV covers)
 VENDOR_COLOURS = {"phrozen": "#f0a12c", "formlabs": "#f26b21", "elegoo": "#e8432f", "anycubic": "#2f7de8",
@@ -46,6 +47,20 @@ def photo_path(pid: str, kind: str = "printers") -> str | None:
             if os.path.isfile(p):
                 return p
     return None
+
+
+def large_photo_path(mid: str) -> str | None:
+    """The resin's bottle at a size its label can be read: the lab's own photo (kept as chosen), else the large
+    copy shipped with the program, else the list's photo. None when it has none (a drawn bottle)."""
+    for ext in PHOTO_EXTENSIONS:
+        p = os.path.join(photo_dir("materials"), _safe_id(mid) + ext)
+        if os.path.isfile(p):
+            return p
+    for ext in (".jpg", ".png"):
+        p = os.path.join(MATERIAL_LARGE_DIR, _safe_id(mid) + ext)
+        if os.path.isfile(p):
+            return p
+    return photo_path(mid, "materials")
 
 
 def set_photo(pid: str, source: str, kind: str = "printers") -> str:

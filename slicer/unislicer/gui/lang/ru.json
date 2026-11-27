@@ -1560,5 +1560,7 @@
  "Printers in the file that UniSlicer does not have (skipped): ": "Принтеры в файле, которых нет в UniSlicer (пропущены): ",
  "This is a Composer print file (Build Wizard), not a material file. To import the resin, choose its material file (*.ini with a Z= table) from Composer's materials folder.": "Это файл печати Composer (Build Wizard), а не файл материала. Для импорта смолы выберите файл материала (*.ini с таблицей Z=) из папки материалов Composer.",
  "{} models closed": "Закрыто моделей: {}",
- "could not be closed: {} - check the layer preview": "не удалось закрыть: {} - проверьте просмотр слоёв"
+ "could not be closed: {} - check the layer preview": "не удалось закрыть: {} - проверьте просмотр слоёв",
+ "Click the bottle to enlarge it (to read its label). Click the name to choose a resin. Right-click: a photo of your own.": "Нажмите на флакон, чтобы увеличить его (прочитать этикетку). Нажмите на название, чтобы выбрать смолу. Правая кнопка: своё фото.",
+ "Click anywhere or press Esc to close": "Нажмите в любом месте или Esc, чтобы закрыть"
 }

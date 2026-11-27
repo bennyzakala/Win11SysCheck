@@ -12423,3 +12423,53 @@ def test_phrozen_dental_printer_offers_no_phrozen_consumer_resins():
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300, env=env,
                          cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     assert "OK" in out.stdout, out.stdout + out.stderr[-3000:]
+
+
+def test_clicking_the_bottle_shows_it_large_enough_to_read(tmp_path):
+    """The lab: a click on the resin's bottle in the Material card shows it large, its label readable; a click on
+    the name still opens the resin menu. Every bottle shipped has its large copy; the lab's own photo wins."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtCore import QEvent, QPointF, Qt
+        from PySide6.QtGui import QImage, QMouseEvent
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer.gui import printer_images as pi
+        from unislicer.gui.settings_panel import SettingsPanel
+        small = sorted(n[:-4] for n in os.listdir(pi.MATERIAL_BUILTIN_DIR) if n.endswith(".png"))
+        for mid in small:
+            big = pi.large_photo_path(mid)
+            assert big and big.startswith(pi.MATERIAL_LARGE_DIR), mid
+            assert QImage(big).height() >= 380, mid                       # readable, not the 256 px list photo
+        mid = "phrozen_ds_phrozen_dental_washable_dental_model"
+        p = SettingsPanel("phrozen_sonic_xl_4k_plus", mid, None, {}, False)
+        p.resize(400, 900); p.show(); app.processEvents()
+        btn = p.material_button
+        def press(x):
+            ev = QMouseEvent(QEvent.MouseButtonPress, QPointF(x, btn.height() / 2), QPointF(x, btn.height() / 2),
+                             Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+            return p.eventFilter(btn, ev)
+        on_bottle = btn.width() - 10 if btn.layoutDirection() == Qt.RightToLeft else 10
+        on_name = btn.width() // 2
+        assert press(on_bottle) is True                                   # the bottle: shown large, no menu
+        view = p._bottle_view
+        assert view.isVisible() and "Washable Dental Model" in view.windowTitle()
+        assert view.picture.pixmap().height() >= 380
+        view.mousePressEvent(None); app.processEvents()
+        assert not view.isVisible()                                       # a click closes it
+        assert press(on_name) is False                                    # the name: the menu as before
+        # the lab's own photo is the one shown
+        own = os.path.join(os.environ["HOME"], "own.png")
+        QImage(300, 500, QImage.Format_RGB32).save(own)
+        pi.set_photo(mid, own, "materials")
+        assert pi.large_photo_path(mid).startswith(pi.photo_dir("materials"))
+        pi.clear_photo(mid, "materials")
+        print("OK")
+    ''')
+    _home = str(tmp_path)
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300, env=env,
+                         cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    assert "OK" in out.stdout, out.stdout + out.stderr[-3000:]
