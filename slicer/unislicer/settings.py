@@ -535,8 +535,8 @@ MODEL_TYPE_PRESETS = {
     # off anyway) - some tips were not catching the tooth with a thin, shallow head
     "die": {"sla_tip_diameter": 0.65, "sla_pillar_diameter": 1.2, "sla_support_spacing": 5.5, "support_angle": 50.0,
             "sla_contact_depth": 0.35, "sla_avoid_fit": False, "sla_skip_ledges": True, "sla_support_base": 35.0},
-    # gingiva: supported as a crown (it was the crown type before it got its own raft)
-    "gingiva": {"sla_tip_diameter": 0.35, "sla_pillar_diameter": 0.9, "sla_support_spacing": 2.0, "support_angle": 45.0,
+    # gingiva (masks, 3Shape's "Tissue"): fine tips as a crown, points 5 mm apart (the lab's spacing for them)
+    "gingiva": {"sla_tip_diameter": 0.35, "sla_pillar_diameter": 0.9, "sla_support_spacing": 5.0, "support_angle": 45.0,
                 "sla_contact_depth": 0.15, "sla_avoid_fit": True, "sla_skip_ledges": False, "sla_support_base": 0.0},
     "splint_h": {"sla_tip_diameter": 0.4, "sla_pillar_diameter": 1.0, "sla_support_spacing": 2.5, "support_angle": 40.0,
                  "sla_contact_depth": 0.2, "sla_avoid_fit": True, "sla_skip_ledges": False, "sla_support_base": 0.0},
@@ -650,7 +650,7 @@ def visible_settings(category: str, technology: str, show_advanced: bool) -> lis
 
 
 # keys a model type keeps over a value set by hand for the whole plate (only one set on the part itself wins)
-TYPE_OWN_KEYS = {"cb": ("sla_support_spacing",)}
+TYPE_OWN_KEYS = {"cb": ("sla_support_spacing",), "gingiva": ("sla_support_spacing",)}
 
 
 @dataclass

@@ -11404,7 +11404,9 @@ def test_gingiva_models_and_dies_get_a_solid_lite_raft():
     for t in ("cb", "guide", "denture"):
         assert raft(t) == "solid", t
     assert dental_cad.model_type_of("BAH-SOD260046430-034-X-35-36-2-C2-B592_Tissue_17.stl", None) == "gingiva"
-    assert {k: v for k, v in MODEL_TYPE_PRESETS["gingiva"].items()} == MODEL_TYPE_PRESETS["cb"]
+    assert {k: v for k, v in MODEL_TYPE_PRESETS["gingiva"].items() if k != "sla_support_spacing"} == \
+        {k: v for k, v in MODEL_TYPE_PRESETS["cb"].items() if k != "sla_support_spacing"}
+    assert MODEL_TYPE_PRESETS["gingiva"]["sla_support_spacing"] == 5.0          # the lab's spacing for gingiva
     # chosen for the plate: every part
     chosen = profiles.build_config("phrozen_sonic_xl_4k_plus", None, None, {"support_enable": True, "sla_raft_type": "mini"})
     for t in ("model", "die", "gingiva", "cb"):
@@ -12659,3 +12661,18 @@ def test_islands_left_after_a_slice_are_fixed_without_pressing_fix(tmp_path):
     env = dict(os.environ, HOME=_home, USERPROFILE=_home)
     r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=600, env=env)
     assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_gingiva_and_tissue_get_5_mm_support_spacing():
+    """The lab: gingiva masks and 3Shape's "Tissue" parts get support points 5 mm apart - on every printer,
+    and a spacing set by hand for the whole plate (8 mm meant for models) does not take it over."""
+    from unislicer import dental_cad, profiles
+    for name in ("YUY-SOD260050881-044-M-16_Tissue_17", "case_gingiva_mask", "x_GingivaMask"):
+        t = dental_cad.model_type_of(name, None)
+        assert t == "gingiva", name
+        for printer in ("phrozen_sonic_xl_4k_plus", "phrozen_sonic_cs_plus", "phrozen_sonic_ls_plus"):
+            assert profiles.build_config(printer, None, None, {"sla_model_type": t})["sla_support_spacing"] == 5.0
+            c = profiles.build_config(printer, None, None, {"sla_support_spacing": 8.0,
+                                                             "_user_keys": ["sla_support_spacing"]})
+            c.update({"sla_model_type": t})
+            assert c["sla_support_spacing"] == 5.0, printer
