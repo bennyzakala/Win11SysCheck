@@ -5775,19 +5775,33 @@ class MainWindow(QMainWindow):
                         geo["caster"] = sla_supports.caster_for(world)
             return job
 
+        def finished():
+            """The check is over: a Slice pressed meanwhile starts now."""
+            if self.__dict__.pop("_slice_after_islands", False):
+                self._later(0, self.slice)
+
         def done(job):
             self._auto_islands_running = False
             if token != (len(self._undo), id(self._undo[-1]) if self._undo else None):
+                finished()
                 return                       # the plate changed meanwhile: Fix in the print check still works
             added = self.support_all_islands(job=job, undo=False) if job.islands else 0
             total = added_before + added
+            if job.islands and (not added or rounds <= 1) and not self.settings.config()["sla_island_pillars"]:
+                # islands left that no support from the plate reaches (part of the model under them): the thin
+                # pillars under islands take them, as Fix does - Auto-generate left one for the lab to Fix
+                self.settings.set_value("sla_island_pillars", True)
             if added and rounds > 1:
                 self._auto_islands(n_marks, rounds - 1, total)
+                if not getattr(self, "_auto_islands_running", False):
+                    finished()               # no next round started after all
                 return
             self.status.setText(tr("auto_islands_done").format(n_marks, total))
+            finished()
 
         def failed(*_a):
             self._auto_islands_running = False
+            finished()
 
         task = Task(work, self)
         task.succeeded.connect(done)
@@ -6377,6 +6391,19 @@ class MainWindow(QMainWindow):
         if not self.objects:
             self.status.setText(tr("no_models"))
             return
+        # a setting changed a moment ago (a Fix turning island pillars on, a value typed): applied now, not
+        # 0.2 s into this slice - its late arrival cancelled the slice, and Slice had to be pressed again
+        if self._settings_timer.isActive():
+            self._settings_timer.stop()
+            self._on_settings_changed()
+        # the island check after Auto-generate still running: it adds supports when done, and that change
+        # cancelled a slice started meanwhile (the lab pressed Slice twice). This slice waits for it instead
+        running = self.__dict__.get("_auto_island_task")
+        if getattr(self, "_auto_islands_running", False) and running is not None and running.isRunning():
+            self._slice_after_islands = True
+            self.status.setText(tr("slice_after_islands"))
+            return
+        self._slice_after_islands = False
         cfg = self.settings.config()
         outside = out_of_bounds(self.objects, cfg["bed_x"], cfg["bed_y"], cfg["max_z"], rect=plate_rect(cfg), region=plate_region(cfg))
         if outside:

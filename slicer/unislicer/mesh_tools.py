@@ -1202,16 +1202,27 @@ def make_watertight(mesh: Mesh) -> tuple[Mesh, dict, bool]:
             best, best_bad = fixed, _bad_edges(np.asarray(fixed.faces))
     except Exception:
         pass
+    # the weld joins points by rounding them to a grid of the weld's size: two points a hair apart can fall
+    # either side of a grid line, so whether a repair closes a mesh hung on where the mesh sat (a model closed
+    # as read from its file, not once centred on the plate). Each weld is tried on the grid shifted too - the
+    # mesh moved by a fraction of the weld and moved back exactly after
     for weld, specks in ((1e-4, 0.0), (1e-3, 0.0005)):
-        try:
-            fixed, rep = repair_advanced(mesh, weld=weld, remove_shells_below=specks)
-        except Exception:
-            continue
-        steps.append(("advanced", {k: v for k, v in rep.items() if k not in ("before", "after")}))
-        if fixed.is_watertight():
-            return fixed, {"steps": steps}, True
-        if _bad_edges(np.asarray(fixed.faces)) < best_bad:
-            best, best_bad = fixed, _bad_edges(np.asarray(fixed.faces))
+        for shift in (None, (0.37, 0.61, 0.23), (0.71, 0.13, 0.52)):
+            try:
+                if shift is None:
+                    fixed, rep = repair_advanced(mesh, weld=weld, remove_shells_below=specks)
+                else:
+                    d = np.asarray(shift) * weld
+                    moved = Mesh(np.asarray(mesh.vertices, dtype=np.float64) + d, mesh.faces, mesh.name)
+                    fixed, rep = repair_advanced(moved, weld=weld, remove_shells_below=specks)
+                    fixed = Mesh(np.asarray(fixed.vertices, dtype=np.float64) - d, fixed.faces, fixed.name)
+            except Exception:
+                continue
+            steps.append(("advanced", {k: v for k, v in rep.items() if k not in ("before", "after")}))
+            if fixed.is_watertight():
+                return fixed, {"steps": steps}, True
+            if _bad_edges(np.asarray(fixed.faces)) < best_bad:
+                best, best_bad = fixed, _bad_edges(np.asarray(fixed.faces))
     return best, {"steps": steps}, False
 
 

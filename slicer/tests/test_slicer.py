@@ -12473,3 +12473,123 @@ def test_clicking_the_bottle_shows_it_large_enough_to_read(tmp_path):
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300, env=env,
                          cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     assert "OK" in out.stdout, out.stdout + out.stderr[-3000:]
+
+
+def test_slice_once_after_auto_generate_and_fix_closes_every_island(tmp_path):
+    """The lab (model.stl, CS+): Slice had to be pressed twice, and Fix left the islands. The island check
+    after Auto-generate (~20 s on that model) added its supports when done - a plate change that cancelled a
+    slice started meanwhile; and Fix turned island pillars on, a setting applied 0.2 s later - into the slice
+    Fix had just started, which it cancelled. Now a Slice pressed during the check starts when it is done, a
+    setting waiting is applied before a slice starts, and an island no support from the plate reaches (part of
+    the model under it) gets a thin pillar from the automation too."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        import numpy as np
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives
+        from unislicer.mesh import Mesh
+        from unislicer.gui.main_window import MainWindow
+        def wait(cond, t=240):
+            t0 = time.time()
+            while not cond() and time.time() - t0 < t:
+                app.processEvents(); time.sleep(0.03)
+            return cond()
+        w = MainWindow(); w.resize(1400, 900); w.show(); app.processEvents()
+        w.settings.select_printer("phrozen_sonic_cs_plus"); app.processEvents()
+        assert not w.settings.config()["sla_island_pillars"]
+        # a base, and over it a separate plate 4 mm up: an island with the model under it
+        base = primitives.box(16, 16, 3)
+        top = primitives.box(8, 8, 1.5); top = Mesh(top.vertices + [4, 4, 7], top.faces)
+        part = Mesh.merge([base, top], "part")
+        o = w.add_mesh(part); w._refresh_objects(select=[o.uid]); app.processEvents()
+        # 1) a setting changed just before Slice: the slice is not cancelled by it
+        w.settings.set_value("sla_elevation", 5.0)
+        w.slice()
+        assert wait(lambda: w.result is not None and not w.task.isRunning()), "slice cancelled by a late setting"
+        # 2) Auto-generate, Slice pressed at once (during the island check): one press slices
+        w._generate_supports()
+        wait(lambda: getattr(w, "_auto_islands_running", False), 30)
+        w.result = None
+        w.slice_or_cancel()
+        assert wait(lambda: w.result is not None and w.task is not None and not w.task.isRunning()), \\
+            "a Slice pressed during the island check was lost"
+        job = w.result[1]
+        assert not job.islands, [i[0] for i in job.islands]
+        assert w.export_btn.isEnabled()
+        from unislicer import parallel
+        if parallel._pool is not None:
+            parallel._pool.shutdown(wait=True, cancel_futures=True)
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=600, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]
+
+
+def test_closing_a_mesh_does_not_depend_on_where_it_sits():
+    """model.stl closed as read from its file, not once centred on the plate: the weld rounds points to a
+    grid, and two points a hair apart fell either side of a grid line there. The weld is tried on shifted
+    grids too, and the mesh comes back exactly where it was."""
+    import numpy as np
+    from unislicer import mesh_tools, primitives
+    from unislicer.mesh import Mesh
+    box = primitives.box(10, 10, 10)
+    v, f = np.asarray(box.vertices, dtype=np.float64), np.asarray(box.faces)
+    # one corner duplicated a hair apart, the two copies straddling a 1e-4 grid line: the faces around it
+    # use one copy or the other - an open seam only a weld of ~1e-4 closes
+    corner = int(np.argmax(v.sum(axis=1)))
+    v = v + 0.00004999 - v[corner]                               # that corner just under a grid line
+    twin = v[corner] + 0.00000004                               # and its copy just over it
+    v2 = np.vstack([v, twin])
+    users = np.nonzero((f == corner).any(axis=1))[0]
+    f2 = f.copy()
+    for k in users[: len(users) // 2]:
+        f2[k][f2[k] == corner] = len(v2) - 1
+    for off in (np.zeros(3), np.array([37.12345, -8.5, 3.25]), np.array([-0.00003, 0.00002, 0.0])):
+        m = Mesh(v2 + off, f2, "part")
+        out, _rep, ok = mesh_tools.make_watertight(m)
+        assert ok and out.is_watertight(), off
+        assert np.allclose(out.bounds, m.bounds, atol=1e-6), off
+
+
+def test_auto_generate_turns_island_pillars_on_for_an_island_no_support_reaches(tmp_path):
+    """An island left after the automatic island supports (the model under it - no support from the plate
+    reaches): the automation turns the thin pillars under islands on, as Fix does, instead of leaving it for
+    the lab to Fix by hand."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import os, time
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from unislicer import primitives, sla
+        from unislicer.gui.main_window import MainWindow
+        w = MainWindow(); w.show(); app.processEvents()
+        w.settings.select_printer("phrozen_sonic_cs_plus"); app.processEvents()
+        o = w.add_mesh(primitives.box(10, 10, 5)); app.processEvents()
+        class Job:
+            islands = [(10, None)]; layers = []; layer_z = []
+        sla.prepare = lambda *a, **k: Job()
+        import numpy as np
+        from unislicer import sla_supports
+        sla_supports.island_points = lambda *a: np.array([[0.0, 0.0, 9.0]])
+        w.support_all_islands = lambda job=None, undo=True: 0       # no support reaches it
+        assert not w.settings.config()["sla_island_pillars"]
+        w._auto_islands(0, 2)
+        t0 = time.time()
+        while getattr(w, "_auto_islands_running", False) and time.time() - t0 < 30:
+            app.processEvents(); time.sleep(0.02)
+        app.processEvents()
+        assert w.settings.config()["sla_island_pillars"]
+        print("ok")
+    ''')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _home = str(tmp_path / "home")
+    env = dict(os.environ, HOME=_home, USERPROFILE=_home)
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300, env=env)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout[-2000:] + r.stderr[-3000:]

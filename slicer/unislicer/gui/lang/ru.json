@@ -1562,5 +1562,6 @@
  "{} models closed": "Закрыто моделей: {}",
  "could not be closed: {} - check the layer preview": "не удалось закрыть: {} - проверьте просмотр слоёв",
  "Click the bottle to enlarge it (to read its label). Click the name to choose a resin. Right-click: a photo of your own.": "Нажмите на флакон, чтобы увеличить его (прочитать этикетку). Нажмите на название, чтобы выбрать смолу. Правая кнопка: своё фото.",
- "Click anywhere or press Esc to close": "Нажмите в любом месте или Esc, чтобы закрыть"
+ "Click anywhere or press Esc to close": "Нажмите в любом месте или Esc, чтобы закрыть",
+ "Checking for islands after Auto-generate - slicing starts by itself as soon as it is done…": "Проверка островов после автогенерации — нарезка начнётся сама сразу по её окончании…"
 }

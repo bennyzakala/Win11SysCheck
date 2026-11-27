@@ -903,6 +903,8 @@ STRINGS = {
     "material_photo_set": ("הגדר תמונה לשרף הזה…", "Set a photo for this resin…"),
     "bottle_click_tip": ("לחיצה על הבקבוק – הגדלה (לקריאת התווית). לחיצה על השם – בחירת שרף. קליק ימני – תמונה משלך.",
                          "Click the bottle to enlarge it (to read its label). Click the name to choose a resin. Right-click: a photo of your own."),
+    "slice_after_islands": ("בודק איים אחרי יצירת התמיכות – הפריסה תתחיל מעצמה מיד בסיום…",
+                            "Checking for islands after Auto-generate - slicing starts by itself as soon as it is done…"),
     "bottle_close_hint": ("לחיצה בכל מקום או Esc – סגירה", "Click anywhere or press Esc to close"),
     "material_photo_clear": ("הסר את התמונה של השרף", "Remove this resin's photo"),
     "printer_photo_bad": ("הקובץ אינו תמונה שאפשר לפתוח (PNG, JPG, WEBP או BMP).", "That file is not a picture that can be opened (PNG, JPG, WEBP or BMP)."),
